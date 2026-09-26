@@ -67,6 +67,11 @@ A thin zone-coloured bar of the whole workout sits above the controls on every s
 - **No placeholders.** Nothing is synthesised: no sine waves, no mock PRs and no default cadence, HR or balance. A channel that was not recorded shows `--` in the UI and is left out of the exports.
 - **Source hierarchy.** The Assioma pedals (CPS 0x1818) are ground truth for power, cadence and L/R balance. The KICKR (FTMS 0x1826) supplies speed, distance and ERG control. When the pedals are absent, the trainer's power takes over, and the power-source badge in the cockpit shows which device is live.
 - **PowerMatch.** In ERG mode the trainer target is trimmed by the pedal/trainer error. The trim is capped at ±45 W and moves at most 2 W/s. The Hardware Lab drawer shows the live trim.
+- **ERG that never walls you.** `js/velo-erg.js` shapes every trainer target:
+  - *Soft start* - Start, Resume, Skip/Jump from a standstill and a trainer reconnect begin at about half the target (or your current power, if higher). The trainer holds there until you pass 70 rpm, then ramps to target over 8 s. Mid-ride step changes stay instant.
+  - *Anti-stall* - on a step above Z2, 3 s under 60 rpm eases the load to 60 % of target (the pill reads *ERG EASED - SPIN UP*). Once you are back above 75 rpm it ramps to target over 6 s. A low-cadence drill lowers these thresholds to its own cadence target.
+  - *Step lead* - an upward step is sent 2 s early so the flywheel's lag lines up with the real step. Downward steps are never early, so hard efforts are never cut short.
+  - *PowerMatch settles* - after any target change the trim waits 6 s, it is off during a ramp, and it never adds watts while cadence is low, so it can't overshoot a step or deepen a stall.
 - **The simulator never touches a real ride.** It switches off as soon as a device connects, and once a ride has used real hardware a dropout is recorded as no power (`NONE`), never filled with simulated values.
 - **Heart rate.** A strap reporting no skin contact or 0 bpm (a Polar H10 does this while the electrodes are dry) shows `--` and is not recorded; the last value is never frozen on screen.
 
@@ -112,6 +117,7 @@ js/
   velo-metrics.js     Pure maths: zones, NP/IF/TSS, MMP, form bands, backoff, compliance
   velo-db.js          IndexedDB persistence
   velo-ble.js         Web Bluetooth: CPS, FTMS, HRS, battery, RSSI, reconnect, write queues
+  velo-erg.js         ERG governor: soft start, anti-stall, step lead, PowerMatch
   velo-clock.js       Worker-based drift-free 1 Hz clock
   velo-sim.js         Hardware simulator
   velo-analytics.js   Rolling MMP, PMC history
@@ -172,7 +178,7 @@ The mixins extend `VeloApp.prototype` with `Object.assign` and load after `app.j
 
 ## Tests
 
-Open `test_suite.html`. It covers metrics, a FIT CRC round-trip, TCX/CSV round-trips, summary-only exports, the CPS 0x0C command, BLE reconnect with a fake device, write serialisation, PMC ranges, progression, the MMP scrub, the AI goals and week plan, Zen thresholds, resource lifecycle, the clock, calendar bucketing and the device badges. It also checks the Claude path with a mocked `/api/coach` (request shape, reasoning parsing, fallback) and that no API key is stored in the browser. It also checks Polar H10 contact handling, first-connect retries, that a real ride never falls back to simulator data, and that the tests leave your real storage untouched. It also checks the Send to Strava flow with a mocked Strava (upload, processing, sent link, failure, history chip, workout image, and matching rides that already exist on Strava). The current result is **72 passed, 0 failed**.
+Open `test_suite.html`. It covers metrics, a FIT CRC round-trip, TCX/CSV round-trips, summary-only exports, the CPS 0x0C command, BLE reconnect with a fake device, write serialisation, PMC ranges, progression, the MMP scrub, the AI goals and week plan, Zen thresholds, resource lifecycle, the clock, calendar bucketing and the device badges. It also checks the Claude path with a mocked `/api/coach` (request shape, reasoning parsing, fallback) and that no API key is stored in the browser. It also checks Polar H10 contact handling, first-connect retries, that a real ride never falls back to simulator data, and that the tests leave your real storage untouched. It also checks the Send to Strava flow with a mocked Strava (upload, processing, sent link, failure, history chip, workout image, and matching rides that already exist on Strava). The current result is **73 passed, 0 failed** with your ride history in `data/`.
 
 ## License
 
