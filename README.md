@@ -8,13 +8,24 @@
 1. Double-click **`Launch-Apex-Velo.bat`**. It needs no installs; it runs `start_server.ps1` with Windows PowerShell.
 2. On the first run it creates `.env` and opens it in Notepad. Paste your Anthropic API key after `ANTHROPIC_API_KEY=` and/or your Google Gemini key after `GEMINI_API_KEY=`, save, and close Notepad. Chrome then opens at `http://localhost:8080`. Web Bluetooth needs localhost or HTTPS, so use Chrome or Edge.
 3. Pair the devices from **Hardware Lab** (the drawer in the header): pedals, trainer and heart-rate strap.
-4. To run the test suite, open `http://localhost:8080/test_suite.html`. It should end with `COMPLETED` and 0 failures. The tests run the app in an isolated test mode (in-memory settings and a separate test database), so they never touch your recorded rides.
+4. To run the test suite, open `http://localhost:8080/test_suite.html`. It should end with `COMPLETED`; the only check expected to fail is *Banister PMC*, which compares against fixed values from your HealthFit archive and drifts as days pass (see *Tests*). The tests run the app in an isolated test mode (in-memory settings and a separate test database), so they never touch your recorded rides.
 
 Keep the port at 8080. The browser stores your rides and settings per address, so a different port starts with an empty history.
 
+### Updating
+
+Your app folder is a Git checkout of `main`. To get the latest version:
+
+```
+cd C:\Users\dacro\Documents\Apex-Velo-Lab
+git -c core.autocrlf=true pull origin main
+```
+
+Then restart `Launch-Apex-Velo.bat` (the server only reads its code at start) and press **Ctrl+F5** in Chrome. Your `.env`, `.strava-tokens.json` and `data/` ride history are not in Git, so an update never touches them.
+
 ## AI Coach engine and your API key
 
-- The local server serves the app and forwards coach requests from `/api/coach` to the Claude API or the Gemini API. It reads the keys from `.env`, or from `ANTHROPIC_API_KEY` / `GEMINI_API_KEY` environment variables, which take priority. Keys never reach the browser, is never written to `localStorage`, and `.env` is never served.
+- The local server serves the app and forwards coach requests from `/api/coach` to the Claude API or the Gemini API. It reads the keys from `.env`, or from `ANTHROPIC_API_KEY` / `GEMINI_API_KEY` environment variables, which take priority. Keys never reach the browser, are never written to `localStorage`, and `.env` is never served.
 - `.env` is listed in `.gitignore`. If you prefer not to keep the key in a file, set it as a Windows user environment variable (`setx ANTHROPIC_API_KEY "sk-ant-..."`, then open a new window) and leave the `.env` line empty.
 - **Choose Claude or Gemini** in **Coach > AI engine** (provider, model, effort; saved per browser), or set the default for every browser in `.env` (`APEX_COACH_PROVIDER`, `APEX_COACH_MODEL`, `APEX_GEMINI_MODEL`, `APEX_COACH_EFFORT`). The Claude default is **Opus 5.5 at low effort** with adaptive thinking; Sonnet 5 costs about half as much and Haiku 4.5 is the fastest. The Gemini default is **Gemini 3.8 Flash**; 3.1 Pro (preview) and 3.1 Flash-Lite are also offered, and effort sets Gemini's thinking level. Both show a summarised reasoning trace.
 - **Time available: Auto** lets the coach choose the most effective session length (30-150 min) from the session type, your goal, form and usual ride length; the offline engine and Claude/Gemini both explain the choice.
@@ -80,7 +91,8 @@ The **Sync from Strava** card in *History* imports your Strava activities for a 
 **Threshold heart rate.** Heart-rate TSS uses the optional *Threshold heart rate* in your profile. Left blank, it is estimated as 90 % of max HR and the record is marked as estimated; once you enter your real threshold HR, the next sync recomputes those estimated records (records that already used a real threshold HR are kept).
 
 **Background check.** About 5 s after the app opens, it quietly reads your chosen range from Strava (the list plus up to 20 descriptions - no power streams) and plans a sync **without applying it**. If anything would change, a count badge appears on the *History* tab and the *Sync from Strava* button, with one toast. Nothing is imported until you press Sync and Apply. Turn it off with *Check Strava for changes when the app opens*.
-Strength, walks, yoga and other sports are **non-cycling** activities: they appear on the Calendar with their own icon and colour and in History, but never in cycling analytics, the power curve (MMP), FTP or power charts. Strength sessions keep Motra's exercise list for the detail view and get a **strength load** from Strava's relative effort (capped at 60). It counts toward fatigue (ATL) - toggle **Count strength sessions in fatigue** - and toward cycling fitness (CTL) only if you tick the second toggle. A heavy leg day (squats, deadlifts, lunges... or a high strength load) counts like a hard day: the training block review suggests turning a key ride on the next day into endurance, and the AI coach does not prescribe a key session right after it. The coach and block prompts get one line on the strength sessions in the look-back window (count, dates, main lifts).
+
+**Non-cycling activities.** Strength, walks, yoga and other sports are **non-cycling** activities: they appear on the Calendar with their own icon and colour and in History, but never in cycling analytics, the power curve (MMP), FTP or power charts. Strength sessions keep Motra's exercise list for the detail view and get a **strength load** from Strava's relative effort (capped at 60). It counts toward fatigue (ATL) - toggle **Count strength sessions in fatigue** - and toward cycling fitness (CTL) only if you tick the second toggle. A heavy leg day (squats, deadlifts, lunges... or a high strength load) counts like a hard day: the training block review suggests turning a key ride on the next day into endurance, and the AI coach does not prescribe a key session right after it. The coach and block prompts get one line on the strength sessions in the look-back window (count, dates, main lifts).
 
 **Safety.**
 - Strava is **read-only** for this feature: the sync only calls `GET /athlete/activities`, `GET /activities/{id}` and `GET /activities/{id}/streams`. No uploads, edits or deletes on Strava (tested - see *Tests*).
@@ -114,7 +126,7 @@ A thin zone-coloured bar of the whole workout sits above the controls on every s
 
 ## Security & privacy
 
-- **Secrets live only in `.env`** (Anthropic key, Strava client secret) and `.strava-tokens.json`; both are git-ignored and the local server refuses to serve any dot-file, `.git`, the server scripts or helper scripts. The browser never sees a key.
+- **Secrets live only in `.env`** (Anthropic and Gemini keys, Strava client secret) and `.strava-tokens.json`; both are git-ignored and the local server refuses to serve any dot-file, `.git`, the server scripts or helper scripts. The browser never sees a key.
 - **The server only answers this PC and devices on your private home network** (10.x, 172.16-31.x, 192.168.x). Requests from any other address or from other websites are refused (403). Do **not** forward port 8080 on your router - the app is not meant to be reachable from the internet.
 - `Enable-Phone-View.bat` opens the port in Windows Firewall for **Private** networks only; `Enable-Phone-View.bat remove` undoes it.
 - Strava sync data stays in the browser (history, restore points in IndexedDB); the server keeps nothing but `.strava-tokens.json`.
@@ -144,15 +156,16 @@ A thin zone-coloured bar of the whole workout sits above the controls on every s
 - **Hardware Lab drawer.** Shows battery, RSSI, link state, the commanded ERG watts and the PowerMatch trim for each device. RSSI appears only where the browser supports `watchAdvertisements`; otherwise it shows `--`.
 - **Pedal calibration.** A 3-second countdown, then the CPS **Start Offset Compensation (op code 0x0C)**. A toast shows the offset the pedals return, and the last offset is kept.
 - **Drift-free clock.** A Worker-driven 1 Hz tick keeps timing accurate when the tab is in the background and resyncs after sleep.
+- **Audio cues.** 3-2-1 countdown beeps before every step change, a "go" tone on the change and a fanfare at the end. Mute with the speaker icon or `M`.
+- **+5 min easy spin.** When the last step ends, the ride keeps going on a 5-minute easy spin (45 % FTP) and a prompt offers **+5 min easy spin** or **Finish now** for 10 s (on the PC and the phone). No answer = finish: the extra step is dropped and the workout is saved as completed. Accept, and at the end of the spin you are asked again.
+- **Keyboard.** Space start/pause, Tab or -> next step, `S` stand break, `Z` Zen, `F` fullscreen, `P` mini-HUD, `M` mute; the full list is behind the keyboard icon.
 
 ### AI workout builder
 - **Goals:** FTP, Longevity (Z2/durability), VO2max and Balanced.
 - **Context from your real history.** 28-day hours per week, intensity mix, CTL/ATL/TSB, days since the last hard and last long ride, and a power-profile type from your all-time MMP curve. Free-text notes are passed through as well.
-- **Claude or Gemini (Claude Opus 5.5, low effort by default).** The summarised reasoning trace is rendered as markdown with a live timer, alongside phase cards and a 7-day plan that ramps CTL, drops the ramp to 0 when fatigued and never stacks hard days within 48 h. Click a day of the plan to pre-fill the request.
+- **Claude or Gemini (Claude Opus 5.5 or Gemini 3.8 Flash, low effort by default).** The summarised reasoning trace is rendered as markdown with a live timer, alongside phase cards and a 7-day plan that ramps CTL, drops the ramp to 0 when fatigued and never stacks hard days within 48 h. Click a day of the plan to pre-fill the request.
 - **Offline engine.** Builds a workout sized to the requested duration: sweet-spot blocks, threshold under/overs, 4×4 VO2 or Rønnestad 30/15. IF and TSS are computed from the intervals, not estimated.
 - **One-click load** into the cockpit, and **Clear Recommendation**.
-
-- **+5 min easy spin.** When the last step ends, the ride keeps going on a 5-minute easy spin (45 % FTP) and a prompt offers **+5 min easy spin** or **Finish now** for 10 s (on the PC and the phone). No answer = finish: the extra step is dropped and the workout is saved as completed. Accept, and at the end of the spin you are asked again.
 
 ### Analytics
 - **PMC** with 30d, 90d, 180d, YTD and All ranges. Coloured form bands, daily TSS bars, tooltips (date, CTL, ATL, TSB, TSS) and a form badge: Fresh, Productive, Optimal, High Fatigue or Overtraining.
@@ -176,7 +189,7 @@ start_server.ps1      Local server (PowerShell): static files, /api/coach (Claud
 server.js             Same server for Node.js (optional)
 .env.example          Template for .env (API keys, coach provider/model/effort, port)
 css/style.css         Design system (obsidian/slate tokens, glass surfaces, responsive breakpoints)
-sw.js                 Network-first service worker (cache apex-velo-cache-v4, never caches /api/)
+sw.js                 Network-first service worker (bump CACHE_NAME when files change; never caches /api/)
 data/                 divan_cycling_history.json/.js - HealthFit archive + all-time MMP
 js/
   velo-metrics.js     Pure maths: zones, NP/IF/TSS, MMP, form bands, backoff, compliance
@@ -207,7 +220,15 @@ js/
   app-insight.js      Ride review highlights, FTP update, History medals, AI interval breakdown (mixin)
 test_suite.html       In-browser test suite
 tests/strava-sync-servers.test.js  Runs server.js and start_server.ps1 against a mock Strava
+live.html             Phone view (three screens, remote controls)
+Enable-Phone-View.bat One-time firewall/URL setup for the phone view (`remove` undoes it)
 ```
+
+**Helper scripts** (run by hand in PowerShell, not by the app):
+- `parse_healthfit.ps1` - builds `data/divan_cycling_history.json` from your HealthFit `.fit` exports; `create_js_data.ps1` wraps that JSON into the `.js` file the app loads.
+- `compute_mmp.ps1` - computes the all-time power curve (MMP) from the same `.fit` files.
+- `test_header.ps1 <file.fit>` - prints a FIT file's header, for debugging an import.
+- `fix_all_mojibake.ps1` - a one-off repair script from the original conversion to UTF-8. The files are already clean and it no longer parses; **do not run it**.
 
 The mixins extend `VeloApp.prototype` with `Object.assign` and load after `app.js`. The app keeps one `requestAnimationFrame` loop, which pauses while the page is hidden. `destroy()` removes every listener, chart, observer and timer.
 
@@ -251,9 +272,9 @@ The mixins extend `VeloApp.prototype` with `Object.assign` and load after `app.j
 
 ## Tests
 
-Open `test_suite.html`. It covers metrics, a FIT CRC round-trip, TCX/CSV round-trips, summary-only exports, the CPS 0x0C command, BLE reconnect with a fake device, write serialisation, PMC ranges, progression, the MMP scrub, the AI goals and week plan, Zen thresholds, resource lifecycle, the clock, calendar bucketing and the device badges. It also checks the Claude path with a mocked `/api/coach` (request shape, reasoning parsing, fallback), switching between Claude and Gemini, auto session duration, the history look-back window, training blocks (3:1 structure, 48 h between key sessions, hours respected, calendar cards, post-ride adjustments), the ERG governor (soft start, anti-stall, HIIT-safe step lead, PowerMatch), and that no API key is stored in the browser. It also checks Polar H10 contact handling, first-connect retries, that a real ride never falls back to simulator data, and that the tests leave your real storage untouched. It also checks the Send to Strava flow with a mocked Strava (upload, processing, sent link, failure, history chip, workout image, and matching rides that already exist on Strava). It also checks **Sync from Strava** with Strava mocked (nothing leaves the machine): the preview writes nothing; only GET requests go out; Apply writes a restore point first and then writes once; Undo restores byte-identical storage; app-recorded rides are unchanged and the Calendar renders the same rides before and after; the three dedupe layers (id skip, fuzzy link, Motra/watch merge), possible matches never auto-imported, decisions remembered; refresh (Strava edit updates, Strava delete removes only that record, out-of-range records untouched, second sync = no changes); custom ranges; a timezone-mislabelled HealthFit ride matched while the same ride 3 h later is not; strength on the Calendar but excluded from power analytics and counted in fatigue; the training block and coach prompts; a simulated failure at every stage of Apply leaves storage unchanged; and the real-storage-untouched check. It also checks the power streams: 1 Hz conversion (short gaps held, pauses dropped), TSS from the stream, streams fetched only for power-meter rides, a rate-limited sync adding them later, exact Undo after streams were added or removed, imports never sent back to Strava; the background check (read-only, no streams, badge, off switch); and a real threshold HR replacing the estimate. It also checks the ride-time extras (Stand break without tripping anti-stall, exact +/-5 W from the phone, the +5 min easy spin offer - accept, finish, timeout - with the library workout untouched, and the server accepting the new phone commands) and the post-ride insight (decoupling only on steady rides, gold/silver/bronze medals against earlier rides, the FTP suggestion rules and its one-click update, and the AI interval breakdown asking at low effort with the step table only and saving the answer). `tests/strava-sync-servers.test.js` runs both servers against a fake Strava (paging, details, streams, errors, GET-only, identical output). The suite has 90 checks (the *Banister PMC* check compares against fixed values from the HealthFit archive, so it drifts as days pass).
+Open `test_suite.html`. It covers metrics, a FIT CRC round-trip, TCX/CSV round-trips, summary-only exports, the CPS 0x0C command, BLE reconnect with a fake device, write serialisation, PMC ranges, progression, the MMP scrub, the AI goals and week plan, Zen thresholds, resource lifecycle, the clock, calendar bucketing and the device badges. It also checks the Claude path with a mocked `/api/coach` (request shape, reasoning parsing, fallback), switching between Claude and Gemini, auto session duration, the history look-back window, training blocks (3:1 structure, 48 h between key sessions, hours respected, calendar cards, post-ride adjustments), the ERG governor (soft start, anti-stall, HIIT-safe step lead, PowerMatch), and that no API key is stored in the browser. It also checks Polar H10 contact handling, first-connect retries, that a real ride never falls back to simulator data, and that the tests leave your real storage untouched. It also checks the Send to Strava flow with a mocked Strava (upload, processing, sent link, failure, history chip, workout image, and matching rides that already exist on Strava). It also checks **Sync from Strava** with Strava mocked (nothing leaves the machine): the preview writes nothing; only GET requests go out; Apply writes a restore point first and then writes once; Undo restores byte-identical storage; app-recorded rides are unchanged and the Calendar renders the same rides before and after; the three dedupe layers (id skip, fuzzy link, Motra/watch merge), possible matches never auto-imported, decisions remembered; refresh (Strava edit updates, Strava delete removes only that record, out-of-range records untouched, second sync = no changes); custom ranges; a timezone-mislabelled HealthFit ride matched while the same ride 3 h later is not; strength on the Calendar but excluded from power analytics and counted in fatigue; the training block and coach prompts; a simulated failure at every stage of Apply leaves storage unchanged; and the real-storage-untouched check. It also checks the power streams: 1 Hz conversion (short gaps held, pauses dropped), TSS from the stream, streams fetched only for power-meter rides, a rate-limited sync adding them later, exact Undo after streams were added or removed, imports never sent back to Strava; the background check (read-only, no streams, badge, off switch); and a real threshold HR replacing the estimate. It also checks the ride-time extras (Stand break without tripping anti-stall, exact +/-5 W from the phone, the +5 min easy spin offer - accept, finish, timeout - with the library workout untouched, and the server accepting the new phone commands) and the post-ride insight (decoupling only on steady rides, gold/silver/bronze medals against earlier rides, the FTP suggestion rules and its one-click update, and the AI interval breakdown asking at low effort with the step table only and saving the answer). The suite has 90 checks. The calendar checks open the week and month of your latest ride, so they do not depend on today's date; the *Banister PMC* check compares against fixed values from the HealthFit archive, so it drifts as days pass and is the one expected failure.
 
-`node tests/strava-sync-servers.test.js` starts both local servers (from a temporary copy, with a fake token file - your real `.env` and tokens are never used) against a mock Strava and checks `/api/strava/sync`: paging, detail batches, the `activity:read_all` check, errors, identical answers from both servers, and that the sync path only ever sends GET requests to Strava. The PowerShell part runs when `pwsh` or `powershell` is on the PATH.
+`node tests/strava-sync-servers.test.js` starts both local servers (from a temporary copy, with a fake token file - your real `.env` and tokens are never used) against a mock Strava and checks `/api/strava/sync`: paging, detail batches, power streams (data, deleted, rate-limited, bad ids), the `activity:read_all` check, errors, identical answers from both servers, and that the sync path only ever sends GET requests to Strava (29 checks). The PowerShell part runs when `pwsh` or `powershell` is on the PATH.
 
 ## License
 

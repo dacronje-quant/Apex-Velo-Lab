@@ -199,17 +199,25 @@
           app.jumpToInterval(0);
 
           // 18. Check Calendar Deletion Functionality (1-Week & 1-Month Views)
+          // Open the week / month of the most recent ride, so the check does not depend on today's date.
+          const FW = frame.contentWindow;
+          const lastRideDate = new FW.Date(Math.max(...app.completedWorkouts.map(r => new FW.Date(r.date).getTime()).filter(Number.isFinite)));
+          const nowD = new FW.Date();
+          const weekOffsetOfLast = Math.round((FW.VeloProgress.weekStart(lastRideDate) - FW.VeloProgress.weekStart(nowD)) / (7 * 86400000));
+          const monthOffsetOfLast = (lastRideDate.getFullYear() - nowD.getFullYear()) * 12 + lastRideDate.getMonth() - nowD.getMonth();
           app.calendarViewPreset = '1week';
-          app.calendarWeekOffset = -1;
+          app.calendarWeekOffset = weekOffsetOfLast;
           app.renderCalendarView();
           const calDeleteBtnsWeek = frame.contentDocument.querySelectorAll('.btn-delete-cal-ride');
           log('Calendar 1-Week View Contains Delete Buttons per Ride', calDeleteBtnsWeek.length > 0, `Count: ${calDeleteBtnsWeek.length}`);
           app.calendarWeekOffset = 0;
 
           app.calendarViewPreset = '1month';
+          app.calendarMonthOffset = monthOffsetOfLast;
           app.renderCalendarView();
           const calDeleteBtnsMonth = frame.contentDocument.querySelectorAll('.btn-delete-cal-ride, .btn-delete-cal-ride-mini');
           log('Calendar 1-Month View Contains Delete Buttons (Matrix & List)', calDeleteBtnsMonth.length > 0, `Count: ${calDeleteBtnsMonth.length}`);
+          app.calendarMonthOffset = 0;
 
           const rideToDeleteFromCal = app.completedWorkouts[0].id;
           frame.contentWindow.confirm = () => true;
