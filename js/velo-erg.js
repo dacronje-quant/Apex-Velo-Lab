@@ -4,16 +4,20 @@
  * Decides the wattage sent to the trainer each second. The step target stays the goal; this
  * only shapes how the trainer gets there:
  *
- *  - Soft start: from a standstill (Start, Resume, Skip/Jump while barely pedalling, trainer
- *    reconnect) the load starts at about half the target and ramps up once you are spinning.
+ *  - Soft start: only from a real standstill (Start, Resume, Skip/Jump or a trainer reconnect
+ *    while not spinning) the load starts at about half the target and ramps up once you are
+ *    spinning. While you are pedalling, every step change - HIIT included - is instant.
  *  - Anti-stall: when cadence sags on a hard step, ERG pushes back harder and harder (the
- *    "death spiral"). After a few seconds of low cadence the load drops so you can spin back
- *    up, then ramps back to target.
+ *    "death spiral"). Only when cadence is low AND you can no longer hold the watts (or the
+ *    cranks have nearly stopped) does the load drop so you can spin back up. Grinding a hard
+ *    effort at low cadence while holding power is left alone.
  *  - Step lead: an upward step is sent a moment early so the flywheel's lag lines up with the
- *    real step change.
- *  - PowerMatch: pedal power (Assioma) trims the trainer target. It settles for a few seconds
- *    after every target change and never adds watts while you are grinding, so it can no
- *    longer overshoot a step change or deepen a stall.
+ *    real step change - never more than 10% of the step it cuts into, so a 15 s recovery
+ *    loses at most 1 s.
+ *  - PowerMatch: pedal power (Assioma) trims the trainer target. The trim is a calibration, so
+ *    it carries across steps in proportion to the new target (short intervals start already
+ *    matched). It waits a few seconds after every target change before adjusting, and never
+ *    adds watts while you are grinding, so it can't overshoot a step change or deepen a stall.
  *
  * A ramp only ever lowers the load below the target; it never commands more than the target.
  */
@@ -23,12 +27,15 @@ class VeloErg {
     softStartSec: 8,       // seconds to ramp to target once spinning
     spinCadence: 70,       // rpm that counts as "spinning" for a soft start
     stallCadence: 60,      // rpm below which a hard step starts to stall
-    stallSec: 3,           // seconds of low cadence before easing off
+    stallSec: 3,           // seconds of low cadence (and missing watts) before easing off
+    stallPowerPct: 0.85,   // ...where "missing watts" means under this share of target
+    stopCadence: 40,       // below this the cranks have nearly stopped: ease regardless of power
     stallLoadPct: 0.6,     // eased load as a share of target
     recoverRpm: 15,        // spin this many rpm above the stall threshold to ramp back
     recoverSec: 6,         // seconds to ramp back to target after a stall
     stallMinPctFtp: 76,    // the anti-stall guard only acts above Z2
-    leadSec: 2,            // send an upward step this many seconds early
+    leadSec: 2,            // send an upward step up to this many seconds early...
+    leadMaxShare: 0.1,     // ...but never more than this share of the step it cuts into
     pmSettleSec: 6,        // PowerMatch waits this long after a target change
     pmMaxTrim: 45,         // PowerMatch trim cap (W)
     pmSlew: 2,             // PowerMatch max change per second (W)
@@ -55,12 +62,13 @@ class VeloErg {
   }
 
   /**
-   * Called on Start, Resume, Skip, Jump, ERG on and trainer reconnect. Starts a soft start unless
-   * you are already spinning near the target.
+   * Called on Start, Resume, Skip, Jump, ERG on and trainer reconnect. Starts a soft start only
+   * from a standstill: if you are spinning, the new target applies at once like any step change.
    */
   softStart({ target, power = 0, cadence = 0, cadenceKnown = false }) {
     if (!(target > 0)) { this.ramp = null; return; }
-    if (cadenceKnown && cadence >= this.o.spinCadence && power >= target * 0.8) { this.ramp = null; return; }
+    const spinning = cadenceKnown ? cadence >= this.o.spinCadence : power >= target * 0.8;
+    if (spinning) { this.ramp = null; return; }
     const from = Math.min(target, Math.max(Math.round(target * this.o.softStartPct), Math.round(power || 0)));
     if (target - from < 10) { this.ramp = null; return; }
     this.ramp = { from, dur: this.o.softStartSec, t: 0, waiting: true, spinAt: this.o.spinCadence, stall: false };
@@ -86,21 +94,26 @@ class VeloErg {
    * One second of control. Returns { watts, base, mode, event } where event is 'stall' the
    * second the guard eases the load, else null.
    *
-   * input: target, nextTarget, secondsLeft (in the current step), cadence, cadenceKnown,
-   *        targetCadence, ftp, pedalPower (null unless PowerMatch can run).
+   * input: target, nextTarget, secondsLeft and stepDuration (of the current step), cadence,
+   *        cadenceKnown, power (measured, any source), targetCadence, ftp,
+   *        pedalPower (null unless PowerMatch can run).
    */
   tick(input) {
     const o = this.o;
-    const { target = 0, nextTarget = null, secondsLeft = Infinity, cadence = 0, cadenceKnown = false,
-      targetCadence = null, ftp = 0, pedalPower = null } = input;
+    const { target = 0, nextTarget = null, secondsLeft = Infinity, stepDuration = Infinity, cadence = 0,
+      cadenceKnown = false, power = null, targetCadence = null, ftp = 0, pedalPower = null } = input;
 
-    // Step lead: upward steps only, so hard efforts never end early.
+    // Step lead: upward steps only (hard efforts never end early), and never more than 10% of
+    // the step being cut short, so HIIT recoveries keep nearly all their rest.
     let base = Math.max(0, target);
-    if (nextTarget != null && nextTarget > base && secondsLeft <= o.leadSec) base = nextTarget;
+    const lead = Math.min(o.leadSec, Math.floor(stepDuration * o.leadMaxShare));
+    if (nextTarget != null && nextTarget > base && lead > 0 && secondsLeft <= lead) base = nextTarget;
 
-    // A new target: PowerMatch restarts and waits for the trainer to settle.
+    // A new target: the PowerMatch trim carries over in proportion (it is a calibration between
+    // pedals and trainer), and waits for the trainer to settle before adjusting again.
     if (this.lastBase === null || Math.abs(base - this.lastBase) >= 5) {
-      this.offset = 0;
+      const share = this.lastBase > 0 ? this.offset / this.lastBase : 0;
+      this.offset = Math.max(-o.pmMaxTrim, Math.min(o.pmMaxTrim, Math.round(share * base)));
       this.pedalBuf = [];
       this.pmSettle = o.pmSettleSec;
     }
@@ -111,7 +124,8 @@ class VeloErg {
     const stallAt = this.stallThreshold(targetCadence);
     const hard = ftp > 0 ? base >= ftp * o.stallMinPctFtp / 100 : base >= 150;
     const waiting = !!(this.ramp && this.ramp.waiting);
-    if (cadenceKnown && hard && !waiting && cadence < stallAt) this.lowCadSec++;
+    const failing = cadence < o.stopCadence || power == null || power < base * o.stallPowerPct;
+    if (cadenceKnown && hard && !waiting && cadence < stallAt && failing) this.lowCadSec++;
     else this.lowCadSec = 0;
     if (this.lowCadSec >= o.stallSec) {
       this.ramp = { from: Math.round(base * o.stallLoadPct), dur: o.recoverSec, t: 0, waiting: true, spinAt: stallAt + o.recoverRpm, stall: true };

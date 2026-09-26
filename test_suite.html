@@ -1022,7 +1022,7 @@
           });
 
           // 46b. ERG governor: soft start, anti-stall, step lead, PowerMatch settle
-          await suite('ERG Governor: Soft Start From Standstill, Anti-Stall Guard, Upward Step Lead, PowerMatch Settles & Never Deepens a Stall', () => {
+          await suite('ERG Governor: Soft Start Only From Standstill, Anti-Stall Only When Failing, HIIT-Safe Step Lead, PowerMatch Carries & Never Deepens a Stall', () => {
             const E = W.VeloErg;
             const run = (erg, n, inp) => Array.from({ length: n }, () => erg.tick(inp));
             const base = { ftp: 185, cadenceKnown: true, targetCadence: 90 };
@@ -1077,15 +1077,34 @@
             const settled = pm.slice(0, 6).every(r => r.watts === 200);
             const trims = pm.slice(6).map(r => r.watts);
             const pmOk = settled && trims[0] > 200 && trims.every((w, i) => i === 0 || w - trims[i - 1] <= 2) && e.offset > 0;
-            const resetOnChange = e.tick({ ...base, target: 260, cadence: 90, pedalPower: 185 }).watts === 260 && e.offset === 0;
+            // The trim is a calibration: it carries to the next target in proportion, then settles again.
+            const before = e.offset;
+            const carried = e.tick({ ...base, target: 260, cadence: 90, pedalPower: 185 });
+            const resetOnChange = e.offset === Math.round(before / 200 * 260) && carried.watts === 260 + e.offset && e.pmSettle > 0;
 
             // PowerMatch never adds watts while cadence is low (it would deepen a stall).
             e = new E();
             run(e, 12, { ...base, target: 200, cadence: 65, pedalPower: 180 });
             const noDeepen = e.offset === 0;
 
-            const ok = softOk && noSoft && blindOk && stallOk && noGuardOk && leadOk && pmOk && resetOnChange && noDeepen;
-            return { ok, detail: `soft ${held.map(r => r.watts)}|${ramp.map(r => r.watts)} (${softOk}) | spinning:${noSoft} | blind:${blindOk} | stall ${sag.map(r => r.watts)}>${still.watts}>${back.map(r => r.watts)} (${stallOk}) | easy/drill:${noGuardOk} | lead ${up3}/${up2}/${down1} | PM ${pm.map(r => r.watts)} (${pmOk}) reset:${resetOnChange} | no deepen:${noDeepen}` };
+            // HIIT (30/15 at 300/100 W): skipping in while spinning is instant, the 15 s recovery
+            // loses at most 1 s to the lead, and grinding at 55 rpm while holding watts is left alone.
+            e = new E();
+            e.softStart({ target: 300, power: 110, cadence: 95, cadenceKnown: true });
+            const skipInstant = e.ramp === null && e.now(300) === 300;
+            e = new E();
+            const rec = [3, 2, 1].map(left => e.tick({ ...base, target: 100, nextTarget: 300, secondsLeft: left, stepDuration: 15, cadence: 95 }).watts);
+            e = new E();
+            const tabata = e.tick({ ...base, target: 100, nextTarget: 400, secondsLeft: 1, stepDuration: 5, cadence: 95 }).watts;
+            e = new E();
+            const grind = run(e, 6, { ...base, target: 300, cadence: 55, power: 295 });
+            e = new E();
+            const dying = run(e, 3, { ...base, target: 300, cadence: 55, power: 200 });
+            const hiitOk = skipInstant && rec.join() === '100,100,300' && tabata === 100 &&
+              grind.every(r => r.watts === 300) && dying[2].event === 'stall';
+
+            const ok = softOk && noSoft && blindOk && stallOk && noGuardOk && leadOk && pmOk && resetOnChange && noDeepen && hiitOk;
+            return { ok, detail: `HIIT skip:${skipInstant} lead ${rec} tabata:${tabata} grind:${grind.map(r => r.watts)} dying:${dying.map(r => r.watts)} (${hiitOk}) | soft ${held.map(r => r.watts)}|${ramp.map(r => r.watts)} (${softOk}) | spinning:${noSoft} | blind:${blindOk} | stall ${sag.map(r => r.watts)}>${still.watts}>${back.map(r => r.watts)} (${stallOk}) | easy/drill:${noGuardOk} | lead ${up3}/${up2}/${down1} | PM ${pm.map(r => r.watts)} (${pmOk}) carry:${resetOnChange} | no deepen:${noDeepen}` };
           });
 
           // 47. Calendar buckets rides by local date
