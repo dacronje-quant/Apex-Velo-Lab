@@ -67,10 +67,9 @@ class VeloApp {
 
     // PowerMatch closed loop (+/-45 W trim, 2 W/s slew)
     this.powerMatchEnabled = true;
-    this.powerMatchOffset = 0;
-    this.pedalPowerBuffer = [];
-    this.lastPowerMatchIntervalIdx = 0;
+    this.powerMatchOffset = 0;   // mirror of this.erg.offset for the UI
     this.lastCommandedErgWatts = null;
+    this.erg = new VeloErg();     // soft start, anti-stall, step lead and PowerMatch
     this.trainerBaseDistance = null;
     this.hardwareSpeedSource = 'SIMULATOR';
     this.hardwareDistanceSource = 'SIMULATOR';
@@ -589,8 +588,33 @@ class VeloApp {
   setErgBias(delta) {
     this.ergBiasMultiplier = Math.max(0.6, Math.min(1.4, Math.round((this.ergBiasMultiplier + delta) * 100) / 100));
     this.updateBiasUi();
-    if (this.isPlaying && this.ergModeEnabled) this.ble.setTrainerErgPower(this.getCurrentTargetWatts() + this.powerMatchOffset, true);
+    this.ergApplyNow(false);
     this.updateHudTitles();
+  }
+
+  /**
+   * Sends the ERG target right away (between ticks). With `soft`, a soft start is armed first,
+   * so Start, Resume, Skip, Jump and a trainer reconnect never hit a standing flywheel at full load.
+   */
+  ergApplyNow(soft = false) {
+    if (!this.ergModeEnabled || !this.isPlaying) return;
+    const target = this.getCurrentTargetWatts();
+    if (soft) {
+      // Live readings, not the last tick's: after a pause the cranks may have stopped.
+      const now = performance.now();
+      const pedalAlive = (now - this.blePedal.lastTime) < 3500 && this.blePedal.watts !== null;
+      const trainerAlive = (now - this.bleTrainer.lastTime) < 3500 && this.bleTrainer.watts !== null;
+      const src = pedalAlive ? this.blePedal : trainerAlive ? this.bleTrainer : null;
+      this.erg.softStart({
+        target,
+        power: src ? Math.max(0, src.watts || 0) : 0,
+        cadence: src && src.cadence !== null ? src.cadence : 0,
+        cadenceKnown: !!(src && src.cadence !== null),
+      });
+    }
+    const watts = this.erg.now(target);
+    this.ble.setTrainerErgPower(watts, true);
+    if (this.ble.isTrainerConnected()) this.lastCommandedErgWatts = watts;
   }
 
   updateBiasUi() {
@@ -629,7 +653,7 @@ class VeloApp {
       if (!this.sessionStartedAt) this.sessionStartedAt = Date.now();
       this.audio.init();
       this.ble.startTrainerWorkout();
-      if (this.ergModeEnabled) this.ble.setTrainerErgPower(this.getCurrentTargetWatts(), true);
+      this.ergApplyNow(true);
       this.start1HzTimer();
       this.acquireWakeLock();
     } else {
@@ -688,7 +712,7 @@ class VeloApp {
     this.simulator.reset();
     this.trainerBaseDistance = null;
     this.powerMatchOffset = 0;
-    this.pedalPowerBuffer = [];
+    this.erg.reset();
     this.lastCommandedErgWatts = null;
     this.rideHadHardware = false;
     this.hardwareSpeedSource = 'SIMULATOR';
@@ -729,7 +753,7 @@ class VeloApp {
       this.intervalSecondsRemaining = this.currentWorkout.intervals[this.intervalIndex].duration;
       this.updateHudTitles();
       this.renderIntervalTrack();
-      if (this.isPlaying && this.ergModeEnabled) this.ble.setTrainerErgPower(this.getCurrentTargetWatts(), true);
+      this.ergApplyNow(true);
     }
   }
 
@@ -740,7 +764,7 @@ class VeloApp {
       this.intervalSecondsRemaining = this.currentWorkout.intervals[idx].duration;
       this.updateHudTitles();
       this.renderIntervalTrack();
-      if (this.isPlaying && this.ergModeEnabled) this.ble.setTrainerErgPower(this.getCurrentTargetWatts(), true);
+      this.ergApplyNow(true);
       this.showToast(`Step ${idx + 1}: ${this.currentWorkout.intervals[idx].name}`);
     }
   }
@@ -793,32 +817,31 @@ class VeloApp {
     }
     const hr = hrAlive ? this.bleHr.hr : (simOk && !anyHardware ? Math.round(this.simulator.heartRate) : 0);
 
-    // PowerMatch: pedals are truth; trim the trainer's ERG target so pedal power matches the step target.
-    let commanded = targetPower;
-    if (this.powerMatchEnabled && pedalAlive && trainerConnected && this.ergModeEnabled) {
-      if (this.lastPowerMatchIntervalIdx !== this.intervalIndex) {
-        this.powerMatchOffset = 0;
-        this.pedalPowerBuffer = [];
-        this.lastPowerMatchIntervalIdx = this.intervalIndex;
-      }
-      this.pedalPowerBuffer.push(power);
-      if (this.pedalPowerBuffer.length > 4) this.pedalPowerBuffer.shift();
-      const avgPedal = this.pedalPowerBuffer.reduce((a, b) => a + b, 0) / this.pedalPowerBuffer.length;
-      if (avgPedal > 20) {
-        const err = targetPower - avgPedal;
-        if (Math.abs(err) > 2) {
-          const step = Math.sign(err) * Math.min(2.0, Math.abs(err) * 0.35); // 2 W/s slew limit
-          this.powerMatchOffset = Math.max(-45, Math.min(45, this.powerMatchOffset + step));
-        }
-      }
-      commanded = Math.max(40, Math.min(1500, Math.round(targetPower + this.powerMatchOffset)));
-    } else {
-      this.powerMatchOffset = 0;
-      this.pedalPowerBuffer = [];
-    }
+    // ERG: the governor shapes the trainer target (soft start, anti-stall, step lead) and runs
+    // PowerMatch, where the pedals are truth and trim the trainer so pedal power meets the target.
+    const cadenceKnown = (pedalAlive && this.blePedal.cadence !== null) || (trainerAlive && this.bleTrainer.cadence !== null);
+    const pmOn = this.powerMatchEnabled && pedalAlive && trainerConnected && this.ergModeEnabled;
+    const ivs = this.currentWorkout.intervals;
+    const nextIv = ivs[this.intervalIndex + 1];
+    const erg = this.erg.tick({
+      target: targetPower,
+      nextTarget: nextIv ? Math.round(this.activeProfile.ftp * (nextIv.pctFtp / 100) * this.ergBiasMultiplier) : null,
+      secondsLeft: this.intervalSecondsRemaining,
+      stepDuration: (ivs[this.intervalIndex] || {}).duration || Infinity,
+      cadence,
+      power: source === 'NONE' ? null : power,
+      cadenceKnown,
+      targetCadence: this.getCurrentTargetCadence(),
+      ftp: this.activeProfile.ftp,
+      pedalPower: pmOn ? power : null,
+    });
+    this.powerMatchOffset = this.erg.offset;
     if (this.ergModeEnabled) {
-      this.ble.setTrainerErgPower(commanded);
-      this.lastCommandedErgWatts = trainerConnected ? commanded : null;
+      this.ble.setTrainerErgPower(erg.watts);
+      this.lastCommandedErgWatts = trainerConnected ? erg.watts : null;
+      if (erg.event === 'stall' && trainerConnected) {
+        this.showToast(`Low cadence - ERG eased to ${erg.watts} W. Spin up and it ramps back to target.`, 'info');
+      }
     }
 
     this.currentPower = power;
@@ -1019,7 +1042,7 @@ class VeloApp {
         this.showToast(`${this.deviceLabel(data.device)} reconnected.`, 'success');
         if (data.device === 'trainer' && this.isPlaying) {
           this.ble.startTrainerWorkout();
-          if (this.ergModeEnabled) this.ble.setTrainerErgPower(this.getCurrentTargetWatts() + this.powerMatchOffset, true);
+          this.ergApplyNow(true);
         }
         break;
       case 'disconnect':
@@ -1093,7 +1116,7 @@ class VeloApp {
         this.showToast(`${this.deviceLabel(kind)} connected.`, 'success');
         if (kind === 'trainer' && this.isPlaying) {
           this.ble.startTrainerWorkout();
-          if (this.ergModeEnabled) this.ble.setTrainerErgPower(this.getCurrentTargetWatts(), true);
+          this.ergApplyNow(true);
         }
       } else {
         const err = this.ble.slots && this.ble.slots[kind] ? this.ble.slots[kind].lastError : null;
@@ -1181,6 +1204,11 @@ class VeloApp {
       const targetW = this.getCurrentTargetWatts();
       let text, pc;
       if (!this.ergModeEnabled) { text = 'ERG OFF'; pc = 'erg-status-pill erg-off'; }
+      else if (trainerConnected && this.erg.mode !== 'normal') {
+        const cmd = this.lastCommandedErgWatts != null ? this.lastCommandedErgWatts : targetW;
+        text = { 'soft-start': `ERG SOFT START ${cmd}W - SPIN UP`, stall: `ERG EASED ${cmd}W - SPIN UP`, ramp: `ERG RAMP ${cmd}/${targetW}W` }[this.erg.mode];
+        pc = 'erg-status-pill erg-active';
+      }
       else if (trainerConnected) { text = pmActive ? `ERG MATCH ${targetW}W (${trim})` : `ERG ${targetW}W`; pc = 'erg-status-pill erg-active'; }
       else { text = `ERG READY ${targetW}W`; pc = 'erg-status-pill'; }
       if (ergPill.textContent !== text) ergPill.textContent = text;
@@ -2041,7 +2069,7 @@ class VeloApp {
     this.on(this.$('chkEnablePowerMatch'), 'change', (e) => {
       this.powerMatchEnabled = e.target.checked;
       this.powerMatchOffset = 0;
-      this.pedalPowerBuffer = [];
+      this.erg.offset = 0;
       this.updatePowerSourceBadge();
       this.showToast(this.powerMatchEnabled ? 'PowerMatch enabled.' : 'PowerMatch disabled.');
     });
@@ -2108,8 +2136,9 @@ class VeloApp {
 
   toggleErgMode() {
     this.ergModeEnabled = !this.ergModeEnabled;
-    if (this.ergModeEnabled && this.isPlaying) this.ble.setTrainerErgPower(this.getCurrentTargetWatts(), true);
+    this.erg.reset();
     this.powerMatchOffset = 0;
+    this.ergApplyNow(true);
     this.updatePowerSourceBadge();
     this.showToast(this.ergModeEnabled ? 'ERG on - the trainer holds target power.' : 'ERG off - free resistance; targets are guidance only.');
   }
