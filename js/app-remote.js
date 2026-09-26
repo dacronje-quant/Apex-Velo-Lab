@@ -108,6 +108,10 @@
         kj: a.totalJoules ? Math.round(a.totalJoules / 1000) : 0,
         distanceKm: Number(this.totalDistanceKm) || 0,
         bias: Math.round((this.ergBiasMultiplier || 1) * 100),
+        baseTarget: iv ? Math.round((p.ftp || 0) * (iv.pctFtp / 100)) : null,
+        standLeft: this.erg ? this.erg.standLeft : 0,
+        easySpinOffer: this._easySpinOffer ? Math.max(0, Math.ceil((this._easySpinOffer.until - Date.now()) / 1000)) : null,
+        ergMode: this.erg ? this.erg.mode : 'normal',
         erg: !!this.ergModeEnabled,
         source: this.activePowerSource || null,
         devices: {
@@ -147,6 +151,14 @@
           break;
         case 'bias-up': this.setErgBias(0.01); break;
         case 'bias-down': this.setErgBias(-0.01); break;
+        case 'watts-up': this.setErgBiasWatts(5); break;
+        case 'watts-down': this.setErgBiasWatts(-5); break;
+        case 'spin-more': this.acceptEasySpin(); break;
+        case 'spin-finish': this.declineEasySpin(); break;
+        case 'stand':
+          if (!this.isPlaying) return;
+          this.toggleStand();
+          break;
         case 'bias-reset':
           this.ergBiasMultiplier = 1.0; this.updateBiasUi(); this.updateHudTitles();
           this.ergApplyNow(false);

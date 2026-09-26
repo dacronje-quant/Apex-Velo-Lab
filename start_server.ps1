@@ -117,7 +117,7 @@ function Test-LocalRequest($request) {
 # ---------------------------------------------------------------- phone view --
 # The PC app posts a live snapshot about once a second; live.html on the phone reads it
 # and queues simple commands that the PC app collects on its next post. Memory only.
-$liveCmdsAllowed = @('toggle', 'skip', 'bias-up', 'bias-down', 'bias-reset')
+$liveCmdsAllowed = @('toggle', 'skip', 'bias-up', 'bias-down', 'bias-reset', 'watts-up', 'watts-down', 'stand', 'spin-more', 'spin-finish')
 $script:liveSnapshotJson = 'null'
 $script:liveAt = $null
 $script:liveCmds = New-Object System.Collections.ArrayList

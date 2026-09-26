@@ -88,9 +88,22 @@
   #balTrace { height: 64px; }
   .note { color: var(--dim); font-size: 12px; line-height: 1.45; }
 
+  /* End-of-workout offer: giant targets, replaces nothing - it sits above the controls */
+  .spin-offer { background: var(--panel); border: 1px solid var(--lime); border-radius: 16px; padding: 12px; text-align: center; }
+  .spin-offer .so-title { font-weight: 800; font-size: 17px; margin-bottom: 10px; }
+  .spin-offer .so-actions { display: grid; grid-template-columns: 1.5fr 1fr; gap: 8px; }
+  .spin-offer button { min-height: 64px; font-size: 19px; }
+  .spin-offer button.primary { grid-column: auto; }
+
   /* Workout bar above the controls, on every screen */
   #zoneBar { flex: none; height: 20px; margin: 0; }
   .controls { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 8px; }
+  /* Sweaty-finger targets: every control is at least 60 px tall */
+  .controls button { min-height: 60px; font-size: 20px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .controls button.primary { min-height: 66px; font-size: 22px; }
+  button.biasv { border-style: dashed; padding: 6px; }
+  button.biasv.biased { border-color: var(--amber); color: var(--amber); }
+  button.standing { background: var(--cyan); color: #07090d; border-color: var(--cyan); }
   button { font: inherit; color: var(--text); background: var(--panel); border: 1px solid var(--line); border-radius: 14px;
     padding: 13px 6px; font-size: 16px; font-weight: 700; touch-action: manipulation; }
   button:active { transform: scale(.97); }
@@ -103,8 +116,9 @@
 
   @media (max-height: 700px) {
     .countdown { font-size: 40px; } .power .big { font-size: 68px; } .hero .big { font-size: 60px; } .split .side .big { font-size: 52px; }
-    .m .v { font-size: 26px; } .m .s { display: none; }
+    .m .v { font-size: 26px; } .m .s { display: none; } #trace { display: none; }
     button { padding: 11px 6px; } button.primary { padding: 12px; }
+    .controls button { min-height: 54px; font-size: 18px; } .controls button.primary { min-height: 58px; }
   }
   @media (max-height: 600px) {
     #trace { display: none; } .countdown { font-size: 34px; margin-top: 2px; } .power .big { font-size: 58px; }
@@ -211,14 +225,22 @@
     </section>
   </main>
 
+  <section class="spin-offer" id="spinOffer" hidden>
+    <div class="so-title">Workout complete - nice work!</div>
+    <div class="so-actions">
+      <button class="primary" id="btnSpinMore">+5 min easy spin</button>
+      <button id="btnSpinFinish">Finish <span class="num" id="spinLeft"></span></button>
+    </div>
+  </section>
+
   <canvas id="zoneBar" aria-hidden="true"></canvas>
 
   <section class="controls">
     <button class="primary" id="btnToggle" disabled>START</button>
-    <button id="btnDown" disabled>&minus;1%</button>
-    <div class="biasv num"><span>ERG</span><div id="bias">100%</div></div>
-    <button id="btnUp" disabled>+1%</button>
-    <button id="btnReset" disabled style="grid-column: span 1">Reset</button>
+    <button id="btnDown" disabled>&minus;5 W</button>
+    <button class="biasv num" id="btnReset" disabled title="ERG change from the plan - tap to go back to the plan"><span>ERG</span><div id="bias">&plusmn;0 W</div></button>
+    <button id="btnUp" disabled>+5 W</button>
+    <button id="btnStand" disabled>Stand 30s</button>
     <button id="btnSkip" disabled style="grid-column: span 2">Skip step</button>
   </section>
 
@@ -330,13 +352,23 @@
     tb.classList.toggle('pause', riding);
     ['btnUp', 'btnDown', 'btnReset'].forEach((id) => { $(id).disabled = !live || sending; });
     $('btnSkip').disabled = !riding || sending;
+    $('btnStand').disabled = !riding || sending;
+    const offer = !!(s && s.easySpinOffer != null);
+    $('spinOffer').hidden = !offer;
+    if (offer) $('spinLeft').textContent = `(${s.easySpinOffer})`;
+    const standing = !!(s && s.standLeft > 0);
+    $('btnStand').textContent = standing ? `Stand ${s.standLeft}s` : 'Stand 30s'; // cyan = standing, counting down
+    $('btnStand').classList.toggle('standing', standing);
     if (Date.now() > skipArmedUntil) { $('btnSkip').classList.remove('armed'); $('btnSkip').textContent = 'Skip step'; }
     if (!s) return;
 
     recordBalance(s);
     document.title = s.state === 'running' ? `${s.power}W - Apex Live` : 'Apex Live';
     $('title').textContent = s.title || 'Workout';
-    $('bias').textContent = (s.bias || 100) + '%';
+    // ERG change from the plan in watts (the PC keeps it as a %, so later steps scale the same way).
+    const dW = s.baseTarget > 0 && s.target > 0 ? s.target - s.baseTarget : null;
+    $('bias').textContent = dW === null ? `${s.bias || 100}%` : dW === 0 ? '\u00b10 W' : `${dW > 0 ? '+' : '\u2212'}${Math.abs(dW)} W`;
+    $('btnReset').classList.toggle('biased', (s.bias || 100) !== 100);
     renderFocus(s, riding, finished);
     renderSession(s);
     renderBalance(s);
@@ -572,9 +604,12 @@
   }
 
   $('btnToggle').addEventListener('click', () => send('toggle', snap && snap.state === 'running' ? 'Pausing...' : 'Starting...'));
-  $('btnUp').addEventListener('click', () => send('bias-up'));
-  $('btnDown').addEventListener('click', () => send('bias-down'));
-  $('btnReset').addEventListener('click', () => send('bias-reset', 'ERG back to 100%'));
+  $('btnUp').addEventListener('click', () => send('watts-up'));
+  $('btnDown').addEventListener('click', () => send('watts-down'));
+  $('btnReset').addEventListener('click', () => { if (snap && (snap.bias || 100) !== 100) send('bias-reset', 'ERG back to the plan'); });
+  $('btnSpinMore').addEventListener('click', () => send('spin-more', '+5 min easy spin'));
+  $('btnSpinFinish').addEventListener('click', () => send('spin-finish', 'Finishing the ride'));
+  $('btnStand').addEventListener('click', () => send('stand', snap && snap.standLeft > 0 ? 'Ending stand' : 'Stand - ERG eased for 30 s'));
   $('btnSkip').addEventListener('click', () => {
     const b = $('btnSkip');
     if (Date.now() < skipArmedUntil) { skipArmedUntil = 0; send('skip', 'Skipping step'); return; }
@@ -583,12 +618,32 @@
     setTimeout(() => render(snap), 3100);
   });
 
-  // Keep the screen on where the browser allows it (needs HTTPS on iPhone - see README otherwise).
+  // Keep the screen on. Over HTTPS the Wake Lock API does it; over plain http on the home Wi-Fi
+  // (where iPhone Safari has no Wake Lock) a tiny silent looping video does the same job - the
+  // technique NoSleep.js uses. Browsers only start it after a tap, so the first tap anywhere arms it.
+  const KEEP_AWAKE_MP4 = 'data:video/mp4;base64,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';
+  let wakeSentinel = null, awakeVideo = null;
   async function keepAwake() {
-    try { if ('wakeLock' in navigator && document.visibilityState === 'visible') await navigator.wakeLock.request('screen'); } catch (e) { /* not allowed over plain http */ }
+    if (document.visibilityState !== 'visible') return;
+    if ('wakeLock' in navigator && window.isSecureContext) {
+      try { if (!wakeSentinel || wakeSentinel.released) wakeSentinel = await navigator.wakeLock.request('screen'); return; } catch (e) { /* fall back to the video */ }
+    }
+    if (!awakeVideo) {
+      awakeVideo = document.createElement('video');
+      awakeVideo.muted = true; awakeVideo.loop = true; awakeVideo.playsInline = true;
+      ['muted', 'playsinline', 'webkit-playsinline'].forEach((a) => awakeVideo.setAttribute(a, ''));
+      awakeVideo.setAttribute('aria-hidden', 'true');
+      awakeVideo.style.cssText = 'position:fixed;left:0;bottom:0;width:1px;height:1px;opacity:0.01;pointer-events:none;';
+      awakeVideo.src = KEEP_AWAKE_MP4;
+      document.body.appendChild(awakeVideo);
+    }
+    try { if (awakeVideo.paused) await awakeVideo.play(); } catch (e) { /* needs a tap first */ }
   }
+  window.__apexKeepAwake = () => ({ secure: window.isSecureContext, lock: !!(wakeSentinel && !wakeSentinel.released), video: !!(awakeVideo && !awakeVideo.paused) });
   document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') { keepAwake(); poll(); } });
-  document.addEventListener('click', keepAwake, { once: true });
+  document.addEventListener('click', keepAwake);
+  document.addEventListener('touchend', keepAwake, { passive: true });
+  if (!window.isSecureContext) setTimeout(() => toast('Tap anywhere once to keep the screen on'), 1500);
 
   setPage(page, false);
   poll();

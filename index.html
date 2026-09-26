@@ -187,6 +187,7 @@
           </div>
           <div class="control-btn-group">
             <button type="button" class="btn btn-step" id="btnSkipInterval" title="Skip to the next step (Tab / &rarr;)"><svg class="ic"><use href="#i-skip"/></svg><span>Next step</span></button>
+            <button type="button" class="btn btn-step" id="btnStand" title="Out of the saddle: eases ERG 5% for 30 s, then ramps back (S). Tap again to end early."><span id="btnStandText">Stand 30s</span></button>
             <div class="segmented">
               <button type="button" id="btnShortenInterval" title="Shorten current step by 30 s">&minus;30s</button>
               <button type="button" id="btnExtendInterval" title="Extend current step by 30 s">+30s</button>
@@ -1125,6 +1126,7 @@
       <div class="shortcuts-grid">
         <div class="shortcut-row"><span>Play / pause</span><kbd class="key-badge">Space</kbd></div>
         <div class="shortcut-row"><span>Next step</span><kbd class="key-badge">Tab / &rarr;</kbd></div>
+        <div class="shortcut-row"><span>Stand break (ERG -5% for 30 s)</span><kbd class="key-badge">S</kbd></div>
         <div class="shortcut-row"><span>ERG bias &plusmn;1% (Shift &plusmn;5%)</span><kbd class="key-badge">&uarr; &darr;</kbd></div>
         <div class="shortcut-row"><span>Zen cockpit</span><kbd class="key-badge">Z</kbd></div>
         <div class="shortcut-row"><span>Cadence halo (in Zen)</span><kbd class="key-badge">C</kbd></div>
@@ -1263,6 +1265,7 @@
   <script src="js/velo-sim.js"></script>
   <script src="js/velo-ble.js"></script>
   <script src="js/velo-erg.js"></script>
+  <script src="js/velo-insight.js"></script>
   <script src="js/velo-importer.js"></script>
   <script src="js/velo-export.js"></script>
   <script src="js/velo-clock.js"></script>
@@ -1276,6 +1279,7 @@
   <script src="js/app-block.js"></script>
   <script src="js/app-strava.js"></script>
   <script src="js/app-strava-sync.js"></script>
+  <script src="js/app-insight.js"></script>
   <script src="js/app-remote.js"></script>
 </body>
 </html>

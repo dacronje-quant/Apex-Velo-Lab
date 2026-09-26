@@ -201,6 +201,7 @@
     },
 
     renderHistoryTable() {
+      const medalHist = this.medalHistory ? this.medalHistory() : null;
       const tbody = document.getElementById('historyTableBody');
       if (!tbody) return;
       document.querySelectorAll('.history-table th.sortable-th').forEach(th => {
@@ -229,7 +230,7 @@
           <tr data-id="${esc(r.id)}">
             <td class="num nowrap">${dateStr}</td>
             <td class="muted">${esc(r.profileName || 'Divan (HealthFit)')}</td>
-            <td><div class="cell-title">${z ? `<i class="zone-dot" style="--zc:${z.color}" title="${z.label}"></i>` : ''}<b>${esc(r.title)}</b>${hasSamples ? '<span class="chip chip-ghost chip-xs">1 Hz</span>' : ''}${VeloMetrics.isCycling(r) ? '' : `<span class="chip chip-xs act-chip act-${esc(r.activityType)}">${actOf(r).label}</span>`}${r.tssEstimated ? `<span class="chip chip-ghost chip-xs" title="TSS estimated from ${esc(r.tssMethod)}">est.</span>` : ''}${this.stravaChip ? this.stravaChip(r) : ''}</div></td>
+            <td><div class="cell-title">${z ? `<i class="zone-dot" style="--zc:${z.color}" title="${z.label}"></i>` : ''}<b>${esc(r.title)}</b>${hasSamples ? '<span class="chip chip-ghost chip-xs">1 Hz</span>' : ''}${VeloMetrics.isCycling(r) ? '' : `<span class="chip chip-xs act-chip act-${esc(r.activityType)}">${actOf(r).label}</span>`}${r.tssEstimated ? `<span class="chip chip-ghost chip-xs" title="TSS estimated from ${esc(r.tssMethod)}">est.</span>` : ''}${this.medalChips && medalHist ? this.medalChips(this.rideMedals(r, medalHist), r.date, true) : ''}${this.stravaChip ? this.stravaChip(r) : ''}</div></td>
             <td class="num">${this.fmtTime(r.duration)}</td>
             <td class="num">${dist > 0 ? dist + ' km' : '--'}</td>
             <td class="num">${spd > 0 ? spd + ' km/h' : '--'}</td>
@@ -433,6 +434,7 @@
             <div class="zone-legend-row">${zs.map((v, i) => `<span><i class="zdot z-seg-${i + 1}"></i>${VeloMetrics.ZONES[i].short} <strong class="num">${this.fmtTime(v)}</strong></span>`).join('')}</div>
           </div>`;
         const segs = this.segmentByTarget(samples);
+        const diagnosis = this.intervalBreakdownHtml ? this.intervalBreakdownHtml(record) : '';
         if (segs.length >= 2) {
           stepsHtml = `
             <div class="review-block">
@@ -448,6 +450,7 @@
                 }).join('')}</tbody>
               </table></div>
             </div>`;
+          stepsHtml += diagnosis;
         }
       }
 
@@ -476,6 +479,7 @@
 
       details.innerHTML = `
         ${banner}
+        ${this.rideInsightHtml ? this.rideInsightHtml(record) : ''}
         <div class="inspector-header-stats">
           <div class="metric-cell"><span class="metric-cell-lbl">Duration</span><span class="metric-cell-val num">${this.fmtTime(record.duration)}</span>${cmp(record.duration, avgOf(r => r.duration))}</div>
           <div class="metric-cell" data-accent="violet"><span class="metric-cell-lbl">Distance</span><span class="metric-cell-val num">${dist}</span></div>

@@ -556,7 +556,7 @@ async function handleStrava(req, res, urlPath, query) {
 // The PC app publishes a small live snapshot about once a second; the phone page
 // (live.html) reads it and queues simple commands, which the PC app picks up on
 // its next publish. Nothing is stored on disk.
-const LIVE_CMDS = new Set(['toggle', 'skip', 'bias-up', 'bias-down', 'bias-reset']);
+const LIVE_CMDS = new Set(['toggle', 'skip', 'bias-up', 'bias-down', 'bias-reset', 'watts-up', 'watts-down', 'stand', 'spin-more', 'spin-finish']);
 const live = { snapshot: null, at: 0, cmds: [] };
 
 async function handleLive(req, res, urlPath) {
