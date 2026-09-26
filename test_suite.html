@@ -1161,6 +1161,20 @@
               detail: `HR parse:${parseOk} avgPower incl. zeros:${avgOk} retry (2 fails then ok, 3 calls):${retryOk} 3 fails -> disconnected + reason:${failOk} sources after dropout:${srcs.join(',')}` };
           });
 
+          // 50a. Auto duration: the coach picks the length per focus
+          await suite('AI Coach: Auto Duration Picks an Optimal Length per Session Type', async () => {
+            const c = app.aiCoach;
+            const lens = {};
+            for (const f of ['recovery', 'endurance', 'sweetspot', 'threshold', 'vo2max']) {
+              const rec = c.generateOfflineHeuristic(c.getPhysiologicalContext(f, 'auto', 'ftp'));
+              lens[f] = rec.workout.durationMin;
+            }
+            const ctx = c.getPhysiologicalContext('auto', 'auto', 'ftp');
+            const promptOk = ctx.autoDuration && c.buildPrompt(ctx).includes('YOU choose the most effective length');
+            const ok = promptOk && lens.recovery < lens.threshold && lens.recovery <= 45 && lens.vo2max <= 65 && Object.values(lens).every(m => m >= 28 && m <= 155);
+            return { ok, detail: `${Object.entries(lens).map(([k, v]) => k + ' ' + v + 'm').join(', ')} prompt:${promptOk}` };
+          });
+
           // 50b. Training block: periodisation rules, calendar, post-ride review
           await suite('Training Block: 3:1 Periodisation, 48 h Between Key Sessions, Hours Respected, Calendar & Post-Ride Adjustments', async () => {
             const P = W.VeloBlockPlanner;

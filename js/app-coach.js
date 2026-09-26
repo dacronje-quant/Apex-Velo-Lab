@@ -98,7 +98,8 @@
 
       this.on(generateBtn, 'click', async () => {
         const focus = document.getElementById('selectAiCoachFocus')?.value || 'auto';
-        const duration = parseInt(document.getElementById('selectAiCoachDuration')?.value || '45', 10);
+        const durVal = document.getElementById('selectAiCoachDuration')?.value || '45';
+        const duration = durVal === 'auto' ? 'auto' : parseInt(durVal, 10);
         const notes = document.getElementById('inputAiCoachNotes')?.value || '';
         const timerEl = document.getElementById('aiCoachThinkTimer');
         generateBtn.disabled = true;
@@ -151,7 +152,7 @@
         if (sel) sel.value = b.dataset.planFocus === 'endurance-long' ? 'endurance' : b.dataset.planFocus;
         if (dur && b.dataset.planMin) {
           const want = parseInt(b.dataset.planMin, 10);
-          const opts = Array.from(dur.options).map(o => parseInt(o.value, 10));
+          const opts = Array.from(dur.options).map(o => parseInt(o.value, 10)).filter(Number.isFinite);
           dur.value = String(opts.reduce((a, c) => (Math.abs(c - want) < Math.abs(a - want) ? c : a), opts[0]));
         }
         window.scrollTo({ top: 0, behavior: 'smooth' });
