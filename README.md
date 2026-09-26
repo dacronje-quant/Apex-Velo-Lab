@@ -53,7 +53,7 @@ The phone has three screens; swipe sideways or tap the tabs, and it remembers th
 - **Session** - % complete and time left, the whole workout as zone-coloured blocks with a gliding playhead, avg power, heart rate, cadence and distance.
 - **Balance** - live L/R split from the pedals, a 2-minute balance trace with its average, cadence and power source.
 
-The controls stay at the bottom of every screen: **Start/Pause**, nudge **ERG +/-1%**, reset ERG, and **Skip step** (tap twice to confirm). Keep the Apex tab open on the PC (it can be minimised). Only devices on your private home network are accepted; anything else gets 403. iPhone Safari cannot keep the screen awake over plain http, so set Settings > Display & Brightness > Auto-Lock to Never while riding (or just tap the screen now and then).
+A thin zone-coloured bar of the whole workout sits above the controls on every screen, with a needle showing where you are. The controls stay at the bottom of every screen: **Start/Pause**, nudge **ERG +/-1%**, reset ERG, and **Skip step** (tap twice to confirm). Keep the Apex tab open on the PC (it can be minimised). Only devices on your private home network are accepted; anything else gets 403. iPhone Safari cannot keep the screen awake over plain http, so set Settings > Display & Brightness > Auto-Lock to Never while riding (or just tap the screen now and then).
 
 ## Security & privacy
 
