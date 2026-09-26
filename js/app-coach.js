@@ -51,11 +51,29 @@
 
   Object.assign(VeloApp.prototype, {
     initAiCoachUi() {
-      const modelSelect = document.getElementById('selectClaudeModel');
-      const effortSelect = document.getElementById('selectClaudeEffort');
+      const providerSelect = document.getElementById('selectCoachProvider');
+      const modelSelect = document.getElementById('selectCoachModel');
+      const effortSelect = document.getElementById('selectCoachEffort');
+      const lookbackSelect = document.getElementById('selectAiCoachLookback');
       const generateBtn = document.getElementById('btnGenerateAiCoachRecommendation');
-      if (modelSelect) modelSelect.value = this.aiCoach.modelOverride;
+      if (providerSelect) providerSelect.value = this.aiCoach.provider;
+      this.fillCoachModelOptions();
       if (effortSelect) effortSelect.value = this.aiCoach.effortOverride;
+      if (lookbackSelect) {
+        lookbackSelect.value = String(this.aiCoach.lookbackDays);
+        this.on(lookbackSelect, 'change', () => {
+          const d = this.aiCoach.setLookback(lookbackSelect.value);
+          this.showToast(`Coach will look back ${d} days.`, 'success');
+        });
+      }
+      // Switching provider applies at once (and resets the model to that provider's default).
+      this.on(providerSelect, 'change', () => {
+        this.aiCoach.saveConfig({ provider: providerSelect.value, model: '' });
+        this.fillCoachModelOptions();
+        this.updateCoachEngineStatus();
+        const c = this.aiCoach;
+        this.showToast(c.isLive ? `Coach switched to ${VeloAiCoach.labelFor(c.model)}.` : `${c.providerLabel} selected, but the server has no ${VeloAiCoach.PROVIDERS[c.provider].keyName} yet - see the AI engine card.`, c.isLive ? 'success' : 'warning');
+      });
       try { this.coachGoal = localStorage.getItem('apex_coach_goal') || 'ftp'; } catch (e) { /* ignore */ }
       document.querySelectorAll('#aiCoachGoalPills .goal-pill').forEach(p => {
         p.classList.toggle('active', p.dataset.goal === this.coachGoal);
@@ -67,7 +85,11 @@
       });
 
       this.on(document.getElementById('btnSaveAiCoachConfig'), 'click', () => {
-        this.aiCoach.saveConfig(modelSelect ? modelSelect.value : '', effortSelect ? effortSelect.value : '');
+        this.aiCoach.saveConfig({
+          provider: providerSelect ? providerSelect.value : this.aiCoach.providerOverride,
+          model: modelSelect ? modelSelect.value : '',
+          effort: effortSelect ? effortSelect.value : ''
+        });
         this.updateCoachEngineStatus();
         const m = this.aiCoach.model;
         this.showToast(`Coach set to ${VeloAiCoach.labelFor(m)}${VeloAiCoach.supportsEffort(m) ? `, ${this.aiCoach.effort} effort` : ''}.`, 'success');
@@ -76,7 +98,8 @@
 
       this.on(generateBtn, 'click', async () => {
         const focus = document.getElementById('selectAiCoachFocus')?.value || 'auto';
-        const duration = parseInt(document.getElementById('selectAiCoachDuration')?.value || '45', 10);
+        const durVal = document.getElementById('selectAiCoachDuration')?.value || '45';
+        const duration = durVal === 'auto' ? 'auto' : parseInt(durVal, 10);
         const notes = document.getElementById('inputAiCoachNotes')?.value || '';
         const timerEl = document.getElementById('aiCoachThinkTimer');
         generateBtn.disabled = true;
@@ -129,7 +152,7 @@
         if (sel) sel.value = b.dataset.planFocus === 'endurance-long' ? 'endurance' : b.dataset.planFocus;
         if (dur && b.dataset.planMin) {
           const want = parseInt(b.dataset.planMin, 10);
-          const opts = Array.from(dur.options).map(o => parseInt(o.value, 10));
+          const opts = Array.from(dur.options).map(o => parseInt(o.value, 10)).filter(Number.isFinite);
           dur.value = String(opts.reduce((a, c) => (Math.abs(c - want) < Math.abs(a - want) ? c : a), opts[0]));
         }
         window.scrollTo({ top: 0, behavior: 'smooth' });
@@ -155,37 +178,61 @@
         closePreview();
       });
       this.updateCoachEngineStatus();
+      if (this.initTrainingBlockUi) this.initTrainingBlockUi();
       this.refreshCoachEngine(false);
     },
 
-    /** Re-reads the local server's status (key present, default model) and updates the UI. */
+    /** Fills the model list for the chosen provider ("Default" = the server's default for that provider). */
+    fillCoachModelOptions() {
+      const sel = document.getElementById('selectCoachModel');
+      if (!sel) return;
+      const c = this.aiCoach;
+      const p = c.provider;
+      const ep = c.engine.providers && c.engine.providers[p];
+      const def = (ep && ep.model) || VeloAiCoach.PROVIDERS[p].defaultModel;
+      const opts = [`<option value="">Default (${esc(VeloAiCoach.labelFor(def))})</option>`]
+        .concat(VeloAiCoach.modelsFor(p).map(id => `<option value="${esc(id)}">${esc(VeloAiCoach.labelFor(id))}</option>`));
+      sel.innerHTML = opts.join('');
+      sel.value = c.modelOverride && VeloAiCoach.providerOf(c.modelOverride) === p ? c.modelOverride : '';
+    },
+
+    /** Re-reads the local server's status (which keys are present, default models) and updates the UI. */
     async refreshCoachEngine(announce) {
       await this.aiCoach.detectEngine();
+      const providerSelect = document.getElementById('selectCoachProvider');
+      if (providerSelect) providerSelect.value = this.aiCoach.provider;
+      this.fillCoachModelOptions();
       this.updateCoachEngineStatus();
       if (!announce) return;
-      const e = this.aiCoach.engine;
-      if (this.aiCoach.isLive) this.showToast(`Claude ready - ${VeloAiCoach.labelFor(this.aiCoach.model)}.`, 'success');
-      else if (e.reachable) this.showToast('Server found, but no API key yet. Add it to .env and restart Launch-Apex-Velo.bat.', 'warning');
-      else this.showToast('Local server not running - open the app with Launch-Apex-Velo.bat to use Claude.', 'warning');
+      const c = this.aiCoach;
+      if (c.isLive) this.showToast(`${c.providerLabel} ready - ${VeloAiCoach.labelFor(c.model)}.`, 'success');
+      else if (c.engine.reachable) this.showToast(`Server found, but no ${VeloAiCoach.PROVIDERS[c.provider].keyName} yet. Add it to .env and restart Launch-Apex-Velo.bat.`, 'warning');
+      else this.showToast(`Local server not running - open the app with Launch-Apex-Velo.bat to use ${c.providerLabel}.`, 'warning');
     },
 
     updateCoachEngineStatus() {
+      const bl = document.getElementById('btnBuildBlockLabel');
+      if (bl) bl.textContent = this.aiCoach.isLive ? `Build block with ${VeloAiCoach.labelFor(this.aiCoach.model)}` : 'Build block (built-in engine)';
       const el = document.getElementById('aiCoachEngineStatus');
       const detail = document.getElementById('aiCoachEngineDetail');
       const c = this.aiCoach;
       const m = c.model;
+      const pLabel = c.providerLabel;
+      const keyName = VeloAiCoach.PROVIDERS[c.provider].keyName;
       const modelText = `${VeloAiCoach.labelFor(m)}${VeloAiCoach.supportsEffort(m) ? ` - ${c.effort} effort` : ''}`;
       const state = c.isLive ? 'live' : c.engine.reachable ? 'warn' : '';
       if (el) {
         el.className = `engine-pill ${state}`;
-        el.innerHTML = `<span class="status-indicator-dot"></span>${c.isLive ? esc(modelText) : c.engine.reachable ? 'Claude: API key missing' : 'Offline physiology engine'}`;
+        el.innerHTML = `<span class="status-indicator-dot"></span>${c.isLive ? esc(modelText) : c.engine.reachable ? `${esc(pLabel)}: API key missing` : 'Offline physiology engine'}`;
       }
       if (detail) {
+        const keys = Object.entries(c.engine.providers || {})
+          .map(([, p]) => `${esc(p.label)} ${p.configured ? 'key found' : 'no key'}`).join(' &middot; ');
         detail.innerHTML = c.isLive
-          ? `<strong>Connected.</strong> Requests go to ${esc(modelText)} through the local server. Server default: ${esc(VeloAiCoach.labelFor(c.engine.model))}, ${esc(c.engine.effort)} effort.`
+          ? `<strong>Connected.</strong> Requests go to ${esc(modelText)} through the local server. <span style="opacity:.7">(${keys})</span>`
           : c.engine.reachable
-            ? '<strong>No API key.</strong> Paste your Anthropic key after <code>ANTHROPIC_API_KEY=</code> in the <code>.env</code> file, then restart <code>Launch-Apex-Velo.bat</code>.'
-            : '<strong>Local server not running.</strong> Open the app with <code>Launch-Apex-Velo.bat</code> (it serves the app and holds your key). Until then the offline engine is used.';
+            ? `<strong>No ${esc(pLabel)} API key.</strong> Paste your key after <code>${keyName}=</code> in the <code>.env</code> file, then restart <code>Launch-Apex-Velo.bat</code>. <span style="opacity:.7">(${keys})</span>`
+            : '<strong>Local server not running.</strong> Open the app with <code>Launch-Apex-Velo.bat</code> (it serves the app and holds your keys). Until then the offline engine is used.';
       }
     },
 
@@ -260,7 +307,8 @@
       const src = document.getElementById('aiCoachSourceBadge');
       if (src) {
         const goal = VeloAiCoach.GOALS[rec.goal] ? VeloAiCoach.GOALS[rec.goal].label : '';
-        src.textContent = `${rec.source === 'claude' ? (rec.modelLabel || VeloAiCoach.labelFor(rec.model)) : 'Offline engine'}${goal ? ' - ' + goal : ''}`;
+        const who = rec.source && rec.source !== 'offline_heuristic' ? (rec.modelLabel || VeloAiCoach.labelFor(rec.model)) : 'Offline engine';
+        src.textContent = `${who}${goal ? ' - ' + goal : ''}${rec.lookbackDays ? ` - ${rec.lookbackDays} d history` : ''}`;
       }
       this.setText('aiCoachDiagnosisText', a.fitnessDiagnosis || '--');
       this.setText('aiCoachFatigueText', a.fatigueStatus || '--');

@@ -1,12 +1,12 @@
 # APEX VELO LAB v3
 
-> Indoor cycling cockpit, AI workout builder and training-analytics dashboard in one HTML app, served by a small local server that also holds your Claude API key.
+> Indoor cycling cockpit, AI workout builder and training-analytics dashboard in one HTML app, served by a small local server that also holds your Claude and/or Gemini API key.
 > Built for Divan (185 W FTP baseline, 75 kg, 175 max HR) with Favero Assioma DUO-Shi pedals and a Wahoo KICKR SHIFT.
 
 ## Quick start
 
 1. Double-click **`Launch-Apex-Velo.bat`**. It needs no installs; it runs `start_server.ps1` with Windows PowerShell.
-2. On the first run it creates `.env` and opens it in Notepad. Paste your Anthropic API key after `ANTHROPIC_API_KEY=`, save, and close Notepad. Chrome then opens at `http://localhost:8080`. Web Bluetooth needs localhost or HTTPS, so use Chrome or Edge.
+2. On the first run it creates `.env` and opens it in Notepad. Paste your Anthropic API key after `ANTHROPIC_API_KEY=` and/or your Google Gemini key after `GEMINI_API_KEY=`, save, and close Notepad. Chrome then opens at `http://localhost:8080`. Web Bluetooth needs localhost or HTTPS, so use Chrome or Edge.
 3. Pair the devices from **Hardware Lab** (the drawer in the header): pedals, trainer and heart-rate strap.
 4. To run the test suite, open `http://localhost:8080/test_suite.html`. It should end with `COMPLETED` and 0 failures. The tests run the app in an isolated test mode (in-memory settings and a separate test database), so they never touch your recorded rides.
 
@@ -14,12 +14,26 @@ Keep the port at 8080. The browser stores your rides and settings per address, s
 
 ## AI Coach engine and your API key
 
-- The local server serves the app and forwards coach requests from `/api/coach` to the Claude API. It reads the key from `.env`, or from an `ANTHROPIC_API_KEY` environment variable, which takes priority. The key never reaches the browser, is never written to `localStorage`, and `.env` is never served.
+- The local server serves the app and forwards coach requests from `/api/coach` to the Claude API or the Gemini API. It reads the keys from `.env`, or from `ANTHROPIC_API_KEY` / `GEMINI_API_KEY` environment variables, which take priority. Keys never reach the browser, is never written to `localStorage`, and `.env` is never served.
 - `.env` is listed in `.gitignore`. If you prefer not to keep the key in a file, set it as a Windows user environment variable (`setx ANTHROPIC_API_KEY "sk-ant-..."`, then open a new window) and leave the `.env` line empty.
-- The default is **Claude Opus 5.5 at low effort**, with adaptive thinking and a summarised reasoning trace shown in the app. Change it for every browser in `.env` (`APEX_COACH_MODEL`, `APEX_COACH_EFFORT`), or per browser in **Coach > Claude engine**. Sonnet 5 costs about half as much; Haiku 4.5 is the fastest option.
+- **Choose Claude or Gemini** in **Coach > AI engine** (provider, model, effort; saved per browser), or set the default for every browser in `.env` (`APEX_COACH_PROVIDER`, `APEX_COACH_MODEL`, `APEX_GEMINI_MODEL`, `APEX_COACH_EFFORT`). The Claude default is **Opus 5.5 at low effort** with adaptive thinking; Sonnet 5 costs about half as much and Haiku 4.5 is the fastest. The Gemini default is **Gemini 3.8 Flash**; 3.1 Pro (preview) and 3.1 Flash-Lite are also offered, and effort sets Gemini's thinking level. Both show a summarised reasoning trace.
+- **Time available: Auto** lets the coach choose the most effective session length (30-150 min) from the session type, your goal, form and usual ride length; the offline engine and Claude/Gemini both explain the choice.
+- **History look-back** (Coach > Session request: 7, 14, 28, 42 or 90 days) sets how far back the coach reviews rides, volume and intensity mix. Each ride in the window is listed (the 30 most recent at most), so the prompt stays small. Fitness, fatigue and form (CTL/ATL/TSB) are always computed on your PC from your full history.
 - The server listens on localhost only. It accepts API calls only from pages it served (it checks Host and Origin and requires a JSON content type), so other websites cannot use your key.
 - Without a key, the coach falls back to the offline engine and says so in the status pill.
 - `server.js` is an equivalent Node.js server (`node server.js --open`) for machines without Windows PowerShell. It reads the same `.env` and exposes the same API.
+
+## Training blocks (periodised plans)
+
+In **AI Coach > Training block**, pick a goal, a length (4-12 weeks), a start date, your hours per week, the days you can ride and a long-ride day. The coach builds a periodised block:
+
+- **3 load weeks + 1 recovery week** (about 45% less load, a short key session kept), and a final lighter week that ends with a **ramp test** to reset FTP and zones.
+- **Progressive overload by a controlled CTL ramp** (3-4 CTL per load week by goal, none in the first week if you start fatigued). Volume grows toward your available hours instead of jumping to them.
+- **Phase progression per goal**, e.g. Raise FTP: SweetSpot foundation -> threshold build -> threshold + VO2 peak.
+- **1-3 key sessions a week** (at most 2 while CTL is under 30), never on consecutive days (also across weeks) and never the day after the long ride; the other rides are easy, so most of the time stays in Zone 1-2.
+- With Claude or Gemini connected, the model designs the periodisation (week types, phases, weekly load, key-session types) and its reasoning is shown. The app always places the sessions on your days and enforces the rules above, and clamps the weekly load to a safe ramp. Without a key, the built-in engine plans the block on its own.
+
+The sessions appear on the **Calendar** (dashed cards with a **Load** button that builds the interval workout for your FTP), and the block card shows planned vs done TSS per week and this week's sessions. **After every ride** (and after imports or syncs) the plan is re-checked against what you actually rode: sessions are marked done or missed, and the coach suggests adjustments that change nothing until you press **Apply**: move a missed key session to a safe day, ease the next key session when form (TSB) is below -25, shorten the next ride after a week well over plan, lighten the week after low consistency, or extend a key session when you are fresh and consistent. **Re-plan from today** rebuilds the remaining weeks with your current fitness and keeps the completed weeks. The block is stored in this browser.
 
 ## Send rides to Strava
 
@@ -84,7 +98,7 @@ A thin zone-coloured bar of the whole workout sits above the controls on every s
 ### AI workout builder
 - **Goals:** FTP, Longevity (Z2/durability), VO2max and Balanced.
 - **Context from your real history.** 28-day hours per week, intensity mix, CTL/ATL/TSB, days since the last hard and last long ride, and a power-profile type from your all-time MMP curve. Free-text notes are passed through as well.
-- **Claude (Opus 5.5, low effort by default).** The summarised reasoning trace is rendered as markdown with a live timer, alongside phase cards and a 7-day plan that ramps CTL, drops the ramp to 0 when fatigued and never stacks hard days within 48 h. Click a day of the plan to pre-fill the request.
+- **Claude or Gemini (Claude Opus 5.5, low effort by default).** The summarised reasoning trace is rendered as markdown with a live timer, alongside phase cards and a 7-day plan that ramps CTL, drops the ramp to 0 when fatigued and never stacks hard days within 48 h. Click a day of the plan to pre-fill the request.
 - **Offline engine.** Builds a workout sized to the requested duration: sweet-spot blocks, threshold under/overs, 4×4 VO2 or Rønnestad 30/15. IF and TSS are computed from the intervals, not estimated.
 - **One-click load** into the cockpit, and **Clear Recommendation**.
 
@@ -102,9 +116,9 @@ A thin zone-coloured bar of the whole workout sits above the controls on every s
 ```
 index.html            App shell, SVG icon sprite, all views
 Launch-Apex-Velo.bat  Double-click launcher (creates .env, asks for the key once, starts the server)
-start_server.ps1      Local server (PowerShell): static files, /api/coach (Claude) and /api/strava/* (keys stay here)
+start_server.ps1      Local server (PowerShell): static files, /api/coach (Claude / Gemini) and /api/strava/* (keys stay here)
 server.js             Same server for Node.js (optional)
-.env.example          Template for .env (API key, coach model/effort, port)
+.env.example          Template for .env (API keys, coach provider/model/effort, port)
 css/style.css         Design system (obsidian/slate tokens, glass surfaces, responsive breakpoints)
 sw.js                 Network-first service worker (cache apex-velo-cache-v4, never caches /api/)
 data/                 divan_cycling_history.json/.js - HealthFit archive + all-time MMP
@@ -118,7 +132,8 @@ js/
   velo-progress.js    Weekly aggregates, KPIs, records, coach profile
   velo-importer.js    FIT / TCX / CSV import (recorded channels only)
   velo-export.js      FIT / TCX / CSV export
-  velo-ai-coach.js    Goals, context, offline engine, week plan, Claude prompt
+  velo-ai-coach.js    Goals, context, offline engine, week plan, Claude/Gemini prompt
+  velo-block-planner.js  Training blocks: periodisation, session placement, post-ride review
   velo-ai-architect.js, velo-workouts.js  Workout library and builder
   velo-biomech.js     HiDPI biomech canvas with spring animation
   velo-sound.js, velo-pip.js, velo-folder-sync.js
@@ -126,6 +141,7 @@ js/
   app-analytics.js    PMC, MMP, progression and biomech charts (mixin)
   app-history.js      History, ride review, exports, calendar (mixin)
   app-coach.js        Coach UI and markdown renderer (mixin)
+  app-block.js        Training block UI and planned sessions on the calendar (mixin)
   app-strava.js       Send to Strava: upload, status per ride, workout image (mixin)
 test_suite.html       In-browser test suite
 ```
@@ -172,7 +188,7 @@ The mixins extend `VeloApp.prototype` with `Object.assign` and load after `app.j
 
 ## Tests
 
-Open `test_suite.html`. It covers metrics, a FIT CRC round-trip, TCX/CSV round-trips, summary-only exports, the CPS 0x0C command, BLE reconnect with a fake device, write serialisation, PMC ranges, progression, the MMP scrub, the AI goals and week plan, Zen thresholds, resource lifecycle, the clock, calendar bucketing and the device badges. It also checks the Claude path with a mocked `/api/coach` (request shape, reasoning parsing, fallback) and that no API key is stored in the browser. It also checks Polar H10 contact handling, first-connect retries, that a real ride never falls back to simulator data, and that the tests leave your real storage untouched. It also checks the Send to Strava flow with a mocked Strava (upload, processing, sent link, failure, history chip, workout image, and matching rides that already exist on Strava). The current result is **72 passed, 0 failed**.
+Open `test_suite.html`. It covers metrics, a FIT CRC round-trip, TCX/CSV round-trips, summary-only exports, the CPS 0x0C command, BLE reconnect with a fake device, write serialisation, PMC ranges, progression, the MMP scrub, the AI goals and week plan, Zen thresholds, resource lifecycle, the clock, calendar bucketing and the device badges. It also checks the Claude path with a mocked `/api/coach` (request shape, reasoning parsing, fallback), switching between Claude and Gemini, auto session duration, the history look-back window, training blocks (3:1 structure, 48 h between key sessions, hours respected, calendar cards, post-ride adjustments), and that no API key is stored in the browser. It also checks Polar H10 contact handling, first-connect retries, that a real ride never falls back to simulator data, and that the tests leave your real storage untouched. It also checks the Send to Strava flow with a mocked Strava (upload, processing, sent link, failure, history chip, workout image, and matching rides that already exist on Strava). The suite has 75 checks.
 
 ## License
 
