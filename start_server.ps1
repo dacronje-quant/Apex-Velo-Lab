@@ -1,9 +1,9 @@
-# APEX VELO LAB - local web server + Claude coach proxy (Windows PowerShell 5.1 or PowerShell 7).
+# APEX VELO LAB - local web server + AI coach proxy (Windows PowerShell 5.1 or PowerShell 7).
 #
 # - Serves the app on http://localhost:8080 (a secure context, so Web Bluetooth works).
-# - Forwards AI Coach requests from /api/coach to the Claude API. The API key is read here,
-#   from the ANTHROPIC_API_KEY environment variable or the .env file next to this script.
-#   It is never sent to the browser, and .env is never served.
+# - Forwards AI Coach requests from /api/coach to the Claude API or the Gemini API. The API keys
+#   are read here, from the ANTHROPIC_API_KEY / GEMINI_API_KEY environment variables or the .env
+#   file next to this script. They are never sent to the browser, and .env is never served.
 # Keep the port stable: the browser stores your rides and settings per address (localhost:8080).
 
 $ErrorActionPreference = 'Stop'
@@ -11,6 +11,7 @@ $root = [System.IO.Path]::GetFullPath($PSScriptRoot)
 
 # ------------------------------------------------------------------ config --
 $keyFromEnvironment = -not [string]::IsNullOrWhiteSpace($env:ANTHROPIC_API_KEY)
+$geminiKeyFromEnvironment = -not [string]::IsNullOrWhiteSpace($env:GEMINI_API_KEY)
 $settings = @{}
 $envFile = Join-Path $root '.env'
 if (Test-Path $envFile -PathType Leaf) {
@@ -33,28 +34,50 @@ function Get-Setting([string]$name, [string]$default) {
     return $default
 }
 
+# Models the coach may use. Haiku 4.5 has no adaptive thinking or effort, so it uses a fixed thinking budget.
+# For Gemini the effort setting maps to thinkingLevel (low / medium / high).
 $models = [ordered]@{
-    'claude-opus-5-5'           = @{ label = 'Claude Opus 5.5';  adaptive = $true }
-    'claude-sonnet-5'           = @{ label = 'Claude Sonnet 5';  adaptive = $true }
-    'claude-haiku-4-5-20251001' = @{ label = 'Claude Haiku 4.5'; adaptive = $false }
+    'claude-opus-5-5'           = @{ label = 'Claude Opus 5.5';          provider = 'claude'; adaptive = $true }
+    'claude-sonnet-5'           = @{ label = 'Claude Sonnet 5';          provider = 'claude'; adaptive = $true }
+    'claude-haiku-4-5-20251001' = @{ label = 'Claude Haiku 4.5';         provider = 'claude'; adaptive = $false }
+    'gemini-3.8-flash'          = @{ label = 'Gemini 3.8 Flash';         provider = 'gemini'; adaptive = $true }
+    'gemini-3.1-pro-preview'    = @{ label = 'Gemini 3.1 Pro (preview)'; provider = 'gemini'; adaptive = $true }
+    'gemini-3.1-flash-lite'     = @{ label = 'Gemini 3.1 Flash-Lite';    provider = 'gemini'; adaptive = $true }
+}
+$providers = [ordered]@{
+    'claude' = @{ label = 'Claude'; keyName = 'ANTHROPIC_API_KEY'; fallbackModel = 'claude-opus-5-5' }
+    'gemini' = @{ label = 'Gemini'; keyName = 'GEMINI_API_KEY';    fallbackModel = 'gemini-3.8-flash' }
 }
 $efforts = @('low', 'medium', 'high')
 
 # A key set as an environment variable wins over .env; the APEX_* settings come from .env.
 $apiKey = if ($keyFromEnvironment) { $env:ANTHROPIC_API_KEY.Trim() } else { (Get-Setting 'ANTHROPIC_API_KEY' '').Trim() }
-$defaultModel = Get-Setting 'APEX_COACH_MODEL' 'claude-opus-5-5'
-if (-not $models.Contains($defaultModel)) { $defaultModel = 'claude-opus-5-5' }
+$geminiKey = if ($geminiKeyFromEnvironment) { $env:GEMINI_API_KEY.Trim() } else { (Get-Setting 'GEMINI_API_KEY' '').Trim() }
+$keys = @{ claude = $apiKey; gemini = $geminiKey }
+function Select-Model([string]$id, [string]$provider) {
+    if ($models.Contains($id) -and $models[$id].provider -eq $provider) { return $id }
+    return $providers[$provider].fallbackModel
+}
+$defaultModels = @{
+    claude = Select-Model (Get-Setting 'APEX_COACH_MODEL' '') 'claude'
+    gemini = Select-Model (Get-Setting 'APEX_GEMINI_MODEL' '') 'gemini'
+}
+# Default provider: APEX_COACH_PROVIDER if set, otherwise whichever has a key (Claude first).
+$defaultProvider = Get-Setting 'APEX_COACH_PROVIDER' ''
+if (-not $providers.Contains($defaultProvider)) { $defaultProvider = if ($apiKey -eq '' -and $geminiKey -ne '') { 'gemini' } else { 'claude' } }
+$defaultModel = $defaultModels[$defaultProvider]
 $defaultEffort = Get-Setting 'APEX_COACH_EFFORT' 'low'
 if ($efforts -notcontains $defaultEffort) { $defaultEffort = 'low' }
 $port = [int](Get-Setting 'APEX_PORT' '8080')
 $apiBase = (Get-Setting 'APEX_ANTHROPIC_BASE_URL' 'https://api.anthropic.com').TrimEnd('/')
+$geminiBase = (Get-Setting 'APEX_GEMINI_BASE_URL' 'https://generativelanguage.googleapis.com').TrimEnd('/')
 $maxBodyBytes = 256KB
 
 $systemPrompt = "You are an elite cycling coach and exercise physiologist. You prescribe structured indoor ERG sessions " +
     "from the rider's real training data. Be specific and evidence-based, never invent data that is not in the request, " +
     "and reply with exactly the JSON object requested - no prose before or after it."
 
-# HTTP client for the Claude API (TLS 1.2+ is required; older .NET defaults may not enable it).
+# HTTP client for the Claude and Gemini APIs (TLS 1.2+ is required; older .NET defaults may not enable it).
 Add-Type -AssemblyName System.Net.Http
 try { [System.Net.ServicePointManager]::SecurityProtocol = [System.Net.ServicePointManager]::SecurityProtocol -bor [System.Net.SecurityProtocolType]::Tls12 } catch { }
 $http = New-Object System.Net.Http.HttpClient
@@ -135,14 +158,52 @@ function Invoke-LiveCmd($request, $response) {
 
 function Get-StatusObject {
     $list = @()
-    foreach ($id in $models.Keys) { $list += [ordered]@{ id = $id; label = $models[$id].label; effort = $models[$id].adaptive } }
-    return [ordered]@{ provider = 'claude'; configured = ($apiKey -ne ''); model = $defaultModel; effort = $defaultEffort; models = $list; efforts = $efforts }
+    foreach ($id in $models.Keys) { $list += [ordered]@{ id = $id; label = $models[$id].label; provider = $models[$id].provider; effort = $models[$id].adaptive } }
+    $prov = [ordered]@{}
+    foreach ($id in $providers.Keys) { $prov[$id] = [ordered]@{ label = $providers[$id].label; configured = ($keys[$id] -ne ''); model = $defaultModels[$id] } }
+    return [ordered]@{ provider = $defaultProvider; providers = $prov; configured = ($keys[$defaultProvider] -ne ''); model = $defaultModel; effort = $defaultEffort; models = $list; efforts = $efforts }
+}
+
+function New-ClaudeMessage([string]$prompt, [string]$model, [string]$effort) {
+    $req = [ordered]@{
+        model      = $model
+        max_tokens = 16000
+        system     = $systemPrompt
+        messages   = @(@{ role = 'user'; content = $prompt })
+    }
+    if ($models[$model].adaptive) {
+        $req.thinking = [ordered]@{ type = 'adaptive'; display = 'summarized' }
+        $req.output_config = @{ effort = $effort }
+    } else {
+        $req.thinking = [ordered]@{ type = 'enabled'; budget_tokens = 4000 }
+    }
+    $msg = New-Object System.Net.Http.HttpRequestMessage([System.Net.Http.HttpMethod]::Post, "$apiBase/v1/messages")
+    $msg.Headers.Add('x-api-key', $apiKey)
+    $msg.Headers.Add('anthropic-version', '2023-06-01')
+    $msg.Content = New-Object System.Net.Http.StringContent(($req | ConvertTo-Json -Depth 8 -Compress), $utf8, 'application/json')
+    return $msg
+}
+
+function New-GeminiMessage([string]$prompt, [string]$model, [string]$effort) {
+    $req = [ordered]@{
+        systemInstruction = @{ parts = @(@{ text = $systemPrompt }) }
+        contents          = @(@{ role = 'user'; parts = @(@{ text = $prompt }) })
+        generationConfig  = [ordered]@{
+            maxOutputTokens  = 16000
+            responseMimeType = 'application/json'
+            thinkingConfig   = [ordered]@{ thinkingLevel = $effort; includeThoughts = $true }
+        }
+    }
+    $url = "$geminiBase/v1beta/models/$([System.Uri]::EscapeDataString($model)):generateContent"
+    $msg = New-Object System.Net.Http.HttpRequestMessage([System.Net.Http.HttpMethod]::Post, $url)
+    $msg.Headers.Add('x-goog-api-key', $geminiKey)
+    $msg.Content = New-Object System.Net.Http.StringContent(($req | ConvertTo-Json -Depth 10 -Compress), $utf8, 'application/json')
+    return $msg
 }
 
 function Invoke-Coach($request, $response) {
     if (-not (Test-LocalRequest $request)) { return Send-Json $response 403 @{ error = 'Requests are only accepted from the app on localhost.' } }
     if ($request.ContentType -notmatch '^application/json\b') { return Send-Json $response 415 @{ error = 'Content-Type must be application/json.' } }
-    if ($apiKey -eq '') { return Send-Json $response 503 @{ error = 'No Anthropic API key. Add ANTHROPIC_API_KEY to the .env file and restart Launch-Apex-Velo.bat.' } }
     if ($request.ContentLength64 -gt $maxBodyBytes) { return Send-Json $response 413 @{ error = 'Request too large' } }
 
     $reader = New-Object System.IO.StreamReader($request.InputStream, $utf8)
@@ -151,28 +212,19 @@ function Invoke-Coach($request, $response) {
     try { $payload = $bodyText | ConvertFrom-Json } catch { return Send-Json $response 400 @{ error = 'Invalid JSON.' } }
     $prompt = if ($payload.prompt -is [string]) { $payload.prompt } else { '' }
     if ($prompt.Trim() -eq '' -or $prompt.Length -gt 100000) { return Send-Json $response 400 @{ error = 'A prompt of 1-100000 characters is required.' } }
-    $model = if ($payload.model -is [string] -and $models.Contains($payload.model)) { $payload.model } else { $defaultModel }
+    # The model decides the provider; without a (known) model, use the requested or default provider's default model.
+    $knownModel = ($payload.model -is [string]) -and $models.Contains($payload.model)
+    if ($knownModel) { $model = $payload.model; $provider = $models[$model].provider }
+    else {
+        $provider = if ($payload.provider -is [string] -and $providers.Contains($payload.provider)) { $payload.provider } else { $defaultProvider }
+        $model = $defaultModels[$provider]
+    }
     $effort = if ($payload.effort -is [string] -and $efforts -contains $payload.effort) { $payload.effort } else { $defaultEffort }
     $adaptive = $models[$model].adaptive
+    $pLabel = $providers[$provider].label
+    if ($keys[$provider] -eq '') { return Send-Json $response 503 @{ error = "No $pLabel API key. Add $($providers[$provider].keyName) to the .env file and restart Launch-Apex-Velo.bat." } }
 
-    $req = [ordered]@{
-        model      = $model
-        max_tokens = 16000
-        system     = $systemPrompt
-        messages   = @(@{ role = 'user'; content = $prompt })
-    }
-    if ($adaptive) {
-        $req.thinking = [ordered]@{ type = 'adaptive'; display = 'summarized' }
-        $req.output_config = @{ effort = $effort }
-    } else {
-        $req.thinking = [ordered]@{ type = 'enabled'; budget_tokens = 4000 }
-    }
-    $json = $req | ConvertTo-Json -Depth 8 -Compress
-
-    $msg = New-Object System.Net.Http.HttpRequestMessage([System.Net.Http.HttpMethod]::Post, "$apiBase/v1/messages")
-    $msg.Headers.Add('x-api-key', $apiKey)
-    $msg.Headers.Add('anthropic-version', '2023-06-01')
-    $msg.Content = New-Object System.Net.Http.StringContent($json, $utf8, 'application/json')
+    $msg = if ($provider -eq 'gemini') { New-GeminiMessage $prompt $model $effort } else { New-ClaudeMessage $prompt $model $effort }
     $sw = [System.Diagnostics.Stopwatch]::StartNew()
     try {
         $upstream = $http.SendAsync($msg).GetAwaiter().GetResult()
@@ -182,8 +234,8 @@ function Invoke-Coach($request, $response) {
         while ($inner.InnerException) { $inner = $inner.InnerException }
         $timedOut = ($inner -is [System.Threading.Tasks.TaskCanceledException]) -or ($inner -is [System.TimeoutException])
         Write-Host "[coach] $model $(if ($timedOut) { 'timed out' } else { 'request failed: ' + $inner.Message })" -ForegroundColor Yellow
-        if ($timedOut) { return Send-Json $response 504 @{ error = 'Claude did not answer in time.' } }
-        return Send-Json $response 502 @{ error = "Could not reach the Claude API ($($inner.Message))." }
+        if ($timedOut) { return Send-Json $response 504 @{ error = "$pLabel did not answer in time." } }
+        return Send-Json $response 502 @{ error = "Could not reach the $pLabel API ($($inner.Message))." }
     } finally { $msg.Dispose() }
 
     $data = $null
@@ -192,19 +244,43 @@ function Invoke-Coach($request, $response) {
     if (-not $upstream.IsSuccessStatusCode) {
         $err = if ($data -and $data.error -and $data.error.message) { $data.error.message } else { "HTTP $code" }
         Write-Host "[coach] $model failed: $code $err" -ForegroundColor Yellow
-        return Send-Json $response 502 @{ error = "Claude API error ${code}: $err"; upstreamStatus = $code }
+        return Send-Json $response 502 @{ error = "$pLabel API error ${code}: $err"; upstreamStatus = $code }
     }
+
     $outText = ''; $thinking = @()
-    foreach ($b in @($data.content)) {
-        if ($b.type -eq 'text') { $outText += $b.text }
-        elseif ($b.type -eq 'thinking' -and $b.thinking) { $thinking += $b.thinking }
+    if ($provider -eq 'gemini') {
+        $cand = if ($data -and $data.candidates) { @($data.candidates)[0] } else { $null }
+        if (-not $cand) {
+            $why = if ($data -and $data.promptFeedback -and $data.promptFeedback.blockReason) { $data.promptFeedback.blockReason } else { 'no answer' }
+            Write-Host "[coach] $model returned no candidates ($why)" -ForegroundColor Yellow
+            return Send-Json $response 502 @{ error = "Gemini returned no answer ($why)." }
+        }
+        foreach ($part in @($cand.content.parts)) {
+            if ($null -eq $part -or -not ($part.text -is [string])) { continue }
+            if ($part.thought) { $thinking += $part.text } else { $outText += $part.text }
+        }
+        $um = $data.usageMetadata
+        $inTok = if ($um -and $um.promptTokenCount) { [int]$um.promptTokenCount } else { 0 }
+        $outTok = 0
+        if ($um -and $um.candidatesTokenCount) { $outTok += [int]$um.candidatesTokenCount }
+        if ($um -and $um.thoughtsTokenCount) { $outTok += [int]$um.thoughtsTokenCount }
+        $stop = if ($cand.finishReason -eq 'MAX_TOKENS') { 'max_tokens' } else { ([string]$cand.finishReason).ToLower() }
+        $modelOut = if ($data.modelVersion) { $data.modelVersion } else { $model }
+    } else {
+        foreach ($b in @($data.content)) {
+            if ($b.type -eq 'text') { $outText += $b.text }
+            elseif ($b.type -eq 'thinking' -and $b.thinking) { $thinking += $b.thinking }
+        }
+        $inTok = if ($data.usage -and $data.usage.input_tokens) { [int]$data.usage.input_tokens } else { 0 }
+        $outTok = if ($data.usage -and $data.usage.output_tokens) { [int]$data.usage.output_tokens } else { 0 }
+        $stop = $data.stop_reason
+        $modelOut = if ($data.model) { $data.model } else { $model }
     }
-    $usage = if ($data.usage) { $data.usage } else { @{} }
+    $usage = [ordered]@{ input_tokens = $inTok; output_tokens = $outTok }
     $shownEffort = if ($adaptive) { $effort } else { $null }
     $mode = if ($adaptive) { $effort } else { 'budget' }
-    Write-Host ("[coach] {0} ({1}) {2:N1} s, {3} in / {4} out tokens, stop={5}" -f $model, $mode, $sw.Elapsed.TotalSeconds, $usage.input_tokens, $usage.output_tokens, $data.stop_reason)
-    $modelOut = if ($data.model) { $data.model } else { $model }
-    return Send-Json $response 200 ([ordered]@{ text = $outText; thinking = ($thinking -join "`n`n"); model = $modelOut; effort = $shownEffort; stopReason = $data.stop_reason; usage = $usage })
+    Write-Host ("[coach] {0} ({1}) {2:N1} s, {3} in / {4} out tokens, stop={5}" -f $modelOut, $mode, $sw.Elapsed.TotalSeconds, $inTok, $outTok, $stop)
+    return Send-Json $response 200 ([ordered]@{ text = $outText; thinking = ($thinking -join "`n`n"); provider = $provider; model = $modelOut; effort = $shownEffort; stopReason = $stop; usage = $usage })
 }
 
 # ------------------------------------------------------------------ Strava --
@@ -495,10 +571,21 @@ if ($lanEnabled) {
 }
 if ($apiKey -ne '') {
     $src = if ($keyFromEnvironment) { 'the ANTHROPIC_API_KEY environment variable' } else { '.env' }
-    $eff = if ($models[$defaultModel].adaptive) { ", $defaultEffort effort" } else { '' }
-    Write-Host "  AI Coach: $($models[$defaultModel].label)$eff (key from $src)" -ForegroundColor White
+    Write-Host "  AI Coach - Claude: ready (key from $src)" -ForegroundColor White
 } else {
-    Write-Host "  AI Coach: no API key - add ANTHROPIC_API_KEY to .env to enable Claude." -ForegroundColor Yellow
+    Write-Host "  AI Coach - Claude: no ANTHROPIC_API_KEY in .env" -ForegroundColor DarkGray
+}
+if ($geminiKey -ne '') {
+    $src = if ($geminiKeyFromEnvironment) { 'the GEMINI_API_KEY environment variable' } else { '.env' }
+    Write-Host "  AI Coach - Gemini: ready (key from $src)" -ForegroundColor White
+} else {
+    Write-Host "  AI Coach - Gemini: no GEMINI_API_KEY in .env" -ForegroundColor DarkGray
+}
+if ($keys[$defaultProvider] -ne '') {
+    $eff = if ($models[$defaultModel].adaptive) { ", $defaultEffort effort" } else { '' }
+    Write-Host "  AI Coach default: $($models[$defaultModel].label)$eff (switch in the app's AI engine card)" -ForegroundColor White
+} else {
+    Write-Host "  AI Coach: no API key for the default provider - add one to .env. The offline engine still works." -ForegroundColor Yellow
 }
 if ($stravaClientId -ne '' -and $stravaClientSecret -ne '') {
     $st = Get-StravaStatus
