@@ -161,24 +161,29 @@ class VeloProgress {
   }
 
   /**
-   * Compact history profile used by the AI Coach (both the offline engine and the Claude prompt).
+   * Compact history profile used by the AI Coach (both the offline engine and the AI prompt).
+   * windowDays is the coach's look-back: the "window" fields (volume, intensity mix, longest ride)
+   * cover that many days. The *28 fields always cover 28 days for the fixed UI chips.
    */
-  static coachProfile(rides, ftp, now = new Date()) {
+  static coachProfile(rides, ftp, now = new Date(), windowDays = 28) {
     const list = VeloProgress.validRides(rides);
     const dayMs = 86400000;
+    const win = Math.max(1, Math.round(Number(windowDays) || 28));
     const since = (days) => list.filter(r => now - new Date(r.date) <= days * dayMs);
     const last28 = since(28);
     const last7 = since(7);
+    const lastWin = since(win);
     const hours = (arr) => arr.reduce((a, r) => a + (Number(r.duration) || 0), 0) / 3600;
-    const mix28 = VeloProgress.intensityMix(last28);
-    const totalKnown = mix28.bands.reduce((a, b) => a + b.hours, 0);
-    const pct = (keys) => totalKnown > 0 ? Math.round((mix28.bands.filter(b => keys.includes(b.key)).reduce((a, b) => a + b.hours, 0) / totalKnown) * 100) : null;
+    const mixWin = VeloProgress.intensityMix(lastWin);
+    const totalKnown = mixWin.bands.reduce((a, b) => a + b.hours, 0);
+    const pct = (keys) => totalKnown > 0 ? Math.round((mixWin.bands.filter(b => keys.includes(b.key)).reduce((a, b) => a + b.hours, 0) / totalKnown) * 100) : null;
 
     const hard = list.filter(r => (VeloProgress.rideIf(r) || 0) >= 0.85).sort((a, b) => new Date(b.date) - new Date(a.date));
     const daysSinceHard = hard.length ? Math.floor((now - new Date(hard[0].date)) / dayMs) : null;
     const long = list.filter(r => (Number(r.duration) || 0) >= 5400).sort((a, b) => new Date(b.date) - new Date(a.date));
     const daysSinceLong = long.length ? Math.floor((now - new Date(long[0].date)) / dayMs) : null;
     const longest28 = last28.reduce((m, r) => Math.max(m, Number(r.duration) || 0), 0);
+    const longestWin = lastWin.reduce((m, r) => Math.max(m, Number(r.duration) || 0), 0);
 
     // Power profile ratios (from the authentic all-time MMP when available)
     let profileType = null;
@@ -194,6 +199,11 @@ class VeloProgress {
     }
 
     return {
+      windowDays: win,
+      ridesWin: lastWin.length,
+      hoursPerWeekWin: Math.round((hours(lastWin) / (win / 7)) * 10) / 10,
+      tssWin: Math.round(lastWin.reduce((a, r) => a + (Number(r.tss) || 0), 0)),
+      longestRideMinWin: Math.round(longestWin / 60),
       rides28: last28.length,
       rides7: last7.length,
       hoursPerWeek4w: Math.round((hours(last28) / 4) * 10) / 10,
@@ -202,7 +212,7 @@ class VeloProgress {
       lowIntensityPct: pct(['recovery', 'endurance']),
       midIntensityPct: pct(['tempo', 'sweetspot']),
       highIntensityPct: pct(['threshold', 'vo2']),
-      unknownIntensityRides: mix28.unknownRides,
+      unknownIntensityRides: mixWin.unknownRides,
       daysSinceHard,
       daysSinceLong,
       longestRideMin28: Math.round(longest28 / 60),

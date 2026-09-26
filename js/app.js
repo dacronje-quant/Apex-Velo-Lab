@@ -86,6 +86,7 @@ class VeloApp {
     this.polarRenderer = new VeloBiomechanicsRenderer('polarPedalCanvas');
     this.deepBiomechRenderer = new VeloBiomechanicsRenderer('deepBiomechCanvas');
     this.aiCoach = new VeloAiCoach(this);
+    this.blockPlanner = typeof VeloBlockPlanner === 'function' ? new VeloBlockPlanner(this.aiCoach) : null;
     this.clock = new VeloClock(() => this.tick1Hz());
     this.workoutTimer = null; // legacy handle; VeloClock owns the 1 Hz tick
 
@@ -1890,7 +1891,7 @@ class VeloApp {
 
   handleTabSwitched(tabKey) {
     if (tabKey === 'calendar') this.renderCalendarView();
-    else if (tabKey === 'ai-coach') this.updateAiCoachTelemetry();
+    else if (tabKey === 'ai-coach') { this.updateAiCoachTelemetry(); if (this.renderTrainingBlock) this.renderTrainingBlock(); }
     else if (tabKey === 'analytics') {
       requestAnimationFrame(() => {
         this.updateMmpChart();
@@ -2233,6 +2234,8 @@ class VeloApp {
 
   async saveHistory() {
     const local = this.persistHistoryLocal();
+    // Re-check the training block against the rides (new ride, import, sync) before the calendar redraws.
+    if (this.reviewTrainingBlock) this.reviewTrainingBlock({ announce: true });
     const db = await VeloDB.saveRidesBatch(this.completedWorkouts);
     if (!db && !this.dbWriteWarned) {
       this.dbWriteWarned = true;
@@ -2268,6 +2271,7 @@ class VeloApp {
         if (changed) {
           this.renderHistoryTable();
           this.recalculatePmc();
+          if (this.reviewTrainingBlock) this.reviewTrainingBlock({ announce: false });
           this.renderCalendarView();
           this.updateHeroStats();
           this.refreshAnalytics();
