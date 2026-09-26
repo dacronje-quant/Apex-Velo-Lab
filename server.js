@@ -342,10 +342,12 @@ function convertUpload(d) {
 }
 
 // --------------------------------------------------------- Strava sync (READ ONLY) --
-// "Sync from Strava" only ever reads: GET /api/v3/athlete/activities and GET /api/v3/activities/{id}.
+// "Sync from Strava" only ever reads: GET /api/v3/athlete/activities, GET /api/v3/activities/{id}
+// and GET /api/v3/activities/{id}/streams.
 // Nothing is uploaded, edited or deleted on Strava by this path.
 const SYNC_MAX_PAGES = 10;        // 10 x 200 activities
 const SYNC_MAX_DETAIL_IDS = 10;   // activities/{id} per request; the app batches and shows progress
+const SYNC_STREAM_KEYS = 'time,watts,heartrate,cadence,velocity_smooth,distance';
 const SYNC_FIELDS = ['name', 'type', 'sport_type', 'start_date', 'start_date_local', 'timezone', 'moving_time', 'elapsed_time', 'distance',
   'calories', 'average_watts', 'weighted_average_watts', 'max_watts', 'kilojoules', 'device_watts', 'average_heartrate', 'max_heartrate',
   'average_cadence', 'suffer_score', 'trainer', 'description'];
@@ -389,6 +391,25 @@ async function handleStravaSync(req, res, query) {
   }
   const token = await stravaAccessToken();
   if (!token) return sendJson(res, 401, { error: 'Strava sign-in expired or was revoked. Reconnect Strava.', needsConnect: true });
+
+  // Second-by-second data of ONE activity, passed through as Strava sends it (the app converts it).
+  const sid = query.get('streams');
+  if (sid !== null) {
+    if (!/^\d+$/.test(sid)) return sendJson(res, 400, { error: 'streams must be one activity id' });
+    let r, text;
+    try {
+      r = await fetch(`${STRAVA_BASE}/api/v3/activities/${sid}/streams?keys=${SYNC_STREAM_KEYS}&key_by_type=true`, { method: 'GET', headers: { Authorization: `Bearer ${token}` } });
+      text = await r.text();
+    } catch (e) { return sendJson(res, 502, { error: `Could not reach Strava (${e.message}).` }); }
+    const rate = stravaRate(r);
+    if (r.status === 401) return sendJson(res, 401, { error: 'Strava rejected the sign-in. Reconnect Strava.', needsConnect: true });
+    if (r.status === 429) return sendJson(res, 200, { id: sid, rateLimited: true, rate });
+    if (r.status === 404) return sendJson(res, 200, { id: sid, missing: true, rate });
+    if (!r.ok) return sendJson(res, 502, { error: `Strava streams for ${sid} failed (HTTP ${r.status}).` });
+    const body = text.trim();
+    const streams = body.startsWith('{') ? body : '{}';
+    return send(res, 200, `{"id":"${sid}","streams":${streams},"rate":${JSON.stringify(rate)}}`, 'application/json; charset=utf-8');
+  }
 
   const ids = query.get('ids');
   if (ids !== null) {

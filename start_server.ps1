@@ -483,10 +483,12 @@ function Invoke-StravaActivities($request, $response) {
 }
 
 # --------------------------------------------------------- Strava sync (READ ONLY) --
-# "Sync from Strava" only ever reads: GET /api/v3/athlete/activities and GET /api/v3/activities/{id}.
+# "Sync from Strava" only ever reads: GET /api/v3/athlete/activities, GET /api/v3/activities/{id}
+# and GET /api/v3/activities/{id}/streams.
 # Nothing is uploaded, edited or deleted on Strava by this path. (Same behaviour as server.js.)
 $syncMaxPages = 10        # 10 x 200 activities
 $syncMaxDetailIds = 10    # activities/{id} per request; the app batches and shows progress
+$syncStreamKeys = 'time,watts,heartrate,cadence,velocity_smooth,distance'
 $syncFields = @('name', 'type', 'sport_type', 'start_date', 'start_date_local', 'timezone', 'moving_time', 'elapsed_time', 'distance',
     'calories', 'average_watts', 'weighted_average_watts', 'max_watts', 'kilojoules', 'device_watts', 'average_heartrate', 'max_heartrate',
     'average_cadence', 'suffer_score', 'trainer', 'description')
@@ -549,6 +551,27 @@ function Invoke-StravaSync($request, $response) {
     }
     $token = Get-StravaAccessToken
     if (-not $token) { return Send-Json $response 401 @{ error = 'Strava sign-in expired or was revoked. Reconnect Strava.'; needsConnect = $true } }
+
+    # Second-by-second data of ONE activity, passed through as Strava sends it (the app converts it).
+    $sid = $request.QueryString['streams']
+    if ($null -ne $sid) {
+        if ($sid -notmatch '^\d+$') { return Send-Json $response 400 @{ error = 'streams must be one activity id' } }
+        $msg = New-Object System.Net.Http.HttpRequestMessage([System.Net.Http.HttpMethod]::Get, "$stravaBase/api/v3/activities/$sid/streams?keys=$syncStreamKeys&key_by_type=true")
+        $msg.Headers.Authorization = New-Object System.Net.Http.Headers.AuthenticationHeaderValue('Bearer', $token)
+        try {
+            $resp = $http.SendAsync($msg).GetAwaiter().GetResult()
+            $text = $utf8.GetString($resp.Content.ReadAsByteArrayAsync().GetAwaiter().GetResult())
+        } catch { return Send-Json $response 502 @{ error = "Could not reach Strava ($($_.Exception.Message))." } } finally { $msg.Dispose() }
+        $rate = Get-StravaRate $resp
+        $code = [int]$resp.StatusCode
+        if ($code -eq 401) { return Send-Json $response 401 @{ error = 'Strava rejected the sign-in. Reconnect Strava.'; needsConnect = $true } }
+        if ($code -eq 429) { return Send-Json $response 200 ([ordered]@{ id = $sid; rateLimited = $true; rate = $rate }) }
+        if ($code -eq 404) { return Send-Json $response 200 ([ordered]@{ id = $sid; missing = $true; rate = $rate }) }
+        if (-not $resp.IsSuccessStatusCode) { return Send-Json $response 502 @{ error = "Strava streams for $sid failed (HTTP $code)." } }
+        $body = $text.Trim()
+        if (-not $body.StartsWith('{')) { $body = '{}' }
+        return Send-RawJson $response 200 ('{"id":"' + $sid + '","streams":' + $body + ',"rate":' + ($rate | ConvertTo-Json -Compress) + '}')
+    }
 
     $ids = $request.QueryString['ids']
     if ($null -ne $ids) {

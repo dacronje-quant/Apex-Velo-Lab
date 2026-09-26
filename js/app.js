@@ -282,7 +282,7 @@ class VeloApp {
         <div class="profile-item-row${isActive ? ' active-profile' : ''}">
           <div class="profile-item-main">
             <div class="profile-item-name">${VeloApp.esc(p.name)} ${isActive ? '<span class="chip chip-lime">Active</span>' : ''}</div>
-            <div class="profile-item-meta num">FTP <b>${p.ftp}W</b> &middot; ${p.weightKg} kg &middot; <b>${(p.ftp / p.weightKg).toFixed(2)}</b> W/kg &middot; HR max ${p.maxHr}</div>
+            <div class="profile-item-meta num">FTP <b>${p.ftp}W</b> &middot; ${p.weightKg} kg &middot; <b>${(p.ftp / p.weightKg).toFixed(2)}</b> W/kg &middot; HR max ${p.maxHr}${p.lthr ? ` &middot; LTHR ${p.lthr}` : ''}</div>
           </div>
           <div class="btn-row btn-row-tight">
             ${isActive ? '' : `<button type="button" class="btn btn-primary btn-sm" data-act="select" data-id="${VeloApp.esc(p.id)}">Activate</button>`}
@@ -300,6 +300,7 @@ class VeloApp {
     this.$('profInputFtp').value = p.ftp;
     this.$('profInputWeight').value = p.weightKg;
     this.$('profInputMaxHr').value = p.maxHr;
+    if (this.$('profInputLthr')) this.$('profInputLthr').value = p.lthr || '';
     this.$('profInputName').dataset.editId = id;
     this.setText('profileFormHeaderTitle', `EDIT PROFILE: ${p.name}`);
     const cancelBtn = this.$('btnCancelEditProfile');
@@ -312,6 +313,7 @@ class VeloApp {
     this.$('profInputFtp').value = this.activeProfile.ftp;
     this.$('profInputWeight').value = this.activeProfile.weightKg;
     this.$('profInputMaxHr').value = this.activeProfile.maxHr;
+    if (this.$('profInputLthr')) this.$('profInputLthr').value = this.activeProfile.lthr || '';
     delete this.$('profInputName').dataset.editId;
     this.setText('profileFormHeaderTitle', 'CREATE NEW RIDER PROFILE');
     const cancelBtn = this.$('btnCancelEditProfile');
@@ -336,14 +338,17 @@ class VeloApp {
     const ftp = Math.max(50, parseInt(this.$('profInputFtp').value, 10) || this.activeProfile.ftp);
     const weightKg = Math.max(30, parseFloat(this.$('profInputWeight').value) || this.activeProfile.weightKg);
     const maxHr = Math.max(100, parseInt(this.$('profInputMaxHr').value, 10) || this.activeProfile.maxHr);
+    // Threshold HR is optional: blank = estimated as 90% of max HR where it is needed.
+    const lthrIn = parseInt((this.$('profInputLthr') || {}).value, 10);
+    const lthr = lthrIn >= 100 && lthrIn <= 220 && lthrIn < maxHr ? lthrIn : null;
     const editId = this.$('profInputName').dataset.editId;
     if (editId) {
       const p = this.profiles.find(x => x.id === editId);
-      if (p) Object.assign(p, { name, ftp, weightKg, maxHr });
+      if (p) { Object.assign(p, { name, ftp, weightKg, maxHr }); if (lthr) p.lthr = lthr; else delete p.lthr; }
       this.showToast(`Updated "${name}" (${ftp} W FTP)`, 'success');
     } else {
       const newId = 'prof_' + Date.now();
-      this.profiles.push({ id: newId, name, ftp, weightKg, maxHr });
+      this.profiles.push({ id: newId, name, ftp, weightKg, maxHr, ...(lthr ? { lthr } : {}) });
       this.activeProfileId = newId;
       this.showToast(`Created and activated "${name}" (${ftp} W FTP)`, 'success');
     }
