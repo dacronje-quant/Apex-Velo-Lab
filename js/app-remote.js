@@ -149,7 +149,7 @@
         case 'bias-down': this.setErgBias(-0.01); break;
         case 'bias-reset':
           this.ergBiasMultiplier = 1.0; this.updateBiasUi(); this.updateHudTitles();
-          if (this.isPlaying && this.ergModeEnabled) this.ble.setTrainerErgPower(this.getCurrentTargetWatts() + (this.powerMatchOffset || 0), true);
+          this.ergApplyNow(false);
           break;
         default: return;
       }
