@@ -208,7 +208,8 @@ class VeloAiCoach {
       goal: VeloAiCoach.GOALS[goal] ? goal : 'ftp',
       notes: String(notes || '').slice(0, 280),
       targetFocus,
-      durationMin: parseInt(durationMin, 10) || 45
+      autoDuration: String(durationMin).toLowerCase() === 'auto',
+      durationMin: parseInt(durationMin, 10) || 60
     };
   }
 
@@ -235,6 +236,35 @@ class VeloAiCoach {
 
   // --------------------------------------------------------- workout maths --
   /** IF and TSS computed from the prescribed intervals (not guessed multipliers). */
+  /**
+   * Most effective session length for a focus, from form, fitness (CTL), goal and the rider's usual ride length.
+   * Quality sessions are capped by what the rider can execute well; easy rides grow with training age.
+   */
+  optimalDuration(focus, ctx) {
+    const h = ctx.history || {};
+    const ctl = ctx.ctl || 0;
+    const tired = ctx.tsb < -15;
+    const fresh = ctx.tsb > 5;
+    const r5 = (m) => Math.round(m / 5) * 5;
+    const usual = h.ridesWin ? (h.hoursPerWeekWin * 60 * (ctx.lookbackDays / 7)) / h.ridesWin : 60;
+    let min;
+    switch (focus) {
+      case 'recovery': min = tired ? 30 : 40; break;
+      case 'endurance':
+        // Aerobic durability: a bit longer than usual, longer still for the longevity goal.
+        min = Math.max(60, usual * 1.15) + (ctx.goal === 'longevity' ? 20 : 0);
+        if (tired) min = Math.min(min, 60);
+        min = Math.min(min, 150);
+        break;
+      case 'sweetspot': min = ctl >= 40 ? 90 : ctl >= 25 ? 75 : 60; break;
+      case 'threshold': min = ctl >= 40 ? 75 : 60; break;
+      case 'vo2max': min = ctl >= 30 && fresh ? 60 : 50; break;
+      default: min = 60;
+    }
+    if (tired && focus !== 'recovery') min -= 10;
+    return Math.max(30, Math.min(150, r5(min)));
+  }
+
   static estimateLoad(intervals) {
     const totalSec = intervals.reduce((a, iv) => a + (iv.duration || 0), 0) || 1;
     const p4 = intervals.reduce((a, iv) => a + Math.pow((iv.pctFtp || 0) / 100, 4) * (iv.duration || 0), 0) / totalSec;
@@ -420,6 +450,7 @@ class VeloAiCoach {
 
   generateOfflineHeuristic(ctx) {
     const focus = this.decideFocus(ctx);
+    if (ctx.autoDuration) ctx.durationMin = this.optimalDuration(focus, ctx);
     const { workout, notes } = this.buildWorkout(focus, ctx);
     const h = ctx.history || {};
     const goal = VeloAiCoach.GOALS[ctx.goal] || VeloAiCoach.GOALS.ftp;
@@ -446,7 +477,7 @@ class VeloAiCoach {
         formZone: ctx.formZone,
         fitnessDiagnosis: `CTL ${ctx.ctl.toFixed(1)} / ATL ${ctx.atl.toFixed(1)} / TSB ${ctx.tsb >= 0 ? '+' : ''}${ctx.tsb.toFixed(1)} (${ctx.formZone}). ${ctx.formDesc} ${h.hoursPerWeek4w !== undefined ? `You have averaged ${h.hoursPerWeek4w} h/week over the last 4 weeks.` : ''}`,
         fatigueStatus: `${ctx.sevenDayTss} TSS in 7 days (${ctx.sevenDayHours.toFixed(1)} h). ${ctx.consecutiveDays >= 2 ? `${ctx.consecutiveDays} riding days in a row.` : ''} ${h.daysSinceHard !== null && h.daysSinceHard !== undefined ? `Last hard ride (IF >= 0.85) ${h.daysSinceHard} day(s) ago.` : ''} ${mixText}`.replace(/\s+/g, ' ').trim(),
-        trainingAdvice: `Goal: ${goal.label} - ${goal.summary} ${why} ${notes}`.trim()
+        trainingAdvice: `Goal: ${goal.label} - ${goal.summary} ${why} ${ctx.autoDuration ? `Auto duration: ${ctx.durationMin} min - ${{ recovery: 'short enough to aid recovery', endurance: 'a little longer than your usual ride to build durability', vo2max: 'enough work at VO2 without sacrificing quality', threshold: 'enough time at threshold for your current fitness', sweetspot: 'the time-in-zone your fitness can absorb' }[focus] || 'matched to your form'}.` : ''} ${notes}`.replace(/\s+/g, ' ').trim()
       },
       workout,
       weekPlan
@@ -461,7 +492,7 @@ class VeloAiCoach {
 
 RIDER: FTP ${ctx.profile.ftp} W, weight ${ctx.profile.weightKg} kg, max HR ${ctx.profile.maxHr} bpm.
 PRIMARY GOAL: ${goal.label} - ${goal.summary}
-TODAY'S FOCUS REQUEST: ${ctx.targetFocus} (auto = decide). Time available: ${ctx.durationMin} minutes.
+TODAY'S FOCUS REQUEST: ${ctx.targetFocus} (auto = decide). ${ctx.autoDuration ? 'Duration: YOU choose the most effective length (30-150 min) for this session given its focus, the goal, current form/fatigue and the rider\'s usual ride length - long enough for a real stimulus, short enough to execute with quality; explain the choice in trainingAdvice.' : `Time available: ${ctx.durationMin} minutes.`}
 ${ctx.notes ? `RIDER NOTES: ${ctx.notes}\n` : ''}
 PERFORMANCE MANAGEMENT (Banister model):
 - CTL (fitness) ${ctx.ctl.toFixed(1)}, ATL (fatigue) ${ctx.atl.toFixed(1)}, TSB (form) ${ctx.tsb.toFixed(1)} -> ${ctx.formZone}
@@ -473,7 +504,7 @@ PERFORMANCE MANAGEMENT (Banister model):
 RIDES IN THE LAST ${ctx.lookbackDays} DAYS (newest first${ctx.windowRideCount > ctx.listedRideCount ? `, ${ctx.listedRideCount} most recent of ${ctx.windowRideCount}` : ''}):
 ${ctx.recentList}
 
-RULES: scale all targets as % of FTP; include warmup and cooldown; interval durations in seconds; every interval needs a cadence target (rpm); total duration must be within 3 minutes of ${ctx.durationMin} min; respect fatigue (TSB < -25 -> recovery). The weekPlan must contain 7 days starting today; use focus "off" for rest days.
+RULES: scale all targets as % of FTP; include warmup and cooldown; interval durations in seconds; every interval needs a cadence target (rpm); ${ctx.autoDuration ? 'total duration 30-150 min as you judge optimal' : `total duration must be within 3 minutes of ${ctx.durationMin} min`}; respect fatigue (TSB < -25 -> recovery). The weekPlan must contain 7 days starting today; use focus "off" for rest days.
 
 Return ONLY JSON matching:
 {
