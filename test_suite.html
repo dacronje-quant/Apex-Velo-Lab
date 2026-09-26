@@ -595,7 +595,8 @@
             rightPct: 50.0,
             cadence: 90
           });
-          app.tick1Hz();
+          // PowerMatch waits for the trainer to settle after a target change, then trims.
+          for (let i = 0; i < 9; i++) app.tick1Hz();
           const trimTriggered = app.powerMatchOffset > 0 && commandedErgWatts > targetW;
 
           // Verify HUD and Badge State
@@ -1018,6 +1019,73 @@
             const usedWorker = c.worker === null; // destroyed
             await sleep(1100);
             return { ok: ticks === 2, detail: `ticks in 2.3 s: ${ticks} (no ticks after destroy: ${ticks === 2})` };
+          });
+
+          // 46b. ERG governor: soft start, anti-stall, step lead, PowerMatch settle
+          await suite('ERG Governor: Soft Start From Standstill, Anti-Stall Guard, Upward Step Lead, PowerMatch Settles & Never Deepens a Stall', () => {
+            const E = W.VeloErg;
+            const run = (erg, n, inp) => Array.from({ length: n }, () => erg.tick(inp));
+            const base = { ftp: 185, cadenceKnown: true, targetCadence: 90 };
+
+            // Soft start: holds at half load until spinning, then ramps to target, never above it.
+            let e = new E();
+            e.softStart({ target: 300, power: 0, cadence: 0, cadenceKnown: true });
+            const held = run(e, 3, { ...base, target: 300, cadence: 0 });
+            const ramp = run(e, 8, { ...base, target: 300, cadence: 90 });
+            const softOk = held.every(r => r.watts === 150 && r.mode === 'soft-start') &&
+              ramp.every((r, i) => r.watts <= 300 && (i === 0 || r.watts >= ramp[i - 1].watts)) &&
+              ramp[0].watts < 300 && ramp[7].watts === 300 && e.mode === 'normal';
+
+            // Already spinning near target: no soft start.
+            e = new E();
+            e.softStart({ target: 200, power: 190, cadence: 90, cadenceKnown: true });
+            const noSoft = e.ramp === null && e.tick({ ...base, target: 200, cadence: 90 }).watts === 200;
+
+            // Unknown cadence: ramps on time alone instead of waiting forever.
+            e = new E();
+            e.softStart({ target: 300, power: 0, cadence: 0, cadenceKnown: false });
+            const blind = run(e, 8, { ...base, target: 300, cadence: 0, cadenceKnown: false });
+            const blindOk = blind[0].watts > 150 && blind[7].watts === 300;
+
+            // Anti-stall: 3 s under 60 rpm on a hard step eases to 60%, waits for 75 rpm, ramps back in 6 s.
+            e = new E();
+            run(e, 2, { ...base, target: 250, cadence: 90 });
+            const sag = run(e, 3, { ...base, target: 250, cadence: 50 });
+            const still = e.tick({ ...base, target: 250, cadence: 70 });
+            const back = run(e, 6, { ...base, target: 250, cadence: 85 });
+            const stallOk = sag[1].watts === 250 && sag[2].watts === 150 && sag[2].event === 'stall' &&
+              still.watts === 150 && still.mode === 'stall' && back[0].watts > 150 && back[5].watts === 250;
+
+            // No guard on easy steps or on a low-cadence drill.
+            e = new E();
+            const easy = run(e, 5, { ...base, target: 120, cadence: 40 });
+            e = new E();
+            const drill = run(e, 5, { ...base, target: 250, cadence: 50, targetCadence: 55 });
+            const noGuardOk = easy.every(r => r.watts === 120) && drill.every(r => r.watts === 250);
+
+            // Step lead: an upward step is sent 2 s early; a downward step is never early.
+            e = new E();
+            const up3 = e.tick({ ...base, target: 150, nextTarget: 300, secondsLeft: 3, cadence: 90 }).watts;
+            const up2 = e.tick({ ...base, target: 150, nextTarget: 300, secondsLeft: 2, cadence: 90 }).watts;
+            e = new E();
+            const down1 = e.tick({ ...base, target: 300, nextTarget: 150, secondsLeft: 1, cadence: 90 }).watts;
+            const leadOk = up3 === 150 && up2 === 300 && down1 === 300;
+
+            // PowerMatch: settles 6 s after a target change, then trims at most 2 W/s.
+            e = new E();
+            const pm = run(e, 12, { ...base, target: 200, cadence: 90, pedalPower: 185 });
+            const settled = pm.slice(0, 6).every(r => r.watts === 200);
+            const trims = pm.slice(6).map(r => r.watts);
+            const pmOk = settled && trims[0] > 200 && trims.every((w, i) => i === 0 || w - trims[i - 1] <= 2) && e.offset > 0;
+            const resetOnChange = e.tick({ ...base, target: 260, cadence: 90, pedalPower: 185 }).watts === 260 && e.offset === 0;
+
+            // PowerMatch never adds watts while cadence is low (it would deepen a stall).
+            e = new E();
+            run(e, 12, { ...base, target: 200, cadence: 65, pedalPower: 180 });
+            const noDeepen = e.offset === 0;
+
+            const ok = softOk && noSoft && blindOk && stallOk && noGuardOk && leadOk && pmOk && resetOnChange && noDeepen;
+            return { ok, detail: `soft ${held.map(r => r.watts)}|${ramp.map(r => r.watts)} (${softOk}) | spinning:${noSoft} | blind:${blindOk} | stall ${sag.map(r => r.watts)}>${still.watts}>${back.map(r => r.watts)} (${stallOk}) | easy/drill:${noGuardOk} | lead ${up3}/${up2}/${down1} | PM ${pm.map(r => r.watts)} (${pmOk}) reset:${resetOnChange} | no deepen:${noDeepen}` };
           });
 
           // 47. Calendar buckets rides by local date

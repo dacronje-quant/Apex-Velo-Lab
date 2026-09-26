@@ -1,12 +1,12 @@
 // APEX VELO // LAB service worker - network-first for app files so updates are never
 // masked by a stale cache; the cache is only a fallback when offline.
-const CACHE_NAME = 'apex-velo-cache-v8';
+const CACHE_NAME = 'apex-velo-cache-v9';
 const CORE = [
   './', './index.html', './manifest.json', './css/style.css',
   './data/divan_cycling_history.js',
   './js/velo-metrics.js', './js/velo-db.js', './js/velo-sound.js', './js/velo-pip.js', './js/velo-folder-sync.js',
   './js/velo-biomech.js', './js/velo-analytics.js', './js/velo-workouts.js', './js/velo-ai-architect.js',
-  './js/velo-ai-coach.js', './js/velo-sim.js', './js/velo-ble.js', './js/velo-importer.js', './js/velo-export.js',
+  './js/velo-ai-coach.js', './js/velo-sim.js', './js/velo-ble.js', './js/velo-erg.js', './js/velo-importer.js', './js/velo-export.js',
   './js/velo-clock.js', './js/velo-progress.js', './js/app.js', './js/app-analytics.js', './js/app-history.js', './js/app-coach.js', './js/app-strava.js', './js/app-remote.js'
 ];
 
