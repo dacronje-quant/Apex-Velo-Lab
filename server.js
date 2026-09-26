@@ -3,9 +3,9 @@
  * APEX VELO // LAB - local server.
  *
  * Serves the app on http://localhost:8080 and forwards AI Coach requests to the
- * Claude API. The API key is read here, on your computer, from the ANTHROPIC_API_KEY
- * environment variable or the .env file next to this script. It is never sent to
- * the browser, and the .env file is never served.
+ * Claude API or the Gemini API. The API keys are read here, on your computer, from the
+ * ANTHROPIC_API_KEY / GEMINI_API_KEY environment variables or the .env file next to this
+ * script. They are never sent to the browser, and the .env file is never served.
  *
  * Usage:  node server.js [--open]      (Node 18 or newer, no npm install needed)
  */
@@ -29,27 +29,49 @@ function loadDotEnv(file) {
     let val = m[2].trim();
     if ((val.startsWith('"') && val.endsWith('"')) || (val.startsWith("'") && val.endsWith("'"))) val = val.slice(1, -1);
     else val = val.replace(/\s+#.*$/, '');
-    // The app's own APEX_* settings always come from .env. For ANTHROPIC_API_KEY a key already set as an
+    // The app's own APEX_* settings always come from .env. For the API keys a key already set as an
     // environment variable wins, so you can keep it there instead of in the file.
     if (m[1].startsWith('APEX_') || !(process.env[m[1]] || '').trim()) process.env[m[1]] = val;
   }
 }
 const KEY_FROM_ENVIRONMENT = !!(process.env.ANTHROPIC_API_KEY || '').trim();
+const GEMINI_KEY_FROM_ENVIRONMENT = !!(process.env.GEMINI_API_KEY || '').trim();
 loadDotEnv(path.join(ROOT, '.env'));
 
-/** Models the coach may use. Haiku 4.5 has no adaptive thinking or effort, so it uses a fixed thinking budget. */
+/**
+ * Models the coach may use. Haiku 4.5 has no adaptive thinking or effort, so it uses a fixed thinking budget.
+ * For Gemini the effort setting maps to thinkingLevel (low / medium / high).
+ */
 const MODELS = {
-  'claude-opus-5-5':           { label: 'Claude Opus 5.5', adaptive: true },
-  'claude-sonnet-5':           { label: 'Claude Sonnet 5', adaptive: true },
-  'claude-haiku-4-5-20251001': { label: 'Claude Haiku 4.5', adaptive: false }
+  'claude-opus-5-5':           { label: 'Claude Opus 5.5', provider: 'claude', adaptive: true },
+  'claude-sonnet-5':           { label: 'Claude Sonnet 5', provider: 'claude', adaptive: true },
+  'claude-haiku-4-5-20251001': { label: 'Claude Haiku 4.5', provider: 'claude', adaptive: false },
+  'gemini-3.8-flash':          { label: 'Gemini 3.8 Flash', provider: 'gemini', adaptive: true },
+  'gemini-3.1-pro-preview':    { label: 'Gemini 3.1 Pro (preview)', provider: 'gemini', adaptive: true },
+  'gemini-3.1-flash-lite':     { label: 'Gemini 3.1 Flash-Lite', provider: 'gemini', adaptive: true }
+};
+const PROVIDERS = {
+  claude: { label: 'Claude', keyName: 'ANTHROPIC_API_KEY', fallbackModel: 'claude-opus-5-5' },
+  gemini: { label: 'Gemini', keyName: 'GEMINI_API_KEY', fallbackModel: 'gemini-3.8-flash' }
 };
 const EFFORTS = ['low', 'medium', 'high'];
 
 const API_KEY = (process.env.ANTHROPIC_API_KEY || '').trim();
-const DEFAULT_MODEL = MODELS[process.env.APEX_COACH_MODEL] ? process.env.APEX_COACH_MODEL : 'claude-opus-5-5';
+const GEMINI_API_KEY = (process.env.GEMINI_API_KEY || '').trim();
+const KEYS = { claude: API_KEY, gemini: GEMINI_API_KEY };
+const pickModel = (id, provider) => (MODELS[id] && MODELS[id].provider === provider ? id : PROVIDERS[provider].fallbackModel);
+const DEFAULT_MODELS = {
+  claude: pickModel(process.env.APEX_COACH_MODEL, 'claude'),
+  gemini: pickModel(process.env.APEX_GEMINI_MODEL, 'gemini')
+};
+// Default provider: APEX_COACH_PROVIDER if set, otherwise whichever has a key (Claude first).
+const DEFAULT_PROVIDER = PROVIDERS[process.env.APEX_COACH_PROVIDER] ? process.env.APEX_COACH_PROVIDER
+  : (!API_KEY && GEMINI_API_KEY ? 'gemini' : 'claude');
+const DEFAULT_MODEL = DEFAULT_MODELS[DEFAULT_PROVIDER];
 const DEFAULT_EFFORT = EFFORTS.includes(process.env.APEX_COACH_EFFORT) ? process.env.APEX_COACH_EFFORT : 'low';
 const PORT = parseInt(process.env.APEX_PORT || '8080', 10);
 const API_BASE = (process.env.APEX_ANTHROPIC_BASE_URL || 'https://api.anthropic.com').replace(/\/+$/, '');
+const GEMINI_BASE = (process.env.APEX_GEMINI_BASE_URL || 'https://generativelanguage.googleapis.com').replace(/\/+$/, '');
 const UPSTREAM_TIMEOUT_MS = 180000;
 const MAX_BODY_BYTES = 256 * 1024;
 
@@ -126,12 +148,15 @@ function readBody(req, limit = MAX_BODY_BYTES) {
 }
 
 function status() {
+  const providers = {};
+  for (const [id, p] of Object.entries(PROVIDERS)) providers[id] = { label: p.label, configured: !!KEYS[id], model: DEFAULT_MODELS[id] };
   return {
-    provider: 'claude',
-    configured: !!API_KEY,
+    provider: DEFAULT_PROVIDER,
+    providers,
+    configured: !!KEYS[DEFAULT_PROVIDER],
     model: DEFAULT_MODEL,
     effort: DEFAULT_EFFORT,
-    models: Object.entries(MODELS).map(([id, m]) => ({ id, label: m.label, effort: m.adaptive })),
+    models: Object.entries(MODELS).map(([id, m]) => ({ id, label: m.label, provider: m.provider, effort: m.adaptive })),
     efforts: EFFORTS
   };
 }
@@ -152,45 +177,103 @@ function buildClaudeRequest(prompt, model, effort) {
   return body;
 }
 
+function buildGeminiRequest(prompt, model, effort) {
+  return {
+    systemInstruction: { parts: [{ text: SYSTEM_PROMPT }] },
+    contents: [{ role: 'user', parts: [{ text: prompt }] }],
+    generationConfig: {
+      maxOutputTokens: 16000,
+      responseMimeType: 'application/json',
+      thinkingConfig: { thinkingLevel: effort, includeThoughts: true }
+    }
+  };
+}
+
+/** Calls Claude and returns the app's common reply shape. */
+async function callClaude(prompt, model, effort, signal) {
+  const upstream = await fetch(`${API_BASE}/v1/messages`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json', 'x-api-key': API_KEY, 'anthropic-version': '2023-06-01' },
+    body: JSON.stringify(buildClaudeRequest(prompt, model, effort)),
+    signal
+  });
+  const data = await upstream.json().catch(() => ({}));
+  if (!upstream.ok) {
+    const msg = (data && data.error && data.error.message) || `HTTP ${upstream.status}`;
+    return { error: `Claude API error ${upstream.status}: ${msg}`, upstreamStatus: upstream.status, log: `${upstream.status} ${msg}` };
+  }
+  const blocks = Array.isArray(data.content) ? data.content : [];
+  const usage = data.usage || {};
+  return {
+    text: blocks.filter(b => b.type === 'text').map(b => b.text).join(''),
+    thinking: blocks.filter(b => b.type === 'thinking' && b.thinking).map(b => b.thinking).join('\n\n'),
+    model: data.model || model,
+    stopReason: data.stop_reason,
+    usage: { input_tokens: usage.input_tokens || 0, output_tokens: usage.output_tokens || 0 }
+  };
+}
+
+/** Calls Gemini (generateContent) and returns the app's common reply shape. */
+async function callGemini(prompt, model, effort, signal) {
+  const upstream = await fetch(`${GEMINI_BASE}/v1beta/models/${encodeURIComponent(model)}:generateContent`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json', 'x-goog-api-key': GEMINI_API_KEY },
+    body: JSON.stringify(buildGeminiRequest(prompt, model, effort)),
+    signal
+  });
+  const data = await upstream.json().catch(() => ({}));
+  if (!upstream.ok) {
+    const msg = (data && data.error && data.error.message) || `HTTP ${upstream.status}`;
+    return { error: `Gemini API error ${upstream.status}: ${msg}`, upstreamStatus: upstream.status, log: `${upstream.status} ${msg}` };
+  }
+  const cand = Array.isArray(data.candidates) && data.candidates[0];
+  if (!cand) {
+    const why = (data.promptFeedback && data.promptFeedback.blockReason) || 'no answer';
+    return { error: `Gemini returned no answer (${why}).`, upstreamStatus: 502, log: `no candidates (${why})` };
+  }
+  const parts = (cand.content && Array.isArray(cand.content.parts)) ? cand.content.parts : [];
+  const um = data.usageMetadata || {};
+  return {
+    text: parts.filter(p => !p.thought && typeof p.text === 'string').map(p => p.text).join(''),
+    thinking: parts.filter(p => p.thought && p.text).map(p => p.text).join('\n\n'),
+    model: data.modelVersion || model,
+    stopReason: cand.finishReason === 'MAX_TOKENS' ? 'max_tokens' : String(cand.finishReason || '').toLowerCase(),
+    usage: { input_tokens: um.promptTokenCount || 0, output_tokens: (um.candidatesTokenCount || 0) + (um.thoughtsTokenCount || 0) }
+  };
+}
+
 async function handleCoach(req, res) {
   if (!isLocalRequest(req)) return sendJson(res, 403, { error: 'Requests are only accepted from the app on localhost.' });
   if (!/^application\/json\b/i.test(req.headers['content-type'] || '')) return sendJson(res, 415, { error: 'Content-Type must be application/json.' });
-  if (!API_KEY) return sendJson(res, 503, { error: 'No Anthropic API key. Add ANTHROPIC_API_KEY to the .env file and restart the server.' });
 
   let input;
   try { input = JSON.parse(await readBody(req)); } catch (e) { return sendJson(res, e.status || 400, { error: e.status ? e.message : 'Invalid JSON.' }); }
   const prompt = typeof input.prompt === 'string' ? input.prompt : '';
   if (!prompt.trim() || prompt.length > 100000) return sendJson(res, 400, { error: 'A prompt of 1-100000 characters is required.' });
-  const model = MODELS[input.model] ? input.model : DEFAULT_MODEL;
+  // The model decides the provider; without a (known) model, use the requested or default provider's default model.
+  const provider = MODELS[input.model] ? MODELS[input.model].provider : (PROVIDERS[input.provider] ? input.provider : DEFAULT_PROVIDER);
+  const model = MODELS[input.model] ? input.model : DEFAULT_MODELS[provider];
   const effort = EFFORTS.includes(input.effort) ? input.effort : DEFAULT_EFFORT;
+  const p = PROVIDERS[provider];
+  if (!KEYS[provider]) return sendJson(res, 503, { error: `No ${p.label} API key. Add ${p.keyName} to the .env file and restart the server.` });
 
   const ac = new AbortController();
   const timer = setTimeout(() => ac.abort(), UPSTREAM_TIMEOUT_MS);
   req.on('close', () => { if (!res.writableEnded) ac.abort(); });
   const t0 = Date.now();
   try {
-    const upstream = await fetch(`${API_BASE}/v1/messages`, {
-      method: 'POST',
-      headers: { 'content-type': 'application/json', 'x-api-key': API_KEY, 'anthropic-version': '2023-06-01' },
-      body: JSON.stringify(buildClaudeRequest(prompt, model, effort)),
-      signal: ac.signal
-    });
-    const data = await upstream.json().catch(() => ({}));
-    if (!upstream.ok) {
-      const msg = (data && data.error && data.error.message) || `HTTP ${upstream.status}`;
-      console.warn(`[coach] ${model} failed: ${upstream.status} ${msg}`);
-      return sendJson(res, 502, { error: `Claude API error ${upstream.status}: ${msg}`, upstreamStatus: upstream.status });
+    const out = await (provider === 'gemini' ? callGemini : callClaude)(prompt, model, effort, ac.signal);
+    if (out.error) {
+      console.warn(`[coach] ${model} failed: ${out.log}`);
+      return sendJson(res, 502, { error: out.error, upstreamStatus: out.upstreamStatus });
     }
-    const blocks = Array.isArray(data.content) ? data.content : [];
-    const text = blocks.filter(b => b.type === 'text').map(b => b.text).join('');
-    const thinking = blocks.filter(b => b.type === 'thinking' && b.thinking).map(b => b.thinking).join('\n\n');
-    const usage = data.usage || {};
-    console.log(`[coach] ${data.model || model} (${MODELS[model].adaptive ? effort : 'budget'}) ${((Date.now() - t0) / 1000).toFixed(1)} s, ${usage.input_tokens || 0} in / ${usage.output_tokens || 0} out tokens, stop=${data.stop_reason}`);
-    return sendJson(res, 200, { text, thinking, model: data.model || model, effort: MODELS[model].adaptive ? effort : null, stopReason: data.stop_reason, usage });
+    const shownEffort = MODELS[model].adaptive ? effort : null;
+    console.log(`[coach] ${out.model} (${shownEffort || 'budget'}) ${((Date.now() - t0) / 1000).toFixed(1)} s, ${out.usage.input_tokens} in / ${out.usage.output_tokens} out tokens, stop=${out.stopReason}`);
+    return sendJson(res, 200, { text: out.text, thinking: out.thinking, provider, model: out.model, effort: shownEffort, stopReason: out.stopReason, usage: out.usage });
   } catch (err) {
     const aborted = err.name === 'AbortError';
     console.warn(`[coach] ${model} ${aborted ? 'timed out / cancelled' : 'request failed: ' + err.message}`);
-    return sendJson(res, aborted ? 504 : 502, { error: aborted ? 'Claude did not answer in time.' : `Could not reach the Claude API (${err.message}).` });
+    return sendJson(res, aborted ? 504 : 502, { error: aborted ? `${p.label} did not answer in time.` : `Could not reach the ${p.label} API (${err.message}).` });
   } finally {
     clearTimeout(timer);
   }
@@ -442,9 +525,12 @@ if (require.main === module) {
         for (const ip of lanIps) console.log(`  http://${ip}:${PORT}/live.html`);
       }
     } catch { /* ignore - LAN IP display is best-effort */ }
-    console.log(API_KEY
-      ? `AI Coach: ${MODELS[DEFAULT_MODEL].label}, ${DEFAULT_EFFORT} effort (key from ${KEY_FROM_ENVIRONMENT ? 'the ANTHROPIC_API_KEY environment variable' : '.env'})`
-      : 'AI Coach: no ANTHROPIC_API_KEY found - add it to .env to enable Claude. The offline engine still works.');
+    const keySrc = (fromEnv, name) => (fromEnv ? `the ${name} environment variable` : '.env');
+    console.log(API_KEY ? `AI Coach - Claude: ready, key from ${keySrc(KEY_FROM_ENVIRONMENT, 'ANTHROPIC_API_KEY')}` : 'AI Coach - Claude: no ANTHROPIC_API_KEY in .env');
+    console.log(GEMINI_API_KEY ? `AI Coach - Gemini: ready, key from ${keySrc(GEMINI_KEY_FROM_ENVIRONMENT, 'GEMINI_API_KEY')}` : 'AI Coach - Gemini: no GEMINI_API_KEY in .env');
+    console.log(KEYS[DEFAULT_PROVIDER]
+      ? `AI Coach default: ${MODELS[DEFAULT_MODEL].label}, ${DEFAULT_EFFORT} effort (switch provider in the app's AI engine card)`
+      : 'AI Coach: no API key for the default provider - the offline engine is used until you add one.');
     console.log('Press Ctrl+C to stop.');
     if (process.argv.includes('--open')) {
       const { spawn } = require('child_process');
@@ -454,4 +540,4 @@ if (require.main === module) {
   });
 }
 
-module.exports = { createServer, buildClaudeRequest, loadDotEnv, MODELS };
+module.exports = { createServer, buildClaudeRequest, buildGeminiRequest, loadDotEnv, MODELS, PROVIDERS };

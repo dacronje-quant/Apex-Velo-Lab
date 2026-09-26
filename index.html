@@ -460,7 +460,7 @@
           <div>
             <span class="eyebrow">Goal-driven coaching</span>
             <h2 class="section-title">AI Coach</h2>
-            <p class="section-sub">Builds today's session and the next 7 days from your real history: fitness, fatigue, form, recent volume, intensity mix and power profile. Uses Claude when the local server has your API key, otherwise the built-in physiology engine.</p>
+            <p class="section-sub">Builds today's session and the next 7 days from your real history: fitness, fatigue, form, recent volume, intensity mix and power profile. Uses Claude or Gemini when the local server has the API key, otherwise the built-in physiology engine.</p>
           </div>
           <span class="engine-pill" id="aiCoachEngineStatus"><span class="status-indicator-dot"></span>Offline engine</span>
         </div>
@@ -498,6 +498,7 @@
             </label>
             <label class="field"><span>Time available</span>
               <select id="selectAiCoachDuration" class="input-field">
+                <option value="auto">Auto (coach picks the optimal length)</option>
                 <option value="30">30 min</option>
                 <option value="45" selected>45 min</option>
                 <option value="60">60 min</option>
@@ -506,6 +507,16 @@
                 <option value="120">120 min</option>
               </select>
             </label>
+            <label class="field"><span>History look-back</span>
+              <select id="selectAiCoachLookback" class="input-field">
+                <option value="7">Last 7 days</option>
+                <option value="14">Last 14 days</option>
+                <option value="28" selected>Last 28 days</option>
+                <option value="42">Last 6 weeks</option>
+                <option value="90">Last 90 days</option>
+              </select>
+            </label>
+            <p class="field-help">How far back the coach reviews your rides, volume and intensity mix (the 30 most recent rides at most). Fitness, fatigue and form always use your full history.</p>
             <label class="field"><span>Notes for the coach (optional)</span>
               <input type="text" id="inputAiCoachNotes" class="input-field" placeholder="e.g. legs heavy after yesterday, want low cadence work">
             </label>
@@ -514,18 +525,21 @@
           </div>
 
           <details class="card ai-coach-card" id="aiCoachConfigCard">
-            <summary class="ai-coach-card-title"><span>Claude engine</span><svg class="ic"><use href="#i-chevron"/></svg></summary>
+            <summary class="ai-coach-card-title"><span>AI engine</span><svg class="ic"><use href="#i-chevron"/></svg></summary>
             <p class="field-help" id="aiCoachEngineDetail">Checking the local server...</p>
+            <label class="field"><span>Provider</span>
+              <select id="selectCoachProvider" class="input-field">
+                <option value="claude">Claude (Anthropic)</option>
+                <option value="gemini">Gemini (Google)</option>
+              </select>
+            </label>
             <label class="field"><span>Model</span>
-              <select id="selectClaudeModel" class="input-field">
-                <option value="">Server default</option>
-                <option value="claude-opus-5-5">Claude Opus 5.5</option>
-                <option value="claude-sonnet-5">Claude Sonnet 5</option>
-                <option value="claude-haiku-4-5-20251001">Claude Haiku 4.5</option>
+              <select id="selectCoachModel" class="input-field">
+                <option value="">Default</option>
               </select>
             </label>
             <label class="field"><span>Reasoning effort</span>
-              <select id="selectClaudeEffort" class="input-field">
+              <select id="selectCoachEffort" class="input-field">
                 <option value="">Server default</option>
                 <option value="low">Low - fastest, cheapest</option>
                 <option value="medium">Medium</option>
@@ -536,7 +550,7 @@
               <button type="button" class="btn btn-primary" id="btnSaveAiCoachConfig">Save</button>
               <button type="button" class="btn" id="btnRecheckAiEngine">Re-check server</button>
             </div>
-            <p class="field-help">The API key lives in the <code>.env</code> file in the app folder and is read only by the local server on this computer. It is never stored in or sent to the browser. Start the app with <code>Launch-Apex-Velo.bat</code>.</p>
+            <p class="field-help">The API keys (<code>ANTHROPIC_API_KEY</code>, <code>GEMINI_API_KEY</code>) live in the <code>.env</code> file in the app folder and are read only by the local server on this computer. They are never stored in or sent to the browser. For Gemini, effort sets the thinking level. Start the app with <code>Launch-Apex-Velo.bat</code>.</p>
           </details>
         </div>
 
@@ -606,6 +620,62 @@
               <div class="ai-coach-card-title"><span>7-day outlook</span><span class="chip chip-ghost num" id="aiCoachWeekTss">--</span></div>
               <div class="week-plan" id="aiCoachWeekPlan"></div>
             </div>
+          </div>
+        </div>
+
+        <div class="card ai-coach-card block-card" id="trainingBlockCard">
+          <div class="ai-coach-card-title"><span>Training block</span><span class="chip chip-ghost num" id="blockHeaderChip">Periodised plan</span></div>
+          <div id="blockSetup">
+            <p class="field-help">Plans several weeks toward your goal with proven periodisation: 3 load weeks then a recovery week, a controlled rise in fitness (CTL), key sessions at least 48 h apart and mostly easy riding, ending with a ramp test to reset your FTP. The sessions go on your Calendar and the plan is re-checked after every ride.</p>
+            <div class="block-form">
+              <label class="field"><span>Goal</span>
+                <select id="selectBlockGoal" class="input-field">
+                  <option value="ftp">Raise FTP</option>
+                  <option value="longevity">Longevity / aerobic base</option>
+                  <option value="vo2">VO2 max</option>
+                  <option value="balanced">Balanced</option>
+                </select>
+              </label>
+              <label class="field"><span>Length</span>
+                <select id="selectBlockWeeks" class="input-field">
+                  <option value="4">4 weeks</option>
+                  <option value="6">6 weeks</option>
+                  <option value="8" selected>8 weeks</option>
+                  <option value="10">10 weeks</option>
+                  <option value="12">12 weeks</option>
+                </select>
+              </label>
+              <label class="field"><span>Start</span><input type="date" id="inputBlockStart" class="input-field"></label>
+              <label class="field"><span>Hours per week</span><input type="number" id="inputBlockHours" class="input-field" min="2" max="25" step="0.5" value="6"></label>
+              <label class="field"><span>Long ride day</span>
+                <select id="selectBlockLongDay" class="input-field"><option value="">No long ride</option><option value="0">Monday</option><option value="1">Tuesday</option><option value="2">Wednesday</option><option value="3">Thursday</option><option value="4">Friday</option><option value="5">Saturday</option><option value="6">Sunday</option></select>
+              </label>
+            </div>
+            <div class="field"><span>Days you can ride</span><div class="day-toggle" id="blockDays"><button type="button" class="day-chip" data-dow="0" aria-pressed="false">Mon</button><button type="button" class="day-chip" data-dow="1" aria-pressed="false">Tue</button><button type="button" class="day-chip" data-dow="2" aria-pressed="false">Wed</button><button type="button" class="day-chip" data-dow="3" aria-pressed="false">Thu</button><button type="button" class="day-chip" data-dow="4" aria-pressed="false">Fri</button><button type="button" class="day-chip" data-dow="5" aria-pressed="false">Sat</button><button type="button" class="day-chip" data-dow="6" aria-pressed="false">Sun</button></div></div>
+            <button type="button" class="btn btn-ai btn-block" id="btnBuildBlock"><svg class="ic"><use href="#i-sparkles"/></svg><span id="btnBuildBlockLabel">Build training block</span></button>
+            <div class="think-timer num" id="blockThinkTimer" hidden></div>
+          </div>
+          <div id="blockView" hidden>
+            <div class="block-head">
+              <div>
+                <h3 class="rx-title" id="blockTitle">--</h3>
+                <p class="rx-desc" id="blockSubtitle">--</p>
+              </div>
+              <div class="btn-row">
+                <button type="button" class="btn btn-sm" id="btnBlockToCalendar"><svg class="ic"><use href="#i-calendar"/></svg>Calendar</button>
+                <button type="button" class="btn btn-sm" id="btnReplanBlock"><svg class="ic"><use href="#i-sparkles"/></svg>Re-plan from today</button>
+                <button type="button" class="btn btn-sm btn-danger" id="btnDeleteBlock"><svg class="ic"><use href="#i-x"/></svg>Delete</button>
+              </div>
+            </div>
+            <div class="think-timer num" id="blockThinkTimerView" hidden></div>
+            <div class="block-suggestions" id="blockSuggestions"></div>
+            <div class="block-phases" id="blockPhaseLegend"></div>
+            <div class="block-weeks" id="blockWeeks"></div>
+            <p class="block-summary" id="blockSummary"></p>
+            <div class="ai-coach-card-title"><span id="blockWeekLabel">This week</span><span class="chip chip-ghost num" id="blockWeekTss">--</span></div>
+            <p class="field-help" id="blockWeekNotes"></p>
+            <div class="block-sessions" id="blockThisWeek"></div>
+            <div class="block-sessions" id="blockNextWeek"></div>
           </div>
         </div>
       </div>
@@ -1137,6 +1207,7 @@
   <script src="js/velo-workouts.js"></script>
   <script src="js/velo-ai-architect.js"></script>
   <script src="js/velo-ai-coach.js"></script>
+  <script src="js/velo-block-planner.js"></script>
   <script src="js/velo-sim.js"></script>
   <script src="js/velo-ble.js"></script>
   <script src="js/velo-erg.js"></script>
@@ -1148,6 +1219,7 @@
   <script src="js/app-analytics.js"></script>
   <script src="js/app-history.js"></script>
   <script src="js/app-coach.js"></script>
+  <script src="js/app-block.js"></script>
   <script src="js/app-strava.js"></script>
   <script src="js/app-remote.js"></script>
 </body>
