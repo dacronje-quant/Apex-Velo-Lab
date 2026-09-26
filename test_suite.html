@@ -335,10 +335,30 @@
           log('AI Coach UI Renders Recommendation Panel & Interval Breakdown', panelVisible && tableRows.length >= 3, `Steps: ${tableRows.length}`);
 
           // 23. AI Coach defaults to Claude Opus 5.5 at low effort & Clear Recommendation Button
-          const modelSelect = frame.contentDocument.getElementById('selectClaudeModel');
-          const isClaudeDefault = app.aiCoach.model === 'claude-opus-5-5' && app.aiCoach.effort === 'low' && modelSelect && modelSelect.value === '' && !frame.contentDocument.getElementById('inputGeminiApiKey');
+          const modelSelect = frame.contentDocument.getElementById('selectCoachModel');
+          const providerSelect = frame.contentDocument.getElementById('selectCoachProvider');
+          const isClaudeDefault = app.aiCoach.provider === 'claude' && app.aiCoach.model === 'claude-opus-5-5' && app.aiCoach.effort === 'low' && modelSelect && modelSelect.value === '' && providerSelect && providerSelect.value === 'claude' && !frame.contentDocument.getElementById('inputGeminiApiKey');
           log('AI Coach Defaults to Claude Opus 5.5 (low effort), No API Key Field in the Browser', isClaudeDefault,
-            `Model: ${app.aiCoach.model}, effort: ${app.aiCoach.effort}, select: "${modelSelect ? modelSelect.value : 'missing'}" (server default)`);
+            `Provider: ${app.aiCoach.provider}, model: ${app.aiCoach.model}, effort: ${app.aiCoach.effort}, select: "${modelSelect ? modelSelect.value : 'missing'}" (server default)`);
+
+          // 23b. Provider switch (Claude <-> Gemini) and history look-back window
+          const savedCfg = { provider: app.aiCoach.providerOverride, model: app.aiCoach.modelOverride, effort: app.aiCoach.effortOverride, lookback: app.aiCoach.lookbackDays };
+          app.aiCoach.saveConfig({ provider: 'gemini', model: '' });
+          const geminiOk = app.aiCoach.provider === 'gemini' && app.aiCoach.model === 'gemini-3.8-flash';
+          app.aiCoach.saveConfig({ provider: 'gemini', model: 'claude-sonnet-5' });
+          const mismatchDropped = app.aiCoach.model === 'gemini-3.8-flash';
+          app.fillCoachModelOptions();
+          const geminiOptions = Array.from(modelSelect.options).map(o => o.value).filter(Boolean);
+          const optionsOk = geminiOptions.length > 0 && geminiOptions.every(v => v.startsWith('gemini'));
+          const ctx7 = app.aiCoach.getPhysiologicalContext('auto', 45, 'ftp', '', 7);
+          const ctx90 = app.aiCoach.getPhysiologicalContext('auto', 45, 'ftp', '', 90);
+          const lookbackOk = ctx7.lookbackDays === 7 && ctx90.lookbackDays === 90 && ctx7.history.windowDays === 7 && ctx90.history.ridesWin >= ctx7.history.ridesWin
+            && ctx90.listedRideCount <= win.VeloAiCoach.MAX_LISTED_RIDES && app.aiCoach.buildPrompt(ctx7).includes('LAST 7 DAYS');
+          app.aiCoach.saveConfig(savedCfg);
+          app.aiCoach.setLookback(savedCfg.lookback);
+          app.fillCoachModelOptions();
+          log('AI Coach: Claude/Gemini Provider Switch & History Look-back Window', geminiOk && mismatchDropped && optionsOk && lookbackOk,
+            `Gemini: ${geminiOk}, mismatch dropped: ${mismatchDropped}, options: ${geminiOptions.join('/')}, look-back 7/90: ${ctx7.history.ridesWin}/${ctx90.history.ridesWin} rides (listed ${ctx90.listedRideCount})`);
 
           const clearBtn = frame.contentDocument.getElementById('btnClearAiCoachRecommendation');
           const clearTopBtn = frame.contentDocument.getElementById('btnClearAiCoachRecTop');
@@ -1139,6 +1159,49 @@
             const simOk = srcs[0] === 'PEDALS' && !srcs.includes('SIMULATOR');
             return { ok: parseOk && avgOk && retryOk && failOk && simOk,
               detail: `HR parse:${parseOk} avgPower incl. zeros:${avgOk} retry (2 fails then ok, 3 calls):${retryOk} 3 fails -> disconnected + reason:${failOk} sources after dropout:${srcs.join(',')}` };
+          });
+
+          // 50b. Training block: periodisation rules, calendar, post-ride review
+          await suite('Training Block: 3:1 Periodisation, 48 h Between Key Sessions, Hours Respected, Calendar & Post-Ride Adjustments', async () => {
+            const P = W.VeloBlockPlanner;
+            const bp = app.blockPlanner;
+            const saved = bp.block;
+            const opts = { goal: 'ftp', weeks: 8, hoursPerWeek: 6, days: [1, 3, 5, 6], longDay: 6, startDate: P.today() };
+            const { block } = await bp.create(opts, { useAi: false });
+            const all = block.weeks.flatMap(w => w.sessions);
+            const hard = all.filter(s => s.key).map(s => s.date).sort();
+            let spacingOk = true;
+            for (let i = 1; i < hard.length; i++) if ((P.parse(hard[i]) - P.parse(hard[i - 1])) / 864e5 < 2) spacingOk = false;
+            const daysOk = all.every(s => opts.days.includes(P.dow(s.date)) && s.date >= opts.startDate);
+            const hoursOk = block.weeks.every(w => w.plannedMin <= opts.hoursPerWeek * 60 + 25);
+            const structureOk = block.weeks.length === 8 && block.weeks[3].type === 'recovery' && block.weeks[7].type === 'test' && block.weeks[7].sessions.some(s => s.focus === 'test');
+            const recoveryLighter = block.weeks[3].plannedTss < block.weeks[2].plannedTss * 0.75;
+            const ctlUp = block.stats.endCtl > block.stats.startCtl;
+            // Calendar shows next week's planned sessions
+            const prevPreset = app.calendarViewPreset, prevOff = app.calendarWeekOffset;
+            app.calendarViewPreset = '1week'; app.calendarWeekOffset = 1; app.renderCalendarView();
+            const calOk = frame.contentDocument.querySelectorAll('#calendarContentArea .calendar-ride-card.planned').length > 0;
+            app.calendarViewPreset = prevPreset; app.calendarWeekOffset = prevOff; app.renderCalendarView();
+            // Loading a planned session gives a real interval workout
+            const wk = bp.workoutFor(all.find(s => s.focus === 'sweetspot').id);
+            const workoutOk = !!wk && Array.isArray(wk.intervals) && wk.intervals.length >= 3;
+            // Post-ride review: a block that started a week ago (missed sessions) with deep fatigue
+            await bp.create({ ...opts, startDate: P.addDays(P.today(), -8) }, { useAi: false });
+            const ctx = app.aiCoach.getPhysiologicalContext('auto', 60, 'ftp'); ctx.tsb = -30;
+            const fresh = bp.review([], ctx);
+            const missed = bp.allSessions().filter(s => s.status === 'missed').length;
+            const ease = fresh.find(f => f.type === 'ease' && f.changes.length);
+            let applied = false;
+            if (ease) {
+              const target = ease.changes[0].sessionId;
+              bp.resolveSuggestion(ease.id, true);
+              const s = bp.findSession(target);
+              applied = !!s && s.adjusted === true && (ease.changes[0].patch.key === false ? !s.key : true);
+            }
+            bp.block = saved; bp.save();
+            app.renderCalendarView();
+            return { ok: spacingOk && daysOk && hoursOk && structureOk && recoveryLighter && ctlUp && calOk && workoutOk && missed > 0 && !!ease && applied,
+              detail: `spacing:${spacingOk} days:${daysOk} hours:${hoursOk} 3:1+test:${structureOk} recovery lighter:${recoveryLighter} CTL ${block.stats.startCtl}->${block.stats.endCtl} calendar:${calOk} workout:${workoutOk} missed:${missed} ease suggested+applied:${!!ease}/${applied}` };
           });
 
           // 51. Storage safety: tests are isolated from real data; summary saves never erase stored samples

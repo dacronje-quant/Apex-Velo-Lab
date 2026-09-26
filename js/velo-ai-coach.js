@@ -3,12 +3,12 @@
  *
  * Goal-driven prescriptions (Raise FTP, Longevity / aerobic durability, VO2 max,
  * Balanced) built from the rider's real history: Banister PMC (CTL/ATL/TSB),
- * last 7 / 28 days of load and volume, intensity mix, recency of hard and long
- * rides, and the authentic power-duration profile.
+ * last 7 days plus a chosen look-back window (7-90 days) of load, volume and
+ * intensity mix, recency of hard and long rides, and the power-duration profile.
  *
- * When the app is served by server.js and an Anthropic API key is configured
- * there, the context is sent to Claude through the local /api/coach endpoint
- * (the key never reaches the browser) and the summarized reasoning is shown.
+ * When the app is served by the local server and it has an API key for the chosen
+ * provider (Claude or Gemini), the context is sent through the local /api/coach
+ * endpoint (keys never reach the browser) and the summarized reasoning is shown.
  * Without the server or a key - or if the call fails - the built-in physiology
  * engine produces an equivalent, fully deterministic plan.
  */
@@ -22,72 +22,139 @@ class VeloAiCoach {
 
   static DEFAULT_MODEL = 'claude-opus-5-5';
   static DEFAULT_EFFORT = 'low';
+  static PROVIDERS = {
+    claude: { label: 'Claude', keyName: 'ANTHROPIC_API_KEY', defaultModel: 'claude-opus-5-5' },
+    gemini: { label: 'Gemini', keyName: 'GEMINI_API_KEY', defaultModel: 'gemini-3.8-flash' }
+  };
   static MODEL_LABELS = {
     'claude-opus-5-5': 'Claude Opus 5.5',
     'claude-sonnet-5': 'Claude Sonnet 5',
-    'claude-haiku-4-5-20251001': 'Claude Haiku 4.5'
+    'claude-haiku-4-5-20251001': 'Claude Haiku 4.5',
+    'gemini-3.8-flash': 'Gemini 3.8 Flash',
+    'gemini-3.1-pro-preview': 'Gemini 3.1 Pro (preview)',
+    'gemini-3.1-flash-lite': 'Gemini 3.1 Flash-Lite'
   };
+  /** Look-back choices (days) for the history sent to the coach, and the cap on individually listed rides. */
+  static LOOKBACK_OPTIONS = [7, 14, 28, 42, 90];
+  static DEFAULT_LOOKBACK = 28;
+  static MAX_LISTED_RIDES = 30;
   static STATUS_URL = 'api/coach/status';
   static COACH_URL = 'api/coach';
 
   constructor(app) {
     this.app = app;
-    // Status of the local Claude proxy (server.js); filled by detectEngine().
-    this.engine = { reachable: false, configured: false, model: VeloAiCoach.DEFAULT_MODEL, effort: VeloAiCoach.DEFAULT_EFFORT, models: [], efforts: ['low', 'medium', 'high'] };
+    // Status of the local AI proxy (start_server.ps1 / server.js); filled by detectEngine().
+    this.engine = VeloAiCoach.offlineEngine();
     // Per-browser overrides; empty = use the server's default from .env.
+    this.providerOverride = '';
     this.modelOverride = '';
     this.effortOverride = '';
+    this.lookbackDays = VeloAiCoach.DEFAULT_LOOKBACK;
     try {
-      this.modelOverride = localStorage.getItem('apex_claude_model') || '';
-      this.effortOverride = localStorage.getItem('apex_claude_effort') || '';
-      // The coach no longer keeps any API key in the browser: remove the old Gemini key.
+      this.providerOverride = localStorage.getItem('apex_coach_provider') || '';
+      this.modelOverride = localStorage.getItem('apex_coach_model') || localStorage.getItem('apex_claude_model') || '';
+      this.effortOverride = localStorage.getItem('apex_coach_effort') || localStorage.getItem('apex_claude_effort') || '';
+      const lb = parseInt(localStorage.getItem('apex_coach_lookback_days') || '', 10);
+      if (VeloAiCoach.LOOKBACK_OPTIONS.includes(lb)) this.lookbackDays = lb;
+      // Keys are never kept in the browser: remove anything an old version stored.
       localStorage.removeItem('apex_gemini_api_key');
       localStorage.removeItem('apex_gemini_model');
     } catch (e) { /* storage unavailable */ }
+    if (!VeloAiCoach.PROVIDERS[this.providerOverride]) this.providerOverride = '';
+    if (!VeloAiCoach.MODEL_LABELS[this.modelOverride]) this.modelOverride = '';
     this.currentRecommendation = null;
   }
 
-  /** Model and effort that will be used for the next request. */
-  get model() { return this.modelOverride || this.engine.model || VeloAiCoach.DEFAULT_MODEL; }
+  static offlineEngine() {
+    const providers = {};
+    for (const [id, p] of Object.entries(VeloAiCoach.PROVIDERS)) providers[id] = { label: p.label, configured: false, model: p.defaultModel };
+    return { reachable: false, provider: 'claude', providers, model: VeloAiCoach.DEFAULT_MODEL, effort: VeloAiCoach.DEFAULT_EFFORT, models: [], efforts: ['low', 'medium', 'high'] };
+  }
+
+  static providerOf(model) { return /^gemini/i.test(model || '') ? 'gemini' : 'claude'; }
+
+  /** Provider, model and effort that will be used for the next request. */
+  get provider() {
+    if (this.providerOverride) return this.providerOverride;
+    if (this.modelOverride) return VeloAiCoach.providerOf(this.modelOverride);
+    return VeloAiCoach.PROVIDERS[this.engine.provider] ? this.engine.provider : 'claude';
+  }
+  get model() {
+    const p = this.provider;
+    if (this.modelOverride && VeloAiCoach.providerOf(this.modelOverride) === p) return this.modelOverride;
+    const ep = this.engine.providers && this.engine.providers[p];
+    return (ep && ep.model) || VeloAiCoach.PROVIDERS[p].defaultModel;
+  }
   get effort() { return this.effortOverride || this.engine.effort || VeloAiCoach.DEFAULT_EFFORT; }
-  get isLive() { return !!(this.engine.reachable && this.engine.configured); }
+  get providerLabel() { return VeloAiCoach.PROVIDERS[this.provider].label; }
+  /** True when the server is up and has a key for the chosen provider. */
+  get isLive() {
+    const ep = this.engine.providers && this.engine.providers[this.provider];
+    return !!(this.engine.reachable && ep && ep.configured);
+  }
   static labelFor(model) { return VeloAiCoach.MODEL_LABELS[model] || model; }
   static supportsEffort(model) { return !/haiku/i.test(model); }
+  static modelsFor(provider) { return Object.keys(VeloAiCoach.MODEL_LABELS).filter(m => VeloAiCoach.providerOf(m) === provider); }
 
-  /** Asks the local server whether Claude is available. Never throws. */
+  /** Asks the local server which providers have keys. Never throws. */
   async detectEngine(timeoutMs = 3000) {
     const ac = typeof AbortController !== 'undefined' ? new AbortController() : null;
     const timer = ac ? setTimeout(() => ac.abort(), timeoutMs) : null;
     try {
       const resp = await fetch(VeloAiCoach.STATUS_URL, { cache: 'no-store', signal: ac ? ac.signal : undefined });
       const json = resp.ok ? await resp.json() : null;
-      if (json && json.provider === 'claude') {
+      if (json && (json.providers || json.provider === 'claude')) {
+        const providers = VeloAiCoach.offlineEngine().providers;
+        if (json.providers) {
+          for (const id of Object.keys(providers)) {
+            const sp = json.providers[id];
+            if (sp) providers[id] = { label: sp.label || providers[id].label, configured: !!sp.configured, model: sp.model || providers[id].model };
+          }
+        } else {
+          // Older server (Claude only).
+          providers.claude = { ...providers.claude, configured: !!json.configured, model: json.model || providers.claude.model };
+        }
         this.engine = {
           reachable: true,
-          configured: !!json.configured,
+          provider: VeloAiCoach.PROVIDERS[json.provider] ? json.provider : 'claude',
+          providers,
           model: json.model || VeloAiCoach.DEFAULT_MODEL,
           effort: json.effort || VeloAiCoach.DEFAULT_EFFORT,
           models: Array.isArray(json.models) ? json.models : [],
           efforts: Array.isArray(json.efforts) ? json.efforts : ['low', 'medium', 'high']
         };
       } else {
-        this.engine = { ...this.engine, reachable: false, configured: false };
+        this.engine = { ...VeloAiCoach.offlineEngine(), reachable: false };
       }
     } catch (e) {
-      this.engine = { ...this.engine, reachable: false, configured: false };
+      this.engine = { ...VeloAiCoach.offlineEngine(), reachable: false };
     } finally {
       if (timer) clearTimeout(timer);
     }
     return this.engine;
   }
 
-  saveConfig(model, effort) {
+  /** Saves the per-browser engine choice. Empty strings mean "server default". */
+  saveConfig({ provider = this.providerOverride, model = this.modelOverride, effort = this.effortOverride } = {}) {
+    this.providerOverride = VeloAiCoach.PROVIDERS[provider] ? provider : '';
     this.modelOverride = VeloAiCoach.MODEL_LABELS[model] ? model : '';
+    // A model from the other provider makes no sense: drop it.
+    if (this.providerOverride && this.modelOverride && VeloAiCoach.providerOf(this.modelOverride) !== this.providerOverride) this.modelOverride = '';
     this.effortOverride = ['low', 'medium', 'high'].includes(effort) ? effort : '';
     try {
-      localStorage.setItem('apex_claude_model', this.modelOverride);
-      localStorage.setItem('apex_claude_effort', this.effortOverride);
+      localStorage.setItem('apex_coach_provider', this.providerOverride);
+      localStorage.setItem('apex_coach_model', this.modelOverride);
+      localStorage.setItem('apex_coach_effort', this.effortOverride);
+      localStorage.removeItem('apex_claude_model');
+      localStorage.removeItem('apex_claude_effort');
     } catch (e) { /* ignore */ }
+  }
+
+  setLookback(days) {
+    const d = parseInt(days, 10);
+    this.lookbackDays = VeloAiCoach.LOOKBACK_OPTIONS.includes(d) ? d : VeloAiCoach.DEFAULT_LOOKBACK;
+    try { localStorage.setItem('apex_coach_lookback_days', String(this.lookbackDays)); } catch (e) { /* ignore */ }
+    return this.lookbackDays;
   }
 
   clearRecommendation() {
@@ -95,7 +162,7 @@ class VeloAiCoach {
   }
 
   // ---------------------------------------------------------------- context --
-  getPhysiologicalContext(targetFocus = 'auto', durationMin = 45, goal = 'ftp', notes = '') {
+  getPhysiologicalContext(targetFocus = 'auto', durationMin = 45, goal = 'ftp', notes = '', lookbackDays = this.lookbackDays) {
     const profile = this.app.activeProfile || { name: 'Rider', ftp: 185, weightKg: 75, maxHr: 175 };
     const workouts = this.app.completedWorkouts || [];
     const pmc = this.app.analytics.calculatePmcHistory(workouts, 0);
@@ -120,16 +187,23 @@ class VeloAiCoach {
     }
 
     const form = VeloMetrics.formZone(tsb);
-    const history = VeloProgress.coachProfile(workouts, profile.ftp, now);
+    const lookback = VeloAiCoach.LOOKBACK_OPTIONS.includes(Number(lookbackDays)) ? Number(lookbackDays) : VeloAiCoach.DEFAULT_LOOKBACK;
+    const history = VeloProgress.coachProfile(workouts, profile.ftp, now, lookback);
 
-    const recentList = recentWorkouts.slice(0, 7).map(w => {
+    // Rides listed one by one in the prompt: the look-back window, newest first, capped so it stays lean.
+    const windowRides = workouts
+      .filter(w => now - new Date(w.date) <= lookback * 86400000)
+      .sort((a, b) => new Date(b.date) - new Date(a.date));
+    const listedRides = windowRides.slice(0, VeloAiCoach.MAX_LISTED_RIDES);
+    const recentList = listedRides.map(w => {
       return `- ${VeloMetrics.localDateKey(w.date)}: "${w.title}" (${Math.round((w.duration || 0) / 60)} min, TSS ${w.tss || 0}, NP ${w.np || 0}W, IF ${w.if || 0})`;
-    }).join('\n') || '- No rides logged in the past 7 days.';
+    }).join('\n') || `- No rides logged in the past ${lookback} days.`;
 
     return {
       profile, ctl, atl, tsb,
       formZone: form.label, formKey: form.key, formDesc: form.desc,
       sevenDayTss, sevenDayHours, recentWorkouts, recentList, consecutiveDays,
+      lookbackDays: lookback, windowRideCount: windowRides.length, listedRideCount: listedRides.length,
       history,
       goal: VeloAiCoach.GOALS[goal] ? goal : 'ftp',
       notes: String(notes || '').slice(0, 280),
@@ -351,9 +425,10 @@ class VeloAiCoach {
     const goal = VeloAiCoach.GOALS[ctx.goal] || VeloAiCoach.GOALS.ftp;
     const weekPlan = this.buildWeekPlan(ctx, focus, workout);
 
+    const win = h.windowDays || 28;
     const mixText = h.lowIntensityPct !== null && h.lowIntensityPct !== undefined
-      ? `Last 28 days: ${h.lowIntensityPct}% easy / ${h.midIntensityPct}% SweetSpot-tempo / ${h.highIntensityPct}% threshold+ (by ride IF).`
-      : 'Not enough rides with recorded power in the last 28 days to judge the intensity mix.';
+      ? `Last ${win} days: ${h.lowIntensityPct}% easy / ${h.midIntensityPct}% SweetSpot-tempo / ${h.highIntensityPct}% threshold+ (by ride IF).`
+      : `Not enough rides with recorded power in the last ${win} days to judge the intensity mix.`;
     const why = {
       recovery: 'Form and recent load say absorb, not add.',
       endurance: h.daysSinceHard !== null && h.daysSinceHard <= 1 ? 'You went hard in the last 48 h, so today builds aerobic volume instead.' : 'Aerobic volume is the foundation for both FTP and longevity.',
@@ -365,6 +440,7 @@ class VeloAiCoach {
     return {
       source: 'offline_heuristic',
       goal: ctx.goal,
+      lookbackDays: ctx.lookbackDays,
       focus,
       coachAssessment: {
         formZone: ctx.formZone,
@@ -377,7 +453,7 @@ class VeloAiCoach {
     };
   }
 
-  // ------------------------------------------------------------------ Claude --
+  // ------------------------------------------------------------ Claude / Gemini --
   buildPrompt(ctx) {
     const h = ctx.history || {};
     const goal = VeloAiCoach.GOALS[ctx.goal] || VeloAiCoach.GOALS.ftp;
@@ -390,11 +466,11 @@ ${ctx.notes ? `RIDER NOTES: ${ctx.notes}\n` : ''}
 PERFORMANCE MANAGEMENT (Banister model):
 - CTL (fitness) ${ctx.ctl.toFixed(1)}, ATL (fatigue) ${ctx.atl.toFixed(1)}, TSB (form) ${ctx.tsb.toFixed(1)} -> ${ctx.formZone}
 - Last 7 days: ${ctx.sevenDayTss} TSS, ${ctx.sevenDayHours.toFixed(1)} h, ${ctx.recentWorkouts.length} rides; consecutive riding days: ${ctx.consecutiveDays}
-- Last 28 days: ${h.rides28} rides, ${h.tss28} TSS, ${h.hoursPerWeek4w} h/week, longest ride ${h.longestRideMin28} min
-- Intensity mix (28 d, by ride IF): easy ${h.lowIntensityPct ?? 'n/a'}%, tempo/SweetSpot ${h.midIntensityPct ?? 'n/a'}%, threshold+ ${h.highIntensityPct ?? 'n/a'}%
+- Last ${ctx.lookbackDays} days (look-back window): ${h.ridesWin} rides, ${h.tssWin} TSS, ${h.hoursPerWeekWin} h/week, longest ride ${h.longestRideMinWin} min
+- Intensity mix (${ctx.lookbackDays} d, by ride IF): easy ${h.lowIntensityPct ?? 'n/a'}%, tempo/SweetSpot ${h.midIntensityPct ?? 'n/a'}%, threshold+ ${h.highIntensityPct ?? 'n/a'}%
 - Days since last hard ride (IF>=0.85): ${h.daysSinceHard ?? 'none on record'}; days since last ride >= 90 min: ${h.daysSinceLong ?? 'none on record'}
 - Power profile: ${h.profileType || 'n/a'}
-RECENT RIDES:
+RIDES IN THE LAST ${ctx.lookbackDays} DAYS (newest first${ctx.windowRideCount > ctx.listedRideCount ? `, ${ctx.listedRideCount} most recent of ${ctx.windowRideCount}` : ''}):
 ${ctx.recentList}
 
 RULES: scale all targets as % of FTP; include warmup and cooldown; interval durations in seconds; every interval needs a cadence target (rpm); total duration must be within 3 minutes of ${ctx.durationMin} min; respect fatigue (TSB < -25 -> recovery). The weekPlan must contain 7 days starting today; use focus "off" for rest days.
@@ -421,6 +497,7 @@ Return ONLY JSON matching:
     if (!this.isLive) await this.detectEngine();
     if (!this.isLive) return finish(this.generateOfflineHeuristic(ctx));
 
+    const provider = this.provider;
     const model = this.model;
     const effort = VeloAiCoach.supportsEffort(model) ? this.effort : null;
     const label = VeloAiCoach.labelFor(model);
@@ -428,11 +505,11 @@ Return ONLY JSON matching:
       const resp = await fetch(VeloAiCoach.COACH_URL, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ prompt: this.buildPrompt(ctx), model, effort })
+        body: JSON.stringify({ prompt: this.buildPrompt(ctx), provider, model, effort })
       });
       const json = await resp.json().catch(() => ({}));
       if (!resp.ok) {
-        console.warn('Claude coach call failed:', resp.status, json.error);
+        console.warn(`${this.providerLabel} coach call failed:`, resp.status, json.error);
         const fb = this.generateOfflineHeuristic(ctx);
         fb.apiError = `${json.error || `${label} error (${resp.status})`} Used the built-in physiology engine instead.`;
         return finish(fb);
@@ -472,10 +549,11 @@ Return ONLY JSON matching:
       }
       parsed.coachAssessment = parsed.coachAssessment || {};
       parsed.coachAssessment.formZone = parsed.coachAssessment.formZone || ctx.formZone;
-      parsed.source = 'claude';
+      parsed.source = json.provider || provider;
       parsed.model = json.model || model;
       parsed.modelLabel = label;
       parsed.goal = ctx.goal;
+      parsed.lookbackDays = ctx.lookbackDays;
       parsed.thinkingLevel = effort ? `${effort} effort` : 'thinking';
       parsed.usage = json.usage || null;
       if (thoughtText.trim()) parsed.coachThoughts = thoughtText.trim();

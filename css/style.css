@@ -1138,3 +1138,60 @@ body.focus-mode #valInstantPower { font-size: clamp(120px, 14vw, 220px); }
 .chip-strava-bad { color: var(--rose); border-color: rgba(251, 113, 133, 0.45); background: rgba(251, 113, 133, 0.1); }
 .chip-strava-busy { color: var(--amber); border-color: rgba(251, 191, 36, 0.4); }
 @media (max-width: 860px) { .strava-panel { grid-template-columns: 36px minmax(0, 1fr); } .strava-actions { grid-column: 1 / -1; flex-direction: row; justify-content: flex-start; } .strava-mark { width: 36px; height: 36px; } }
+
+/* ---------------------------------------------------------- training block */
+.block-card { grid-column: 1 / -1; }
+.block-form { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 10px; }
+.day-toggle { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 12px; }
+.day-chip { min-width: 52px; height: 34px; padding: 0 12px; border-radius: 999px; border: 1px solid var(--line); background: var(--surface-sunk); color: var(--text-2); font-weight: 700; font-size: 12px; letter-spacing: 0; text-transform: none; cursor: pointer; transition: all .15s; }
+.day-chip:hover { border-color: var(--line-strong); color: var(--text-1); }
+.day-chip.active { border-color: rgba(167, 139, 250, 0.6); background: var(--violet-soft); color: var(--violet); }
+.block-head { display: flex; justify-content: space-between; align-items: flex-start; gap: 12px; flex-wrap: wrap; }
+.block-head .btn-row { margin-bottom: 0; }
+.block-summary { font-size: 13px; color: var(--text-2); line-height: 1.55; margin: 12px 0 16px; }
+.block-phases { display: flex; flex-wrap: wrap; gap: 6px; margin: 4px 0 10px; }
+.chip-phase.recovery { color: #7c8aa5; }
+.chip-phase.test { color: var(--violet); }
+.block-weeks { display: grid; grid-template-columns: repeat(auto-fit, minmax(54px, 1fr)); gap: 6px; }
+.bw { display: flex; flex-direction: column; align-items: center; gap: 2px; padding: 8px 4px; border-radius: var(--radius-md); background: var(--surface-sunk); border: 1px solid var(--line); font-size: 11px; min-width: 0; }
+.bw b { font-size: 12px; color: var(--text-1); }
+.bw small { color: var(--text-3); font-size: 10px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 100%; }
+.bw.now { border-color: rgba(34, 211, 238, 0.6); box-shadow: 0 0 0 1px rgba(34, 211, 238, 0.2); }
+.bw-bars { position: relative; width: 70%; height: 56px; display: flex; align-items: flex-end; margin-bottom: 4px; }
+.bw-plan { position: absolute; left: 0; right: 0; bottom: 0; border-radius: 4px 4px 0 0; background: rgba(167, 139, 250, 0.28); border: 1px dashed rgba(167, 139, 250, 0.55); border-bottom: 0; }
+.bw.recovery .bw-plan { background: rgba(124, 138, 165, 0.25); border-color: rgba(124, 138, 165, 0.6); }
+.bw.test .bw-plan { background: rgba(34, 211, 238, 0.18); border-color: rgba(34, 211, 238, 0.5); }
+.bw-done { position: absolute; left: 22%; right: 22%; bottom: 0; border-radius: 3px 3px 0 0; background: var(--lime); opacity: 0.85; }
+.block-sessions { display: flex; flex-direction: column; gap: 6px; margin-bottom: 14px; }
+.bs-row { --fc: var(--line-strong); position: relative; display: flex; flex-wrap: wrap; align-items: center; gap: 6px 12px; padding: 8px 10px 8px 14px; border-radius: var(--radius-sm); background: var(--surface-2); border: 1px solid var(--line); font-size: 12.5px; }
+.bs-row::before { content: ''; position: absolute; left: 0; top: 6px; bottom: 6px; width: 3px; border-radius: 2px; background: var(--fc); }
+.bs-row.done { opacity: 0.75; }
+.bs-row.missed { opacity: 0.55; }
+.bs-date { color: var(--text-3); flex: 0 0 96px; white-space: nowrap; }
+.bs-title { display: flex; align-items: center; flex-wrap: wrap; gap: 2px; min-width: 150px; flex: 1 1 200px; }
+.bs-title b { color: var(--text-1); margin-right: 4px; }
+.bs-meta { color: var(--text-2); white-space: nowrap; }
+.bs-row > span:empty { display: none; }
+.bs-missed { color: var(--rose); background: var(--rose-soft); border-color: rgba(251, 113, 133, 0.3); }
+.block-suggestions { display: flex; flex-direction: column; gap: 8px; margin: 12px 0; }
+.block-suggestions:empty { display: none; }
+.block-sg { display: flex; justify-content: space-between; align-items: center; gap: 12px; padding: 12px 14px; border-radius: var(--radius-md); border: 1px solid rgba(251, 191, 36, 0.35); background: var(--amber-soft); }
+.block-sg.push { border-color: rgba(163, 230, 53, 0.35); background: var(--lime-soft); }
+.block-sg.move { border-color: rgba(167, 139, 250, 0.4); background: var(--violet-soft); }
+.block-sg.info { border-color: var(--line-strong); background: var(--surface-sunk); }
+.block-sg b { display: block; font-size: 13px; color: var(--text-1); }
+.block-sg small { display: block; font-size: 12px; color: var(--text-2); margin-top: 2px; line-height: 1.45; }
+.block-sg .btn-row { flex-wrap: nowrap; margin-bottom: 0; }
+.calendar-ride-card.planned { background: transparent; border-style: dashed; border-color: rgba(167, 139, 250, 0.45); }
+.calendar-ride-card.planned .crc-meta b { color: var(--violet); }
+.calendar-ride-card.planned.missed { opacity: 0.5; border-color: rgba(251, 113, 133, 0.4); }
+.calendar-ride-card.planned .crc-load { margin-top: 6px; width: 100%; height: 26px; justify-content: center; }
+@media (max-width: 1180px) { .block-form { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+@media (max-width: 560px) {
+  .block-form { grid-template-columns: 1fr; }
+  .bs-date { flex-basis: 100%; }
+  .block-sg { flex-direction: column; align-items: flex-start; }
+}
+.block-thinking { margin-top: 8px; font-size: 12px; color: var(--text-3); }
+.block-thinking summary { cursor: pointer; color: var(--violet); font-weight: 600; }
+.block-thinking div { margin-top: 6px; line-height: 1.5; max-height: 240px; overflow: auto; }

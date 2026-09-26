@@ -75,6 +75,9 @@
         if (del) { e.stopPropagation(); this.deleteRideFromCalendar(del.dataset.id); return; }
         const month = e.target.closest('[data-month]');
         if (month) { this.jumpToCalendarMonth(parseInt(month.dataset.year, 10), parseInt(month.dataset.month, 10)); return; }
+        const loadPlanned = e.target.closest('[data-block-load-cal]');
+        if (loadPlanned && this.loadBlockSession) { e.stopPropagation(); this.loadBlockSession(loadPlanned.dataset.blockLoadCal); return; }
+        if (e.target.closest('[data-planned]')) { this.switchTab('ai-coach'); document.getElementById('trainingBlockCard')?.scrollIntoView({ behavior: 'smooth', block: 'start' }); return; }
         const card = e.target.closest('[data-ride]');
         if (card) this.showRideSummaryById(card.dataset.ride);
       });
@@ -697,6 +700,7 @@
         byDay.get(k).push(r);
       });
       const todayKey = VeloMetrics.localDateKey(new Date());
+      const planned = this.plannedByDay ? this.plannedByDay() : new Map();
 
       if (this.calendarViewPreset === '1week') {
         if (btnPrev) btnPrev.textContent = '← Prev week';
@@ -705,20 +709,28 @@
         const days = this.getWeekRange(this.calendarWeekOffset);
         if (titleEl) titleEl.textContent = `${days[0].toLocaleDateString('en-US', { month: 'short', day: 'numeric' })} - ${days[6].toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}`;
         const all = [];
+        let plannedTss = 0;
         const cols = days.map(day => {
           const k = VeloMetrics.localDateKey(day);
           const rides = byDay.get(k) || [];
+          const plans = planned.get(k) || [];
           all.push(...rides);
+          plannedTss += plans.filter(p => p.status !== 'missed').reduce((a, p) => a + (p.tss || 0), 0);
           const r = this.rollup(rides);
           return `<div class="calendar-day-col ${k === todayKey ? 'today' : ''}">
             <div class="calendar-day-header"><span class="calendar-day-name">${day.toLocaleDateString('en-US', { weekday: 'short' })}</span><span class="calendar-day-date num">${day.getDate()}</span></div>
             ${r.tss ? `<div class="day-load" style="--load:${Math.min(1, r.tss / 150)}"><span class="num">${Math.round(r.tss)} TSS</span></div>` : ''}
-            ${rides.length ? rides.map(x => this.rideCardHtml(x)).join('') : '<div class="rest-day">Rest</div>'}
+            ${rides.map(x => this.rideCardHtml(x)).join('')}${plans.map(p => this.plannedCardHtml(p)).join('')}
+            ${rides.length || plans.length ? '' : '<div class="rest-day">Rest</div>'}
           </div>`;
         }).join('');
         container.innerHTML = `<div class="calendar-grid" id="calendarGrid">${cols}</div>`;
         const r = this.rollup(all);
         this.updateCalendarRollups('WEEKLY TSS', r.tss, r.sec, r.kj, r.dist, r.rides, r.avgNp);
+        if (plannedTss > 0) {
+          this.setText('calRollupTssLbl', 'WEEK TSS / STILL PLANNED');
+          this.setText('calWeeklyTss', `${Math.round(r.tss)} / ${Math.round(plannedTss)} TSS`);
+        }
       } else if (this.calendarViewPreset === '1month') {
         if (btnPrev) btnPrev.textContent = '← Prev month';
         if (btnNext) btnNext.textContent = 'Next month →';
@@ -737,11 +749,12 @@
         for (let d = 1; d <= daysInMonth; d++) {
           const k = VeloMetrics.localDateKey(new Date(y, m, d));
           const rides = byDay.get(k) || [];
+          const plans = planned.get(k) || [];
           monthRides.push(...rides);
           const tss = rides.reduce((a, r) => a + (r.tss || 0), 0);
           cells += `<div class="cal-cell ${k === todayKey ? 'today' : ''}" style="--load:${Math.min(1, tss / 150)}">
             <div class="cal-cell-head"><span class="num">${d}</span>${tss > 0 ? `<span class="cal-cell-tss num">${Math.round(tss)}</span>` : ''}</div>
-            ${rides.map(r => this.rideCardHtml(r, true)).join('')}
+            ${rides.map(r => this.rideCardHtml(r, true)).join('')}${plans.map(p => this.plannedCardHtml(p, true)).join('')}
           </div>`;
         }
         const list = monthRides.sort((a, b) => new Date(a.date) - new Date(b.date)).map(r => `
