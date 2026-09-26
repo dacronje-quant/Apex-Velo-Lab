@@ -123,6 +123,7 @@ class VeloApp {
     this.initAiCoachUi();
     if (this.initStravaUi) this.initStravaUi();
     if (this.initStravaSyncUi) this.initStravaSyncUi();
+    if (this.bindInsightActions) this.bindInsightActions(document.getElementById('modalRideDetails'));
     if (this.initRemoteView) this.initRemoteView();
     this.initAnalyticsUi();
     this.updateProfileUi();
@@ -617,6 +618,38 @@ class VeloApp {
     if (this.ble.isTrainerConnected()) this.lastCommandedErgWatts = watts;
   }
 
+  /**
+   * ERG nudge in watts (phone +/-5 W): moves the bias by that many watts of the current step,
+   * so later steps scale the same way as with the % buttons.
+   */
+  setErgBiasWatts(dw) {
+    const iv = this.currentWorkout && this.currentWorkout.intervals[this.intervalIndex];
+    const base = iv ? this.activeProfile.ftp * (iv.pctFtp / 100) : 0;
+    if (!(base > 0)) return;
+    // The bias is a whole %, so pick the step whose rounded target lands closest to exactly dw watts.
+    const now = Math.round(base * this.ergBiasMultiplier);
+    const raw = Math.abs(dw) / base * 100;
+    const pick = [Math.floor(raw), Math.ceil(raw)].filter(c => c >= 1)
+      .map(c => ({ c, err: Math.abs(Math.round(base * (this.ergBiasMultiplier + Math.sign(dw) * c / 100)) - now - dw) }))
+      .sort((a, b) => a.err - b.err || b.c - a.c)[0];
+    this.setErgBias(Math.sign(dw) * (pick ? pick.c : 1) / 100);
+  }
+
+  /** Out-of-the-saddle break: eases ERG for 30 s (tap again to end early). */
+  toggleStand() {
+    if (!this.isPlaying) { this.showToast('Stand works during a ride.', 'info'); return; }
+    const on = this.erg.stand();
+    this.ergApplyNow(false);
+    this.updateStandUi();
+    this.showToast(on ? `Stand: ERG eased ${Math.round((1 - this.erg.o.standPct) * 100)}% for ${this.erg.o.standSec} s.` : 'Stand ended - ramping back to target.', 'info');
+  }
+
+  updateStandUi() {
+    const left = this.erg ? this.erg.standLeft : 0;
+    this.setText('btnStandText', left > 0 ? `Standing ${left}s` : 'Stand 30s');
+    this.$('btnStand')?.classList.toggle('active', left > 0);
+  }
+
   updateBiasUi() {
     const pct = Math.round(this.ergBiasMultiplier * 100) + '%';
     this.setText('biasValueDisplay', pct);
@@ -693,6 +726,12 @@ class VeloApp {
 
   resetWorkout(confirmPrompt = true) {
     if (confirmPrompt && this.totalElapsedSeconds > 10 && !confirm('Reset to step 1? Live telemetry for this session will be discarded.')) return;
+    this._easySpinOffer = null;
+    this.renderEasySpinOffer();
+    // Easy-spin extensions belong to one ride only.
+    if (this.currentWorkout && this.currentWorkout.intervals.some(iv => iv.extension)) {
+      this.currentWorkout = { ...this.currentWorkout, intervals: this.currentWorkout.intervals.filter(iv => !iv.extension) };
+    }
     this.isPlaying = false;
     this.releaseWakeLock();
     this.isWorkoutCompleted = false;
@@ -836,6 +875,7 @@ class VeloApp {
       pedalPower: pmOn ? power : null,
     });
     this.powerMatchOffset = this.erg.offset;
+    this.updateStandUi();
     if (this.ergModeEnabled) {
       this.ble.setTrainerErgPower(erg.watts);
       this.lastCommandedErgWatts = trainerConnected ? erg.watts : null;
@@ -912,16 +952,92 @@ class VeloApp {
     if (this.intervalSecondsRemaining <= 0) {
       this.intervalIndex++;
       if (this.intervalIndex >= this.currentWorkout.intervals.length) {
+        // Workout done: keep spinning on an easy step and offer "+5 min easy spin" for 10 s.
+        if (this.offerEasySpin()) return;
         this.finishWorkout(true);
         return;
       }
       this.intervalSecondsRemaining = this.currentWorkout.intervals[this.intervalIndex].duration;
       this.updateHudTitles();
     }
+    if (this._easySpinOffer && Date.now() >= this._easySpinOffer.until) this.declineEasySpin();
+    else if (this._easySpinOffer) this.renderEasySpinOffer();
     this.renderIntervalTrack();
   }
 
-  finishWorkout(isNaturalEnd = false) {
+  // ------------------------------------------------------- easy spin --
+  static EASY_SPIN = { name: 'Easy spin', duration: 300, pctFtp: 45, cadence: 90, extension: true };
+  static EASY_SPIN_OFFER_MS = 10000;
+
+  /**
+   * At the natural end of a workout: add a provisional 5-min easy spin (so the legs keep turning in
+   * ERG) and show a 10 s prompt. Accept keeps it; Finish or no answer removes it and saves the ride.
+   * Returns false when there is nothing to offer (not riding).
+   */
+  offerEasySpin() {
+    if (!this.isPlaying || !this.currentWorkout) return false;
+    const w = this.currentWorkout;
+    this.currentWorkout = { ...w, intervals: [...w.intervals, { ...VeloApp.EASY_SPIN }] }; // copy: the library workout is untouched
+    this.intervalIndex = this.currentWorkout.intervals.length - 1;
+    this.intervalSecondsRemaining = VeloApp.EASY_SPIN.duration;
+    this._easySpinOffer = { until: Date.now() + VeloApp.EASY_SPIN_OFFER_MS };
+    this.audio.workoutCompleteFanfare();
+    this.updateHudTitles();
+    this.renderIntervalTrack();
+    this.ergApplyNow(false);
+    this.renderEasySpinOffer();
+    if (this.publishSoon) this.publishSoon();
+    return true;
+  }
+
+  acceptEasySpin() {
+    if (!this._easySpinOffer) return;
+    this._easySpinOffer = null;
+    this.renderEasySpinOffer();
+    this.showToast('+5 min easy spin - the ride continues.', 'success');
+    if (this.publishSoon) this.publishSoon();
+  }
+
+  /** Finish now (or the offer timed out): drop the provisional spin and save it as a completed workout. */
+  declineEasySpin() {
+    if (!this._easySpinOffer) return;
+    this._easySpinOffer = null;
+    this.renderEasySpinOffer();
+    const ivs = this.currentWorkout.intervals;
+    if (ivs.length && ivs[ivs.length - 1].extension && this.intervalIndex === ivs.length - 1) {
+      this.currentWorkout = { ...this.currentWorkout, intervals: ivs.slice(0, -1) };
+      this.intervalIndex = this.currentWorkout.intervals.length;
+    }
+    this.finishWorkout(true, { fanfare: false }); // a natural end; the fanfare already played with the offer
+  }
+
+  renderEasySpinOffer() {
+    let el = document.getElementById('easySpinOffer');
+    const o = this._easySpinOffer;
+    if (!o) { if (el) el.remove(); return; }
+    const left = Math.max(0, Math.ceil((o.until - Date.now()) / 1000));
+    if (!el) {
+      el = document.createElement('div');
+      el.id = 'easySpinOffer';
+      el.className = 'easy-spin-offer';
+      el.setAttribute('role', 'dialog');
+      el.innerHTML = `<div class="eso-title">Workout complete - nice work!</div>
+        <div class="eso-sub">Spinning easy at ${VeloApp.EASY_SPIN.pctFtp}% FTP. Keep going to flush the legs?</div>
+        <div class="eso-actions"><button type="button" class="btn btn-start eso-yes" data-eso="yes">+5 min easy spin</button>
+        <button type="button" class="btn btn-ghost eso-no" data-eso="no">Finish now <span class="num" data-eso-left></span></button></div>`;
+      el.addEventListener('click', (e) => {
+        const b = e.target.closest('[data-eso]');
+        if (b) (b.dataset.eso === 'yes' ? this.acceptEasySpin() : this.declineEasySpin());
+      });
+      document.body.appendChild(el);
+    }
+    const t = el.querySelector('[data-eso-left]');
+    if (t) t.textContent = `(${left})`;
+  }
+
+  finishWorkout(isNaturalEnd = false, { fanfare = true } = {}) {
+    this._easySpinOffer = null;
+    this.renderEasySpinOffer();
     this.isPlaying = false;
     this.releaseWakeLock();
     this.clock.stop();
@@ -930,7 +1046,7 @@ class VeloApp {
     this.updatePlaybackControlsUi();
     this.updatePowerSourceBadge();
     if (this.isZenMode) this.toggleZenMode();
-    if (isNaturalEnd) this.audio.workoutCompleteFanfare();
+    if (isNaturalEnd && fanfare) this.audio.workoutCompleteFanfare();
 
     if (!(this.recordedSamples.length > 0 || this.totalElapsedSeconds > 0)) {
       this.showToast('Workout stopped. No telemetry was recorded.', 'info');
@@ -1206,7 +1322,7 @@ class VeloApp {
       if (!this.ergModeEnabled) { text = 'ERG OFF'; pc = 'erg-status-pill erg-off'; }
       else if (trainerConnected && this.erg.mode !== 'normal') {
         const cmd = this.lastCommandedErgWatts != null ? this.lastCommandedErgWatts : targetW;
-        text = { 'soft-start': `ERG SOFT START ${cmd}W - SPIN UP`, stall: `ERG EASED ${cmd}W - SPIN UP`, ramp: `ERG RAMP ${cmd}/${targetW}W` }[this.erg.mode];
+        text = { 'soft-start': `ERG SOFT START ${cmd}W - SPIN UP`, stall: `ERG EASED ${cmd}W - SPIN UP`, ramp: `ERG RAMP ${cmd}/${targetW}W`, stand: `ERG STAND ${cmd}W - ${this.erg.standLeft}s` }[this.erg.mode];
         pc = 'erg-status-pill erg-active';
       }
       else if (trainerConnected) { text = pmActive ? `ERG MATCH ${targetW}W (${trim})` : `ERG ${targetW}W`; pc = 'erg-status-pill erg-active'; }
@@ -2082,6 +2198,7 @@ class VeloApp {
     [['btnBiasMinus5', -0.05], ['btnBiasMinus1', -0.01], ['btnBiasPlus1', 0.01], ['btnBiasPlus5', 0.05],
      ['btnZenBiasMinus5', -0.05], ['btnZenBiasMinus1', -0.01], ['btnZenBiasPlus1', 0.01], ['btnZenBiasPlus5', 0.05]]
       .forEach(([id, d]) => this.on(this.$(id), 'click', () => this.setErgBias(d)));
+    this.on(this.$('btnStand'), 'click', () => this.toggleStand());
     this.on(this.$('btnBiasReset'), 'click', () => { this.ergBiasMultiplier = 1.0; this.updateBiasUi(); this.updateHudTitles(); });
 
     // Header tools
@@ -2182,6 +2299,7 @@ class VeloApp {
         case 'KeyF': e.preventDefault(); this.toggleFullscreen(); break;
         case 'KeyP': e.preventDefault(); this.pip.toggle(); break;
         case 'KeyM': e.preventDefault(); this.audio.toggleMute(); break;
+        case 'KeyS': e.preventDefault(); this.toggleStand(); break;
         case 'KeyZ': e.preventDefault(); this.toggleZenMode(); break;
         case 'KeyC': if (this.isZenMode) { e.preventDefault(); this.toggleZenCadenceHalo(); } break;
         case 'KeyH':

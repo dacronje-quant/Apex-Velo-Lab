@@ -18,6 +18,8 @@
  *    it carries across steps in proportion to the new target (short intervals start already
  *    matched). It waits a few seconds after every target change before adjusting, and never
  *    adds watts while you are grinding, so it can't overshoot a step change or deepen a stall.
+ *  - Stand: one tap eases the load a little for a short out-of-the-saddle break (cadence drops
+ *    while standing, so the anti-stall guard and PowerMatch pause), then ramps back smoothly.
  *
  * A ramp only ever lowers the load below the target; it never commands more than the target.
  */
@@ -39,6 +41,9 @@ class VeloErg {
     pmSettleSec: 6,        // PowerMatch waits this long after a target change
     pmMaxTrim: 45,         // PowerMatch trim cap (W)
     pmSlew: 2,             // PowerMatch max change per second (W)
+    standSec: 30,          // "Stand" eases the load for this long...
+    standPct: 0.95,        // ...to this share of the target...
+    standRampSec: 4,       // ...then ramps back to target over this many seconds
   };
 
   constructor(opts = {}) {
@@ -53,7 +58,8 @@ class VeloErg {
     this.pedalBuf = [];
     this.lastBase = null;
     this.pmSettle = 0;
-    this.mode = 'normal';     // normal | soft-start | stall | ramp
+    this.standLeft = 0;       // seconds of the current stand break
+    this.mode = 'normal';     // normal | soft-start | stall | ramp | stand
   }
 
   /** Low-cadence threshold for this step; a low-cadence drill lowers it. */
@@ -76,6 +82,13 @@ class VeloErg {
     this.offset = Math.min(this.offset, 0);
   }
 
+  /** Starts (or restarts) a short out-of-the-saddle break; a second tap while standing ends it. */
+  stand(on = this.standLeft <= 0) {
+    if (on) { this.standLeft = this.o.standSec; this.lowCadSec = 0; }
+    else if (this.standLeft > 0) { this.standLeft = 1; } // ends on the next second, with the ramp back
+    return this.standLeft > 0;
+  }
+
   /** Current load cap from an active ramp (Infinity when none). Does not advance the ramp. */
   cap(base) {
     const r = this.ramp;
@@ -86,7 +99,8 @@ class VeloErg {
   /** Wattage to send right now (for events between ticks). Does not advance any state. */
   now(target) {
     const base = Math.max(0, target || 0);
-    const w = this.ramp ? Math.min(base, this.cap(base)) : base + this.offset;
+    let w = this.ramp ? Math.min(base, this.cap(base)) : base + this.offset;
+    if (this.standLeft > 0) w = Math.min(w, base * this.o.standPct);
     return VeloErg.clamp(w);
   }
 
@@ -125,7 +139,7 @@ class VeloErg {
     const hard = ftp > 0 ? base >= ftp * o.stallMinPctFtp / 100 : base >= 150;
     const waiting = !!(this.ramp && this.ramp.waiting);
     const failing = cadence < o.stopCadence || power == null || power < base * o.stallPowerPct;
-    if (cadenceKnown && hard && !waiting && cadence < stallAt && failing) this.lowCadSec++;
+    if (cadenceKnown && hard && !waiting && this.standLeft <= 0 && cadence < stallAt && failing) this.lowCadSec++;
     else this.lowCadSec = 0;
     if (this.lowCadSec >= o.stallSec) {
       this.ramp = { from: Math.round(base * o.stallLoadPct), dur: o.recoverSec, t: 0, waiting: true, spinAt: stallAt + o.recoverRpm, stall: true };
@@ -148,12 +162,23 @@ class VeloErg {
       this.mode = 'normal';
     }
 
+    // Stand break: eased load while standing, then a short ramp back (not a jump) to the target.
+    if (this.standLeft > 0) {
+      this.standLeft--;
+      capW = Math.min(capW, base * o.standPct);
+      this.mode = 'stand';
+      this.pmSettle = Math.max(this.pmSettle, 2);
+      if (this.standLeft === 0 && !this.ramp) {
+        this.ramp = { from: Math.round(base * o.standPct), dur: o.standRampSec, t: 0, waiting: false, spinAt: 0, stall: false };
+      }
+    }
+
     // PowerMatch: pedals are truth; trim the trainer so pedal power meets the target.
     if (pedalPower != null) {
       this.pedalBuf.push(pedalPower);
       if (this.pedalBuf.length > 4) this.pedalBuf.shift();
       if (this.pmSettle > 0) this.pmSettle--;
-      else if (!this.ramp) {
+      else if (!this.ramp && this.mode !== 'stand') {
         const avg = this.pedalBuf.reduce((a, b) => a + b, 0) / this.pedalBuf.length;
         const err = base - avg;
         if (avg > 20 && Math.abs(err) > 2) {

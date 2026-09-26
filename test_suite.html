@@ -703,8 +703,11 @@
           let fanfarePlayed = false;
           app.audio.workoutCompleteFanfare = () => { fanfarePlayed = true; };
 
-          // Execute 1Hz Tick -> Should reach end of final interval and auto-finish!
+          // Execute 1Hz Tick -> reaches the end of the final interval: the "+5 min easy spin" offer appears
+          // (fanfare now) and "Finish now" completes and autosaves the workout.
           app.tick1Hz();
+          const easySpinOffered = !!app._easySpinOffer && !!frame.contentDocument.getElementById('easySpinOffer');
+          frame.contentDocument.querySelector('#easySpinOffer [data-eso="no"]')?.click();
 
           // B. Verify Automatic Completion & Autosaving
           const isTimerStopped = !app.isPlaying;
@@ -740,14 +743,14 @@
           const restartedCleanly = app.isPlaying === true && app.intervalIndex === 0 && app.totalElapsedSeconds === 0;
           app.resetWorkout(false);
 
-          const test31Passed = isTimerStopped && isMarkedCompleted && zenDismissedOnFinish &&
+          const test31Passed = easySpinOffered && isTimerStopped && isMarkedCompleted && zenDismissedOnFinish &&
                                isAutosavedInHistory && hasComplianceScore && fanfarePlayed &&
                                statusPillFinished && playBtnIsRestart && isModalOpened &&
                                hasCompletionBanner && hasExecutionBadge && hasAutosaveBadge &&
                                modalClosedOk && restartedCleanly;
 
           log('Workout Completion Autosave, Audio Fanfare & Executive Overview Modal', test31Passed,
-            `Autosaved: ${isAutosavedInHistory} (${autosavedRecord?.duration}s, ${autosavedRecord?.compliancePct}% Exec) | Zen Dismissed: ${zenDismissedOnFinish} | Fanfare: ${fanfarePlayed} | UI: ${statusPillFinished}/${playBtnIsRestart} | Overview Banner: ${hasCompletionBanner}/${hasAutosaveBadge} | Restart: ${restartedCleanly}`);
+            `Easy-spin offer then Finish now: ${easySpinOffered} | Autosaved: ${isAutosavedInHistory} (${autosavedRecord?.duration}s, ${autosavedRecord?.compliancePct}% Exec) | Zen Dismissed: ${zenDismissedOnFinish} | Fanfare: ${fanfarePlayed} | UI: ${statusPillFinished}/${playBtnIsRestart} | Overview Banner: ${hasCompletionBanner}/${hasAutosaveBadge} | Restart: ${restartedCleanly}`);
 
           // ======================================================================
           // v3 OVERHAUL SUITES (32+) - pure math, exporters, BLE state machine,
@@ -1125,6 +1128,199 @@
 
             const ok = softOk && noSoft && blindOk && stallOk && noGuardOk && leadOk && pmOk && resetOnChange && noDeepen && hiitOk;
             return { ok, detail: `HIIT skip:${skipInstant} lead ${rec} tabata:${tabata} grind:${grind.map(r => r.watts)} dying:${dying.map(r => r.watts)} (${hiitOk}) | soft ${held.map(r => r.watts)}|${ramp.map(r => r.watts)} (${softOk}) | spinning:${noSoft} | blind:${blindOk} | stall ${sag.map(r => r.watts)}>${still.watts}>${back.map(r => r.watts)} (${stallOk}) | easy/drill:${noGuardOk} | lead ${up3}/${up2}/${down1} | PM ${pm.map(r => r.watts)} (${pmOk}) carry:${resetOnChange} | no deepen:${noDeepen}` };
+          });
+
+          // 46c. Ride-time UX: Stand break, +/-5 W from the phone, +5 min easy spin, phone commands allowed by the server
+          await suite('Ride-Time UX: Stand Break Eases ERG Without Tripping Anti-Stall, Phone +/-5 W Is Exact, +5 min Easy Spin Offer (Accept / Finish / Timeout), Library Workout Untouched', async () => {
+            // Stand: 30 s at 95%, standing at 58 rpm while missing watts never triggers the stall guard; ramps back
+            const e = new W.VeloErg();
+            const base = { ftp: 185, cadenceKnown: true, target: 250, cadence: 90 };
+            e.tick(base); e.tick(base);
+            e.stand();
+            const standing = Array.from({ length: 30 }, () => e.tick({ ...base, cadence: 58, power: 180 }));
+            const back = Array.from({ length: 5 }, () => e.tick(base));
+            const standOk = standing.every(r => r.watts === 238 && r.event !== 'stall') && standing[0].mode === 'stand' && back[0].watts > 238 && back[0].watts < 250 && back[4].watts === 250;
+            const e2 = new W.VeloErg(); e2.tick(base); e2.stand(); const ended = !e2.stand() || e2.standLeft <= 1;
+            const endEarly = ended && [0, 1, 2, 3, 4, 5].map(() => e2.tick(base).watts).pop() === 250;
+
+            // +/-5 W: lands on the watt closest to +5 (bias stays a %, so later steps scale the same way)
+            const savedBias = app.ergBiasMultiplier, savedIdx = app.intervalIndex, savedFtp = app.activeProfile.ftp;
+            app.activeProfile.ftp = 185;
+            const idx93 = app.currentWorkout.intervals.findIndex(iv => iv.pctFtp === 50);
+            app.intervalIndex = idx93 >= 0 ? idx93 : 0;
+            app.ergBiasMultiplier = 1;
+            const w0 = app.getCurrentTargetWatts();
+            app.setErgBiasWatts(5);
+            const up = app.getCurrentTargetWatts() - w0;
+            app.setErgBiasWatts(-5);
+            const down = app.getCurrentTargetWatts() - w0;
+            const wattsOk = Math.abs(up - 5) <= 1 && Math.abs(down) <= 1;
+            app.ergBiasMultiplier = savedBias; app.intervalIndex = savedIdx; app.activeProfile.ftp = savedFtp; app.updateBiasUi();
+
+            // Easy spin: provisional step + 10 s offer; accept keeps it, finish removes it; the library workout is untouched
+            const lib = app.currentWorkout, libLen = lib.intervals.length;
+            const origFinish = app.finishWorkout; let finished = null;
+            app.finishWorkout = function (natural) { finished = natural; this.isPlaying = false; this._easySpinOffer = null; this.renderEasySpinOffer(); };
+            const savedErg = app.ergApplyNow; app.ergApplyNow = () => {};
+            const savedPublish = app.publishSoon; app.publishSoon = () => {}; // never talk to the phone relay from the tests
+            let spinOk = false, finishOk = false, timeoutOk = false, remoteOk = false, snapOk = false;
+            try {
+              app.isPlaying = true; app.intervalIndex = libLen;
+              const offered = app.offerEasySpin();
+              const iv = app.currentWorkout.intervals[app.intervalIndex];
+              const banner = !!D.getElementById('easySpinOffer');
+              snapOk = app.buildRemoteSnapshot().easySpinOffer > 0;
+              app.applyRemoteCommand('spin-more');
+              spinOk = offered && iv.extension && iv.duration === 300 && iv.pctFtp === 45 && banner && !app._easySpinOffer && !D.getElementById('easySpinOffer') && app.isPlaying && lib.intervals.length === libLen;
+              remoteOk = spinOk;
+              // second offer at the end of the spin: Finish now removes the new provisional step
+              app.intervalIndex = app.currentWorkout.intervals.length;
+              app.offerEasySpin();
+              const withTwo = app.currentWorkout.intervals.filter(x => x.extension).length === 2;
+              app.declineEasySpin();
+              finishOk = withTwo && finished === true && app.currentWorkout.intervals.filter(x => x.extension).length === 1;
+              // timeout: an unanswered offer finishes the ride on the next tick check
+              finished = null; app.isPlaying = true; app.intervalIndex = app.currentWorkout.intervals.length;
+              app.offerEasySpin(); app._easySpinOffer.until = Date.now() - 1;
+              if (app._easySpinOffer && Date.now() >= app._easySpinOffer.until) app.declineEasySpin();
+              timeoutOk = finished === true;
+              app.resetWorkout(false);
+            } finally {
+              app.finishWorkout = origFinish; app.ergApplyNow = savedErg; app.publishSoon = savedPublish; app.isPlaying = false;
+            }
+            const stripped = !app.currentWorkout.intervals.some(x => x.extension) && lib.intervals.length === libLen;
+
+            // The local server accepts the new phone commands (409 = PC app not open, 400 = unknown command)
+            const codes = [];
+            for (const cmd of ['watts-up', 'watts-down', 'stand', 'spin-more', 'spin-finish', 'nonsense']) {
+              const r = await fetch('api/live/cmd', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ cmd }) });
+              codes.push(r.status);
+            }
+            const serverOk = codes.slice(0, 5).every(c => c !== 400) && codes[5] === 400;
+            // Drain anything the relay queued so no later test (or ride) picks these commands up.
+            await fetch('api/live', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ v: 1, state: 'ready', test: true }) }).catch(() => {});
+            return { ok: standOk && endEarly && wattsOk && spinOk && remoteOk && snapOk && finishOk && timeoutOk && stripped && serverOk,
+              detail: `stand 30 s @95% no stall + ramp back:${standOk} (${standing[0].watts}W -> ${back.map(r => r.watts).join('/')}) tap again ends:${endEarly} phone +5 W = ${up} W, -5 W back to ${down}:${wattsOk} easy spin offer + accept from phone:${spinOk}/${snapOk} finish now removes provisional step:${finishOk} timeout finishes:${timeoutOk} extensions stripped on reset, library untouched:${stripped} server allows new phone commands (${codes.join(',')}):${serverOk}` };
+          });
+
+          // 46d. Post-ride insight: decoupling, medals, conservative FTP suggestion
+          await suite('Post-Ride Insight: Pw:HR Decoupling on Steady Rides Only, Gold/Silver/Bronze Medals vs Earlier Rides, FTP Suggested Only When a Ride Proves It', async () => {
+            const I = W.VeloInsight;
+            const mkS = (n, fp, fh) => Array.from({ length: n }, (_, i) => ({ time: i + 1, power: fp(i), hr: fh ? fh(i) : 0, cadence: 90 }));
+            const coupled = I.decoupling(mkS(5400, () => 150, () => 130));
+            const drift = I.decoupling(mkS(5400, () => 150, i => 130 + 30 * i / 5400));
+            const intervals = I.decoupling(mkS(5400, i => (i % 120 < 30 ? 400 : 100), () => 140));
+            const block = I.decoupling(mkS(3600, i => (i >= 600 && i < 1800 ? 205 : 150), () => 140));
+            const noHr = I.decoupling(mkS(5400, () => 150));
+            const decOk = coupled.status === 'ok' && coupled.pct === 0 && coupled.level === 'good' && drift.status === 'ok' && drift.pct > 8 && drift.level === 'high' &&
+              intervals.status === 'not-steady' && block.status === 'not-steady' && noHr.status === 'no-hr';
+
+            const mk = (id, date, peaks) => ({ id, date, peaks });
+            const hist = [mk('h1', '2025-05-01T07:00:00Z', [700, 300, 240, 200, 180]), mk('h2', '2026-03-01T07:00:00Z', [650, 280, 230, 195, null]), mk('h3', '2026-08-01T07:00:00Z', [600, 270, 220, 190, null]), mk('later', '2026-12-01T07:00:00Z', [900, 400, 300, 250, 220])];
+            const m = I.medals(mk('r', '2026-09-20T07:00:00Z', [720, 285, 225, 192, null]), hist, null);
+            const kinds = m.map(x => x.label + ':' + x.medal).join(',');
+            const medalOk = kinds === '5 s:gold,1 min:silver,5 min:bronze,20 min:bronze' && m[0].prev === 700;
+            const archiveOk = I.medals(mk('r', '2026-09-20T07:00:00Z', [720, 285, 225, 192, null]), hist, [800, 350, 260, 210, 190])[0].medal === 'silver';
+
+            const ride = (fp, fh) => mkS(3000, fp, fh);
+            const hardEv = I.ftpEvidence(ride(i => (i >= 600 && i < 1800 ? 205 : 120), i => (i >= 600 && i < 1800 ? 160 : 120)), { maxHr: 175 });
+            const one = I.ftpSuggestion([{ id: 'a', date: '2026-09-20T07:00:00Z', evidence: hardEv }], 185);
+            const noHrEv = I.ftpEvidence(ride(i => (i >= 600 && i < 1800 ? 205 : 120)), { maxHr: 175 });
+            const alone = I.ftpSuggestion([{ id: 'b', date: '2026-09-20T07:00:00Z', evidence: noHrEv }], 185);
+            const confEv = I.ftpEvidence(ride(i => (i >= 600 && i < 1800 ? 200 : 120)), {});
+            const confirmed = I.ftpSuggestion([{ id: 'c', date: '2026-09-10T07:00:00Z', evidence: confEv }, { id: 'b', date: '2026-09-20T07:00:00Z', evidence: noHrEv }], 185);
+            const tooOld = I.ftpSuggestion([{ id: 'c', date: '2026-08-01T07:00:00Z', evidence: confEv }, { id: 'b', date: '2026-09-20T07:00:00Z', evidence: noHrEv }], 185);
+            const spikyEv = I.ftpEvidence(ride(i => (i >= 600 && i < 1800 ? (i % 60 < 20 ? 400 : 110) : 120), () => 165), { maxHr: 175 });
+            const spiky = I.ftpSuggestion([{ id: 'd', date: '2026-09-20T07:00:00Z', evidence: spikyEv }], 185);
+            const small = I.ftpSuggestion([{ id: 'a', date: '2026-09-20T07:00:00Z', evidence: hardEv }], 192);
+            const dismissed = I.ftpSuggestion([{ id: 'a', date: '2026-09-20T07:00:00Z', evidence: hardEv }], 185, { dismissed: 195 });
+            const ftpOk = one && one.ftp === 195 && one.gain === 10 && alone === null && confirmed && confirmed.ftp === 190 && confirmed.confirmedBy === 'c' &&
+              tooOld === null && spiky === null && small === null && dismissed === null;
+
+            // In the app: banner + one-click update in the ride review, medal chips in History
+            const savedProf = JSON.stringify(app.activeProfile);
+            const savedHist = app.completedWorkouts;
+            W.localStorage.removeItem('apex_ftp_suggest_dismissed');
+            let uiOk = false, histOk = false, acceptOk = false, dismissOk = false;
+            try {
+              app.activeProfile.ftp = 185; app.activeProfile.maxHr = 175; app.applyProfileChange();
+              const t0 = Date.now() - 2 * 3600e3;
+              const rec = (id, t, n, fp, fh) => ({ id, source: 'APEX VELO Cockpit', title: id, date: new W.Date(t).toISOString(), duration: n, np: 180, avgWatts: 170, tss: 60,
+                samples: Array.from({ length: n }, (_, i) => ({ time: i + 1, timestamp: t + i * 1000, power: fp(i), hr: fh(i), cadence: 90 })) });
+              const r1 = rec('ride_ins_new', t0, 3600, i => (i >= 600 && i < 1800 ? 205 : 150), i => (i >= 600 && i < 1800 ? 160 : 135));
+              const r0 = rec('ride_ins_old', t0 - 10 * 86400e3, 3000, () => 170, () => 140);
+              app.completedWorkouts = [r1, r0, ...savedHist.filter(r => !I.hasSamples(r))];
+              app.showRideSummary(r1);
+              const banner = D.getElementById('ftpSuggestBanner');
+              const medals = [...D.querySelectorAll('#modalRideDetails .medal')].map(x => x.className.match(/medal-(\w+)/)[1]);
+              uiOk = !!banner && /195 W/.test(banner.textContent) && medals.length >= 4 && medals.every(x => x === 'gold');
+              app.renderHistoryTable();
+              histOk = D.querySelectorAll('tr[data-id="ride_ins_new"] .medal-gold').length >= 4 && D.querySelectorAll('tr[data-id="ride_ins_old"] .medal').length >= 1;
+              D.querySelector('[data-ftp="dismiss"]').click();
+              dismissOk = !D.getElementById('ftpSuggestBanner') && app.ftpSuggestionFor(r1) === null && app.activeProfile.ftp === 185;
+              W.localStorage.removeItem('apex_ftp_suggest_dismissed');
+              app.showRideSummary(r1);
+              D.querySelector('[data-ftp="accept"]').click();
+              acceptOk = app.activeProfile.ftp === 195 && !D.getElementById('ftpSuggestBanner') && app.ftpSuggestionFor(r1) === null;
+            } finally {
+              app.closeModal('rideSummaryModal');
+              W.localStorage.removeItem('apex_ftp_suggest_dismissed');
+              const restored = JSON.parse(savedProf);
+              Object.keys(app.activeProfile).forEach(k => delete app.activeProfile[k]);
+              Object.assign(app.activeProfile, restored);
+              app.applyProfileChange();
+              app.completedWorkouts = savedHist;
+              app.renderHistoryTable();
+            }
+            return { ok: decOk && medalOk && archiveOk && ftpOk && uiOk && histOk && dismissOk && acceptOk,
+              detail: `decoupling coupled 0% / drift ${drift.pct}% / intervals + hard block not measured / no HR:${decOk} medals ${kinds} (later rides ignored):${medalOk} archive beats ride:${archiveOk} FTP: hard steady ride 195, no-HR alone none, confirmed -> lower 190, old/spiky/small/dismissed none:${ftpOk} review banner + medals:${uiOk} History medal chips:${histOk} "Not now" remembered:${dismissOk} one-click update 185 -> 195:${acceptOk}` };
+          });
+
+          // 46e. AI interval breakdown: offline diagnosis, low-effort request with the step table only, saved on the ride
+          await suite('AI Interval Breakdown: Offline Diagnosis Names Intervals, Request Uses Low Effort & Step Table Only, Answer Saved With the Ride', async () => {
+            const I = W.VeloInsight;
+            const t0 = Date.now() - 3600e3, S = [];
+            const step = (sec, target, fc, fh) => { for (let i = 0; i < sec; i++) S.push({ time: S.length + 1, timestamp: t0 + S.length * 1000, target, power: target, cadence: fc(i, sec), hr: fh(i, sec) }); };
+            step(300, 110, () => 88, () => 120);
+            for (let k = 0; k < 4; k++) {
+              step(300, 185, (i, n) => (k === 3 ? Math.round(92 - 10 * i / n) : 92), (i, n) => (k === 3 ? Math.round(150 + 14 * i / n) : 150 + k));
+              step(120, 100, () => 85, () => 125);
+            }
+            const rows = I.intervalRows(S, 185);
+            const lines = I.offlineBreakdown(rows);
+            const offlineOk = rows.filter(r => r.work).length === 4 && /All 4 intervals were within 2%/.test(lines[0]) && lines.some(l => /^Interval 4 \(step 8\): cadence faded/.test(l)) && lines.some(l => /^Interval 4 \(step 8\): heart rate rose/.test(l));
+            const prompt = I.breakdownPrompt(rows, { title: 'Threshold 4x5', ftp: 185, minutes: 33 });
+            const promptOk = /step \| interval \| secs/.test(prompt) && prompt.length < 4000 && !/timestamp/.test(prompt) && /never invent data/.test(prompt);
+
+            const ride = { id: 'ride_ai_bd', source: 'APEX VELO Cockpit', title: 'Threshold 4x5', date: new W.Date(t0).toISOString(), duration: S.length, np: 170, tss: 50, avgHr: 140, ftpAtRide: 185, samples: S };
+            const savedHist = app.completedWorkouts, realFetch = W.fetch;
+            let sent = null;
+            W.fetch = async (u, o = {}) => {
+              const url = String(u);
+              if (url.endsWith('api/coach/status')) return new W.Response(JSON.stringify({ provider: 'claude', providers: { claude: { label: 'Claude', configured: true, model: 'claude-opus-5-5' }, gemini: { label: 'Gemini', configured: false, model: 'gemini-3.8-flash' } }, configured: true, model: 'claude-opus-5-5', effort: 'high', models: [], efforts: ['low', 'medium', 'high'] }), { status: 200, headers: { 'Content-Type': 'application/json' } });
+              if (url.endsWith('api/coach')) { sent = JSON.parse(o.body); return new W.Response(JSON.stringify({ text: '- Intervals 1-3 on target.\n- **Interval 4** faded - fuel earlier.', model: 'claude-opus-5-5', effort: 'low' }), { status: 200, headers: { 'Content-Type': 'application/json' } }); }
+              return realFetch(u, o);
+            };
+            let uiOk = false, reqOk = false, savedOk = false;
+            try {
+              await app.aiCoach.detectEngine();
+              app.completedWorkouts = [ride, ...savedHist];
+              app.showRideSummary(ride);
+              const btn = D.querySelector('#intervalDiagnosis [data-ai-breakdown]');
+              uiOk = D.querySelectorAll('#intervalDiagnosis .diag-list li').length === lines.length && !!btn && /low effort/.test(btn.textContent);
+              const res = await app.requestAiBreakdown(ride.id);
+              reqOk = !!sent && sent.effort === 'low' && sent.model === 'claude-opus-5-5' && /step \| interval/.test(sent.prompt) && !/timestamp/.test(sent.prompt) && !!res;
+              const stored = ((await W.VeloDB.getAllRides()) || []).find(r => r.id === ride.id);
+              savedOk = !!(ride.aiBreakdown && stored && stored.aiBreakdown && stored.aiBreakdown.effort === 'low' && stored.samples.length === S.length) && /Interval 4/.test((D.querySelector('#aiBreakdownArea .ai-breakdown') || {}).textContent || '');
+            } finally {
+              W.fetch = realFetch;
+              app.closeModal('rideSummaryModal');
+              app.completedWorkouts = savedHist;
+              await W.VeloDB.deleteRide(ride.id);
+              await app.aiCoach.detectEngine();
+            }
+            return { ok: offlineOk && promptOk && uiOk && reqOk && savedOk,
+              detail: `offline: "${lines.join(' | ')}":${offlineOk} prompt = step table only (${prompt.length} chars):${promptOk} button says low effort:${uiOk} request effort=${sent && sent.effort} (server default was high) model=${sent && sent.model}:${reqOk} answer saved on the ride + shown:${savedOk}` };
           });
 
           // 47. Calendar buckets rides by local date
