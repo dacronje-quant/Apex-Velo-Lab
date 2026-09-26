@@ -1,0 +1,17 @@
+# Secrets - never commit
+.env
+.env.*
+!.env.example
+
+# Strava tokens (written by the local server after "Connect Strava")
+.strava-tokens.json
+
+# Personal ride history (kept on this PC only - the app works without it)
+data/divan_cycling_history.js
+data/divan_cycling_history.json
+data/*.fit
+
+# Local backups / OS clutter
+*_backup*/
+Thumbs.db
+desktop.ini

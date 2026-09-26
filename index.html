@@ -1,0 +1,1153 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="theme-color" content="#090d16">
+  <meta name="color-scheme" content="dark">
+  <link rel="manifest" href="manifest.json">
+  <title>Apex Velo Lab</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+  <script>
+    // Test isolation: test_suite.html loads the app with ?apexTest=1. In that mode the app gets an
+    // in-memory localStorage and its own IndexedDB, so running the tests can never touch your rides.
+    (function () {
+      if (!/[?&]apexTest=1(&|$)/.test(location.search)) return;
+      var mem = {};
+      var store = {
+        getItem: function (k) { k = String(k); return Object.prototype.hasOwnProperty.call(mem, k) ? mem[k] : null; },
+        setItem: function (k, v) { mem[String(k)] = String(v); },
+        removeItem: function (k) { delete mem[String(k)]; },
+        clear: function () { mem = {}; },
+        key: function (i) { var ks = Object.keys(mem); return i < ks.length ? ks[i] : null; },
+        get length() { return Object.keys(mem).length; }
+      };
+      Object.defineProperty(window, 'localStorage', { configurable: true, get: function () { return store; } });
+      window.__APEX_TEST_MODE__ = true;
+    })();
+  </script>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+  <script src="data/divan_cycling_history.js"></script>
+  <link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+
+  <!-- ICON SPRITE -->
+  <svg xmlns="http://www.w3.org/2000/svg" style="display:none" aria-hidden="true">
+    <defs>
+      <symbol id="i-grid" viewBox="0 0 24 24"><rect x="3" y="3" width="7" height="7" rx="1.5"/><rect x="14" y="3" width="7" height="7" rx="1.5"/><rect x="3" y="14" width="7" height="7" rx="1.5"/><rect x="14" y="14" width="7" height="7" rx="1.5"/></symbol>
+      <symbol id="i-book" viewBox="0 0 24 24"><path d="M4 19.5V5a2 2 0 0 1 2-2h14v16H6.5A2.5 2.5 0 0 0 4 21.5"/><path d="M20 19v3H6.5"/></symbol>
+      <symbol id="i-crank" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><circle cx="12" cy="12" r="2"/><path d="M12 10V3M13.5 13.5l4 4"/></symbol>
+      <symbol id="i-activity" viewBox="0 0 24 24"><path d="M22 12h-4l-3 9L9 3l-3 9H2"/></symbol>
+      <symbol id="i-history" viewBox="0 0 24 24"><path d="M3 12a9 9 0 1 0 3-6.7L3 8"/><path d="M3 3v5h5M12 7v5l3 2"/></symbol>
+      <symbol id="i-calendar" viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="18" rx="2"/><path d="M16 2v4M8 2v4M3 10h18"/></symbol>
+      <symbol id="i-sparkles" viewBox="0 0 24 24"><path d="m12 3-1.9 5.8a2 2 0 0 1-1.3 1.3L3 12l5.8 1.9a2 2 0 0 1 1.3 1.3L12 21l1.9-5.8a2 2 0 0 1 1.3-1.3L21 12l-5.8-1.9a2 2 0 0 1-1.3-1.3z"/></symbol>
+      <symbol id="i-gear" viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"/></symbol>
+      <symbol id="i-volume" viewBox="0 0 24 24"><path d="M11 5 6 9H2v6h4l5 4z"/><path d="M15.5 8.5a5 5 0 0 1 0 7M19 5a10 10 0 0 1 0 14"/></symbol>
+      <symbol id="i-volume-x" viewBox="0 0 24 24"><path d="M11 5 6 9H2v6h4l5 4z"/><path d="m22 9-6 6M16 9l6 6"/></symbol>
+      <symbol id="i-focus" viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M3 7V5a2 2 0 0 1 2-2h2M17 3h2a2 2 0 0 1 2 2v2M21 17v2a2 2 0 0 1-2 2h-2M7 21H5a2 2 0 0 1-2-2v-2"/></symbol>
+      <symbol id="i-zen" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><circle cx="12" cy="12" r="5"/><circle cx="12" cy="12" r="1.5"/></symbol>
+      <symbol id="i-expand" viewBox="0 0 24 24"><path d="M8 3H5a2 2 0 0 0-2 2v3M21 8V5a2 2 0 0 0-2-2h-3M16 21h3a2 2 0 0 0 2-2v-3M3 16v3a2 2 0 0 0 2 2h3"/></symbol>
+      <symbol id="i-keyboard" viewBox="0 0 24 24"><rect x="2" y="5" width="20" height="14" rx="2"/><path d="M6 9h.01M10 9h.01M14 9h.01M18 9h.01M6 13h.01M18 13h.01M10 13h4M8 16h8"/></symbol>
+      <symbol id="i-bluetooth" viewBox="0 0 24 24"><path d="m7 7 10 10-5 5V2l5 5L7 17"/></symbol>
+      <symbol id="i-battery" viewBox="0 0 24 24"><rect x="2" y="7" width="17" height="10" rx="2"/><path d="M22 11v2"/></symbol>
+      <symbol id="i-signal" viewBox="0 0 24 24"><path d="M2 20h.01M7 20v-4M12 20v-8M17 20V8M22 4v16"/></symbol>
+      <symbol id="i-play" viewBox="0 0 24 24"><path d="M6 4l14 8-14 8z" fill="currentColor" stroke="none"/></symbol>
+      <symbol id="i-pause" viewBox="0 0 24 24"><rect x="6" y="4" width="4" height="16" rx="1" fill="currentColor" stroke="none"/><rect x="14" y="4" width="4" height="16" rx="1" fill="currentColor" stroke="none"/></symbol>
+      <symbol id="i-stop" viewBox="0 0 24 24"><rect x="5" y="5" width="14" height="14" rx="2" fill="currentColor" stroke="none"/></symbol>
+      <symbol id="i-reset" viewBox="0 0 24 24"><path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/><path d="M3 3v5h5"/></symbol>
+      <symbol id="i-skip" viewBox="0 0 24 24"><path d="m5 4 10 8-10 8z"/><path d="M19 5v14"/></symbol>
+      <symbol id="i-pip" viewBox="0 0 24 24"><rect x="2" y="4" width="20" height="15" rx="2"/><rect x="12" y="11" width="8" height="6" rx="1" fill="currentColor"/></symbol>
+      <symbol id="i-target" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><circle cx="12" cy="12" r="5"/><circle cx="12" cy="12" r="1"/></symbol>
+      <symbol id="i-bolt" viewBox="0 0 24 24"><path d="M13 2 4 14h7l-1 8 9-12h-7z"/></symbol>
+      <symbol id="i-trash" viewBox="0 0 24 24"><path d="M3 6h18M8 6V4h8v2M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/></symbol>
+      <symbol id="i-save" viewBox="0 0 24 24"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"/><path d="M17 21v-8H7v8M7 3v5h8"/></symbol>
+      <symbol id="i-upload" viewBox="0 0 24 24"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4M17 8l-5-5-5 5M12 3v12"/></symbol>
+      <symbol id="i-download" viewBox="0 0 24 24"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4M7 10l5 5 5-5M12 15V3"/></symbol>
+      <symbol id="i-folder" viewBox="0 0 24 24"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/></symbol>
+      <symbol id="i-refresh" viewBox="0 0 24 24"><path d="M21 12a9 9 0 0 1-15.5 6.2L3 16M3 12a9 9 0 0 1 15.5-6.2L21 8"/><path d="M21 3v5h-5M3 21v-5h5"/></symbol>
+      <symbol id="i-x" viewBox="0 0 24 24"><path d="M18 6 6 18M6 6l12 12"/></symbol>
+      <symbol id="i-check" viewBox="0 0 24 24"><path d="M20 6 9 17l-5-5"/></symbol>
+      <symbol id="i-edit" viewBox="0 0 24 24"><path d="M12 20h9M16.5 3.5a2.1 2.1 0 1 1 3 3L7 19l-4 1 1-4z"/></symbol>
+      <symbol id="i-search" viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><path d="m21 21-4.3-4.3"/></symbol>
+      <symbol id="i-plus" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></symbol>
+      <symbol id="i-eye" viewBox="0 0 24 24"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8S1 12 1 12z"/><circle cx="12" cy="12" r="3"/></symbol>
+      <symbol id="i-brain" viewBox="0 0 24 24"><path d="M9.5 2A2.5 2.5 0 0 0 7 4.5v.3A3 3 0 0 0 4 8a3 3 0 0 0 .5 1.7A3.5 3.5 0 0 0 3 12.5 3.5 3.5 0 0 0 5 15.7 3 3 0 0 0 8 20a2.5 2.5 0 0 0 4-1.5V4.5A2.5 2.5 0 0 0 9.5 2z"/><path d="M14.5 2A2.5 2.5 0 0 1 17 4.5v.3A3 3 0 0 1 20 8a3 3 0 0 1-.5 1.7 3.5 3.5 0 0 1 1.5 2.8 3.5 3.5 0 0 1-2 3.2A3 3 0 0 1 16 20a2.5 2.5 0 0 1-4-1.5"/></symbol>
+      <symbol id="i-chevron" viewBox="0 0 24 24"><path d="m6 9 6 6 6-6"/></symbol>
+      <symbol id="i-left" viewBox="0 0 24 24"><path d="m15 18-6-6 6-6"/></symbol>
+      <symbol id="i-right" viewBox="0 0 24 24"><path d="m9 18 6-6-6-6"/></symbol>
+      <symbol id="i-user" viewBox="0 0 24 24"><circle cx="12" cy="8" r="4"/><path d="M4 21a8 8 0 0 1 16 0"/></symbol>
+      <symbol id="i-trophy" viewBox="0 0 24 24"><path d="M8 21h8M12 17v4M7 4h10v5a5 5 0 0 1-10 0z"/><path d="M17 5h3v2a3 3 0 0 1-3 3M7 5H4v2a3 3 0 0 0 3 3"/></symbol>
+    </defs>
+  </svg>
+
+  <!-- ============================== HEADER ============================== -->
+  <header class="app-header">
+    <a href="#" class="brand" aria-label="Apex Velo Lab">
+      <span class="brand-mark">
+        <svg viewBox="0 0 24 24"><circle cx="6" cy="16" r="4"/><circle cx="18" cy="16" r="4"/><path d="M6 16l4-8h5l3 8M10 8 8.5 5H7M15 8l-3 8H6"/></svg>
+      </span>
+      <span class="brand-text">
+        <strong>APEX VELO</strong>
+        <span>Performance Lab</span>
+      </span>
+    </a>
+
+    <nav class="header-nav" aria-label="Primary">
+      <button type="button" class="nav-btn active" data-tab="cockpit" title="Cockpit HUD"><svg class="ic"><use href="#i-grid"/></svg><span>Cockpit</span></button>
+      <button type="button" class="nav-btn" data-tab="workouts" title="Workout Library"><svg class="ic"><use href="#i-book"/></svg><span>Workouts</span></button>
+      <button type="button" class="nav-btn" data-tab="ai-coach" title="AI Coach"><svg class="ic"><use href="#i-sparkles"/></svg><span>Coach</span></button>
+      <button type="button" class="nav-btn" data-tab="analytics" title="Analytics &amp; progression"><svg class="ic"><use href="#i-activity"/></svg><span>Analytics</span></button>
+      <button type="button" class="nav-btn" data-tab="history" title="History &amp; Sync"><svg class="ic"><use href="#i-history"/></svg><span>History</span></button>
+      <button type="button" class="nav-btn" data-tab="calendar" title="Training Calendar"><svg class="ic"><use href="#i-calendar"/></svg><span>Calendar</span></button>
+      <button type="button" class="nav-btn" data-tab="biomechanics" title="Biomechanics Studio"><svg class="ic"><use href="#i-crank"/></svg><span>Biomech</span></button>
+    </nav>
+
+    <div class="header-actions">
+      <div class="header-profile-group" title="Active rider">
+        <div class="profile-avatar" id="headerProfileAvatar">D</div>
+        <span id="headerProfileName" hidden></span>
+        <select id="headerProfileSelect" class="header-profile-dropdown" aria-label="Select active rider profile"></select>
+        <button type="button" class="icon-btn icon-btn-sm" id="btnManageProfiles" title="Rider profiles &amp; biometrics"><svg class="ic"><use href="#i-gear"/></svg></button>
+      </div>
+
+      <div class="device-cluster" role="group" aria-label="Bluetooth devices">
+        <button type="button" class="ble-badge" id="btnBleFtms" data-state="disconnected" title="Wahoo KICKR SHIFT (FTMS) - click to connect"><span class="pulse"></span>Trainer</button>
+        <button type="button" class="ble-badge" id="btnBlePedals" data-state="disconnected" title="Assioma DUO-Shi (CPS) - click to connect"><span class="pulse"></span>Pedals</button>
+        <button type="button" class="ble-badge" id="btnBleHr" data-state="disconnected" title="Heart-rate strap (HRS) - click to connect"><span class="pulse"></span>HR</button>
+        <button type="button" class="icon-btn" id="btnOpenHardwareModal" title="Hardware Lab: diagnostics, PowerMatch &amp; calibration (H)"><svg class="ic"><use href="#i-bluetooth"/></svg></button>
+      </div>
+
+      <div class="header-tools">
+        <button type="button" class="sim-toggle-pill active" id="simToggleBtn" title="Physics simulator (used only when no hardware is streaming)"><span class="switch-dot"></span><span>Sim</span></button>
+        <button type="button" class="icon-btn active" id="btnToggleAudio" title="Interval audio cues (M)"><svg class="ic"><use href="#i-volume"/></svg></button>
+        <button type="button" class="icon-btn" id="btnHeaderZenMode" title="Zen cockpit (Z)"><svg class="ic"><use href="#i-zen"/></svg></button>
+        <button type="button" class="icon-btn" id="btnToggleFullscreen" title="Fullscreen (F)"><svg class="ic"><use href="#i-expand"/></svg></button>
+        <button type="button" class="icon-btn" id="btnShowShortcuts" title="Keyboard shortcuts (?)"><svg class="ic"><use href="#i-keyboard"/></svg></button>
+      </div>
+    </div>
+  </header>
+
+  <main>
+    <!-- ============================== COCKPIT ============================== -->
+    <section class="tab-view active" id="view-cockpit">
+
+      <div class="card session-card timeline-runner">
+        <div class="timeline-header">
+          <div class="interval-info">
+            <h2 class="interval-name" id="hudIntervalName">Interval 1: Warmup</h2>
+            <div class="tag-row">
+              <span class="chip chip-accent interval-target-tag num" id="hudIntervalTargetTag">Target: 93W (50%)</span>
+              <span class="chip chip-amber cadence-target-badge num" id="hudCadenceTargetTag" title="Recommended cadence for this step">90 RPM Target</span>
+              <button type="button" class="chip chip-ghost cockpit-rider-badge" id="cockpitRiderBadge" title="Active rider - click to manage">
+                <svg class="ic ic-xs"><use href="#i-user"/></svg>
+                <span id="hudProfileAvatarText" hidden></span>
+                <span id="hudRiderProfileName">Divan (185W)</span>
+              </button>
+              <span class="workout-status-pill status-ready" id="hudWorkoutStatusPill">READY TO START</span>
+              <span class="compliance-pill compliance-idle num" id="hudCompliancePill">TARGET --</span>
+            </div>
+          </div>
+          <div class="interval-timer-wrap">
+            <span class="countdown num" id="hudIntervalCountdown">05:00</span>
+            <div class="session-meta">
+              <span><small>Elapsed</small><b class="num" id="hudTotalElapsed">00:00</b></span>
+              <span><small>Distance</small><b class="num" id="hudTotalDistance">0.00 km</b></span>
+              <span><small>Speed</small><b class="num" id="hudCurrentSpeed">0.0 km/h</b></span>
+            </div>
+          </div>
+        </div>
+
+        <div class="interval-track-canvas-container" id="intervalTrackWrap">
+          <canvas id="intervalCanvas" aria-label="Workout interval profile"></canvas>
+          <div class="interval-hover-tip" id="intervalHoverTip" hidden></div>
+        </div>
+
+        <div class="upcoming-intervals-strip" id="upcomingIntervalsStrip">
+          <div class="upcoming-strip-header">
+            <div class="strip-title">
+              <span class="upcoming-strip-badge">Interval queue</span>
+              <span class="upcoming-queue-count num" id="upcomingQueueCount">0 Steps</span>
+            </div>
+            <div class="strip-meta">Reference FTP <strong class="num"><span id="upcomingProfileFtp">185</span>W</strong><span class="dot-sep"></span>Click a step to jump</div>
+          </div>
+          <div class="upcoming-cards-scroll" id="upcomingCardsContainer"></div>
+        </div>
+
+        <div class="timeline-controls">
+          <div class="control-btn-group">
+            <button type="button" class="btn btn-start" id="btnPlayPause"><svg class="ic"><use id="btnPlayPauseIcon" href="#i-play"/></svg><span id="btnPlayPauseText">START WORKOUT</span></button>
+            <button type="button" class="btn btn-stop" id="btnEndWorkout" title="Finish and save this session"><svg class="ic"><use href="#i-stop"/></svg><span>STOP &amp; SAVE</span></button>
+            <button type="button" class="btn btn-reset" id="btnResetWorkout" title="Reset to step 1"><svg class="ic"><use href="#i-reset"/></svg><span>RESET</span></button>
+          </div>
+          <div class="control-btn-group">
+            <button type="button" class="btn btn-step" id="btnSkipInterval" title="Skip to the next step (Tab / &rarr;)"><svg class="ic"><use href="#i-skip"/></svg><span>Next step</span></button>
+            <div class="segmented">
+              <button type="button" id="btnShortenInterval" title="Shorten current step by 30 s">&minus;30s</button>
+              <button type="button" id="btnExtendInterval" title="Extend current step by 30 s">+30s</button>
+            </div>
+          </div>
+          <div class="control-btn-group">
+            <span class="ctrl-label">ERG bias</span>
+            <div class="bias-stepper segmented">
+              <button type="button" id="btnBiasMinus5">&minus;5%</button>
+              <button type="button" id="btnBiasMinus1">&minus;1%</button>
+              <div class="bias-val-display num" id="biasValueDisplay">100%</div>
+              <button type="button" id="btnBiasPlus1">+1%</button>
+              <button type="button" id="btnBiasPlus5">+5%</button>
+            </div>
+            <button type="button" class="btn btn-ghost btn-sm" id="btnBiasReset" title="Reset ERG bias to 100%">Reset</button>
+          </div>
+          <div class="control-btn-group control-views">
+            <button type="button" class="btn btn-ghost btn-zen" id="btnToggleZenMode" title="Zen cockpit (Z)"><svg class="ic"><use href="#i-zen"/></svg><span>Zen</span></button>
+            <button type="button" class="btn btn-ghost btn-pip" id="btnTogglePip" title="Picture-in-picture mini HUD (P)"><svg class="ic"><use href="#i-pip"/></svg><span>Mini-HUD</span></button>
+            <button type="button" class="btn btn-ghost btn-focus" id="btnToggleFocusMode" title="Focus layout"><svg class="ic"><use href="#i-focus"/></svg><span>Focus</span></button>
+          </div>
+        </div>
+
+        <canvas id="pipCanvas" width="360" height="200" hidden></canvas>
+        <video id="pipVideo" autoplay muted playsinline hidden></video>
+      </div>
+
+      <div class="cockpit-grid">
+        <div class="col-span-8 stack">
+          <div class="card hud-hero-box">
+            <div class="hud-hero-header">
+              <div class="hero-left">
+                <span class="eyebrow" id="hudPowerHeroLabel">3s SMOOTHED POWER</span>
+                <div class="power-smoothing-pills segmented" id="powerSmoothingPills" role="radiogroup" aria-label="Power smoothing window">
+                  <button type="button" class="smooth-pill" data-sec="1" title="Instantaneous (1 s)">1s</button>
+                  <button type="button" class="smooth-pill active" data-sec="3" title="3 s rolling average">3s</button>
+                  <button type="button" class="smooth-pill" data-sec="5" title="5 s rolling average">5s</button>
+                  <button type="button" class="smooth-pill" data-sec="10" title="10 s rolling average">10s</button>
+                  <button type="button" class="smooth-pill" data-sec="30" title="30 s rolling average">30s</button>
+                  <button type="button" class="smooth-pill" data-sec="60" title="1 min rolling average">1m</button>
+                </div>
+              </div>
+              <div class="hud-power-badges">
+                <span class="power-source-badge src-sim" id="hudPowerSourceBadge" title="Authoritative power source"><span class="badge-dot"></span>SIMULATOR</span>
+                <span class="erg-status-pill" id="hudErgStatusPill" title="Smart trainer ERG status">ERG READY</span>
+              </div>
+            </div>
+            <div class="hud-hero-value" id="hudHeroValue">
+              <span class="num" id="valInstantPower">0</span>
+              <span class="hud-hero-unit">W</span>
+            </div>
+            <div class="target-band" aria-hidden="true">
+              <div class="target-band-track"><div class="target-band-ok"></div><div class="target-band-marker" id="targetBandMarker"></div></div>
+              <div class="target-band-scale num"><span>&minus;20%</span><span>target &plusmn;5%</span><span>+20%</span></div>
+            </div>
+            <div class="hud-hero-sub">
+              <span class="hero-stat-badge"><small>1s</small><strong class="num" id="val1sPower">0W</strong></span>
+              <span class="hero-stat-badge"><small>3s</small><strong class="num" id="val3sPower">0W</strong></span>
+              <span class="hero-stat-badge"><small>30s</small><strong class="num" id="val30sPower">0W</strong></span>
+              <span class="hero-stat-badge hero-stat-target"><small>Target</small><strong class="num" id="valTargetPower">93W</strong></span>
+              <span class="hero-stat-badge"><small>W/kg</small><strong class="num" id="valWkg">0.00</strong></span>
+            </div>
+          </div>
+
+          <div class="metrics-row">
+            <div class="metric-cell" data-accent="cyan">
+              <div class="metric-cell-top"><span class="metric-cell-lbl">Speed</span><span class="metric-src" id="speedSourceTag">SIM</span></div>
+              <span class="metric-cell-val num" id="valSpeed">0.0</span>
+              <span class="metric-cell-sub">km/h</span>
+            </div>
+            <div class="metric-cell" data-accent="violet">
+              <div class="metric-cell-top"><span class="metric-cell-lbl">Distance</span><span class="metric-src" id="distSourceTag">SIM</span></div>
+              <span class="metric-cell-val num" id="valDistance">0.00</span>
+              <span class="metric-cell-sub">km</span>
+            </div>
+            <div class="metric-cell" data-accent="amber" id="metricCellCadence">
+              <div class="metric-cell-top"><span class="metric-cell-lbl">Cadence</span></div>
+              <span class="metric-cell-val num" id="valCadence">0</span>
+              <span class="metric-cell-sub num" id="valCadenceSub">TGT: 90 RPM</span>
+            </div>
+            <div class="metric-cell" data-accent="rose">
+              <div class="metric-cell-top"><span class="metric-cell-lbl">Heart rate</span></div>
+              <span class="metric-cell-val num" id="valHeartRate">0</span>
+              <span class="metric-cell-sub" id="valHrZone">--</span>
+            </div>
+            <div class="metric-cell" data-accent="cyan">
+              <div class="metric-cell-top"><span class="metric-cell-lbl">Avg power</span></div>
+              <span class="metric-cell-val num" id="valAvgPower">0</span>
+              <span class="metric-cell-sub">Watts</span>
+            </div>
+            <div class="metric-cell" data-accent="violet">
+              <div class="metric-cell-top"><span class="metric-cell-lbl">Norm power</span></div>
+              <span class="metric-cell-val num" id="valNormPower">0</span>
+              <span class="metric-cell-sub">Watts</span>
+            </div>
+            <div class="metric-cell" data-accent="cyan">
+              <div class="metric-cell-top"><span class="metric-cell-lbl">Intensity IF</span></div>
+              <span class="metric-cell-val num" id="valIntensityFactor">0.00</span>
+              <span class="metric-cell-sub">NP / FTP</span>
+            </div>
+            <div class="metric-cell" data-accent="lime">
+              <div class="metric-cell-top"><span class="metric-cell-lbl">TSS</span></div>
+              <span class="metric-cell-val num" id="valTss">0</span>
+              <span class="metric-cell-sub num" id="valTotalKj">0 kJ</span>
+            </div>
+          </div>
+
+          <div class="card">
+            <div class="card-title">
+              <span>Live telemetry &middot; last 2 min</span>
+              <span class="legend-inline"><i class="lg lg-power"></i>Power <i class="lg lg-target"></i>Target <i class="lg lg-cad"></i>Cadence <i class="lg lg-hr"></i>HR</span>
+            </div>
+            <div class="chart-container-hud"><canvas id="liveTelemetryChart"></canvas></div>
+          </div>
+        </div>
+
+        <div class="col-span-4 stack">
+          <div class="card polar-card">
+            <div class="card-title">
+              <span>Pedal stroke &middot; L/R</span>
+              <span class="chip chip-ghost num" id="polarLiveAngleBadge">000&deg; CRANK</span>
+            </div>
+            <div class="polar-container">
+              <div class="polar-canvas-wrap"><canvas id="polarPedalCanvas"></canvas></div>
+              <div class="balance-gauge" aria-label="Left/right balance">
+                <div class="balance-gauge-labels"><span>L <b class="num" id="valLeftBalance">50.0%</b></span><span><b class="num" id="valRightBalance">50.0%</b> R</span></div>
+                <div class="balance-bar-visual">
+                  <div class="balance-bar-left" id="barLeftBalance" style="width:50%;"></div>
+                  <div class="balance-bar-right" id="barRightBalance" style="width:50%;"></div>
+                  <div class="balance-center"></div>
+                </div>
+              </div>
+              <div class="biomech-stats-grid">
+                <div class="leg-stat-box left">
+                  <div class="leg-stat-title">Left leg</div>
+                  <div class="biomech-submetrics">
+                    <span>Power <strong class="num" id="valLeftWatts">0W</strong></span>
+                    <span>Smooth <strong class="num" id="valLeftSmooth">--</strong></span>
+                    <span>Torque eff. <strong class="num" id="valLeftTorque">--</strong></span>
+                  </div>
+                </div>
+                <div class="leg-stat-box right">
+                  <div class="leg-stat-title">Right leg</div>
+                  <div class="biomech-submetrics">
+                    <span>Power <strong class="num" id="valRightWatts">0W</strong></span>
+                    <span>Smooth <strong class="num" id="valRightSmooth">--</strong></span>
+                    <span>Torque eff. <strong class="num" id="valRightTorque">--</strong></span>
+                  </div>
+                </div>
+              </div>
+              <div class="coaching-tip-card">
+                <svg class="ic"><use href="#i-sparkles"/></svg>
+                <div class="coaching-tip-text"><strong>Insight</strong> <span id="valBiomechFeedback">Press START to begin telemetry acquisition and live pedal-stroke analysis.</span></div>
+              </div>
+            </div>
+          </div>
+
+          <div class="card zone-distribution-wrap">
+            <div class="card-title">
+              <span>Time in zone</span>
+              <span class="chip chip-ghost" id="currentZoneBadge">READY</span>
+            </div>
+            <div class="zone-bars-stacked">
+              <div class="zone-seg z-seg-1" id="zSeg1" style="width:0%;" title="Z1 Active Recovery"></div>
+              <div class="zone-seg z-seg-2" id="zSeg2" style="width:0%;" title="Z2 Endurance"></div>
+              <div class="zone-seg z-seg-3" id="zSeg3" style="width:0%;" title="Z3 Tempo"></div>
+              <div class="zone-seg z-seg-4" id="zSeg4" style="width:0%;" title="Z4 Threshold"></div>
+              <div class="zone-seg z-seg-5" id="zSeg5" style="width:0%;" title="Z5 VO2 Max"></div>
+              <div class="zone-seg z-seg-6" id="zSeg6" style="width:0%;" title="Z6 Anaerobic"></div>
+              <div class="zone-seg z-seg-7" id="zSeg7" style="width:0%;" title="Z7 Neuromuscular"></div>
+            </div>
+            <div class="zone-legend-row">
+              <span><i class="zdot z-seg-1"></i>Z1 <strong class="num" id="zTime1">00:00</strong></span>
+              <span><i class="zdot z-seg-2"></i>Z2 <strong class="num" id="zTime2">00:00</strong></span>
+              <span><i class="zdot z-seg-3"></i>Z3 <strong class="num" id="zTime3">00:00</strong></span>
+              <span><i class="zdot z-seg-4"></i>Z4 <strong class="num" id="zTime4">00:00</strong></span>
+              <span><i class="zdot z-seg-5"></i>Z5 <strong class="num" id="zTime5">00:00</strong></span>
+              <span><i class="zdot z-seg-6"></i>Z6 <strong class="num" id="zTime6">00:00</strong></span>
+              <span><i class="zdot z-seg-7"></i>Z7 <strong class="num" id="zTime7">00:00</strong></span>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ============================== WORKOUTS ============================== -->
+    <section class="tab-view" id="view-workouts">
+      <div class="card ai-generator-card">
+        <div class="section-head">
+          <div>
+            <span class="eyebrow eyebrow-violet">Workout architect</span>
+            <h2 class="section-title">Describe a session, get a structured workout</h2>
+            <p class="section-sub">Generate, inspect the interval profile and target watts, then load it into the cockpit. For goal-driven sessions built from your history, use the <button type="button" class="link-btn" id="btnGoToCoach">AI Coach</button>.</p>
+          </div>
+        </div>
+        <div class="ai-prompt-box">
+          <svg class="ic prompt-ic"><use href="#i-sparkles"/></svg>
+          <input type="text" id="inputAiPrompt" class="ai-prompt-input" placeholder="e.g. 45 min with 3x8 min over-unders at 95% and 105% FTP">
+          <button type="button" class="btn btn-ai" id="btnGenerateAiWorkout"><svg class="ic"><use href="#i-sparkles"/></svg>Generate</button>
+        </div>
+        <div class="ai-chips-row">
+          <span class="ctrl-label">Try</span>
+          <button type="button" class="ai-chip" data-prompt="45 min scientific hard-start VO2 max workout with 4x4 min sets">Hard-start VO2 4x4</button>
+          <button type="button" class="ai-chip" data-prompt="55 min hard-start SweetSpot session with 4x8 min sets at 90% FTP">Hard-start SweetSpot 4x8</button>
+          <button type="button" class="ai-chip" data-prompt="45 min SweetSpot session with 3x10 min intervals at 90% FTP">3x10 SweetSpot</button>
+          <button type="button" class="ai-chip" data-prompt="40 min spicy VO2 max microbursts with 15s on at 150% and 15s off">15/15 microbursts</button>
+          <button type="button" class="ai-chip" data-prompt="60 min threshold over-unders with 3 sets of 9 min alternating 95% and 105%">Threshold over-unders</button>
+          <button type="button" class="ai-chip" data-prompt="30 min easy recovery spin at 50% FTP">Recovery flush</button>
+        </div>
+
+        <div class="ai-preview-panel" id="aiWorkoutPreviewPanel">
+          <div class="ai-preview-header">
+            <div>
+              <span class="preview-badge-status"><svg class="ic ic-xs"><use href="#i-eye"/></svg>Review before loading</span>
+              <div class="ai-preview-title" id="aiPreviewTitle">Generated Workout</div>
+            </div>
+            <button type="button" class="icon-btn" id="btnCloseAiPreview" title="Close review"><svg class="ic"><use href="#i-x"/></svg></button>
+          </div>
+          <div class="ai-preview-meta" id="aiPreviewMeta"></div>
+          <div class="ai-preview-canvas-wrap"><canvas id="aiPreviewCanvas"></canvas></div>
+          <div class="ctrl-label" style="margin-bottom:8px;">Steps &amp; target watts (<span id="aiPreviewFtpRef">185W FTP</span>)</div>
+          <div id="aiPreviewIntervalList" class="preview-step-list"></div>
+          <div class="btn-row">
+            <button type="button" class="btn btn-start" id="btnLoadAiWorkoutToCockpit"><svg class="ic"><use href="#i-play"/></svg>Load into cockpit</button>
+            <button type="button" class="btn btn-primary" id="btnSaveAiWorkoutPermanent"><svg class="ic"><use href="#i-save"/></svg>Save to library</button>
+            <button type="button" class="btn" id="btnEditAiWorkoutInTable"><svg class="ic"><use href="#i-edit"/></svg>Fine-tune in table</button>
+            <button type="button" class="btn btn-ghost" id="btnDiscardAiPreview"><svg class="ic"><use href="#i-trash"/></svg>Discard</button>
+          </div>
+        </div>
+      </div>
+
+      <div class="filter-bar">
+        <div class="category-pills segmented segmented-wrap">
+          <button type="button" class="cat-pill active" data-cat="all">All</button>
+          <button type="button" class="cat-pill" data-cat="hardstart">Hard-start</button>
+          <button type="button" class="cat-pill" data-cat="sweetspot">SweetSpot</button>
+          <button type="button" class="cat-pill" data-cat="threshold">Threshold</button>
+          <button type="button" class="cat-pill" data-cat="vo2">VO2 &amp; anaerobic</button>
+          <button type="button" class="cat-pill" data-cat="endurance">Endurance</button>
+          <button type="button" class="cat-pill" data-cat="custom">Saved</button>
+          <button type="button" class="cat-pill" data-cat="assessment">Assessment</button>
+        </div>
+        <label class="search-wrap">
+          <svg class="ic"><use href="#i-search"/></svg>
+          <input type="text" id="searchWorkoutsInput" class="search-input" placeholder="Search workouts">
+        </label>
+      </div>
+
+      <div class="workout-cards-grid" id="workoutCardsContainer"></div>
+
+      <div class="card" id="customWorkoutTableSection">
+        <div class="card-title">
+          <span>Fine-tune active workout</span>
+          <div class="btn-row btn-row-tight">
+            <button type="button" class="btn btn-sm" id="btnAddIntervalRow"><svg class="ic"><use href="#i-plus"/></svg>Add step</button>
+            <button type="button" class="btn btn-primary btn-sm" id="btnSaveCustomAsPreset"><svg class="ic"><use href="#i-save"/></svg>Save as preset</button>
+          </div>
+        </div>
+        <div class="table-scroll">
+          <table class="interval-table data-table">
+            <thead>
+              <tr><th>#</th><th>Step name</th><th>% FTP</th><th>Target (<span id="tableFtpDisplay">185W</span>)</th><th>Duration (s)</th><th></th></tr>
+            </thead>
+            <tbody id="customIntervalTableBody"></tbody>
+          </table>
+        </div>
+      </div>
+    </section>
+
+    <!-- ============================== AI COACH ============================== -->
+    <section class="tab-view" id="view-ai-coach">
+      <div class="card ai-coach-header">
+        <div class="section-head">
+          <div>
+            <span class="eyebrow">Goal-driven coaching</span>
+            <h2 class="section-title">AI Coach</h2>
+            <p class="section-sub">Builds today's session and the next 7 days from your real history: fitness, fatigue, form, recent volume, intensity mix and power profile. Uses Claude when the local server has your API key, otherwise the built-in physiology engine.</p>
+          </div>
+          <span class="engine-pill" id="aiCoachEngineStatus"><span class="status-indicator-dot"></span>Offline engine</span>
+        </div>
+        <div class="ai-coach-telemetry-banner">
+          <div class="metric-cell" data-accent="cyan"><span class="metric-cell-lbl">FTP</span><span class="metric-cell-val num" id="aiCoachFtpVal">185W</span></div>
+          <div class="metric-cell" data-accent="violet"><span class="metric-cell-lbl">CTL &middot; fitness</span><span class="metric-cell-val num" id="aiCoachCtlVal">--</span></div>
+          <div class="metric-cell" data-accent="rose"><span class="metric-cell-lbl">ATL &middot; fatigue</span><span class="metric-cell-val num" id="aiCoachAtlVal">--</span></div>
+          <div class="metric-cell" data-accent="amber"><span class="metric-cell-lbl">TSB &middot; form</span><span class="metric-cell-val num" id="aiCoachTsbVal">--</span></div>
+          <div class="metric-cell" data-accent="lime"><span class="metric-cell-lbl">7-day load</span><span class="metric-cell-val num" id="aiCoach7DayTssVal">-- TSS</span></div>
+        </div>
+        <div class="insight-strip" id="aiCoachInsights"></div>
+      </div>
+
+      <div class="ai-coach-grid">
+        <div class="stack">
+          <div class="card ai-coach-card">
+            <div class="ai-coach-card-title"><span>Session request</span></div>
+            <div class="field"><span>Training goal</span>
+              <div class="goal-grid" id="aiCoachGoalPills" role="radiogroup" aria-label="Training goal">
+                <button type="button" class="goal-pill active" data-goal="ftp"><strong>Raise FTP</strong><small>Threshold &amp; SweetSpot progression</small></button>
+                <button type="button" class="goal-pill" data-goal="longevity"><strong>Longevity</strong><small>Aerobic base, durability, Z2 volume</small></button>
+                <button type="button" class="goal-pill" data-goal="vo2"><strong>VO2 max</strong><small>Ceiling &amp; repeatability</small></button>
+                <button type="button" class="goal-pill" data-goal="balanced"><strong>Balanced</strong><small>Polarised mix, all systems</small></button>
+              </div>
+            </div>
+            <label class="field"><span>Today's focus</span>
+              <select id="selectAiCoachFocus" class="input-field">
+                <option value="auto" selected>Auto (decide from goal, form &amp; fatigue)</option>
+                <option value="threshold">Threshold (over-unders, sustained FTP)</option>
+                <option value="sweetspot">SweetSpot (88-94% FTP)</option>
+                <option value="vo2max">VO2 max (30/30, 4-min efforts)</option>
+                <option value="endurance">Endurance (Z2 durability)</option>
+                <option value="recovery">Active recovery</option>
+              </select>
+            </label>
+            <label class="field"><span>Time available</span>
+              <select id="selectAiCoachDuration" class="input-field">
+                <option value="30">30 min</option>
+                <option value="45" selected>45 min</option>
+                <option value="60">60 min</option>
+                <option value="75">75 min</option>
+                <option value="90">90 min</option>
+                <option value="120">120 min</option>
+              </select>
+            </label>
+            <label class="field"><span>Notes for the coach (optional)</span>
+              <input type="text" id="inputAiCoachNotes" class="input-field" placeholder="e.g. legs heavy after yesterday, want low cadence work">
+            </label>
+            <button type="button" class="btn btn-ai btn-block" id="btnGenerateAiCoachRecommendation"><svg class="ic"><use href="#i-sparkles"/></svg><span>Analyze &amp; prescribe</span></button>
+            <div class="think-timer num" id="aiCoachThinkTimer" hidden></div>
+          </div>
+
+          <details class="card ai-coach-card" id="aiCoachConfigCard">
+            <summary class="ai-coach-card-title"><span>Claude engine</span><svg class="ic"><use href="#i-chevron"/></svg></summary>
+            <p class="field-help" id="aiCoachEngineDetail">Checking the local server...</p>
+            <label class="field"><span>Model</span>
+              <select id="selectClaudeModel" class="input-field">
+                <option value="">Server default</option>
+                <option value="claude-opus-5-5">Claude Opus 5.5</option>
+                <option value="claude-sonnet-5">Claude Sonnet 5</option>
+                <option value="claude-haiku-4-5-20251001">Claude Haiku 4.5</option>
+              </select>
+            </label>
+            <label class="field"><span>Reasoning effort</span>
+              <select id="selectClaudeEffort" class="input-field">
+                <option value="">Server default</option>
+                <option value="low">Low - fastest, cheapest</option>
+                <option value="medium">Medium</option>
+                <option value="high">High - deepest reasoning</option>
+              </select>
+            </label>
+            <div class="input-row">
+              <button type="button" class="btn btn-primary" id="btnSaveAiCoachConfig">Save</button>
+              <button type="button" class="btn" id="btnRecheckAiEngine">Re-check server</button>
+            </div>
+            <p class="field-help">The API key lives in the <code>.env</code> file in the app folder and is read only by the local server on this computer. It is never stored in or sent to the browser. Start the app with <code>Launch-Apex-Velo.bat</code>.</p>
+          </details>
+        </div>
+
+        <div class="stack">
+          <div class="card ai-coach-card" id="aiCoachWelcomeCard">
+            <div class="ai-coach-card-title"><span>Coaching engine</span><span class="ai-coach-status-badge ai-coach-badge-productive">Ready</span></div>
+            <div class="empty-state">
+              <svg class="ic ic-lg"><use href="#i-brain"/></svg>
+              <p>Pick a goal and press <strong>Analyze &amp; prescribe</strong>. The coach reviews your history and current form, then builds today's session and a 7-day outlook scaled to your FTP.</p>
+            </div>
+          </div>
+
+          <div id="aiCoachResultPanel" class="stack" style="display:none;">
+            <div class="card ai-coach-card">
+              <div class="ai-coach-card-title">
+                <span>Assessment</span>
+                <div class="btn-row btn-row-tight">
+                  <span class="ai-coach-status-badge" id="aiCoachFormBadge">Productive</span>
+                  <span class="chip chip-ghost" id="aiCoachSourceBadge">--</span>
+                  <button type="button" class="btn btn-ghost btn-sm" id="btnClearAiCoachRecTop" title="Clear and prompt again"><svg class="ic"><use href="#i-x"/></svg>Clear</button>
+                </div>
+              </div>
+              <div class="assess-grid">
+                <div><span class="ctrl-label">Fitness &amp; load</span><div id="aiCoachDiagnosisText" class="assess-text">--</div></div>
+                <div><span class="ctrl-label">Fatigue &amp; recovery</span><div id="aiCoachFatigueText" class="assess-text">--</div></div>
+              </div>
+              <div class="ai-coach-advice-box">
+                <span class="ctrl-label ctrl-label-accent">Execution strategy</span>
+                <div id="aiCoachAdviceText">--</div>
+              </div>
+              <div class="thinking-trace" id="aiCoachThinkingWrap" style="display:none;">
+                <button type="button" class="thinking-trace-head" id="btnToggleCoachThoughts">
+                  <span class="thinking-trace-title"><span class="live-dot"></span>Reasoning trace <span class="chip chip-ghost num" id="aiCoachThoughtMeta">--</span></span>
+                  <span id="coachThoughtsToggleIcon">Show reasoning</span>
+                </button>
+                <div class="thinking-trace-body md" id="aiCoachThoughtsContent" style="display:none;"></div>
+              </div>
+            </div>
+
+            <div class="card ai-coach-card">
+              <div class="ai-coach-card-title">
+                <span>Today's session</span>
+                <div class="btn-row btn-row-tight">
+                  <span class="chip chip-accent num" id="aiCoachWorkoutDur">-- min</span>
+                  <span class="chip chip-violet num" id="aiCoachWorkoutTss">-- TSS</span>
+                  <span class="chip chip-amber num" id="aiCoachWorkoutIf">-- IF</span>
+                </div>
+              </div>
+              <h3 id="aiCoachWorkoutTitle" class="rx-title">--</h3>
+              <p id="aiCoachWorkoutDesc" class="rx-desc">--</p>
+              <div class="ai-coach-canvas-wrap"><canvas id="aiCoachIntervalCanvas" class="ai-coach-preview-canvas"></canvas></div>
+              <div class="phase-cards" id="aiCoachPhaseCards"></div>
+              <div class="btn-row">
+                <button type="button" class="btn btn-start btn-grow" id="btnLoadAiCoachWorkout"><svg class="ic"><use href="#i-play"/></svg>Load into cockpit</button>
+                <button type="button" class="btn" id="btnSaveAiCoachWorkout"><svg class="ic"><use href="#i-save"/></svg>Save to library</button>
+                <button type="button" class="btn btn-danger" id="btnClearAiCoachRecommendation"><svg class="ic"><use href="#i-x"/></svg>Clear &amp; prompt again</button>
+              </div>
+              <div class="table-scroll">
+                <table class="ai-coach-table data-table">
+                  <thead><tr><th>#</th><th>Phase</th><th>Intensity</th><th>Target</th><th>Cadence</th><th>Duration</th></tr></thead>
+                  <tbody id="aiCoachIntervalTableBody"></tbody>
+                </table>
+              </div>
+            </div>
+
+            <div class="card ai-coach-card">
+              <div class="ai-coach-card-title"><span>7-day outlook</span><span class="chip chip-ghost num" id="aiCoachWeekTss">--</span></div>
+              <div class="week-plan" id="aiCoachWeekPlan"></div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ============================== ANALYTICS ============================== -->
+    <section class="tab-view" id="view-analytics">
+      <div class="pmc-status-row">
+        <div class="pmc-stat-pill" data-accent="cyan"><span class="title">CTL &middot; Fitness (42d)</span><span class="val num" id="pmcValCtl">--</span><span class="desc">Chronic training load</span></div>
+        <div class="pmc-stat-pill" data-accent="rose"><span class="title">ATL &middot; Fatigue (7d)</span><span class="val num" id="pmcValAtl">--</span><span class="desc">Acute training load</span></div>
+        <div class="pmc-stat-pill" data-accent="amber"><span class="title">TSB &middot; Form</span><span class="val num" id="pmcValTsb">--</span><span class="desc"><span class="form-badge" id="pmcFormStatus">--</span></span></div>
+        <div class="pmc-stat-pill" data-accent="violet"><span class="title">Active FTP</span><span class="val num" id="pmcValFtp">185 W</span><span class="desc num" id="pmcValWkg">2.47 W/kg (75 kg)</span></div>
+      </div>
+
+      <!-- PROGRESSION DASHBOARD -->
+      <div class="card prog-card">
+        <div class="card-title">
+          <span>Progression</span>
+          <div class="pmc-toolbar">
+            <div class="segmented" id="progMetricPills" role="radiogroup" aria-label="Weekly metric">
+              <button type="button" class="prog-metric active" data-metric="tss">TSS</button>
+              <button type="button" class="prog-metric" data-metric="hours">Hours</button>
+              <button type="button" class="prog-metric" data-metric="kj">kJ</button>
+              <button type="button" class="prog-metric" data-metric="rides">Rides</button>
+            </div>
+            <div class="segmented" id="progRangePills" role="radiogroup" aria-label="Progression range">
+              <button type="button" class="prog-range" data-weeks="8">8w</button>
+              <button type="button" class="prog-range active" data-weeks="26">6m</button>
+              <button type="button" class="prog-range" data-weeks="52">12m</button>
+              <button type="button" class="prog-range" data-weeks="0">All</button>
+            </div>
+          </div>
+        </div>
+        <div class="kpi-grid" id="progKpis"></div>
+        <div class="prog-grid">
+          <div class="prog-main">
+            <div class="sub-title"><span id="progWeeklyTitle">Weekly training load</span><span class="hint">Click a week to list its rides</span></div>
+            <div class="chart-box" style="height:250px;"><canvas id="progWeeklyChart"></canvas></div>
+            <div class="week-rides" id="progWeekRides"></div>
+          </div>
+          <div class="prog-side">
+            <div class="sub-title"><span>Intensity mix</span><span class="hint">hours by ride IF</span></div>
+            <div class="intensity-mix" id="progIntensityMix"></div>
+            <div class="sub-title" style="margin-top:14px;"><span>Records</span></div>
+            <div class="records-list" id="progRecords"></div>
+          </div>
+        </div>
+        <div class="sub-title" style="margin-top:6px;"><span>Every ride &middot; duration vs NP</span><span class="hint">Colour = IF band &middot; click a dot to review</span></div>
+        <div class="chart-box" style="height:260px;"><canvas id="progScatterChart"></canvas></div>
+      </div>
+
+      <div class="card">
+        <div class="card-title">
+          <span>Performance management chart</span>
+          <div class="pmc-toolbar">
+            <div class="segmented" id="pmcRangePills" role="radiogroup" aria-label="PMC range">
+              <button type="button" class="range-pill" data-range="30">30d</button>
+              <button type="button" class="range-pill active" data-range="90">90d</button>
+              <button type="button" class="range-pill" data-range="180">180d</button>
+              <button type="button" class="range-pill" data-range="ytd">YTD</button>
+              <button type="button" class="range-pill" data-range="all">All</button>
+            </div>
+          </div>
+        </div>
+        <div class="legend-inline legend-block">
+          <span><i class="lg lg-ctl"></i>CTL fitness</span><span><i class="lg lg-atl"></i>ATL fatigue</span><span><i class="lg lg-tsb"></i>TSB form</span><span><i class="lg lg-tss"></i>Daily TSS</span>
+          <span class="form-key">
+            <span class="form-badge form-fresh">Fresh &gt;+5</span><span class="form-badge form-productive">Productive</span><span class="form-badge form-optimal">Optimal &minus;10&hellip;&minus;25</span><span class="form-badge form-fatigue">High fatigue</span><span class="form-badge form-overtraining">Overtraining &lt;&minus;40</span>
+          </span>
+        </div>
+        <div class="chart-box" style="height:320px;"><canvas id="pmcChartCanvas"></canvas></div>
+      </div>
+
+      <div class="cockpit-grid">
+        <div class="col-span-7">
+          <div class="card">
+            <div class="card-title">
+              <span>Power duration curve</span>
+              <span class="legend-inline"><i class="lg lg-pr"></i>All-time PR <i class="lg lg-live"></i>This session</span>
+            </div>
+            <div class="chart-box" style="height:260px;"><canvas id="mmpChartCanvas"></canvas></div>
+            <div class="mmp-scrub">
+              <input type="range" id="mmpScrubSlider" min="0" max="8" step="1" value="7" aria-label="Scrub duration">
+              <div class="mmp-scrub-readout" id="mmpScrubReadout"></div>
+            </div>
+          </div>
+        </div>
+        <div class="col-span-5">
+          <div class="card">
+            <div class="card-title"><span>Monthly peak NP</span><span class="chip chip-ghost num" id="ftpDeltaLabel">--</span></div>
+            <div class="chart-box" style="height:260px;"><canvas id="ftpProgressChartCanvas"></canvas></div>
+            <p class="footnote">Highest Normalized Power ride per month (average power when NP was not recorded).</p>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ============================== HISTORY ============================== -->
+    <section class="tab-view" id="view-history">
+      <div class="card healthfit-hero-banner" id="healthfitHeroBanner">
+        <div class="section-head">
+          <div>
+            <span class="eyebrow eyebrow-lime"><span class="live-dot"></span>HealthFit archive</span>
+            <h2 class="section-title" id="hfArchiveTitle">HealthFit cycling profile</h2>
+            <p class="section-sub" id="hfArchiveSub">Imported from Downloads/HealthFit</p>
+          </div>
+          <div class="btn-row">
+            <button type="button" class="btn btn-warning" id="btnSyncHealthFitHistory"><svg class="ic"><use href="#i-refresh"/></svg>Re-sync HealthFit</button>
+            <button type="button" class="btn btn-danger" id="btnClearAllWorkoutsBanner"><svg class="ic"><use href="#i-trash"/></svg>Clear all</button>
+          </div>
+        </div>
+        <div class="healthfit-stats-grid">
+          <div class="hf-stat-box"><span class="hf-stat-lbl">Rides</span><span class="hf-stat-val num" id="hfTotalRides">104</span><span class="hf-stat-sub">in history</span></div>
+          <div class="hf-stat-box" data-accent="cyan"><span class="hf-stat-lbl">Estimated FTP</span><span class="hf-stat-val num" id="hfEstFtp">--</span><span class="hf-stat-sub" id="hfEstFtpSub">--</span></div>
+          <div class="hf-stat-box" data-accent="violet"><span class="hf-stat-lbl">Peak 20-min</span><span class="hf-stat-val num" id="hfPeak20">--</span><span class="hf-stat-sub">Best 20 min power</span></div>
+          <div class="hf-stat-box" data-accent="rose"><span class="hf-stat-lbl">Max heart rate</span><span class="hf-stat-val num" id="hfMaxHr">--</span><span class="hf-stat-sub">Observed peak</span></div>
+          <div class="hf-stat-box" data-accent="amber"><span class="hf-stat-lbl">Peak 5 s</span><span class="hf-stat-val num" id="hfSprint5s">--</span><span class="hf-stat-sub">Neuromuscular</span></div>
+          <div class="hf-stat-box" data-accent="lime"><span class="hf-stat-lbl">Lifetime work</span><span class="hf-stat-val num" id="hfTotalWork">0 kJ</span><span class="hf-stat-sub">Recorded mechanical work</span></div>
+        </div>
+      </div>
+
+      <div class="import-dropzone" id="historyDropzone">
+        <svg class="ic ic-lg"><use href="#i-download"/></svg>
+        <h4>Import rides &middot; .fit .tcx .csv .json</h4>
+        <p>Drop files from Garmin, Wahoo, Strava, Apple Watch or HealthFit. NP, TSS, the PMC and your power curve update automatically.</p>
+        <div class="btn-row btn-row-center">
+          <button type="button" class="btn btn-primary" id="btnConnectHealthFitFolder" title="Read a HealthFit folder with the File System Access API"><svg class="ic"><use href="#i-folder"/></svg>Connect HealthFit folder</button>
+          <button type="button" class="btn btn-warning" id="btnWipeAndSyncHealthFitFolder" title="Replace history with the folder contents"><svg class="ic"><use href="#i-refresh"/></svg>Wipe &amp; re-sync from folder</button>
+          <input type="file" id="fileInputTcx" accept=".fit,.tcx,.json,.csv" multiple hidden>
+          <button type="button" class="btn" id="btnChooseImportFiles"><svg class="ic"><use href="#i-download"/></svg>Choose files</button>
+          <button type="button" class="btn btn-ghost" id="btnImportFromDataFolder">Load sample ride</button>
+        </div>
+        <div id="folderSyncStatus" class="folder-sync-pill" hidden></div>
+      </div>
+
+      <details class="card sync-ecosystem-card">
+        <summary><span>Sync to HealthFit, Apple Health &amp; Google Health Connect</span><svg class="ic"><use href="#i-chevron"/></svg></summary>
+        <div class="sync-grid">
+          <div class="sync-method-item"><h4>iPhone / HealthFit</h4><p>Export a ride as <strong>.FIT</strong> or <strong>.TCX</strong> and save it to <em>iCloud Drive &rsaquo; HealthFit &rsaquo; Import</em>. HealthFit writes power, cadence and HR into Apple Health.</p></div>
+          <div class="sync-method-item"><h4>Strava &amp; Google Health Connect</h4><p>Upload the exported .FIT to Strava or Garmin Connect and enable their Health Connect sync.</p></div>
+          <div class="sync-method-item"><h4>Local storage</h4><p>History lives in this browser (IndexedDB + localStorage). Use <strong>Backup JSON</strong> to keep an archive.</p></div>
+        </div>
+      </details>
+
+      <div class="card">
+        <div class="card-title">
+          <span>Workout log &amp; export</span>
+          <div class="btn-row btn-row-tight">
+            <button type="button" class="btn btn-sm" id="btnExportFitActive"><svg class="ic"><use href="#i-download"/></svg>Session FIT</button>
+            <button type="button" class="btn btn-sm" id="btnExportTcxActive"><svg class="ic"><use href="#i-download"/></svg>Session TCX</button>
+            <button type="button" class="btn btn-sm" id="btnExportCsvRide"><svg class="ic"><use href="#i-download"/></svg>Session CSV</button>
+            <button type="button" class="btn btn-sm" id="btnExportJsonHistory"><svg class="ic"><use href="#i-save"/></svg>Backup JSON</button>
+            <button type="button" class="btn btn-sm btn-warning" id="btnSyncHealthFitHistoryTable"><svg class="ic"><use href="#i-refresh"/></svg>Re-sync</button>
+            <button type="button" class="btn btn-sm btn-strava-link" id="btnStravaCheckAll" title="Mark rides that already exist on your Strava account">Check Strava</button>
+            <button type="button" class="btn btn-sm btn-danger" id="btnClearAllWorkoutsTable"><svg class="ic"><use href="#i-trash"/></svg>Clear all</button>
+          </div>
+        </div>
+        <div class="table-scroll">
+          <table class="history-table data-table">
+            <thead>
+              <tr>
+                <th class="sortable-th sorted-th" data-sort="date">Date <span class="sort-icon" id="sortIcon-date">&#9660;</span></th>
+                <th class="sortable-th" data-sort="profile">Rider <span class="sort-icon" id="sortIcon-profile">&#8645;</span></th>
+                <th class="sortable-th" data-sort="title">Workout <span class="sort-icon" id="sortIcon-title">&#8645;</span></th>
+                <th class="sortable-th" data-sort="duration">Duration <span class="sort-icon" id="sortIcon-duration">&#8645;</span></th>
+                <th class="sortable-th" data-sort="distance">Distance <span class="sort-icon" id="sortIcon-distance">&#8645;</span></th>
+                <th class="sortable-th" data-sort="speed">Avg Speed <span class="sort-icon" id="sortIcon-speed">&#8645;</span></th>
+                <th class="sortable-th" data-sort="np">NP <span class="sort-icon" id="sortIcon-np">&#8645;</span></th>
+                <th class="sortable-th" data-sort="balance">L/R <span class="sort-icon" id="sortIcon-balance">&#8645;</span></th>
+                <th class="sortable-th" data-sort="tss">TSS <span class="sort-icon" id="sortIcon-tss">&#8645;</span></th>
+                <th class="sortable-th" data-sort="if">IF <span class="sort-icon" id="sortIcon-if">&#8645;</span></th>
+                <th class="sortable-th" data-sort="kj">Work <span class="sort-icon" id="sortIcon-kj">&#8645;</span></th>
+                <th>Export</th>
+              </tr>
+            </thead>
+            <tbody id="historyTableBody"></tbody>
+          </table>
+        </div>
+      </div>
+    </section>
+
+    <!-- ============================== CALENDAR ============================== -->
+    <section class="tab-view" id="view-calendar">
+      <div class="calendar-container">
+        <div class="card calendar-header-strip">
+          <div class="cal-toolbar">
+            <div class="cal-preset-pills segmented" id="calPresetPills">
+              <button type="button" class="preset-pill active" data-preset="1week">Week</button>
+              <button type="button" class="preset-pill" data-preset="1month">Month</button>
+              <button type="button" class="preset-pill" data-preset="ytd">Year</button>
+              <button type="button" class="preset-pill" data-preset="all">All time</button>
+            </div>
+            <div class="calendar-week-nav" id="calNavControls">
+              <button type="button" class="btn btn-ghost btn-sm" id="btnCalPrevWeek">&larr; Prev</button>
+              <span id="calWeekRangeTitle">--</span>
+              <button type="button" class="btn btn-ghost btn-sm" id="btnCalNextWeek">Next &rarr;</button>
+              <button type="button" class="btn btn-sm" id="btnCalToday">Current</button>
+            </div>
+          </div>
+          <div class="calendar-tss-rollup">
+            <div class="calendar-stat-group"><span class="calendar-stat-lbl" id="calRollupTssLbl">PERIOD TSS</span><span class="calendar-stat-val num" id="calWeeklyTss">0 TSS</span></div>
+            <div class="calendar-stat-group"><span class="calendar-stat-lbl">In saddle</span><span class="calendar-stat-val num" id="calWeeklyHours">0h 00m</span></div>
+            <div class="calendar-stat-group"><span class="calendar-stat-lbl">Work</span><span class="calendar-stat-val num" id="calWeeklyKj">0 kJ</span></div>
+            <div class="calendar-stat-group"><span class="calendar-stat-lbl">Distance</span><span class="calendar-stat-val num" id="calPeriodDistance">0.0 km</span></div>
+            <div class="calendar-stat-group"><span class="calendar-stat-lbl">Sessions</span><span class="calendar-stat-val num" id="calPeriodRides">0 Rides</span></div>
+            <div class="calendar-stat-group"><span class="calendar-stat-lbl">Avg intensity</span><span class="calendar-stat-val num" id="calPeriodAvgNp">0 W NP</span></div>
+          </div>
+        </div>
+        <div id="calendarContentArea"><div class="calendar-grid" id="calendarGrid"></div></div>
+      </div>
+    </section>
+
+    <!-- ============================== BIOMECHANICS ============================== -->
+    <section class="tab-view" id="view-biomechanics">
+      <div class="cockpit-grid">
+        <div class="col-span-6">
+          <div class="card">
+            <div class="card-title"><span>Pedal stroke dynamics</span><span class="chip chip-ghost" id="biomechModelBadge">MODEL &middot; SCALED BY MEASURED L/R</span></div>
+            <div class="deep-polar-wrap"><canvas id="deepBiomechCanvas"></canvas></div>
+            <ul class="explainer-list">
+              <li><strong>Power phase arcs</strong> mark the driving sector of each leg (typically ~15&deg;&ndash;165&deg;).</li>
+              <li><strong>Lobe size</strong> follows measured power vs FTP; <strong>lobe split</strong> follows measured L/R balance.</li>
+              <li><strong>Dead spots</strong> at 0&deg; (TDC) and 180&deg; (BDC) are where torque drops.</li>
+            </ul>
+          </div>
+        </div>
+        <div class="col-span-6 stack">
+          <div class="card">
+            <div class="card-title"><span>Torque effectiveness &amp; pedal smoothness</span><span class="chip chip-ghost" id="torqueSourceBadge">--</span></div>
+            <div class="chart-box" style="height:250px;"><canvas id="chartTorqueSmoothness"></canvas></div>
+          </div>
+          <div class="card">
+            <div class="card-title"><span>Torque by crank angle</span><span class="chip chip-ghost" id="angleSourceBadge">--</span></div>
+            <div class="chart-box" style="height:220px;"><canvas id="chartPowerPhaseAngle"></canvas></div>
+          </div>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <!-- ============================== MODAL: PROFILES ============================== -->
+  <div class="modal-overlay" id="profileManagerModal" role="dialog" aria-modal="true" aria-labelledby="profileModalTitle">
+    <div class="modal-content">
+      <div class="modal-header">
+        <div><span class="eyebrow">Biometrics</span><h3 id="profileModalTitle">Rider profiles</h3></div>
+        <button type="button" class="close-modal icon-btn" id="btnCloseProfileModal" aria-label="Close"><svg class="ic"><use href="#i-x"/></svg></button>
+      </div>
+      <div id="profileListContainer" class="profile-list"></div>
+      <hr class="divider">
+      <div class="form-head">
+        <span id="profileFormHeaderTitle">CREATE NEW RIDER PROFILE</span>
+        <button type="button" class="btn btn-ghost btn-sm" id="btnCancelEditProfile" style="display:none;">Cancel edit</button>
+      </div>
+      <div class="form-grid">
+        <div class="form-group"><label for="profInputName">Rider name</label><input type="text" id="profInputName" class="form-input" placeholder="e.g. Divan - Road season"></div>
+        <div class="form-group"><label for="profInputFtp">FTP (W)</label><input type="number" id="profInputFtp" class="form-input" value="185" min="80" max="600"></div>
+        <div class="form-group"><label for="profInputWeight">Weight (kg)</label><input type="number" id="profInputWeight" class="form-input" value="75.0" step="0.5" min="30" max="180"></div>
+        <div class="form-group"><label for="profInputMaxHr">Max heart rate (bpm)</label><input type="number" id="profInputMaxHr" class="form-input" value="175" min="120" max="230"></div>
+      </div>
+      <div class="btn-row"><button type="button" class="btn btn-primary btn-grow" id="btnSaveNewProfile"><svg class="ic"><use href="#i-save"/></svg>Save profile</button></div>
+    </div>
+  </div>
+
+  <!-- ============================== ZEN COCKPIT ============================== -->
+  <div id="zenCockpitOverlay" class="zen-cockpit-overlay" style="display:none;">
+    <div class="zen-top-strip">
+      <div class="zen-top-left">
+        <span class="zen-badge-live"><span class="live-dot"></span>ZEN</span>
+        <span class="zen-workout-title" id="zenWorkoutTitle">Active Workout</span>
+      </div>
+      <div class="zen-top-center">
+        <div class="zen-meta-item"><span class="zen-meta-lbl">Elapsed</span><span class="zen-meta-val num" id="zenTotalElapsed">00:00</span></div>
+        <div class="zen-meta-item"><span class="zen-meta-lbl">Total</span><span class="zen-meta-val num" id="zenTotalDuration">45:00</span></div>
+        <div class="zen-meta-item"><span class="zen-meta-lbl">TSS</span><span class="zen-meta-val num" id="zenTssVal">0</span></div>
+        <div class="zen-meta-item"><span class="zen-meta-lbl">NP</span><span class="zen-meta-val num" id="zenNpVal">0W</span></div>
+      </div>
+      <div class="zen-top-right">
+        <button type="button" class="btn btn-ghost btn-sm" id="btnZenCadenceHalo" title="Toggle cadence halo (C)"><svg class="ic"><use href="#i-target"/></svg>Cadence halo</button>
+        <button type="button" class="btn btn-ghost btn-sm" id="btnCloseZenCockpit" title="Exit Zen (Z or Esc)"><svg class="ic"><use href="#i-x"/></svg>Exit</button>
+      </div>
+    </div>
+
+    <div class="zen-center-hero">
+      <div class="zen-step-header">
+        <span class="zen-step-index" id="zenStepIndex">STEP 1 OF 6</span>
+        <span class="zen-step-name" id="zenStepName">Warmup</span>
+        <span class="zen-step-zone-badge" id="zenStepZoneBadge">Z1</span>
+      </div>
+
+      <div class="zen-power-card" id="zenPowerCard">
+        <div class="zen-halo" aria-hidden="true"></div>
+        <div class="zen-target-row">
+          <span class="zen-target-lbl">Target</span>
+          <span class="zen-target-val num" id="zenTargetWatts">185W</span>
+          <span class="zen-target-pct num" id="zenTargetPct">(100% FTP)</span>
+          <span class="zen-diff-pill pill-on num" id="zenDiffPill">ON TARGET</span>
+        </div>
+        <div class="zen-hero-power">
+          <span class="zen-power-number num" id="zenInstantPower">0</span>
+          <span class="zen-power-unit">W</span>
+        </div>
+        <div class="zen-smoothing-bar">
+          <div class="power-smoothing-pills zen-smooth-pills segmented">
+            <button type="button" class="smooth-pill" data-sec="1">1s</button>
+            <button type="button" class="smooth-pill active" data-sec="3">3s</button>
+            <button type="button" class="smooth-pill" data-sec="5">5s</button>
+            <button type="button" class="smooth-pill" data-sec="10">10s</button>
+            <button type="button" class="smooth-pill" data-sec="30">30s</button>
+            <button type="button" class="smooth-pill" data-sec="60">1m</button>
+          </div>
+        </div>
+      </div>
+
+      <div class="zen-timer-wrap">
+        <div class="zen-countdown-hero num" id="zenCountdown">00:00</div>
+        <div class="zen-countdown-sub">remaining in step</div>
+        <div class="zen-progress-track"><div class="zen-progress-fill" id="zenProgressFill" style="width:0%;"></div></div>
+      </div>
+
+      <div class="zen-secondary-strip">
+        <div class="zen-sec-tile" id="zenTileCadence">
+          <svg class="zen-cad-halo" id="zenCadenceHalo" viewBox="0 0 120 120" aria-hidden="true">
+            <circle class="cad-halo-track" cx="60" cy="60" r="52"/>
+            <circle class="cad-halo-band" id="zenCadenceBand" cx="60" cy="60" r="52"/>
+            <circle class="cad-halo-arc" id="zenCadenceArc" cx="60" cy="60" r="52"/>
+          </svg>
+          <span class="lbl">Cadence</span>
+          <span class="val"><strong class="num" id="zenCadence">0</strong> <small>rpm</small></span>
+          <span class="zen-cadence-target-pill num" id="zenCadenceTarget">TGT: 90 RPM</span>
+        </div>
+        <div class="zen-sec-tile zen-hr-tile">
+          <span class="lbl">Heart rate</span>
+          <span class="val"><strong class="num" id="zenHeartRate">0</strong> <small>bpm</small></span>
+          <div class="hr-gauge" id="zenHrGauge" aria-label="Heart-rate strain">
+            <div class="hr-gauge-track"><i class="hz hz1"></i><i class="hz hz2"></i><i class="hz hz3"></i><i class="hz hz4"></i><i class="hz hz5"></i></div>
+            <div class="hr-gauge-marker" id="zenHrMarker"></div>
+          </div>
+          <span class="sub" id="zenHrZone">--</span>
+        </div>
+        <div class="zen-sec-tile"><span class="lbl">W/kg</span><span class="val"><strong class="num" id="zenWkg">0.00</strong></span></div>
+        <div class="zen-sec-tile"><span class="lbl">Speed</span><span class="val"><strong class="num" id="zenSpeed">0.0</strong> <small>km/h</small></span></div>
+      </div>
+
+      <div class="zen-up-next-banner" id="zenUpNextBanner">
+        <span class="zen-next-lbl">Up next</span>
+        <span class="zen-next-text" id="zenUpNextText">--</span>
+      </div>
+    </div>
+
+    <div class="zen-bottom-bar">
+      <div class="btn-row btn-row-tight">
+        <button type="button" class="btn btn-start" id="btnZenPlayPause">START</button>
+        <button type="button" class="btn btn-ghost" id="btnZenSkipStep"><svg class="ic"><use href="#i-skip"/></svg>Skip step</button>
+      </div>
+      <div class="zen-bias-group">
+        <span class="ctrl-label">ERG bias</span>
+        <div class="bias-stepper segmented">
+          <button type="button" id="btnZenBiasMinus5">&minus;5%</button>
+          <button type="button" id="btnZenBiasMinus1">&minus;1%</button>
+          <div class="bias-val-display num" id="zenBiasDisplay">100%</div>
+          <button type="button" id="btnZenBiasPlus1">+1%</button>
+          <button type="button" id="btnZenBiasPlus5">+5%</button>
+        </div>
+      </div>
+      <div class="zen-mini-canvas-wrap"><canvas id="zenIntervalCanvas"></canvas></div>
+    </div>
+  </div>
+
+  <!-- ============================== MODAL: RIDE REVIEW ============================== -->
+  <div class="modal-overlay" id="rideSummaryModal" role="dialog" aria-modal="true" aria-labelledby="modalRideTitle">
+    <div class="modal-content wide-modal">
+      <div class="modal-header">
+        <div>
+          <span id="modalRideCategoryBadge" class="eyebrow">WORKOUT DEEP-DIVE</span>
+          <h3 id="modalRideTitle">Workout Summary</h3>
+          <span class="modal-sub" id="modalRideSub"></span>
+        </div>
+        <div class="btn-row btn-row-tight">
+          <button type="button" class="icon-btn" id="btnRidePrev" title="Previous (older) ride"><svg class="ic"><use href="#i-left"/></svg></button>
+          <button type="button" class="icon-btn" id="btnRideNext" title="Next (newer) ride"><svg class="ic"><use href="#i-right"/></svg></button>
+          <button type="button" class="close-modal icon-btn" id="btnCloseModal" aria-label="Close"><svg class="ic"><use href="#i-x"/></svg></button>
+        </div>
+      </div>
+      <div id="modalRideDetails"></div>
+    </div>
+  </div>
+
+  <!-- ============================== MODAL: SHORTCUTS ============================== -->
+  <div class="modal-overlay" id="shortcutsModal" role="dialog" aria-modal="true" aria-labelledby="shortcutsTitle">
+    <div class="modal-content narrow-modal">
+      <div class="modal-header">
+        <h3 id="shortcutsTitle">Keyboard shortcuts</h3>
+        <button type="button" class="close-modal icon-btn" id="btnCloseShortcutsModal" aria-label="Close"><svg class="ic"><use href="#i-x"/></svg></button>
+      </div>
+      <div class="shortcuts-grid">
+        <div class="shortcut-row"><span>Play / pause</span><kbd class="key-badge">Space</kbd></div>
+        <div class="shortcut-row"><span>Next step</span><kbd class="key-badge">Tab / &rarr;</kbd></div>
+        <div class="shortcut-row"><span>ERG bias &plusmn;1% (Shift &plusmn;5%)</span><kbd class="key-badge">&uarr; &darr;</kbd></div>
+        <div class="shortcut-row"><span>Zen cockpit</span><kbd class="key-badge">Z</kbd></div>
+        <div class="shortcut-row"><span>Cadence halo (in Zen)</span><kbd class="key-badge">C</kbd></div>
+        <div class="shortcut-row"><span>Hardware Lab</span><kbd class="key-badge">H</kbd></div>
+        <div class="shortcut-row"><span>Fullscreen</span><kbd class="key-badge">F</kbd></div>
+        <div class="shortcut-row"><span>Picture-in-picture mini HUD</span><kbd class="key-badge">P</kbd></div>
+        <div class="shortcut-row"><span>Mute / unmute cues</span><kbd class="key-badge">M</kbd></div>
+        <div class="shortcut-row"><span>Close / exit</span><kbd class="key-badge">Esc</kbd></div>
+      </div>
+      <div class="btn-row btn-row-end"><button type="button" class="btn btn-primary" id="btnCloseShortcutsBtn">Got it</button></div>
+    </div>
+  </div>
+
+  <!-- ============================== DRAWER: HARDWARE LAB ============================== -->
+  <div class="modal-overlay drawer-overlay" id="hardwareModal" role="dialog" aria-modal="true" aria-labelledby="hwTitle">
+    <aside class="drawer">
+      <div class="modal-header">
+        <div><span class="eyebrow">Hardware diagnostics</span><h3 id="hwTitle">Hardware Lab</h3></div>
+        <button type="button" class="close-modal icon-btn" id="btnCloseHardwareModal" aria-label="Close"><svg class="ic"><use href="#i-x"/></svg></button>
+      </div>
+
+      <div class="hw-card" data-accent="lime">
+        <div class="hw-card-head">
+          <div><strong>Favero Assioma DUO-Shi</strong><span class="hw-sub">CPS 0x1818 &middot; ground truth for power, cadence, L/R</span></div>
+          <span class="hw-state" id="hwPedalStatusBadge" data-state="disconnected">Disconnected</span>
+        </div>
+        <div class="hw-state-line" id="hwPedalState">Not connected</div>
+        <div class="hw-metrics">
+          <div><span>Power</span><strong class="num" id="hwPedalWattsVal">-- W</strong></div>
+          <div><span>Cadence</span><strong class="num" id="hwPedalCadVal">-- RPM</strong></div>
+          <div class="span2"><span>L / R balance</span><strong class="num" id="hwPedalBalVal">-- L / -- R</strong></div>
+          <div><span><svg class="ic ic-xs"><use href="#i-battery"/></svg>Battery</span><strong class="num" id="hwPedalBattery">--</strong></div>
+          <div><span><svg class="ic ic-xs"><use href="#i-signal"/></svg>RSSI</span><strong class="num" id="hwPedalRssi">--</strong></div>
+          <div class="span2"><span>Link</span><strong class="num" id="hwPedalLink">--</strong></div>
+        </div>
+        <div class="calib-panel" id="calibPanel" data-phase="idle">
+          <div class="calib-ring"><svg viewBox="0 0 44 44"><circle class="calib-track" cx="22" cy="22" r="19"/><circle class="calib-arc" id="calibArc" cx="22" cy="22" r="19"/></svg><span class="num" id="calibCountdown"><svg class="ic"><use href="#i-target"/></svg></span></div>
+          <div class="calib-text">
+            <strong id="calibTitle">Zero-offset calibration</strong>
+            <span id="calibStatus">Unclip, set the cranks vertical and keep them still.</span>
+            <span class="calib-last num" id="calibLastOffset"></span>
+          </div>
+        </div>
+        <div class="btn-row">
+          <button type="button" class="btn btn-sm btn-grow" id="btnConnectPedalsModal">Connect Assioma pedals</button>
+          <button type="button" class="btn btn-sm btn-ghost" id="btnConnectPedalsAllModal" title="Scans for all nearby Bluetooth devices without service filter">Scan All BLE</button>
+          <button type="button" class="btn btn-sm btn-warning btn-grow" id="btnCalibratePedalsModal"><svg class="ic"><use href="#i-target"/></svg>Zero-offset calibrate</button>
+        </div>
+      </div>
+
+      <div class="hw-card" data-accent="cyan">
+        <div class="hw-card-head">
+          <div><strong>Wahoo KICKR SHIFT</strong><span class="hw-sub">FTMS 0x1826 &middot; ERG brake, speed, distance</span></div>
+          <span class="hw-state" id="hwTrainerStatusBadge" data-state="disconnected">Disconnected</span>
+        </div>
+        <div class="hw-state-line" id="hwTrainerState">Not connected</div>
+        <div class="hw-metrics">
+          <div><span>HW speed</span><strong class="num" id="hwTrainerSpeedVal">-- km/h</strong></div>
+          <div><span>HW distance</span><strong class="num" id="hwTrainerDistVal">-- km</strong></div>
+          <div><span>Interval target</span><strong class="num" id="hwTrainerTargetVal">-- W</strong></div>
+          <div><span>Commanded ERG</span><strong class="num" id="hwTrainerCommandedVal">-- W</strong></div>
+          <div><span><svg class="ic ic-xs"><use href="#i-battery"/></svg>Battery</span><strong class="num" id="hwTrainerBattery">--</strong></div>
+          <div><span><svg class="ic ic-xs"><use href="#i-signal"/></svg>RSSI</span><strong class="num" id="hwTrainerRssi">--</strong></div>
+          <div class="span2"><span>Link</span><strong class="num" id="hwTrainerLink">--</strong></div>
+        </div>
+        <div class="btn-row">
+          <button type="button" class="btn btn-sm btn-grow" id="btnConnectTrainerModal">Connect KICKR SHIFT</button>
+          <button type="button" class="btn btn-sm btn-ghost" id="btnConnectTrainerAllModal" title="Scans for all nearby Bluetooth devices without service filter">Scan All BLE</button>
+        </div>
+      </div>
+
+      <div class="hw-card" data-accent="rose">
+        <div class="hw-card-head">
+          <div><strong>Heart-rate strap</strong><span class="hw-sub">HRS 0x180D</span></div>
+          <span class="hw-state" id="hwHrStatusBadge" data-state="disconnected">Disconnected</span>
+        </div>
+        <div class="hw-state-line" id="hwHrState">Not connected</div>
+        <div class="hw-metrics">
+          <div><span>Heart rate</span><strong class="num" id="hwHrVal">-- bpm</strong></div>
+          <div><span><svg class="ic ic-xs"><use href="#i-battery"/></svg>Battery</span><strong class="num" id="hwHrBattery">--</strong></div>
+          <div><span><svg class="ic ic-xs"><use href="#i-signal"/></svg>RSSI</span><strong class="num" id="hwHrRssi">--</strong></div>
+          <div><span>Link</span><strong class="num" id="hwHrLink">--</strong></div>
+        </div>
+        <div class="btn-row">
+          <button type="button" class="btn btn-sm btn-grow" id="btnConnectHrModal">Connect HR strap</button>
+          <button type="button" class="btn btn-sm btn-ghost" id="btnConnectHrAllModal" title="Scans for all nearby Bluetooth devices without service filter">Scan All BLE</button>
+        </div>
+      </div>
+
+      <div class="hw-card" data-accent="violet">
+        <div class="hw-card-head">
+          <label class="toggle">
+            <input type="checkbox" id="chkEnablePowerMatch" checked>
+            <span class="toggle-ui"></span>
+            <span><strong>PowerMatch</strong><span class="hw-sub">Trims KICKR resistance so pedal power hits the target (&plusmn;45 W, 2 W/s)</span></span>
+          </label>
+          <span class="chip chip-violet num" id="hwPowerMatchTrimBadge">Inactive</span>
+        </div>
+        <div class="trim-bar" aria-label="PowerMatch trim">
+          <div class="trim-bar-track"><div class="trim-bar-center"></div><div class="trim-bar-fill" id="hwPowerMatchBar"></div></div>
+          <div class="trim-bar-scale num"><span>&minus;45 W</span><span>0</span><span>+45 W</span></div>
+        </div>
+        <div class="hw-state-line num" id="hwPowerMatchError">Pedal error vs target: --</div>
+      </div>
+
+      <div class="hw-card" data-accent="amber" style="border-left: 3px solid var(--amber); background: rgba(245, 158, 11, 0.05); padding: 12px;">
+        <div style="font-weight: 700; color: var(--amber); margin-bottom: 6px; font-size: 0.85rem;">⚡ BLUETOOTH CONNECTION TROUBLESHOOTER</div>
+        <ul style="font-size: 0.78rem; line-height: 1.5; color: var(--text-dim); margin: 0; padding-left: 18px;">
+          <li><strong style="color:var(--text);">Wake Up Pedals:</strong> Spin cranks backwards 3&ndash;4 times. Assioma LEDs will flash (pedals sleep after 2m).</li>
+          <li><strong style="color:var(--text);">Disconnect Phone:</strong> Most sensors accept only one or two connections. Force-close the Favero Assioma app, Wahoo app, Polar Beat/Flow or Zwift on your phone/tablet.</li>
+          <li><strong style="color:var(--text);">Polar H10:</strong> Wet the electrodes and wear the strap (it only wakes on skin contact). If it was ever paired in Windows Settings &gt; Bluetooth, remove it there, then connect from here. Failed first attempts are retried automatically.</li>
+          <li><strong style="color:var(--text);">Windows Bluetooth:</strong> Ensure Bluetooth is toggled <strong>ON</strong> in Windows Settings / Action Center.</li>
+          <li><strong style="color:var(--text);">Browser Popup:</strong> When you click Connect, look for the device popup at the <strong>top-left</strong> under the address bar and click <strong>Pair</strong>.</li>
+          <li><strong style="color:var(--text);">Use Launcher:</strong> For guaranteed permissions, double-click <code style="color:var(--cyan);">Launch-Apex-Velo.bat</code> in your folder.</li>
+        </ul>
+      </div>
+
+      <p class="footnote">RSSI appears only when the browser exposes advertisement data (Chrome experimental Web Bluetooth). A dropped link reconnects automatically with exponential backoff (1 s, 2 s, 4 s &hellip; capped at 30 s, 8 attempts).</p>
+      <div class="btn-row btn-row-end"><button type="button" class="btn btn-primary" id="btnCloseHardwareBtn">Done</button></div>
+    </aside>
+  </div>
+
+  <div class="toast-container" aria-live="polite"></div>
+
+  <script src="js/velo-metrics.js"></script>
+  <script src="js/velo-db.js"></script>
+  <script src="js/velo-sound.js"></script>
+  <script src="js/velo-pip.js"></script>
+  <script src="js/velo-folder-sync.js"></script>
+  <script src="js/velo-biomech.js"></script>
+  <script src="js/velo-analytics.js"></script>
+  <script src="js/velo-workouts.js"></script>
+  <script src="js/velo-ai-architect.js"></script>
+  <script src="js/velo-ai-coach.js"></script>
+  <script src="js/velo-sim.js"></script>
+  <script src="js/velo-ble.js"></script>
+  <script src="js/velo-importer.js"></script>
+  <script src="js/velo-export.js"></script>
+  <script src="js/velo-clock.js"></script>
+  <script src="js/velo-progress.js"></script>
+  <script src="js/app.js"></script>
+  <script src="js/app-analytics.js"></script>
+  <script src="js/app-history.js"></script>
+  <script src="js/app-coach.js"></script>
+  <script src="js/app-strava.js"></script>
+  <script src="js/app-remote.js"></script>
+</body>
+</html>

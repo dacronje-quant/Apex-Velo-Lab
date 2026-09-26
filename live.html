@@ -1,0 +1,306 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, user-scalable=no">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="Apex Live">
+<meta name="theme-color" content="#07090d">
+<title>Apex Live</title>
+<style>
+  :root {
+    --bg: #07090d; --panel: #10141b; --line: #1d2430; --text: #eef2f7; --muted: #8a95a6; --dim: #566174;
+    --cyan: #22d3ee; --lime: #a3e635; --amber: #fbbf24; --red: #f87171;
+  }
+  * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+  html, body { margin: 0; height: 100%; background: var(--bg); color: var(--text);
+    font-family: -apple-system, BlinkMacSystemFont, "SF Pro Display", "Segoe UI", Roboto, sans-serif; }
+  body { padding: max(12px, env(safe-area-inset-top)) max(12px, env(safe-area-inset-right)) max(12px, env(safe-area-inset-bottom)) max(12px, env(safe-area-inset-left));
+    display: flex; flex-direction: column; gap: 8px; min-height: 100dvh; overscroll-behavior: none; user-select: none; -webkit-user-select: none; }
+  .num { font-variant-numeric: tabular-nums; }
+  header { display: flex; align-items: center; gap: 8px; }
+  header .title { flex: 1; min-width: 0; font-weight: 650; font-size: 15px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .pill { font-size: 11px; font-weight: 700; letter-spacing: .06em; padding: 4px 9px; border-radius: 999px; background: var(--line); color: var(--muted); white-space: nowrap; }
+  .pill.running { background: rgba(163,230,53,.15); color: var(--lime); }
+  .pill.paused { background: rgba(251,191,36,.15); color: var(--amber); }
+  .pill.offline { background: rgba(248,113,113,.15); color: var(--red); }
+  .devs { display: flex; gap: 5px; }
+  .dev { width: 8px; height: 8px; border-radius: 50%; background: var(--dim); }
+  .dev.on { background: var(--lime); }
+
+  .card { background: var(--panel); border: 1px solid var(--line); border-radius: 16px; padding: 10px 14px; }
+  @media (max-height: 700px) { .countdown { font-size: 40px; } .power .big { font-size: 68px; } canvas { display: none; } .m .s { display: none; } }
+  .step { display: flex; align-items: center; gap: 10px; }
+  .step .zb { font-size: 11px; font-weight: 800; padding: 3px 7px; border-radius: 6px; color: #07090d; background: var(--zc, var(--dim)); }
+  .step .name { flex: 1; min-width: 0; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .step .idx { color: var(--muted); font-size: 13px; }
+  .countdown { font-size: 52px; font-weight: 750; line-height: 1; letter-spacing: -.02em; text-align: center; margin-top: 6px; }
+  .bar { height: 6px; border-radius: 3px; background: var(--line); overflow: hidden; margin-top: 10px; }
+  .bar > i { display: block; height: 100%; width: 0; background: linear-gradient(90deg, var(--cyan), var(--lime)); transition: width .8s linear; }
+  .sub { display: flex; justify-content: space-between; color: var(--muted); font-size: 12px; margin-top: 6px; }
+
+  .power { text-align: center; padding: 10px 10px 8px; }
+  .power .lbl { color: var(--muted); font-size: 12px; font-weight: 600; letter-spacing: .08em; }
+  .power .big { font-size: 88px; font-weight: 800; line-height: .95; letter-spacing: -.04em; }
+  .power .big small { font-size: 28px; font-weight: 600; color: var(--muted); margin-left: 2px; }
+  .power .tgt { font-size: 18px; font-weight: 650; margin-top: 4px; }
+  .power .tgt.on { color: var(--lime); } .power .tgt.close { color: var(--amber); } .power .tgt.off { color: var(--red); }
+  canvas { width: 100%; height: 44px; display: block; margin-top: 8px; }
+
+  .grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; }
+  .m { background: var(--panel); border: 1px solid var(--line); border-radius: 14px; padding: 7px 6px; text-align: center; }
+  .m .v { font-size: 26px; font-weight: 750; line-height: 1.05; }
+  .m .l { color: var(--muted); font-size: 11px; font-weight: 600; letter-spacing: .06em; margin-top: 3px; }
+  .m .s { color: var(--dim); font-size: 11px; margin-top: 2px; }
+  .m.good .v { color: var(--lime); } .m.warn .v { color: var(--amber); }
+
+  .next { color: var(--muted); font-size: 13px; }
+  .next b { color: var(--text); font-weight: 600; }
+
+  .controls { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 8px; margin-top: auto; }
+  button { font: inherit; color: var(--text); background: var(--panel); border: 1px solid var(--line); border-radius: 14px;
+    padding: 13px 6px; font-size: 16px; font-weight: 700; touch-action: manipulation; }
+  button:active { transform: scale(.97); }
+  button:disabled { opacity: .35; }
+  button.primary { grid-column: span 3; background: var(--lime); color: #07090d; border: 0; font-size: 19px; padding: 15px; }
+  button.primary.pause { background: var(--amber); }
+  button.armed { background: var(--red); color: #07090d; border-color: var(--red); }
+  .biasv { display: flex; align-items: center; justify-content: center; font-weight: 750; font-size: 18px; flex-direction: column; }
+  .biasv span { color: var(--muted); font-size: 10px; letter-spacing: .08em; font-weight: 700; }
+
+  .overlay { position: fixed; inset: 0; background: rgba(7,9,13,.92); display: none; align-items: center; justify-content: center;
+    text-align: center; padding: 30px; flex-direction: column; gap: 10px; z-index: 5; }
+  .overlay.show { display: flex; }
+  .overlay h2 { margin: 0; font-size: 20px; }
+  .overlay p { margin: 0; color: var(--muted); font-size: 14px; line-height: 1.5; max-width: 320px; }
+  .toast { position: fixed; left: 50%; bottom: calc(20px + env(safe-area-inset-bottom)); transform: translateX(-50%);
+    background: #1f2937; color: var(--text); padding: 10px 16px; border-radius: 12px; font-size: 14px; opacity: 0; transition: opacity .25s; pointer-events: none; z-index: 6; }
+  .toast.show { opacity: 1; }
+</style>
+</head>
+<body>
+  <header>
+    <div class="title" id="title">Apex Live</div>
+    <div class="devs" title="Trainer / pedals / heart rate">
+      <i class="dev" id="devTrainer"></i><i class="dev" id="devPedals"></i><i class="dev" id="devHr"></i>
+    </div>
+    <div class="pill" id="state">CONNECTING</div>
+  </header>
+
+  <section class="card">
+    <div class="step">
+      <span class="zb" id="zoneBadge">--</span>
+      <span class="name" id="stepName">Waiting for the PC...</span>
+      <span class="idx num" id="stepIdx"></span>
+    </div>
+    <div class="countdown num" id="countdown">--:--</div>
+    <div class="bar"><i id="progress"></i></div>
+    <div class="sub num"><span id="elapsed">0:00</span><span id="remainingTotal"></span></div>
+  </section>
+
+  <section class="card power">
+    <div class="lbl">POWER (3s)</div>
+    <div class="big num" id="power">--<small>W</small></div>
+    <div class="tgt num" id="target">Target --</div>
+    <canvas id="trace"></canvas>
+  </section>
+
+  <section class="grid">
+    <div class="m" id="mHr"><div class="v num" id="hr">--</div><div class="l">HEART RATE</div><div class="s" id="hrZone">&nbsp;</div></div>
+    <div class="m" id="mCad"><div class="v num" id="cad">--</div><div class="l">CADENCE</div><div class="s num" id="cadTgt">&nbsp;</div></div>
+    <div class="m"><div class="v num" id="bal">--</div><div class="l">L / R</div><div class="s" id="src">&nbsp;</div></div>
+    <div class="m"><div class="v num" id="avg">--</div><div class="l">AVG W</div></div>
+    <div class="m"><div class="v num" id="np">--</div><div class="l">NP</div></div>
+    <div class="m"><div class="v num" id="tss">--</div><div class="l">TSS</div><div class="s num" id="kj">&nbsp;</div></div>
+  </section>
+
+  <div class="next" id="next">&nbsp;</div>
+
+  <section class="controls">
+    <button class="primary" id="btnToggle" disabled>START</button>
+    <button id="btnDown" disabled>&minus;1%</button>
+    <div class="biasv num"><span>ERG</span><div id="bias">100%</div></div>
+    <button id="btnUp" disabled>+1%</button>
+    <button id="btnReset" disabled style="grid-column: span 1">Reset</button>
+    <button id="btnSkip" disabled style="grid-column: span 2">Skip step</button>
+  </section>
+
+  <div class="overlay" id="overlay">
+    <h2 id="ovTitle">Can't reach your PC</h2>
+    <p id="ovText">Make sure Apex Velo Lab is running on the PC and your phone is on the same Wi-Fi.</p>
+  </div>
+  <div class="toast" id="toast"></div>
+
+<script>
+(function () {
+  'use strict';
+  const $ = (id) => document.getElementById(id);
+  const fmt = (s) => {
+    s = Math.max(0, Math.round(s || 0));
+    const h = Math.floor(s / 3600), m = Math.floor((s % 3600) / 60), x = s % 60;
+    return (h ? h + ':' + String(m).padStart(2, '0') : m) + ':' + String(x).padStart(2, '0');
+  };
+  let snap = null, lastOkAt = 0, failures = 0, sending = false, skipArmedUntil = 0;
+
+  function toast(msg) {
+    const t = $('toast'); t.textContent = msg; t.classList.add('show');
+    clearTimeout(toast._t); toast._t = setTimeout(() => t.classList.remove('show'), 1800);
+  }
+  function overlay(show, title, text) {
+    $('overlay').classList.toggle('show', show);
+    if (title) $('ovTitle').textContent = title;
+    if (text) $('ovText').textContent = text;
+  }
+
+  async function poll() {
+    try {
+      const r = await fetch('api/live', { cache: 'no-store' });
+      if (!r.ok) throw new Error(String(r.status));
+      const d = await r.json();
+      lastOkAt = Date.now(); failures = 0;
+      if (!d.snapshot || d.ageMs == null || d.ageMs > 8000) {
+        render(null);
+        overlay(true, 'Open the app on the PC', 'The server is running, but Apex Velo Lab is not open in Chrome on the PC (or the tab is closed). Open it there and this screen comes alive.');
+      } else {
+        overlay(false);
+        render(d.snapshot);
+      }
+    } catch (e) {
+      failures++;
+      if (failures >= 3) {
+        render(null);
+        overlay(true, "Can't reach your PC", 'Make sure Launch-Apex-Velo is running on the PC, and your phone is on the same Wi-Fi (not mobile data).');
+      }
+    }
+  }
+
+  function render(s) {
+    snap = s;
+    const st = $('state');
+    const state = s ? s.state : (Date.now() - lastOkAt < 5000 ? 'ready' : 'offline');
+    st.textContent = { running: 'RIDING', paused: 'PAUSED', finished: 'FINISHED', ready: 'READY', offline: 'OFFLINE' }[state] || state.toUpperCase();
+    st.className = 'pill ' + (state === 'running' ? 'running' : state === 'paused' ? 'paused' : state === 'offline' ? 'offline' : '');
+    ['Trainer', 'Pedals', 'Hr'].forEach((k) => $('dev' + k).classList.toggle('on', !!(s && s.devices && s.devices[k.toLowerCase()])));
+
+    const live = !!s;
+    const riding = live && s.state === 'running';
+    const finished = live && s.state === 'finished';
+    const tb = $('btnToggle');
+    tb.disabled = !live || finished || sending;
+    tb.textContent = !live ? 'START' : riding ? 'PAUSE' : finished ? 'FINISHED' : s.state === 'paused' ? 'RESUME' : 'START';
+    tb.classList.toggle('pause', riding);
+    ['btnUp', 'btnDown', 'btnReset'].forEach((id) => { $(id).disabled = !live || sending; });
+    $('btnSkip').disabled = !riding || sending;
+    if (Date.now() > skipArmedUntil) { $('btnSkip').classList.remove('armed'); $('btnSkip').textContent = 'Skip step'; }
+    if (!s) return;
+
+    document.title = s.state === 'running' ? `${s.power}W - Apex Live` : 'Apex Live';
+    $('title').textContent = s.title || 'Workout';
+    const step = s.step;
+    $('stepName').textContent = step ? step.name : (finished ? 'Workout complete' : 'No workout loaded');
+    $('stepIdx').textContent = step ? `${step.index}/${step.count}` : '';
+    $('countdown').textContent = step ? fmt(step.remaining) : '--:--';
+    const zb = $('zoneBadge');
+    zb.textContent = s.targetZone ? s.targetZone.short : '--';
+    zb.style.setProperty('--zc', s.targetZone ? s.targetZone.color : '');
+    $('progress').style.width = Math.round((s.progress || 0) * 1000) / 10 + '%';
+    $('elapsed').textContent = fmt(s.elapsed);
+    $('remainingTotal').textContent = s.totalDuration ? '-' + fmt(Math.max(0, s.totalDuration * (1 - (s.progress || 0)))) + ' left' : '';
+
+    $('power').innerHTML = `${s.power}<small>W</small>`;
+    $('power').style.color = s.power > 0 && s.zone ? s.zone.color : '';
+    const t = $('target');
+    if (s.target > 0) {
+      const diff = s.power - s.target, pct = Math.abs(diff) / s.target * 100;
+      t.textContent = `Target ${s.target}W${s.targetPct != null ? ` (${s.targetPct}%)` : ''}${riding ? `  ${diff >= 0 ? '+' : ''}${diff}` : ''}`;
+      t.className = 'tgt num ' + (!riding || s.power === 0 ? '' : pct <= 5 ? 'on' : pct <= 10 ? 'close' : 'off');
+    } else { t.textContent = 'Target --'; t.className = 'tgt num'; }
+
+    $('hr').textContent = s.hr || '--';
+    $('hrZone').textContent = s.hrZone || ' ';
+    $('cad').textContent = s.cadence || '--';
+    $('cadTgt').textContent = s.targetCadence ? `target ${s.targetCadence}` : ' ';
+    const cd = s.cadence && s.targetCadence ? Math.abs(s.cadence - s.targetCadence) : null;
+    $('mCad').className = 'm' + (cd == null ? '' : cd <= 4 ? ' good' : ' warn');
+    $('bal').textContent = s.balanceLeft != null ? `${Math.round(s.balanceLeft)}/${Math.round(100 - s.balanceLeft)}` : '--';
+    $('src').textContent = s.source ? String(s.source).replace('SIMULATOR', 'SIM') : ' ';
+    $('avg').textContent = s.avgPower || '--';
+    $('np').textContent = s.np || '--';
+    $('tss').textContent = s.tss || '--';
+    $('kj').textContent = s.kj ? s.kj + ' kJ' : ' ';
+    $('bias').textContent = (s.bias || 100) + '%';
+    $('next').innerHTML = s.next
+      ? `Next: <b>${esc(s.next.name)}</b> &middot; ${fmt(s.next.duration)} @ ${s.next.watts}W &middot; ${s.next.cadence} rpm`
+      : (step ? 'Final step &mdash; bring it home.' : '&nbsp;');
+    drawTrace(s);
+  }
+
+  function esc(v) { return String(v == null ? '' : v).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c])); }
+
+  function drawTrace(s) {
+    const c = $('trace'), dpr = window.devicePixelRatio || 1;
+    const w = c.clientWidth, h = c.clientHeight;
+    if (c.width !== Math.round(w * dpr)) { c.width = Math.round(w * dpr); c.height = Math.round(h * dpr); }
+    const g = c.getContext('2d');
+    g.setTransform(dpr, 0, 0, dpr, 0, 0);
+    g.clearRect(0, 0, w, h);
+    const tr = s.trace || [];
+    const max = Math.max(s.target * 1.4 || 0, (s.ftp || 200) * 1.2, ...tr) || 1;
+    const y = (v) => h - 2 - (v / max) * (h - 4);
+    if (s.target > 0) {
+      g.strokeStyle = 'rgba(238,242,247,.35)'; g.setLineDash([4, 4]); g.lineWidth = 1;
+      g.beginPath(); g.moveTo(0, y(s.target)); g.lineTo(w, y(s.target)); g.stroke(); g.setLineDash([]);
+    }
+    if (tr.length < 2) return;
+    const step = w / 119;
+    const x0 = w - (tr.length - 1) * step;
+    g.beginPath();
+    tr.forEach((v, i) => { const x = x0 + i * step; i ? g.lineTo(x, y(v)) : g.moveTo(x, y(v)); });
+    g.strokeStyle = s.zone && s.zone.color ? s.zone.color : '#22d3ee';
+    g.lineWidth = 2; g.lineJoin = 'round'; g.stroke();
+  }
+
+  async function send(cmd, label) {
+    if (sending) return;
+    sending = true; render(snap);
+    try {
+      const r = await fetch('api/live/cmd', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ cmd }) });
+      const d = await r.json().catch(() => ({}));
+      if (!r.ok) throw new Error(d.error || ('Error ' + r.status));
+      if (label) toast(label);
+      if (navigator.vibrate) navigator.vibrate(15);
+    } catch (e) {
+      toast(e.message || 'Could not reach the PC');
+    } finally {
+      sending = false;
+      setTimeout(poll, 400);
+    }
+  }
+
+  $('btnToggle').addEventListener('click', () => send('toggle', snap && snap.state === 'running' ? 'Pausing...' : 'Starting...'));
+  $('btnUp').addEventListener('click', () => send('bias-up'));
+  $('btnDown').addEventListener('click', () => send('bias-down'));
+  $('btnReset').addEventListener('click', () => send('bias-reset', 'ERG back to 100%'));
+  $('btnSkip').addEventListener('click', () => {
+    const b = $('btnSkip');
+    if (Date.now() < skipArmedUntil) { skipArmedUntil = 0; send('skip', 'Skipping step'); return; }
+    skipArmedUntil = Date.now() + 3000;
+    b.classList.add('armed'); b.textContent = 'Tap again to skip';
+    setTimeout(() => render(snap), 3100);
+  });
+
+  // Keep the screen on where the browser allows it (needs HTTPS on iPhone - see README otherwise).
+  async function keepAwake() {
+    try { if ('wakeLock' in navigator && document.visibilityState === 'visible') await navigator.wakeLock.request('screen'); } catch (e) { /* not allowed over plain http */ }
+  }
+  document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') { keepAwake(); poll(); } });
+  document.addEventListener('click', keepAwake, { once: true });
+
+  poll();
+  setInterval(() => { if (document.visibilityState === 'visible') poll(); }, 1000);
+})();
+</script>
+</body>
+</html>

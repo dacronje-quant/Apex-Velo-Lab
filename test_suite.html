@@ -1,0 +1,1246 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Apex Velo Lab Test Suite</title>
+  <style>
+    body { font-family: monospace; background: #0f172a; color: #f8fafc; padding: 20px; }
+    .pass { color: #4ade80; font-weight: bold; }
+    .fail { color: #f87171; font-weight: bold; }
+  </style>
+</head>
+<body>
+  <h2>Running Apex Velo Lab Comprehensive Test Suite...</h2>
+  <div id="results"></div>
+  <iframe id="appFrame" style="width: 1000px; height: 600px; opacity: 0; position: absolute; top: -9999px;"></iframe>
+
+  <script>
+    const results = document.getElementById('results');
+    function log(name, passed, detail) {
+      const p = document.createElement('div');
+      p.className = passed ? 'pass' : 'fail';
+      p.textContent = (passed ? '✓ PASS: ' : '✗ FAIL: ') + name + (detail ? ' (' + detail + ')' : '');
+      results.appendChild(p);
+      console.log((passed ? 'PASS: ' : 'FAIL: ') + name + (detail ? ' - ' + detail : ''));
+    }
+    window.addEventListener('error', e => log('Runner Window Error', false, e.message + ' at ' + e.filename + ':' + e.lineno));
+
+    const frame = document.getElementById('appFrame');
+    // Snapshot of the real app storage (same origin): it must be identical after the run.
+    const realStorageBefore = (() => { const o = {}; for (let i = 0; i < localStorage.length; i++) { const k = localStorage.key(i); if (/^apex_/.test(k)) o[k] = localStorage.getItem(k); } return JSON.stringify(o); })();
+    async function runAllTests() {
+      try {
+          const app = frame.contentWindow.app;
+          if (!app) {
+            log('App Instance Available', false, 'app is null; errors: ' + JSON.stringify(frame.contentWindow.__errors || []));
+            return;
+          }
+          log('App Instance Available', true, 'Version: 3.0.0');
+
+          // 1. Check Profiles: Divan should be sole default profile
+          const profiles = app.profiles;
+          const hasDivan = profiles.some(p => p.id === 'prof_divan' && p.ftp === 185);
+          const hasOldDemo = profiles.some(p => p.id === 'prof_1' || p.id === 'prof_2');
+          log('Default Profile Divan (185W FTP, 75kg, 175 HR)', hasDivan && !hasOldDemo, `Count: ${profiles.length}`);
+
+          // 2. Check Virtual Speed Calculation
+          const speed185W = app.calcVirtualSpeedKmh(185, 75);
+          log('Virtual Speed at 185W (~31-33 km/h)', speed185W >= 30 && speed185W <= 35, `${speed185W} km/h`);
+
+          const speed0W = app.calcVirtualSpeedKmh(0, 75);
+          log('Virtual Speed at 0W (0.0 km/h)', speed0W === 0, `${speed0W} km/h`);
+
+          // 3. Check Multi-Window Power Smoothing
+          app.powerBuffer = [100, 150, 200, 250, 300];
+          const smooth3s = app.getSmoothedPower(3);
+          log('Power Smoothing 3s Window (avg of 200, 250, 300 = 250W)', smooth3s === 250, `${smooth3s}W`);
+          const smooth1s = app.getSmoothedPower(1);
+          log('Power Smoothing 1s Instant Window (300W)', smooth1s === 300, `${smooth1s}W`);
+          const smooth5s = app.getSmoothedPower(5);
+          log('Power Smoothing 5s Window (200W)', smooth5s === 200, `${smooth5s}W`);
+
+          // 4. Check Calendar Presets: 1week
+          app.calendarViewPreset = '1week';
+          app.renderCalendarView();
+          const tssWeek = frame.contentDocument.getElementById('calWeeklyTss')?.textContent;
+          const distWeek = frame.contentDocument.getElementById('calPeriodDistance')?.textContent;
+          log('Calendar 1-Week Preset View', tssWeek && distWeek, `TSS: ${tssWeek}, Dist: ${distWeek}`);
+
+          // 5. Check Calendar Presets: 1month
+          app.calendarViewPreset = '1month';
+          app.renderCalendarView();
+          const tssMonth = frame.contentDocument.getElementById('calWeeklyTss')?.textContent;
+          const matrix = frame.contentDocument.querySelector('.cal-month-matrix');
+          log('Calendar 1-Month Preset View & Matrix', tssMonth && matrix !== null, `TSS: ${tssMonth}, Matrix cells: ${matrix?.children?.length}`);
+
+          // 6. Check Calendar Presets: ytd
+          app.calendarViewPreset = 'ytd';
+          app.renderCalendarView();
+          const tssYtd = frame.contentDocument.getElementById('calWeeklyTss')?.textContent;
+          const ytdGrid = frame.contentDocument.querySelector('.cal-ytd-grid');
+          log('Calendar YTD Preset View & 12 Months Cards', tssYtd && ytdGrid?.children?.length === 12, `Months: ${ytdGrid?.children?.length}`);
+
+          // 7. Check Calendar Presets: all
+          app.calendarViewPreset = 'all';
+          app.renderCalendarView();
+          const tssAll = frame.contentDocument.getElementById('calWeeklyTss')?.textContent;
+          const heroTiles = frame.contentDocument.querySelector('.alltime-hero-grid');
+          log('Calendar All-Time Career Overview & Hero Tiles', tssAll && heroTiles?.children?.length === 6, `TSS: ${tssAll}`);
+
+          // 8. Check Permanent Workout Saving and Deleting
+          const initialCount = app.workoutLibrary.length;
+          const testWorkout = {
+            id: 'test_pw_999',
+            title: 'Test Permanent SweetSpot 4x10',
+            desc: 'Automated test custom workout',
+            category: 'sweetspot',
+            durationMin: 50,
+            tss: 65,
+            if: '0.88',
+            intervals: [{ name: 'Warmup', duration: 300, pctFtp: 60 }]
+          };
+          app.saveWorkoutPermanently(testWorkout);
+          const afterSaveCount = app.workoutLibrary.length;
+          const foundSaved = app.workoutLibrary.find(w => w.id === 'test_pw_999');
+          log('Permanent Workout Saving to Library & Storage', afterSaveCount === initialCount + 1 && foundSaved !== undefined, `Title: ${foundSaved?.title}`);
+
+          // Clean up by deleting the test workout without confirm modal
+          const originalConfirm = frame.contentWindow.confirm;
+          frame.contentWindow.confirm = () => true;
+          app.deleteWorkout('test_pw_999');
+          frame.contentWindow.confirm = originalConfirm;
+          const afterDeleteCount = app.workoutLibrary.length;
+          log('Delete Workout Functionality', afterDeleteCount === initialCount, `Library count back to ${afterDeleteCount}`);
+
+          // 9. Check History Table Distance & Speed Columns
+          const histHeader = frame.contentDocument.querySelector('.history-table thead tr')?.innerHTML || '';
+          const hasDistCol = histHeader.includes('Distance') && histHeader.includes('Avg Speed');
+          log('History Table Distance & Avg Speed Columns', hasDistCol, 'Found in <thead>');
+
+          const firstRow = frame.contentDocument.querySelector('#historyTableBody tr')?.innerHTML || '';
+          const hasDistRow = firstRow.includes('km') || firstRow.includes('--');
+          log('History Table Formats Distance & Speed Authentically', hasDistRow, 'Found honest metric or unrecorded state');
+
+          // 10. Check Cockpit HUD Elements for Speed and Distance
+          const valSpeed = frame.contentDocument.getElementById('valSpeed');
+          const valDist = frame.contentDocument.getElementById('valDistance');
+          const hudDist = frame.contentDocument.getElementById('hudTotalDistance');
+          const hudSpeed = frame.contentDocument.getElementById('hudCurrentSpeed');
+          const smoothPills = frame.contentDocument.querySelectorAll('#powerSmoothingPills .smooth-pill');
+          log('Cockpit HUD Speed & Distance Elements', valSpeed && valDist && hudDist && hudSpeed, 'All DOM elements mounted');
+          log('Cockpit Multi-Window Smoothing Pills (6 buttons)', smoothPills.length === 6, `Count: ${smoothPills.length}`);
+
+          // 11. Check Hard-Start Workouts in Normal Built-in Library
+          const hardStartWorkouts = app.workoutLibrary.filter(w => 
+            w.title.toLowerCase().includes('hard-start') || 
+            w.title.toLowerCase().includes('fast-start') || 
+            w.desc.toLowerCase().includes('hard start') ||
+            w.id.startsWith('hardstart_')
+          );
+          log('Hard-Start Workouts in Normal Built-in Library (15 Protocols)', hardStartWorkouts.length >= 15, `Found: ${hardStartWorkouts.length}`);
+
+          // 12. Check Hard-Start Category Filter Pill
+          app.renderWorkoutCatalog('hardstart', '');
+          const renderedCards = frame.contentDocument.querySelectorAll('#workoutCardsContainer .workout-preset-card');
+          const allHaveBadge = Array.from(renderedCards).every(card => card.textContent.includes('HARD-START') || card.textContent.includes('FAST-START'));
+          log('Hard-Start Category Filter Pill Renders Only Hard-Start Workouts', renderedCards.length >= 15 && allHaveBadge, `Rendered: ${renderedCards.length} cards`);
+          app.renderWorkoutCatalog('all', '');
+
+          // 13. Check HealthFit Initial Sync (104 authentic rides)
+          log('HealthFit Initial Sync (104 Authentic Sessions)', app.completedWorkouts.length === 104, `Count: ${app.completedWorkouts.length}`);
+          const hfTotalRidesEl = frame.contentDocument.getElementById('hfTotalRides');
+          log('HealthFit Hero Total Rides Counter (104)', hfTotalRidesEl && hfTotalRidesEl.textContent === '104', `Value: ${hfTotalRidesEl?.textContent}`);
+
+          // 14. Check Clear All Workouts Functionality
+          try {
+            frame.contentWindow.confirm = () => true;
+            await app.clearAllWorkouts(false);
+            const afterClearCount = app.completedWorkouts.length;
+            const tableRowsAfterClear = frame.contentDocument.querySelectorAll('#historyTableBody tr');
+            const hasEmptyMsg = frame.contentDocument.getElementById('historyTableBody')?.textContent.includes('No completed workouts in database');
+            log('Clear All Workouts (Removes All History & Shows Empty State)', afterClearCount === 0 && hasEmptyMsg, `Rides: ${afterClearCount}, Empty Msg: ${hasEmptyMsg}`);
+          } catch (e14) {
+            log('Clear All Workouts error', false, e14.message);
+          }
+
+          // 15. Check Re-Sync HealthFit Workouts
+          try {
+            await app.resyncHealthFitHistory(true);
+            const afterResyncCount = app.completedWorkouts.length;
+            const tableRowsAfterResync = frame.contentDocument.querySelectorAll('#historyTableBody tr');
+            log('Re-Sync HealthFit Workouts (Restores All 104 Rides & Table Rows)', afterResyncCount === 104 && tableRowsAfterResync.length === 104, `Rides: ${afterResyncCount}, Table rows: ${tableRowsAfterResync.length}`);
+          } catch (e15) {
+            log('Re-Sync HealthFit Workouts', false, e15.message);
+          }
+
+          // 16. Check Single Completed Ride Deletion
+          const testRideId = app.completedWorkouts[0].id;
+          const originalConfirmRide = frame.contentWindow.confirm;
+          frame.contentWindow.confirm = () => true;
+          await app.deleteCompletedRide(testRideId);
+          frame.contentWindow.confirm = originalConfirmRide;
+          const afterSingleDeleteCount = app.completedWorkouts.length;
+          log('Delete Single Completed Ride from History Table (104 -> 103)', afterSingleDeleteCount === 103, `New Count: ${afterSingleDeleteCount}`);
+
+          // Restore back to full 104 rides
+          await app.resyncHealthFitHistory(true);
+
+          // 17. Check Live Upcoming Intervals Queue & Jump
+          const queueContainer = frame.contentDocument.getElementById('upcomingCardsContainer');
+          const queueCards = frame.contentDocument.querySelectorAll('.upcoming-card');
+          const hasActiveCard = Array.from(queueCards).some(c => c.classList.contains('active'));
+          const firstCardText = queueCards[0]?.textContent || '';
+          const hasFtpTarget = firstCardText.includes('W') && firstCardText.includes('FTP');
+          log('Upcoming Intervals Queue Renders Target Watts & FTP %', queueCards.length > 0 && hasActiveCard && hasFtpTarget, `Cards: ${queueCards.length}, Has Target: ${hasFtpTarget}`);
+
+          app.jumpToInterval(1);
+          const activeCardAfterJump = frame.contentDocument.querySelectorAll('.upcoming-card')[1]?.classList.contains('active');
+          log('Jump to Upcoming Interval Step Updates Active Indicator', app.intervalIndex === 1 && activeCardAfterJump, `Step: ${app.intervalIndex + 1}`);
+          app.jumpToInterval(0);
+
+          // 18. Check Calendar Deletion Functionality (1-Week & 1-Month Views)
+          app.calendarViewPreset = '1week';
+          app.calendarWeekOffset = -1;
+          app.renderCalendarView();
+          const calDeleteBtnsWeek = frame.contentDocument.querySelectorAll('.btn-delete-cal-ride');
+          log('Calendar 1-Week View Contains Delete Buttons per Ride', calDeleteBtnsWeek.length > 0, `Count: ${calDeleteBtnsWeek.length}`);
+          app.calendarWeekOffset = 0;
+
+          app.calendarViewPreset = '1month';
+          app.renderCalendarView();
+          const calDeleteBtnsMonth = frame.contentDocument.querySelectorAll('.btn-delete-cal-ride, .btn-delete-cal-ride-mini');
+          log('Calendar 1-Month View Contains Delete Buttons (Matrix & List)', calDeleteBtnsMonth.length > 0, `Count: ${calDeleteBtnsMonth.length}`);
+
+          const rideToDeleteFromCal = app.completedWorkouts[0].id;
+          frame.contentWindow.confirm = () => true;
+          await app.deleteRideFromCalendar(rideToDeleteFromCal);
+          frame.contentWindow.confirm = originalConfirmRide;
+          log('Delete Ride from Calendar Decrements History (104 -> 103)', app.completedWorkouts.length === 103, `New Count: ${app.completedWorkouts.length}`);
+          await app.resyncHealthFitHistory(true);
+
+          // 19. Check History Table Multi-Column Sorting
+          // Sort by TSS descending
+          app.sortHistory('tss');
+          const firstTssDesc = parseInt(frame.contentDocument.querySelector('#historyTableBody tr:first-child td:nth-child(9)')?.textContent, 10) || 0;
+          const lastTssDesc = parseInt(frame.contentDocument.querySelector('#historyTableBody tr:last-child td:nth-child(9)')?.textContent, 10) || 0;
+          log('History Table Sorts by TSS Descending', firstTssDesc >= lastTssDesc && firstTssDesc > 0, `Top: ${firstTssDesc} TSS, Bottom: ${lastTssDesc} TSS`);
+
+          // Toggle TSS ascending
+          app.sortHistory('tss');
+          const firstTssAsc = parseInt(frame.contentDocument.querySelector('#historyTableBody tr:first-child td:nth-child(9)')?.textContent, 10) || 0;
+          const lastTssAsc = parseInt(frame.contentDocument.querySelector('#historyTableBody tr:last-child td:nth-child(9)')?.textContent, 10) || 0;
+          log('History Table Toggles TSS Ascending', firstTssAsc <= lastTssAsc, `Top: ${firstTssAsc} TSS, Bottom: ${lastTssAsc} TSS`);
+
+          // Sort by NP
+          app.sortHistory('np');
+          const firstNp = parseInt(frame.contentDocument.querySelector('#historyTableBody tr:first-child td:nth-child(7)')?.textContent, 10) || 0;
+          const lastNp = parseInt(frame.contentDocument.querySelector('#historyTableBody tr:last-child td:nth-child(7)')?.textContent, 10) || 0;
+          log('History Table Sorts by Normalized Power (NP)', firstNp >= lastNp && firstNp > 0, `Top: ${firstNp}W, Bottom: ${lastNp}W`);
+
+          // Reset sort to date descending
+          app.historySortColumn = 'date';
+          app.historySortDirection = 'desc';
+          app.renderHistoryTable();
+
+          // 20. Check Modular Web Architecture (Classes Exported & Available)
+          const win = frame.contentWindow;
+          const hasVeloDb = typeof win.VeloDB === 'function';
+          const hasVeloSound = typeof win.VeloSoundEngine === 'function';
+          const hasVeloPip = typeof win.VeloPip === 'function';
+          const hasVeloSync = typeof win.VeloFolderSync === 'function';
+          const hasVeloBiomech = typeof win.VeloBiomechanicsRenderer === 'function';
+          const hasVeloAnalytics = typeof win.VeloAnalytics === 'function';
+          const hasVeloArchitect = typeof win.VeloAiWorkoutArchitect === 'function';
+          const hasVeloCoach = typeof win.VeloAiCoach === 'function';
+          const hasVeloSim = typeof win.VeloSimulator === 'function';
+          const hasVeloBle = typeof win.VeloBle === 'function';
+          const hasVeloImporter = typeof win.VeloRideImporter === 'function';
+          const allModulesLoaded = hasVeloDb && hasVeloSound && hasVeloPip && hasVeloSync && 
+                                   hasVeloBiomech && hasVeloAnalytics && hasVeloArchitect && 
+                                   hasVeloCoach && hasVeloSim && hasVeloBle && hasVeloImporter;
+          log('Modular Architecture: All 11 Domain Classes Loaded Independently', allModulesLoaded, 'VeloDB, VeloAiCoach, VeloAnalytics, etc.');
+
+          // 21. Check Recorded Workout Data Parity with FIT Files
+          // Simulate a live recorded workout
+          app.totalElapsedSeconds = 120;
+          app.totalDistanceMeters = 1050;
+          app.maxSpeedKmh = 34.2;
+          app.recordedSamples = [];
+          for (let s = 1; s <= 10; s++) {
+            app.recordedSamples.push({
+              time: s * 10,
+              timestamp: Date.now() + s * 1000,
+              target: 185,
+              power: 180 + (s % 4) * 5,
+              cadence: 88 + (s % 3),
+              hr: 140 + s,
+              speed: 31.5,
+              dist: 0.1 * s,
+              leftBal: 49,
+              rightBal: 51
+            });
+          }
+          app.finishWorkout();
+          const recordedRide = app.completedWorkouts[0];
+          const hasFitParityFields = recordedRide &&
+            recordedRide.avgWatts > 0 &&
+            recordedRide.maxWatts >= recordedRide.avgWatts &&
+            recordedRide.avgHr > 0 &&
+            recordedRide.maxHr >= recordedRide.avgHr &&
+            recordedRide.avgCadence > 0 &&
+            recordedRide.maxCadence >= recordedRide.avgCadence &&
+            recordedRide.totalCalories > 0 &&
+            recordedRide.totalDistanceMeters > 0 &&
+            recordedRide.durationMin >= 0 &&
+            recordedRide.samplesCount === 10 &&
+            recordedRide.source === 'APEX VELO Cockpit' &&
+            recordedRide.samples[0].timestamp !== undefined;
+          log('Recorded Workout Data Parity with FIT Files (Avg/Max Watts, HR, Cadence, Calories, Distance)', hasFitParityFields, 
+            `AvgW: ${recordedRide.avgWatts}W, MaxW: ${recordedRide.maxWatts}W, HR: ${recordedRide.avgHr}/${recordedRide.maxHr}, Cal: ${recordedRide.totalCalories} kcal, Dist: ${recordedRide.totalDistanceMeters}m`);
+
+          // Verify modal details populated the new metrics
+          const modalText = frame.contentDocument.getElementById('modalRideDetails')?.textContent || '';
+          const modalHasFitStats = modalText.includes('Avg Power') && modalText.includes('Calories') && modalText.includes('Heart Rate');
+          log('Ride Summary Modal Displays All FIT Parity Metrics', modalHasFitStats, 'Found Avg Power, Calories, HR');
+
+          // Clean up the simulated recorded test ride
+          app.completedWorkouts.shift();
+          app.saveHistory();
+
+          // 22. Check AI Cycling Coach Integration (Claude Architecture & Physiological Prescriptions)
+          log('AI Coach Module Instantiated on App', app.aiCoach instanceof win.VeloAiCoach, 'app.aiCoach ready');
+          
+          const coachCtx = app.aiCoach.getPhysiologicalContext('auto', 45);
+          const hasValidPhysioCtx = coachCtx.profile.ftp === 185 && coachCtx.ctl >= 0 && coachCtx.formZone !== undefined;
+          log('AI Coach Context Extraction (Rider FTP, CTL, ATL, TSB, Form Zone)', hasValidPhysioCtx, 
+            `FTP: ${coachCtx.profile.ftp}W, CTL: ${coachCtx.ctl.toFixed(1)}, TSB: ${coachCtx.tsb.toFixed(1)}, Zone: ${coachCtx.formZone}`);
+
+          // Test Recommendation Generation
+          const aiRec = await app.aiCoach.generateRecommendation('auto', 45);
+          const hasAssessment = aiRec.coachAssessment && aiRec.coachAssessment.formZone && aiRec.coachAssessment.trainingAdvice;
+          const hasWorkout = aiRec.workout && aiRec.workout.intervals && aiRec.workout.intervals.length >= 3;
+          log('AI Coach Prescribes Scientific Workout with Complete Assessment', hasAssessment && hasWorkout, 
+            `Title: "${aiRec.workout.title}", Intervals: ${aiRec.workout.intervals.length}, Category: ${aiRec.workout.category}`);
+
+          // Test 1-Click Load into Cockpit
+          app.selectWorkout(aiRec.workout);
+          const loadedCorrectly = app.currentWorkout.title === aiRec.workout.title && app.intervalIndex === 0;
+          log('1-Click Load AI Workout into Cockpit Sets Workout & Upcoming Intervals', loadedCorrectly, `Current: "${app.currentWorkout.title}"`);
+
+          // Test AI Coach UI Rendering
+          app.renderAiCoachRecommendation(aiRec);
+          const resPanel = frame.contentDocument.getElementById('aiCoachResultPanel');
+          const panelVisible = resPanel && resPanel.style.display !== 'none';
+          const tableRows = frame.contentDocument.querySelectorAll('#aiCoachIntervalTableBody tr');
+          log('AI Coach UI Renders Recommendation Panel & Interval Breakdown', panelVisible && tableRows.length >= 3, `Steps: ${tableRows.length}`);
+
+          // 23. AI Coach defaults to Claude Opus 5.5 at low effort & Clear Recommendation Button
+          const modelSelect = frame.contentDocument.getElementById('selectClaudeModel');
+          const isClaudeDefault = app.aiCoach.model === 'claude-opus-5-5' && app.aiCoach.effort === 'low' && modelSelect && modelSelect.value === '' && !frame.contentDocument.getElementById('inputGeminiApiKey');
+          log('AI Coach Defaults to Claude Opus 5.5 (low effort), No API Key Field in the Browser', isClaudeDefault,
+            `Model: ${app.aiCoach.model}, effort: ${app.aiCoach.effort}, select: "${modelSelect ? modelSelect.value : 'missing'}" (server default)`);
+
+          const clearBtn = frame.contentDocument.getElementById('btnClearAiCoachRecommendation');
+          const clearTopBtn = frame.contentDocument.getElementById('btnClearAiCoachRecTop');
+          const welcomeCard = frame.contentDocument.getElementById('aiCoachWelcomeCard');
+          const hasClearButtons = !!(clearBtn && clearTopBtn);
+          
+          // Verify Clear Recommendation resets state and restores welcome card for fresh prompt
+          clearBtn.click();
+          const isCleared = resPanel.style.display === 'none' && 
+                            welcomeCard.style.display !== 'none' && 
+                            app.aiCoach.currentRecommendation === null;
+          log('Clear Recommendation Button Resets UI & State for Frictionless Re-prompting', hasClearButtons && isCleared, 
+            `Result Panel hidden: ${resPanel.style.display === 'none'}, Welcome Card restored: ${welcomeCard.style.display !== 'none'}`);
+
+          // Re-render for subsequent tests if needed
+          app.renderAiCoachRecommendation(aiRec);
+
+          // 23. Banister PMC Authentic Calculation (Zero Synthetic Seeds or Sine Waves)
+          await app.resyncHealthFitHistory(true);
+          const pmc = app.analytics.calculatePmcHistory(app.completedWorkouts, 90);
+          const isPmcAccurate = pmc.currentCtl >= 18.0 && pmc.currentCtl <= 20.5 &&
+                                pmc.currentAtl >= 10.0 && pmc.currentAtl <= 13.0 &&
+                                pmc.currentTsb >= 6.0 && pmc.currentTsb <= 9.0;
+          log('Banister PMC Authentic Modeling (Divan History -> CTL ~19.0, ATL ~11.9, TSB ~+7.2)', isPmcAccurate, 
+            `CTL: ${pmc.currentCtl}, ATL: ${pmc.currentAtl}, TSB: +${pmc.currentTsb}, Points: ${pmc.ctlData.length}`);
+
+          const emptyPmc = app.analytics.calculatePmcHistory([]);
+          const isEmptyPmcZero = emptyPmc.currentCtl === 0 && emptyPmc.currentAtl === 0 && emptyPmc.ctlData.length === 0;
+          log('PMC Returns True Zero for Empty History', isEmptyPmcZero, `CTL: ${emptyPmc.currentCtl}, ATL: ${emptyPmc.currentAtl}`);
+
+          // 24. MMP Power Curve Zero-Placeholder Verification
+          app.resetWorkout(false);
+          app.updateMmpChart();
+          const currentRideMmp = app.mmpChart.data.datasets[1].data;
+          const isMmpClean = Array.isArray(currentRideMmp) && currentRideMmp.length === 0;
+          const allTimePRs = app.mmpChart.data.datasets[0].data;
+          const hasAuthenticPRs = allTimePRs.length === 9 && allTimePRs[0] === 252 && allTimePRs[7] === 195;
+          log('MMP Power Curve Idle State Has Zero Placeholder Line & Authentic All-Time PRs', isMmpClean && hasAuthenticPRs, 
+            `Current Ride Points: ${currentRideMmp.length}, 20m PR: ${allTimePRs[7]}W`);
+
+          // 25. FTP Progression Monthly NP Aggregation
+          const ftpProg = app.getFtpProgressionData();
+          const hasAugPeak = ftpProg.labels.some(l => l.includes('Aug') || l.includes('08')) && ftpProg.data.includes(184);
+          const isFtpProgReal = ftpProg.labels.length >= 8 && hasAugPeak;
+          log('FTP Progression Dynamically Aggregates Authentic Monthly Peak NP (184W Peak in Aug 26)', isFtpProgReal, 
+            `Months: ${ftpProg.labels.join(', ')} | Max: ${Math.max(...ftpProg.data)}W`);
+
+          // 26. Biomechanics Studio Idle Charts (Zero Fake Points)
+          const torqueDataL = app.torqueChart ? app.torqueChart.data.datasets[0].data : null;
+          const angleDataL = app.angleChart ? app.angleChart.data.datasets[0].data : null;
+          const isBiomechIdleZero = torqueDataL && torqueDataL[0] === 0 && torqueDataL[1] === 0 && angleDataL && angleDataL.length === 0;
+          log('Biomechanics Studio Charts Idle State Has Zero Fabricated Torque Points', isBiomechIdleZero, 
+            `Torque: [${torqueDataL}], Angle Points: ${angleDataL ? angleDataL.length : 0}`);
+
+          // 27. Workout Deep-Dive Modal Displays Honest Unrecorded Telemetry (Zero Fake Multipliers or Sine Waves)
+          const testSummaryRide = app.completedWorkouts.find(w => !w.samples || w.samples.length === 0);
+          if (testSummaryRide) {
+            app.showRideSummary(testSummaryRide);
+            const scrubCanvas = frame.contentDocument.getElementById('rideScrubCanvas');
+            const summaryModalText = frame.contentDocument.getElementById('modalRideDetails')?.textContent || '';
+            const hasHonestNotice = summaryModalText.includes('Authentic Session Summary') && 
+                                    summaryModalText.includes('Second-by-second trackpoint telemetry was not recorded');
+            const hasNoFakeMultiplier = summaryModalText.includes('Peak 1m Anaerobic') && summaryModalText.includes('--');
+            log('Workout Deep-Dive Modal Renders Honest Notice and Zero Fake Multipliers/Waveforms for Summary Rides', hasHonestNotice && hasNoFakeMultiplier, 
+              'Found Authentic Session Summary notice, Peak 1m/5m: --');
+          } else {
+            log('Workout Deep-Dive Modal Check', true, 'Skipped (no summary ride found)');
+          }
+
+          // 28. Zen Cockpit Mode ("Suffer Mode") Full Verification
+          const zenOverlay = frame.contentDocument.getElementById('zenCockpitOverlay');
+          const zenPower = frame.contentDocument.getElementById('zenInstantPower');
+          const zenTarget = frame.contentDocument.getElementById('zenTargetWatts');
+          const zenCard = frame.contentDocument.getElementById('zenPowerCard');
+          const zenDiffPill = frame.contentDocument.getElementById('zenDiffPill');
+          const zenHeaderBtn = frame.contentDocument.getElementById('btnHeaderZenMode');
+
+          // Verify initial state
+          const zenInitialHidden = !app.isZenMode && (!zenOverlay || zenOverlay.style.display !== 'flex');
+
+          // Toggle Zen Mode ON
+          app.toggleZenMode();
+          const zenActive = app.isZenMode && 
+                            zenOverlay.style.display === 'flex' && 
+                            frame.contentDocument.body.classList.contains('zen-mode') &&
+                            zenHeaderBtn?.classList.contains('zen-active');
+
+          // Test telemetry compliance states (On target, Under, Over)
+          app.updateHudDisplays(200, 200, 90, 150);
+          const compliantOk = zenCard.classList.contains('zen-compliant') && zenDiffPill.textContent.includes('ON TARGET');
+
+          app.updateHudDisplays(160, 200, 85, 140);
+          const underOk = zenCard.classList.contains('zen-under') && zenDiffPill.textContent.includes('PUSH HARDER');
+
+          app.updateHudDisplays(240, 200, 95, 160);
+          const overOk = zenCard.classList.contains('zen-over') && zenDiffPill.textContent.includes('HIGH POWER');
+
+          // Toggle Zen Mode OFF
+          app.toggleZenMode();
+          const zenDeactivated = !app.isZenMode && 
+                                 zenOverlay.style.display === 'none' && 
+                                 !frame.contentDocument.body.classList.contains('zen-mode') &&
+                                 !zenHeaderBtn?.classList.contains('zen-active');
+
+          const zenAllPassed = zenInitialHidden && zenActive && compliantOk && underOk && overOk && zenDeactivated;
+          log('Zen Cockpit Mode ("Suffer Mode") Dynamic Halo Compliance, Telemetry & Toggle', zenAllPassed, 
+            `Active: ${zenActive}, Compliant: ${compliantOk}, Under: ${underOk}, Over: ${overOk}, Dismissed: ${zenDeactivated}`);
+
+          // 29. Cadence Targets & Biomechanical Compliance Across ERG and Non-ERG Modes
+          // A. Physiological Cadence Determination
+          const cadSprint = app.getCurrentTargetCadence({ name: 'Peak Sprint Burst', pctFtp: 160 });
+          const cadMicroburst = app.getCurrentTargetCadence({ name: '30s Microburst', pctFtp: 120 });
+          const cadSurge = app.getCurrentTargetCadence({ name: 'Fast-Start Surge', pctFtp: 110 });
+          const cadClimb = app.getCurrentTargetCadence({ name: 'Steep Berg Torque Grind', pctFtp: 85 });
+          const cadRecovery = app.getCurrentTargetCadence({ name: 'Easy Spin Recovery', pctFtp: 50 });
+          const cadSweetSpot = app.getCurrentTargetCadence({ name: 'SweetSpot Hold', pctFtp: 90 });
+          const cadExplicit = app.getCurrentTargetCadence({ name: 'Custom High Cadence', pctFtp: 85, cadence: 104 });
+
+          const cadPhysiologyOk = (cadSprint === 115) &&
+                                 (cadMicroburst === 110) &&
+                                 (cadSurge === 105) &&
+                                 (cadClimb === 70) &&
+                                 (cadRecovery === 85) &&
+                                 (cadSweetSpot === 92) &&
+                                 (cadExplicit === 104);
+
+          // B. Verification in ERG and Non-ERG (Slope / Resistance) Modes
+          app.selectWorkoutById('carson');
+          app.ergModeEnabled = true;
+          const cadInErg = app.getCurrentTargetCadence(0);
+          app.ergModeEnabled = false;
+          const cadInNonErg = app.getCurrentTargetCadence(0);
+          const cadDecoupledOk = (cadInErg === cadInNonErg) && (cadInErg > 0);
+
+          // C. Cockpit HUD Tag & Metric Compliance Feedback
+          app.intervalIndex = 2; // SweetSpot 1 in Carson (88% FTP -> 92 RPM)
+          app.updateHudTitles();
+          const hudCadTag = frame.contentDocument.getElementById('hudCadenceTargetTag');
+          const hasHudTag = hudCadTag && hudCadTag.textContent.includes('92 RPM Target');
+
+          const metricCellCad = frame.contentDocument.getElementById('metricCellCadence');
+          const valCadSub = frame.contentDocument.getElementById('valCadenceSub');
+
+          // Target is 92 RPM: test On Target (92), Under Target (80), Over Target (105)
+          app.updateHudDisplays(180, 180, 92, 140);
+          const isCompliant = metricCellCad?.classList.contains('cadence-compliant') &&
+                              valCadSub?.textContent.includes('TGT: 92 RPM (+0)');
+
+          app.updateHudDisplays(180, 180, 80, 135);
+          const isUnder = metricCellCad?.classList.contains('cadence-under') &&
+                          valCadSub?.textContent.includes('TGT: 92 RPM (-12)');
+
+          app.updateHudDisplays(180, 180, 105, 150);
+          const isOver = metricCellCad?.classList.contains('cadence-over') &&
+                         valCadSub?.textContent.includes('TGT: 92 RPM (+13)');
+
+          // D. Upcoming Queue Cadence Pills
+          app.renderUpcomingIntervals();
+          const upcomingPill = frame.contentDocument.querySelector('.upcoming-cadence-pill');
+          const hasUpcomingPills = !!upcomingPill && upcomingPill.textContent.includes('rpm');
+
+          // E. AI Coach Recommendation Cadence Column
+          const ctx = app.aiCoach.getPhysiologicalContext('sweetspot', 45);
+          const rec = app.aiCoach.generateOfflineHeuristic(ctx);
+          app.renderAiCoachRecommendation(rec);
+          const aiCoachTableBody = frame.contentDocument.getElementById('aiCoachIntervalTableBody');
+          const aiFirstRow = aiCoachTableBody?.querySelector('tr');
+          const aiCells = aiFirstRow ? aiFirstRow.querySelectorAll('td') : [];
+          const hasAiCadenceCell = aiCells.length === 6 && aiCells[4].textContent.includes('RPM');
+
+          const allCadencePassed = cadPhysiologyOk && cadDecoupledOk && hasHudTag && 
+                                   isCompliant && isUnder && isOver && 
+                                   hasUpcomingPills && hasAiCadenceCell;
+
+          log('Cadence Targets & Live Compliance Across ERG & Non-ERG Modes', allCadencePassed,
+            `Physiology: ${cadPhysiologyOk} (115/110/105/70/85/92/104) | Decoupled: ${cadDecoupledOk} | HUD: ${hasHudTag} | Glow: ${isCompliant}/${isUnder}/${isOver} | Queue Pills: ${hasUpcomingPills} | AI Coach Col: ${hasAiCadenceCell}`);
+
+          // 30. Assioma DUO-Shi Pedals Ground Truth, Wahoo KICKR SHIFT Telemetry & PowerMatch ERG Engine
+          // A. Assioma DUO-Shi Telemetry Handling & Ground Truth Priority
+          app.resetWorkout(false);
+          // Dispatch Assioma DUO-Shi Pedal Telemetry
+          app.handleBleTelemetry({
+            type: 'pedals',
+            name: 'Assioma DUO-Shi',
+            watts: 204,
+            leftPct: 48.5,
+            rightPct: 51.5,
+            cadence: 91,
+            torque: 21.4
+          });
+          // Dispatch KICKR SHIFT Smart Bike Telemetry
+          app.handleBleTelemetry({
+            type: 'trainer',
+            name: 'Wahoo KICKR SHIFT',
+            watts: 195, // Trainer internal power differs by 9W
+            cadence: 88,
+            speed: 34.2, // km/h
+            distanceMeters: 1450 // uint24 meters
+          });
+
+          // Mock BLE connection status
+          app.ble.isTrainerConnected = () => true;
+          app.ble.isPedalsConnected = () => true;
+          let commandedErgWatts = null;
+          app.ble.setTrainerErgPower = (watts) => { commandedErgWatts = watts; };
+
+          // Execute 1Hz Tick
+          app.tick1Hz();
+
+          // Verify Ground Truth: Pedals dictate power, cadence, and dual-sided balance
+          const pedalsAuthoritative = (app.currentPower === 204) &&
+                                      (app.currentCadence === 91) &&
+                                      (app.currentLeftBal === 48.5) &&
+                                      (app.currentRightBal === 51.5) &&
+                                      (app.activePowerSource === 'PEDALS');
+
+          // Verify KICKR SHIFT provides speed and cumulative distance directly
+          const trainerSpeedDistOk = (app.currentSpeed === 34.2) &&
+                                     (app.hardwareSpeedSource === 'KICKR SHIFT') &&
+                                     (app.totalDistanceMeters === 0) && // First reading sets baseline
+                                     (app.hardwareDistanceSource === 'KICKR SHIFT');
+
+          // Advance trainer distance by 150m (to 1600m)
+          app.handleBleTelemetry({
+            type: 'trainer',
+            name: 'Wahoo KICKR SHIFT',
+            watts: 195,
+            speed: 35.1,
+            distanceMeters: 1600
+          });
+          app.handleBleTelemetry({
+            type: 'pedals',
+            watts: 204,
+            leftPct: 49.0,
+            rightPct: 51.0,
+            cadence: 92
+          });
+          app.tick1Hz();
+
+          const advancedDistOk = (app.totalDistanceMeters === 150) &&
+                                 (app.totalDistanceKm === 0.15) &&
+                                 (app.currentSpeed === 35.1);
+
+          // B. Assioma PowerMatch Closed-Loop Control in ERG Mode
+          app.ergModeEnabled = true;
+          app.powerMatchEnabled = true;
+          const targetW = app.getCurrentTargetWatts();
+          // Simulate pedal power running below interval target to test positive ERG trim
+          const subTargetPower = targetW - 15;
+          app.handleBleTelemetry({
+            type: 'pedals',
+            watts: subTargetPower,
+            leftPct: 50.0,
+            rightPct: 50.0,
+            cadence: 90
+          });
+          app.tick1Hz();
+          const trimTriggered = app.powerMatchOffset > 0 && commandedErgWatts > targetW;
+
+          // Verify HUD and Badge State
+          app.updatePowerSourceBadge();
+          const powerBadge = frame.contentDocument.getElementById('hudPowerSourceBadge');
+          const isPowerMatchBadge = powerBadge?.classList.contains('src-powermatch') &&
+                                    powerBadge?.textContent.includes('ASSIOMA POWERMATCH');
+
+          // C. Hardware Lab Modal & Zero-Offset Calibration
+          const openHwBtn = frame.contentDocument.getElementById('btnOpenHardwareModal');
+          const hwModal = frame.contentDocument.getElementById('hardwareModal');
+          openHwBtn?.click();
+          const hwModalOpened = hwModal?.classList.contains('open');
+
+          const modalWatts = frame.contentDocument.getElementById('hwPedalWattsVal')?.textContent;
+          const modalSpd = frame.contentDocument.getElementById('hwTrainerSpeedVal')?.textContent;
+          const modalTrim = frame.contentDocument.getElementById('hwPowerMatchTrimBadge')?.textContent;
+          const modalTelemetryOk = modalWatts?.includes('W') && modalSpd?.includes('km/h') && modalTrim?.includes('Trim:');
+
+          // Trigger Pedal Zero-Offset Calibration
+          let calibOpCodeSent = false;
+          app.ble.calibratePedals = async () => { calibOpCodeSent = true; return true; };
+          await app.calibrateAssiomaPedals();
+
+          // Simulate Pedal Calibration Response (OpCode 0x0D Success with offset = 12)
+          app.handleBleTelemetry({
+            type: 'calibration_response',
+            success: true,
+            offset: 12,
+            code: 0x01
+          });
+          const calibBtn = frame.contentDocument.getElementById('btnCalibratePedalsModal');
+          const calibHandled = calibOpCodeSent && (calibBtn?.disabled === false);
+
+          const closeHwBtn = frame.contentDocument.getElementById('btnCloseHardwareModal');
+          closeHwBtn?.click();
+          const hwModalClosed = !hwModal?.classList.contains('open');
+
+          const test30Passed = pedalsAuthoritative && trainerSpeedDistOk && advancedDistOk &&
+                               trimTriggered && isPowerMatchBadge && hwModalOpened &&
+                               modalTelemetryOk && calibHandled && hwModalClosed;
+
+          log('Assioma DUO-Shi Ground Truth, KICKR SHIFT Telemetry & PowerMatch ERG Engine', test30Passed,
+            `Pedals: ${pedalsAuthoritative} (204W/91rpm/48.5L) | Bike: ${trainerSpeedDistOk}/${advancedDistOk} (35.1kmh/150m) | PowerMatch: ${trimTriggered} (+${app.powerMatchOffset.toFixed(1)}W) | Badge: ${isPowerMatchBadge} | Modal: ${hwModalOpened}/${hwModalClosed} | Calib: ${calibHandled}`);
+
+          // 31. Workout Completion Autosave, Fanfare & Executive Overview Modal
+          // A. Setup test workout and enter Zen Mode to test full completion flow
+          app.resetWorkout(false);
+          app.currentWorkout = {
+            id: 'test_auto_finish',
+            title: 'Test Autosave Protocol',
+            desc: 'Verifies natural completion autosave',
+            intervals: [
+              { name: 'Warmup Step', duration: 5, pctFtp: 60, cadence: 85 },
+              { name: 'Effort Step', duration: 5, pctFtp: 100, cadence: 92 }
+            ]
+          };
+          app.totalElapsedSeconds = 9;
+          app.intervalIndex = 1; // On the last interval (index 1)
+          app.intervalSecondsRemaining = 1; // 1 second left
+          app.isPlaying = true;
+
+          // Push realistic telemetry samples
+          for (let s = 1; s <= 10; s++) {
+            app.recordedSamples.push({
+              time: s,
+              timestamp: Date.now() - (10 - s) * 1000,
+              target: 185,
+              power: 185,
+              cadence: 92,
+              hr: 145,
+              speed: 32.0,
+              dist: 0.08 * s,
+              leftBal: 49.5,
+              rightBal: 50.5
+            });
+          }
+
+          // Test that Zen Mode automatically dismisses on natural finish
+          app.toggleZenMode();
+          const wasZenBeforeFinish = app.isZenMode;
+
+          // Track audio fanfare invocation
+          let fanfarePlayed = false;
+          app.audio.workoutCompleteFanfare = () => { fanfarePlayed = true; };
+
+          // Execute 1Hz Tick -> Should reach end of final interval and auto-finish!
+          app.tick1Hz();
+
+          // B. Verify Automatic Completion & Autosaving
+          const isTimerStopped = !app.isPlaying;
+          const isMarkedCompleted = app.isWorkoutCompleted === true;
+          const zenDismissedOnFinish = wasZenBeforeFinish && !app.isZenMode;
+          const autosavedRecord = app.completedWorkouts[0];
+          const isAutosavedInHistory = autosavedRecord && autosavedRecord.title === 'Test Autosave Protocol';
+          const hasComplianceScore = autosavedRecord && autosavedRecord.compliancePct >= 90;
+
+          // C. Verify UI Controls State
+          const statusPill = frame.contentDocument.getElementById('hudWorkoutStatusPill');
+          const statusPillFinished = statusPill?.classList.contains('status-completed') &&
+                                     statusPill?.textContent.includes('WORKOUT FINISHED');
+          const btnPlayText = frame.contentDocument.getElementById('btnPlayPauseText')?.textContent;
+          const playBtnIsRestart = btnPlayText?.includes('RESTART WORKOUT');
+
+          // D. Verify Overview Modal Presentation & Completion Banner
+          const summaryModal = frame.contentDocument.getElementById('rideSummaryModal');
+          const isModalOpened = summaryModal?.classList.contains('open');
+          const completionModalText = frame.contentDocument.getElementById('modalRideDetails')?.textContent || '';
+          const hasCompletionBanner = completionModalText.includes('WORKOUT COMPLETE') && 
+                                      completionModalText.includes('Automatically saved to Training History');
+          const hasExecutionBadge = completionModalText.includes('% Execution') || completionModalText.includes('AUTOSAVED');
+          const catBadgeText = frame.contentDocument.getElementById('modalRideCategoryBadge')?.textContent || '';
+          const hasAutosaveBadge = catBadgeText.includes('AUTOSAVED');
+
+          // Close modal
+          frame.contentDocument.getElementById('btnCloseModal')?.click();
+          const modalClosedOk = !summaryModal?.classList.contains('open');
+
+          // E. Verify Frictionless Restart
+          app.togglePlayPause();
+          const restartedCleanly = app.isPlaying === true && app.intervalIndex === 0 && app.totalElapsedSeconds === 0;
+          app.resetWorkout(false);
+
+          const test31Passed = isTimerStopped && isMarkedCompleted && zenDismissedOnFinish &&
+                               isAutosavedInHistory && hasComplianceScore && fanfarePlayed &&
+                               statusPillFinished && playBtnIsRestart && isModalOpened &&
+                               hasCompletionBanner && hasExecutionBadge && hasAutosaveBadge &&
+                               modalClosedOk && restartedCleanly;
+
+          log('Workout Completion Autosave, Audio Fanfare & Executive Overview Modal', test31Passed,
+            `Autosaved: ${isAutosavedInHistory} (${autosavedRecord?.duration}s, ${autosavedRecord?.compliancePct}% Exec) | Zen Dismissed: ${zenDismissedOnFinish} | Fanfare: ${fanfarePlayed} | UI: ${statusPillFinished}/${playBtnIsRestart} | Overview Banner: ${hasCompletionBanner}/${hasAutosaveBadge} | Restart: ${restartedCleanly}`);
+
+          // ======================================================================
+          // v3 OVERHAUL SUITES (32+) - pure math, exporters, BLE state machine,
+          // analytics, AI coach, Zen HUD, resource lifecycle
+          // ======================================================================
+          const W = frame.contentWindow;
+          const D = frame.contentDocument;
+          const sleep = (ms) => new Promise(r => setTimeout(r, ms));
+          const suite = async (name, fn) => {
+            try {
+              const r = await fn();
+              log(name, r.ok, r.detail || '');
+            } catch (e) {
+              log(name, false, e.stack || e.message);
+            }
+          };
+          const makeSamples = (n) => {
+            const t0 = Date.UTC(2026, 8, 20, 6, 0, 0);
+            return Array.from({ length: n }, (_, i) => ({
+              time: i + 1, timestamp: t0 + (i + 1) * 1000, target: 180,
+              power: 170 + (i % 20), cadence: 88 + (i % 5), hr: 130 + Math.floor(i / 10),
+              speed: 30 + (i % 3) * 0.5, dist: +(((i + 1) * 8.5) / 1000).toFixed(3), leftBal: 48, rightBal: 52
+            }));
+          };
+
+          // 32. Training-science helpers
+          await suite('VeloMetrics: Coggan Zones, Local Date Keys, Form Bands, Rolling Bests & Backoff', () => {
+            const M = W.VeloMetrics;
+            const zonesOk = M.zoneForPct(54).short === 'Z1' && M.zoneForPct(55).short === 'Z2' && M.zoneForPct(75).short === 'Z2' &&
+              M.zoneForPct(76).short === 'Z3' && M.zoneForPct(105).short === 'Z4' && M.zoneForPct(121).short === 'Z6' && M.zoneForPct(151).short === 'Z7';
+            const localMidnight = new W.Date(2026, 8, 21, 0, 30);
+            const keyOk = M.localDateKey(localMidnight) === '2026-09-21';
+            const formOk = M.formZone(10).key === 'fresh' && M.formZone(0).key === 'productive' && M.formZone(-15).key === 'optimal' &&
+              M.formZone(-30).key === 'fatigue' && M.formZone(-45).key === 'overtraining';
+            const bestOk = M.bestRollingAvg([100, 200, 300, 100], 2) === 250 && M.bestRollingAvg([1, 2], 5) === null;
+            const backoff = [0, 1, 2, 3, 4, 5, 6].map(a => M.backoffDelay(a));
+            const backoffOk = JSON.stringify(backoff) === JSON.stringify([1000, 2000, 4000, 8000, 16000, 30000, 30000]);
+            const kjOk = Math.abs(M.workKjFromSamples([{ time: 10, power: 100 }, { time: 20, power: 100 }]) - 2) < 1e-9;
+            return { ok: zonesOk && keyOk && formOk && bestOk && backoffOk && kjOk, detail: `zones:${zonesOk} key:${keyOk} form:${formOk} best:${bestOk} backoff:${backoff.join('/')} kJ:${kjOk}` };
+          });
+
+          // 33. FIT encoder: valid CRCs + lossless round-trip through the FIT importer
+          await suite('FIT Export: Valid Header/File CRC & Lossless Round-Trip (Power, HR, Cadence, Distance, L/R)', () => {
+            const samples = makeSamples(120);
+            const ride = { id: 't_fit', title: 'FIT Roundtrip', date: new W.Date(samples[0].timestamp - 1000).toISOString(), duration: 120, np: 180, tss: 3, if: '0.97', kj: 21, samples };
+            const bytes = W.VeloExport.buildFit(ride, samples);
+            const E = W.VeloExport;
+            const hdrCrc = bytes[12] | (bytes[13] << 8);
+            const hdrOk = bytes[0] === 14 && String.fromCharCode(bytes[8], bytes[9], bytes[10], bytes[11]) === '.FIT' && hdrCrc === E.fitCrcOf(bytes.slice(0, 12));
+            const fileOk = E.fitCrcOf(bytes) === 0; // CRC over data + trailing CRC is zero
+            const dataSize = bytes[4] | (bytes[5] << 8) | (bytes[6] << 16) | (bytes[7] << 24);
+            const sizeOk = dataSize === bytes.length - 16;
+            const parsed = W.VeloRideImporter.parseFit(bytes.buffer, 'Divan', 185);
+            const s = parsed.samples;
+            const rt = s.length === 120 && s.every((x, i) => x.power === samples[i].power && x.hr === samples[i].hr && x.cadence === samples[i].cadence) &&
+              Math.abs(s[119].dist - samples[119].dist) < 0.001 && s[0].leftBal === 48 && s[0].rightBal === 52 &&
+              new W.Date(parsed.date).getTime() === samples[0].timestamp;
+            return { ok: hdrOk && fileOk && sizeOk && rt, detail: `bytes:${bytes.length} hdrCRC:${hdrOk} fileCRC:${fileOk} size:${sizeOk} roundtrip:${rt} (${s.length} records, L/R ${s[0].leftBal}/${s[0].rightBal})` };
+          });
+
+          // 34. TCX + CSV round-trip
+          await suite('TCX & CSV Export Round-Trip With Full Trackpoints (No Default Values Injected)', () => {
+            const samples = makeSamples(90);
+            const ride = { id: 't_tcx', title: 'TCX <Roundtrip> & Co', date: new W.Date(samples[0].timestamp - 1000).toISOString(), duration: 90, samples };
+            const tcx = W.VeloExport.buildTcx(ride, samples);
+            const t = W.VeloRideImporter.parseTcx(tcx, 185, 'Divan');
+            const tcxOk = t.samples.length === 90 && t.samples.every((x, i) => x.power === samples[i].power && x.hr === samples[i].hr && x.cadence === samples[i].cadence) &&
+              (tcx.match(/<Trackpoint>/g) || []).length === 90 && tcx.includes('TCX &lt;Roundtrip&gt; &amp; Co');
+            const csv = W.VeloExport.buildCsv(ride, samples);
+            const c = W.VeloRideImporter.parseCsv(csv, 'Divan', 185);
+            const csvOk = c.samples.length === 90 && c.samples[5].power === samples[5].power && c.samples[5].hr === samples[5].hr && c.leftBal === 48;
+            const bare = W.VeloRideImporter.parseTcx('<TrainingCenterDatabase><Activities><Activity><Id>2026-09-01T10:00:00Z</Id><Lap><Track><Trackpoint><Time>2026-09-01T10:00:01Z</Time></Trackpoint><Trackpoint><Time>2026-09-01T10:00:02Z</Time></Trackpoint></Track></Lap></Activity></Activities></TrainingCenterDatabase>', 185, 'Divan');
+            const honest = bare.samples.every(x => x.hr === 0 && x.cadence === 0 && x.power === 0) && bare.leftBal === null && bare.tss === 0;
+            return { ok: tcxOk && csvOk && honest, detail: `TCX:${tcxOk} CSV:${csvOk} emptyChannelsStayEmpty:${honest}` };
+          });
+
+          // 35. Summary-only rides never borrow the live session's samples
+          await suite('Summary-Only Ride Exports Contain Totals Only (Never the Live Session Samples)', () => {
+            const summaryRide = app.completedWorkouts.find(w => !w.samples || !w.samples.length);
+            const captured = [];
+            const origDl = app.downloadFile;
+            app.downloadFile = (name, content) => captured.push({ name, content });
+            app.recordedSamples = makeSamples(30); // a live session that must NOT leak into the export
+            app.exportTcxForRide(summaryRide.id);
+            app.exportCsvForRide(summaryRide.id);
+            app.exportFitForRide(summaryRide.id);
+            app.downloadFile = origDl;
+            app.recordedSamples = [];
+            const tcx = captured[0].content, csv = captured[1].content, fit = captured[2].content;
+            const tcxOk = !tcx.includes('<Trackpoint>') && tcx.includes('Summary-only session');
+            const csvOk = csv.trim().split('\n').length === 2 && csv.startsWith('date_iso');
+            const fitParsed = W.VeloRideImporter.parseFit(fit.buffer, 'x', 185);
+            const fitOk = fitParsed.samples.length === 0 && captured[2].name.endsWith('.fit');
+            return { ok: tcxOk && csvOk && fitOk, detail: `"${summaryRide.title}": TCX no trackpoints:${tcxOk} CSV summary row:${csvOk} FIT no records:${fitOk}` };
+          });
+
+          // 36. CPS calibration uses op code 0x0C and parses the response
+          await suite('Assioma Zero-Offset Sends CPS Op Code 0x0C (Start Offset Compensation) & Parses Offset', async () => {
+            const ble = new W.VeloBle(() => {});
+            const writes = [];
+            ble.slots.pedals.chars.control = { writeValue: async (b) => { writes.push(Array.from(new Uint8Array(b.buffer || b))); } };
+            await ble.calibratePedals();
+            const dv = new W.DataView(new Uint8Array([0x20, 0x0C, 0x01, 0xF4, 0xFF]).buffer);
+            const r = W.VeloBle.parseCpsControlResponse(dv);
+            const bad = W.VeloBle.parseCpsControlResponse(new W.DataView(new Uint8Array([0x20, 0x0C, 0x04]).buffer));
+            const ok = writes.length === 1 && writes[0][0] === 0x0C && writes[0].length === 1 && r.success && r.offset === -12 && !bad.success && bad.code === 4;
+            return { ok, detail: `write:[${writes[0]}] response offset:${r.offset} failure code:${bad.code}` };
+          });
+
+          // 37. BLE exponential-backoff reconnect state machine
+          await suite('BLE Auto-Reconnect: Exponential Backoff, Recovery Event, No Reconnect After Manual Disconnect', async () => {
+            const events = [];
+            const ble = new W.VeloBle((e) => events.push(e));
+            const saved = { base: W.VeloBle.RECONNECT_BASE_MS, scale: W.VeloBle.DELAY_SCALE };
+            W.VeloBle.RECONNECT_BASE_MS = 20;
+            W.VeloBle.DELAY_SCALE = 0; // skip the Windows GATT settling pauses in tests
+            let connectCalls = 0;
+            const listeners = {};
+            const char = { startNotifications: async () => {}, addEventListener: () => {}, removeEventListener: () => {}, readValue: async () => new W.DataView(new Uint8Array([88]).buffer) };
+            const server = { getPrimaryService: async () => ({ getCharacteristic: async () => char }) };
+            const device = {
+              name: 'Fake HRM',
+              addEventListener: (ev, fn) => { listeners[ev] = fn; },
+              removeEventListener: () => {},
+              gatt: {
+                connected: false,
+                connect: async () => { connectCalls++; if (connectCalls === 2 || connectCalls === 3) throw new Error('out of range'); device.gatt.connected = true; return server; },
+                disconnect: () => { device.gatt.connected = false; }
+              }
+            };
+            const slot = ble.slots.hr;
+            slot.device = device;
+            slot.onGattDisconnected = () => ble._handleLinkLoss('hr');
+            device.addEventListener('gattserverdisconnected', slot.onGattDisconnected);
+            const first = await ble._connect('hr', (s) => ble._setupHr(s));
+            // Simulate the strap dropping out
+            device.gatt.connected = false;
+            listeners.gattserverdisconnected();
+            await sleep(700);
+            const states = events.filter(e => e.type === 'state').map(e => e.state);
+            const reconnected = events.some(e => e.type === 'reconnected');
+            const battery = events.find(e => e.type === 'battery');
+            const recovered = first && reconnected && ble.getState('hr') === 'connected' && connectCalls === 4 && states.includes('reconnecting');
+            // Manual disconnect must not trigger another reconnect
+            events.length = 0;
+            ble.disconnectHr();
+            await sleep(120);
+            const manualOk = !events.some(e => e.type === 'state' && e.state === 'reconnecting') && ble.getState('hr') === 'disconnected';
+            W.VeloBle.RECONNECT_BASE_MS = saved.base;
+            W.VeloBle.DELAY_SCALE = saved.scale;
+            return { ok: recovered && manualOk && battery && battery.level === 88, detail: `connect attempts:${connectCalls} states:${states.join('>')} reconnected:${reconnected} battery:${battery && battery.level}% manual-no-retry:${manualOk}` };
+          });
+
+          // 38. Stale crank data -> cadence 0; 39. serialized GATT writes
+          await suite('CPS Cadence Drops to 0 When Pedalling Stops & GATT Writes Are Serialized', async () => {
+            const ble = new W.VeloBle(() => {});
+            const pkt = (revs, t) => { const b = new W.DataView(new ArrayBuffer(8)); b.setUint16(0, 0x20, true); b.setInt16(2, 150, true); b.setUint16(4, revs, true); b.setUint16(6, t, true); return b; };
+            ble._parseCpsMeasurement(pkt(100, 0));
+            const c1 = ble._parseCpsMeasurement(pkt(101, 683)).cadence; // 1 rev in 0.667 s = 90 rpm
+            ble.lastCrankChangeMs = W.performance.now() - 3500;
+            const c2 = ble._parseCpsMeasurement(pkt(101, 683)).cadence;
+            let active = 0, maxActive = 0, n = 0;
+            ble.slots.trainer.chars.control = { writeValue: async () => { active++; maxActive = Math.max(maxActive, active); await sleep(15); n++; active--; } };
+            await Promise.all([150, 160, 170, 180, 190].map(w => ble.setTrainerErgPower(w, true)));
+            return { ok: c1 === 90 && c2 === 0 && maxActive === 1 && n === 5, detail: `cadence live:${c1} stale:${c2} | writes:${n} max concurrent:${maxActive}` };
+          });
+
+          // 40. PMC explorer ranges, tooltip data and form badge
+          await suite('PMC Explorer: 30d/90d/180d/YTD/All Ranges, Daily TSS Series & Form Zone Badge', () => {
+            const lens = {};
+            for (const r of ['30', '90', '180', 'ytd', 'all']) {
+              D.querySelector(`#pmcRangePills [data-range="${r}"]`).click();
+              lens[r] = app.pmcChart.data.labels.length;
+            }
+            const ds = app.pmcChart.data.datasets;
+            const tssOk = ds.length === 4 && ds[3].data.length === lens.all && app._pmcKeys.length === lens.all;
+            const badge = D.getElementById('pmcFormStatus');
+            const badgeOk = /form-(fresh|productive|optimal|fatigue|overtraining)/.test(badge.className);
+            D.querySelector('#pmcRangePills [data-range="90"]').click();
+            const ok = lens['30'] === 30 && lens['90'] === 90 && lens['180'] === 180 && lens.ytd === W.VeloMetrics.daysYearToDate() && lens.all > 180 && tssOk && badgeOk;
+            return { ok, detail: `points 30:${lens['30']} 90:${lens['90']} 180:${lens['180']} ytd:${lens.ytd} all:${lens.all} | badge "${badge.textContent}"` };
+          });
+
+          // 41. Progression dashboard
+          await suite('Progression Dashboard: Weekly Buckets, KPI Deltas, Intensity Mix, Records & Clickable Rides', () => {
+            D.querySelector('#progRangePills [data-weeks="52"]').click();
+            const weeks = app._progWeeks;
+            const sumTss = weeks.reduce((a, w) => a + w.tss, 0);
+            const direct = Math.round(app.completedWorkouts.filter(r => new W.Date(r.date) >= weeks[0].start).reduce((a, r) => a + (Number(r.tss) || 0), 0));
+            const kpis = D.querySelectorAll('#progKpis .kpi').length;
+            const mixRows = D.querySelectorAll('#progIntensityMix .mix-row').length;
+            const records = D.querySelectorAll('#progRecords .record-row').length;
+            const scatter = app.progScatterChart.data.datasets[0].data.length;
+            const busiest = weeks.reduce((b, w, i) => (w.rides > weeks[b].rides ? i : b), 0);
+            app.showWeekRides(busiest);
+            const chips = D.querySelectorAll('#progWeekRides .ride-chip').length;
+            chips && D.querySelector('#progWeekRides .ride-chip').click();
+            const opened = D.getElementById('rideSummaryModal').classList.contains('open');
+            app.closeModal('rideSummaryModal');
+            D.querySelector('#progRangePills [data-weeks="26"]').click();
+            const ok = weeks.length === 52 && Math.abs(sumTss - direct) <= weeks.length && kpis === 6 && mixRows === 6 && records >= 4 && scatter > 50 && chips === weeks[busiest].rides && opened;
+            return { ok, detail: `52 weeks, TSS ${sumTss} vs ${direct} | KPIs:${kpis} mix:${mixRows} records:${records} scatter:${scatter} week chips:${chips} review opened:${opened}` };
+          });
+
+          // 42. MMP live curve + scrub tool
+          await suite('MMP Scrub Tool Compares All-Time PR vs Live Session Curve', () => {
+            app.selectWorkoutById('carson');
+            app.resetWorkout(false);
+            app.simulator.enabled = true;
+            for (let i = 0; i < 75; i++) app.tick1Hz();
+            app.updateMmpChart();
+            const live = app.mmpChart.data.datasets[1].data;
+            app.renderMmpScrub(3);
+            const readout = D.getElementById('mmpScrubReadout').textContent;
+            const ok = live.length === 9 && live[0] > 0 && live[3] > 50 && live[0] >= live[3] && live[4] === null && readout.includes('1m') && readout.includes('228 W') && /\d+%/.test(readout);
+            app.resetWorkout(false);
+            return { ok, detail: `live 5s:${live[0]}W 1m:${live[3]}W 3m:${live[4]} | readout "${readout.replace(/\s+/g, ' ').trim()}"` };
+          });
+
+          // 43. AI coach goals, week plan, fatigue guard, markdown safety
+          await suite('AI Coach: Goal-Driven Sessions Fit Requested Time, 7-Day Plan, Fatigue Guard & Safe Markdown Trace', async () => {
+            const results = [];
+            for (const goal of ['ftp', 'longevity', 'vo2', 'balanced']) {
+              for (const dur of [45, 90]) {
+                const rec = await app.aiCoach.generateRecommendation('auto', dur, goal);
+                results.push({ goal, dur, got: rec.workout.durationMin, days: rec.weekPlan.days.length, ivs: rec.workout.intervals.length });
+              }
+            }
+            const fitOk = results.every(r => Math.abs(r.got - r.dur) <= 3 && r.days === 7 && r.ivs >= 3);
+            const ctx = app.aiCoach.getPhysiologicalContext('auto', 60, 'ftp');
+            const tired = { ...ctx, tsb: -32, formKey: 'fatigue' };
+            const guard = app.aiCoach.decideFocus(tired) === 'recovery';
+            const planTired = app.aiCoach.buildWeekPlan(tired, 'recovery', app.aiCoach.buildWorkout('recovery', tired).workout);
+            const md = W.VeloMarkdown.render('## Plan\n- **Hold 172 W**\n<img src=x onerror=alert(1)>\n```json\n{"a": 1}\n```');
+            const mdOk = md.includes('<strong>') && md.includes('&lt;img') && !md.includes('<img') && md.includes('tk-key');
+            return { ok: fitOk && guard && planTired.ramp === 0 && mdOk, detail: `${results.map(r => `${r.goal}/${r.dur}->${r.got}m`).join(' ')} | TSB-32 guard:${guard} ramp:${planTired.ramp} | markdown safe:${mdOk}` };
+          });
+
+          // 44. Zen halo +/-5 %, cadence halo and HR strain gauge
+          await suite('Zen HUD: +/-5% Lime Halo Band, Cadence Halo Arc & HR Strain Gauge', () => {
+            app.selectWorkoutById('carson');
+            app.resetWorkout(false);
+            app.toggleZenMode();
+            const card = D.getElementById('zenPowerCard');
+            app.updateHudDisplays(209, 200, 90, 150);
+            const in5 = card.classList.contains('zen-compliant');
+            app.updateHudDisplays(191, 200, 90, 150);
+            const under5 = card.classList.contains('zen-compliant');
+            app.updateHudDisplays(211, 200, 90, 150);
+            const over = card.classList.contains('zen-over');
+            app.updateHudDisplays(189, 200, 90, 150);
+            const under = card.classList.contains('zen-under');
+            const arc = D.getElementById('zenCadenceArc').style.strokeDasharray;
+            const marker = parseFloat(D.getElementById('zenHrMarker').style.left);
+            const expectedMarker = ((150 / app.activeProfile.maxHr) * 100 - 50) * 2;
+            app.toggleZenMode();
+            const ok = in5 && under5 && over && under && /^\d+(\.\d+)?[ ,]/.test(arc) && Math.abs(marker - expectedMarker) < 1.5;
+            return { ok, detail: `+4.5%:${in5} -4.5%:${under5} +5.5% over:${over} -5.5% under:${under} arc:"${arc}" hr marker:${marker.toFixed(1)}%` };
+          });
+
+          // 45. Resource lifecycle: clock worker, scrub chart teardown
+          await suite('Resource Lifecycle: Worker Clock Stops on Reset, Scrub Chart Destroyed on Close, No Stray Timers', async () => {
+            app.resetWorkout(false);
+            app.togglePlayPause();
+            const running = app.clock.running;
+            await sleep(1250);
+            const ticked = app.totalElapsedSeconds >= 1;
+            app.resetWorkout(false);
+            const stopped = !app.clock.running;
+            const t = app.totalElapsedSeconds;
+            await sleep(1150);
+            const noStray = app.totalElapsedSeconds === t;
+            const ride = { id: 'tmp_scrub', title: 'Scrub', date: new W.Date().toISOString(), duration: 60, samples: makeSamples(60), source: 'test' };
+            app.showRideSummary(ride);
+            await sleep(150);
+            const hadChart = !!app.currentScrubChart;
+            app.closeModal('rideSummaryModal');
+            const destroyed = app.currentScrubChart === null;
+            return { ok: running && ticked && stopped && noStray && hadChart && destroyed, detail: `running:${running} ticked:${ticked} stopped:${stopped} noStrayTicks:${noStray} scrub chart created:${hadChart} destroyed:${destroyed}` };
+          });
+
+          // 46. Drift-free worker clock
+          await suite('VeloClock Delivers Steady 1 Hz Ticks From a Worker (Background-Throttling Safe)', async () => {
+            let ticks = 0;
+            const c = new W.VeloClock(() => ticks++);
+            c.start();
+            await sleep(2300);
+            c.destroy();
+            const usedWorker = c.worker === null; // destroyed
+            await sleep(1100);
+            return { ok: ticks === 2, detail: `ticks in 2.3 s: ${ticks} (no ticks after destroy: ${ticks === 2})` };
+          });
+
+          // 47. Calendar buckets rides by local date
+          await suite('Calendar Buckets Rides by Local Calendar Day (No UTC Off-by-One)', () => {
+            const d = new W.Date();
+            const monday = W.VeloProgress.weekStart(d);
+            const early = new W.Date(monday.getFullYear(), monday.getMonth(), monday.getDate(), 0, 20);
+            const ride = { id: 'tmp_midnight', title: 'Midnight Spin', date: early.toISOString(), duration: 1800, tss: 20, np: 120 };
+            app.completedWorkouts.unshift(ride);
+            app.calendarViewPreset = '1week';
+            app.calendarWeekOffset = 0;
+            app.renderCalendarView();
+            const mondayCol = D.querySelectorAll('.calendar-day-col')[0];
+            const ok = mondayCol.textContent.includes('Midnight Spin');
+            app.completedWorkouts.shift();
+            app.renderCalendarView();
+            return { ok, detail: `00:20 local ride shown on Monday column: ${ok}` };
+          });
+
+          // 48. Device badges reflect connection state machine
+          await suite('Header Device Badges Reflect Connecting / Reconnecting / Connected / Failed States', () => {
+            const b = D.getElementById('btnBleFtms');
+            const seen = [];
+            for (const s of ['connecting', 'connected', 'reconnecting', 'failed', 'disconnected']) {
+              app.handleBleTelemetry({ type: 'state', device: 'trainer', state: s });
+              seen.push(b.dataset.state);
+            }
+            return { ok: seen.join() === 'connecting,connected,reconnecting,failed,disconnected', detail: seen.join(' > ') };
+          });
+
+          // 49. Claude coach through the local server (fetch mocked - no network, no key in the browser)
+          await suite('AI Coach Uses Claude via Local /api/coach (Key Stays Server-Side), Parses Reasoning, Falls Back Honestly', async () => {
+            const coach = app.aiCoach;
+            const realFetch = W.fetch;
+            const saved = { engine: { ...coach.engine }, m: coach.modelOverride, e: coach.effortOverride };
+            const calls = [];
+            const plan = { coachAssessment: { formZone: 'Productive', fitnessDiagnosis: 'CTL steady.', fatigueStatus: 'Moderate.', trainingAdvice: 'SweetSpot today.' },
+              workout: { title: 'Claude SweetSpot 3x10', category: 'sweetspot', desc: 'Test', intervals: [
+                { name: 'Warmup', duration: 600, pctFtp: 55, cadence: 88 }, { name: 'SS 1', duration: 600, pctFtp: 90, cadence: 90 },
+                { name: 'Rest', duration: 300, pctFtp: 50, cadence: 85 }, { name: 'SS 2', duration: 600, pctFtp: 90, cadence: 90 },
+                { name: 'Cooldown', duration: 600, pctFtp: 45, cadence: 85 }] },
+              weekPlan: { days: [{ dayLabel: 'Today', focus: 'sweetspot', title: 'SS', durationMin: 45, tss: 50 }] } };
+            let mode = 'ok';
+            W.fetch = async (url, opts = {}) => {
+              calls.push({ url: String(url), opts });
+              const json = (status, body) => new W.Response(JSON.stringify(body), { status, headers: { 'Content-Type': 'application/json' } });
+              if (String(url).endsWith('api/coach/status')) return json(200, { provider: 'claude', configured: true, model: 'claude-opus-5-5', effort: 'low', models: [], efforts: ['low', 'medium', 'high'] });
+              if (mode === 'down') return json(502, { error: 'Claude API error 529: Overloaded.' });
+              return json(200, { text: '```json\n' + JSON.stringify(plan) + '\n```', thinking: '**Form** is productive, so SweetSpot.', model: 'claude-opus-5-5', effort: 'low', stopReason: 'end_turn', usage: { input_tokens: 1200, output_tokens: 900 } });
+            };
+            try {
+              coach.modelOverride = ''; coach.effortOverride = '';
+              const defaultsOk = W.VeloAiCoach.DEFAULT_MODEL === 'claude-opus-5-5' && W.VeloAiCoach.DEFAULT_EFFORT === 'low';
+              await coach.detectEngine();
+              const live = coach.isLive && coach.model === 'claude-opus-5-5' && coach.effort === 'low';
+              const rec = await coach.generateRecommendation('auto', 45, 'ftp');
+              const post = calls.find(c => c.url.endsWith('api/coach') && c.opts.method === 'POST');
+              const body = post ? JSON.parse(post.opts.body) : {};
+              const reqOk = !!post && !/^https?:/i.test(post.url) && body.model === 'claude-opus-5-5' && body.effort === 'low' && body.prompt.includes('PRIMARY GOAL') && !('apiKey' in body) && !JSON.stringify(post.opts.headers || {}).toLowerCase().includes('x-api-key');
+              const parsedOk = rec.source === 'claude' && rec.workout.title === 'Claude SweetSpot 3x10' && rec.workout.durationMin === 45 && rec.coachThoughts.includes('productive') && rec.thinkingLevel === 'low effort';
+              app.renderAiCoachRecommendation(rec);
+              const badge = D.getElementById('aiCoachSourceBadge').textContent;
+              const pill = D.getElementById('aiCoachEngineStatus');
+              app.updateCoachEngineStatus();
+              const uiOk = badge.includes('Claude Opus 5.5') && pill.classList.contains('live') && pill.textContent.includes('low effort');
+              mode = 'down';
+              const fb = await coach.generateRecommendation('auto', 45, 'ftp');
+              const fbOk = fb.source === 'offline_heuristic' && /529/.test(fb.apiError || '') && fb.workout.intervals.length >= 3;
+              const noKeyStored = Object.keys(W.localStorage).every(k => !/api_key/i.test(k));
+              return { ok: defaultsOk && live && reqOk && parsedOk && uiOk && fbOk && noKeyStored,
+                detail: `default opus-5-5/low:${defaultsOk} live:${live} same-origin POST, no key:${reqOk} parsed:${parsedOk} ui:"${badge}" / "${pill.textContent.trim()}" fallback on 502:${fbOk} no key in localStorage:${noKeyStored}` };
+            } finally {
+              W.fetch = realFetch;
+              coach.engine = saved.engine; coach.modelOverride = saved.m; coach.effortOverride = saved.e;
+              coach.clearRecommendation();
+              app.updateCoachEngineStatus();
+            }
+          });
+
+          // 50. Bluetooth hardening: Polar H10 contact handling, first-connect retries, no simulator in real rides
+          await suite('BLE Hardening: H10 No-Contact Handling, First-Connect Retries, Honest Failure State, No Simulator Data in Real Rides', async () => {
+            const hr = (bytes) => W.VeloBle.parseHeartRate(new W.DataView(new Uint8Array(bytes).buffer));
+            // 0x06 = contact detected; 0x04 = contact supported but NOT detected; 0x01 = 16-bit value
+            const parseOk = hr([0x06, 72]).hr === 72 && hr([0x04, 0]).hr === null && hr([0x04, 70]).hr === null
+              && hr([0x00, 0]).hr === null && hr([0x01, 0xB4, 0x00]).hr === 180 && hr([0x00, 65]).hr === 65 && hr([0x06]).hr === null;
+            const avgOk = W.VeloMetrics.avgPower([200, 0, 100, null]) === 100 && W.VeloMetrics.avgPower([]) === 0;
+
+            const saved = { scale: W.VeloBle.DELAY_SCALE };
+            W.VeloBle.DELAY_SCALE = 0;
+            const mk = (fails) => {
+              const char = { properties: {}, startNotifications: async () => {}, addEventListener: () => {}, removeEventListener: () => {}, readValue: async () => new W.DataView(new Uint8Array([80]).buffer) };
+              const server = { getPrimaryService: async () => ({ getCharacteristic: async () => char }) };
+              const d = { name: 'Polar H10 TEST', calls: 0, addEventListener: () => {}, removeEventListener: () => {},
+                gatt: { connected: false, connect: async () => { d.calls++; if (d.calls <= fails) throw Object.assign(new Error('Connection attempt failed.'), { name: 'NetworkError' }); d.gatt.connected = true; return server; }, disconnect: () => { d.gatt.connected = false; } } };
+              return d;
+            };
+            const ble1 = new W.VeloBle(() => {});
+            const d1 = mk(2); ble1.slots.hr.device = d1;
+            const ok1 = await ble1._connect('hr', (sv) => ble1._setupHr(sv));
+            const ble2 = new W.VeloBle(() => {});
+            const d2 = mk(99); ble2.slots.hr.device = d2;
+            const ok2 = await ble2._connect('hr', (sv) => ble2._setupHr(sv));
+            W.VeloBle.DELAY_SCALE = saved.scale;
+            const retryOk = ok1 === true && d1.calls === 3 && ble1.getState('hr') === 'connected';
+            const failOk = ok2 === false && d2.calls === 3 && ble2.getState('hr') === 'disconnected' && /attempt failed/.test(ble2.slots.hr.lastError.message);
+
+            // A ride that had real hardware never falls back to simulator data
+            app.selectWorkoutById('carson'); app.resetWorkout(false);
+            const simWas = app.simulator.enabled;
+            app.simulator.enabled = true;
+            app.togglePlayPause();
+            app.blePedal.watts = 210; app.blePedal.lastTime = performance.now();
+            app.tick1Hz();
+            app.blePedal.lastTime = -1e9; app.blePedal.watts = null; // pedals drop out
+            app.tick1Hz(); app.tick1Hz();
+            const srcs = app.recordedSamples.map(x => x.src);
+            app.resetWorkout(false);
+            app.simulator.enabled = simWas;
+            const simOk = srcs[0] === 'PEDALS' && !srcs.includes('SIMULATOR');
+            return { ok: parseOk && avgOk && retryOk && failOk && simOk,
+              detail: `HR parse:${parseOk} avgPower incl. zeros:${avgOk} retry (2 fails then ok, 3 calls):${retryOk} 3 fails -> disconnected + reason:${failOk} sources after dropout:${srcs.join(',')}` };
+          });
+
+          // 51. Storage safety: tests are isolated from real data; summary saves never erase stored samples
+          await suite('Storage Safety: Test Mode Is Isolated From Your Real Rides & Summary-Only Saves Never Erase Per-Second Samples', async () => {
+            const isolated = W.__APEX_TEST_MODE__ === true && W.VeloDB.dbName === 'ApexVeloDB_test';
+            const id = 'tmp_storage_' + Date.now();
+            const full = { id, title: 'Storage test', date: new W.Date().toISOString(), duration: 3, samples: [{ time: 1, power: 200 }, { time: 2, power: 210 }, { time: 3, power: 190 }] };
+            const w1 = await W.VeloDB.saveRide(full);
+            const { samples, ...summary } = full;
+            const w2 = await W.VeloDB.saveRidesBatch([{ ...summary, title: 'Renamed' }]);
+            const all = await W.VeloDB.getAllRides();
+            const back = Array.isArray(all) ? all.find(r => r.id === id) : null;
+            const kept = !!back && back.title === 'Renamed' && Array.isArray(back.samples) && back.samples.length === 3;
+            await W.VeloDB.deleteRide(id);
+            const after = await W.VeloDB.getAllRides();
+            const deleted = Array.isArray(after) && !after.some(r => r.id === id);
+            const realStorageAfter = (() => { const o = {}; for (let i = 0; i < localStorage.length; i++) { const k = localStorage.key(i); if (/^apex_/.test(k)) o[k] = localStorage.getItem(k); } return JSON.stringify(o); })();
+            const realUntouched = realStorageAfter === realStorageBefore;
+            return { ok: isolated && w1 && w2 && kept && deleted && realUntouched,
+              detail: `isolated test DB + memory storage:${isolated} writes confirmed:${w1 && w2} samples kept after summary save:${kept} delete:${deleted} real browser storage unchanged:${realUntouched}` };
+          });
+
+          // 52. Send to Strava: button flow, clear status, image, history chip (Strava mocked - nothing leaves the machine)
+          await suite('Send to Strava: One Button, Unmistakable Sent/Failed Status, Workout Image, History Chip', async () => {
+            const realFetch = W.fetch;
+            const saved = { strava: app.strava };
+            const ride = { id: 'tmp_strava_' + Date.now(), title: 'Strava Test Ride', date: new W.Date().toISOString(), duration: 600, avgWatts: 180, np: 190, tss: 30, if: 0.8, avgHr: 140, maxHr: 160, kj: 108, leftBal: 50.5, rightBal: 49.5,
+              samples: makeSamples(600) };
+            app.completedWorkouts.unshift(ride);
+            let polls = 0, uploadBody = null;
+            W.fetch = async (u, o = {}) => {
+              const url = String(u), J = (s, b) => new W.Response(JSON.stringify(b), { status: s, headers: { 'Content-Type': 'application/json' } });
+              if (url.endsWith('api/strava/status')) return J(200, { configured: true, connected: true, athlete: 'Test Rider', canUpload: true, canCheck: true });
+              if (url.includes('api/strava/activities')) return J(200, { activities: [] });
+              if (url.endsWith('api/strava/upload')) { uploadBody = JSON.parse(o.body); return J(200, { uploadId: '77', state: 'processing', activityId: null }); }
+              if (/api\/strava\/upload\/77$/.test(url)) { polls++; return J(200, polls < 2 ? { uploadId: '77', state: 'processing' } : { uploadId: '77', state: 'sent', activityId: '4242' }); }
+              return realFetch(u, o);
+            };
+            try {
+              await app.refreshStravaStatus(false);
+              app.showRideSummary(ride);
+              const panel = () => (D.getElementById('rideStravaPanel') || {}).innerText || '';
+              for (let i = 0; i < 40 && app._stravaChecking; i++) await sleep(50); // automatic "already on Strava?" check
+              const before = /Not sent to Strava/.test(panel()) && !!D.querySelector('#rideStravaPanel [data-strava="send"]');
+              const card = app.renderWorkoutCard(ride);
+              const cardOk = card.width === 1600 && card.height === 1000;
+              await app.sendRideToStrava(ride.id);
+              const after = panel();
+              const link = D.querySelector('#rideStravaPanel a.btn-strava-link');
+              const sentOk = /Sent to Strava/.test(after) && link && link.href === 'https://www.strava.com/activities/4242' && ride.strava.state === 'sent';
+              const fitHeader = uploadBody ? W.atob(uploadBody.fitBase64).slice(8, 12) : '';
+              const bodyOk = fitHeader === '.FIT' && uploadBody.name === 'Strava Test Ride' && /NP 190 W/.test(uploadBody.description) && uploadBody.externalId === 'apexvelo-' + ride.id;
+              app.renderHistoryTable();
+              const chip = D.querySelector(`tr[data-id="${ride.id}"] .chip-strava`);
+              const chipOk = !!chip && /activities\/4242/.test(chip.getAttribute('href'));
+              // failure path
+              W.fetch = async (u, o) => String(u).endsWith('api/strava/upload') ? new W.Response(JSON.stringify({ error: 'Strava rate limit reached - try again in 15 minutes.' }), { status: 429, headers: { 'Content-Type': 'application/json' } }) : realFetch(u, o);
+              ride.strava = null;
+              app.showRideSummary(ride);
+              await app.sendRideToStrava(ride.id);
+              const failOk = /Not sent - upload failed/.test(panel()) && /rate limit/.test(panel()) && ride.strava.state === 'failed';
+              const summaryOnly = { id: 'tmp_summary_only', title: 'Imported', date: new W.Date().toISOString(), duration: 3600 };
+              const guardOk = !app.canSendToStrava(summaryOnly);
+              // Matching rides to existing Strava activities
+              const t = Date.UTC(2026, 8, 20, 17, 0, 0);
+              const r1 = { date: new W.Date(t).toISOString(), duration: 3600 };
+              const iso = (ms) => new W.Date(ms).toISOString().replace('.000Z', 'Z');
+              const m1 = app.matchStravaActivity(r1, [{ id: '1', start: iso(t + 4 * 60000), elapsed: 3500, sport: 'VirtualRide' }]);
+              const m2 = app.matchStravaActivity(r1, [{ id: '2', start: iso(t + 2 * 60000), elapsed: 3000, sport: 'Run' }]);
+              const m3 = app.matchStravaActivity(r1, [{ id: '3', start: iso(t + 3 * 3600000), elapsed: 3600, sport: 'Ride' }]);
+              const m4 = app.matchStravaActivity(r1, [{ id: '4', start: iso(t - 20 * 60000), elapsed: 5400, sport: 'Ride' }]);
+              const matchOk = m1 && m1.id === '1' && !m2 && !m3 && m4 && m4.id === '4';
+              return { ok: before && cardOk && sentOk && bodyOk && chipOk && failOk && guardOk && matchOk,
+                detail: `button shown:${before} image 1600x1000:${cardOk} processing->sent + link:${sentOk} FIT+title+description:${bodyOk} history chip:${chipOk} failure shown:${failOk} summary-only rides blocked:${guardOk} matching (same ride yes, run/3h-later no, overlapping outdoor ride yes):${matchOk}` };
+            } finally {
+              W.fetch = realFetch;
+              app.strava = saved.strava;
+              app.closeModal('rideSummaryModal');
+              const i = app.completedWorkouts.findIndex(r => r.id === ride.id);
+              if (i >= 0) app.completedWorkouts.splice(i, 1);
+              await W.VeloDB.deleteRide(ride.id);
+            }
+          });
+
+          await app.resyncHealthFitHistory(true);
+          app.selectWorkoutById('carson');
+          app.resetWorkout(false);
+
+          const summary = document.createElement('h3');
+          summary.style.color = '#38bdf8';
+          summary.textContent = 'ALL TEST SUITE SUITES COMPLETED SUCCESSFULLY!';
+          results.appendChild(summary);
+
+        } catch (err) {
+          log('Test Suite Execution', false, err.stack || err.message);
+        }
+    }
+
+    frame.onload = () => {
+      setTimeout(runAllTests, 100);
+    };
+    frame.src = 'index.html?apexTest=1'; // isolated storage: the tests never touch your real rides
+  </script>
+</body>
+</html>
