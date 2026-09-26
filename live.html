@@ -18,7 +18,7 @@
   html, body { margin: 0; height: 100%; background: var(--bg); color: var(--text);
     font-family: -apple-system, BlinkMacSystemFont, "SF Pro Display", "Segoe UI", Roboto, sans-serif; }
   body { padding: max(12px, env(safe-area-inset-top)) max(12px, env(safe-area-inset-right)) max(12px, env(safe-area-inset-bottom)) max(12px, env(safe-area-inset-left));
-    display: flex; flex-direction: column; gap: 8px; min-height: 100dvh; overscroll-behavior: none; user-select: none; -webkit-user-select: none; }
+    display: flex; flex-direction: column; gap: 8px; height: 100dvh; overflow: hidden; overscroll-behavior: none; user-select: none; -webkit-user-select: none; }
   .num { font-variant-numeric: tabular-nums; }
   header { display: flex; align-items: center; gap: 8px; }
   header .title { flex: 1; min-width: 0; font-weight: 650; font-size: 15px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
@@ -30,36 +30,65 @@
   .dev { width: 8px; height: 8px; border-radius: 50%; background: var(--dim); }
   .dev.on { background: var(--lime); }
 
+  /* Swipeable screens: Focus / Session / Balance. The controls below stay put on every screen. */
+  .tabs { display: grid; grid-template-columns: repeat(3, 1fr); gap: 4px; background: var(--panel); border: 1px solid var(--line); border-radius: 12px; padding: 3px; }
+  .tabs button { padding: 7px 4px; font-size: 13px; font-weight: 650; border: 0; border-radius: 9px; background: transparent; color: var(--muted); }
+  .tabs button[aria-selected="true"] { background: var(--line); color: var(--text); }
+  .pages { flex: 1; min-height: 0; display: flex; overflow-x: auto; overflow-y: hidden; scroll-snap-type: x mandatory;
+    scrollbar-width: none; -webkit-overflow-scrolling: touch; overscroll-behavior-x: contain; }
+  .pages::-webkit-scrollbar { display: none; }
+  .page { flex: 0 0 100%; min-width: 0; scroll-snap-align: start; scroll-snap-stop: always; overflow-y: auto;
+    display: flex; flex-direction: column; gap: 8px; padding: 0 1px; }
+
   .card { background: var(--panel); border: 1px solid var(--line); border-radius: 16px; padding: 10px 14px; }
-  @media (max-height: 700px) { .countdown { font-size: 40px; } .power .big { font-size: 68px; } canvas { display: none; } .m .s { display: none; } }
   .step { display: flex; align-items: center; gap: 10px; }
-  .step .zb { font-size: 11px; font-weight: 800; padding: 3px 7px; border-radius: 6px; color: #07090d; background: var(--zc, var(--dim)); }
+  .zb { font-size: 11px; font-weight: 800; padding: 3px 7px; border-radius: 6px; color: #07090d; background: var(--zc, var(--dim)); }
   .step .name { flex: 1; min-width: 0; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   .step .idx { color: var(--muted); font-size: 13px; }
   .countdown { font-size: 52px; font-weight: 750; line-height: 1; letter-spacing: -.02em; text-align: center; margin-top: 6px; }
   .bar { height: 6px; border-radius: 3px; background: var(--line); overflow: hidden; margin-top: 10px; }
   .bar > i { display: block; height: 100%; width: 0; background: linear-gradient(90deg, var(--cyan), var(--lime)); transition: width .8s linear; }
   .sub { display: flex; justify-content: space-between; color: var(--muted); font-size: 12px; margin-top: 6px; }
+  .lbl { color: var(--muted); font-size: 12px; font-weight: 600; letter-spacing: .08em; }
 
   .power { text-align: center; padding: 10px 10px 8px; }
-  .power .lbl { color: var(--muted); font-size: 12px; font-weight: 600; letter-spacing: .08em; }
   .power .big { font-size: 88px; font-weight: 800; line-height: .95; letter-spacing: -.04em; }
-  .power .big small { font-size: 28px; font-weight: 600; color: var(--muted); margin-left: 2px; }
+  .big small { font-size: 28px; font-weight: 600; color: var(--muted); margin-left: 2px; }
   .power .tgt { font-size: 18px; font-weight: 650; margin-top: 4px; }
   .power .tgt.on { color: var(--lime); } .power .tgt.close { color: var(--amber); } .power .tgt.off { color: var(--red); }
   canvas { width: 100%; height: 44px; display: block; margin-top: 8px; }
 
-  .grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; }
-  .m { background: var(--panel); border: 1px solid var(--line); border-radius: 14px; padding: 7px 6px; text-align: center; }
-  .m .v { font-size: 26px; font-weight: 750; line-height: 1.05; }
+  .grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 8px; }
+  .m { background: var(--panel); border: 1px solid var(--line); border-radius: 14px; padding: 9px 6px; text-align: center; }
+  .m .v { font-size: 30px; font-weight: 750; line-height: 1.05; }
   .m .l { color: var(--muted); font-size: 11px; font-weight: 600; letter-spacing: .06em; margin-top: 3px; }
   .m .s { color: var(--dim); font-size: 11px; margin-top: 2px; }
-  .m.good .v { color: var(--lime); } .m.warn .v { color: var(--amber); }
+  .m.good .v { color: var(--lime); } .m.warn .v { color: var(--amber); } .m.bad .v { color: var(--red); }
 
   .next { color: var(--muted); font-size: 13px; }
   .next b { color: var(--text); font-weight: 600; }
 
-  .controls { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 8px; margin-top: auto; }
+  /* Session screen */
+  .hero { text-align: center; }
+  .hero .big { font-size: 76px; font-weight: 800; line-height: 1; letter-spacing: -.04em; margin-top: 4px; }
+  .hero .left { font-size: 20px; font-weight: 650; margin-top: 2px; }
+  #ribbon { height: 72px; margin-top: 12px; }
+
+  /* Balance screen */
+  .split { display: flex; justify-content: space-between; align-items: baseline; margin-top: 6px; }
+  .split .side { text-align: center; flex: 1; }
+  .split .side .big { font-size: 64px; font-weight: 800; line-height: 1; letter-spacing: -.03em; }
+  .split .side .l { color: var(--muted); font-size: 12px; font-weight: 700; letter-spacing: .1em; margin-top: 2px; }
+  .split .div { width: 1px; align-self: stretch; background: var(--line); }
+  .balbar { position: relative; height: 14px; border-radius: 7px; background: rgba(163,230,53,.55); overflow: hidden; margin-top: 12px; }
+  .balbar > i { position: absolute; left: 0; top: 0; bottom: 0; width: 50%; background: var(--cyan); transition: width .6s ease; }
+  .balbar::after { content: ""; position: absolute; left: 50%; top: 0; bottom: 0; width: 2px; margin-left: -1px; background: var(--bg); }
+  .verdict { text-align: center; font-size: 17px; font-weight: 650; margin-top: 10px; color: var(--muted); }
+  .verdict.good { color: var(--lime); } .verdict.warn { color: var(--amber); } .verdict.bad { color: var(--red); }
+  #balTrace { height: 64px; }
+  .note { color: var(--dim); font-size: 12px; line-height: 1.45; }
+
+  .controls { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 8px; }
   button { font: inherit; color: var(--text); background: var(--panel); border: 1px solid var(--line); border-radius: 14px;
     padding: 13px 6px; font-size: 16px; font-weight: 700; touch-action: manipulation; }
   button:active { transform: scale(.97); }
@@ -69,6 +98,16 @@
   button.armed { background: var(--red); color: #07090d; border-color: var(--red); }
   .biasv { display: flex; align-items: center; justify-content: center; font-weight: 750; font-size: 18px; flex-direction: column; }
   .biasv span { color: var(--muted); font-size: 10px; letter-spacing: .08em; font-weight: 700; }
+
+  @media (max-height: 700px) {
+    .countdown { font-size: 40px; } .power .big { font-size: 68px; } .hero .big { font-size: 60px; } .split .side .big { font-size: 52px; }
+    .m .v { font-size: 26px; } .m .s { display: none; }
+    button { padding: 11px 6px; } button.primary { padding: 12px; }
+  }
+  @media (max-height: 600px) {
+    #trace { display: none; } .countdown { font-size: 34px; margin-top: 2px; } .power .big { font-size: 58px; }
+    .card { padding: 8px 12px; } .m { padding: 6px; }
+  }
 
   .overlay { position: fixed; inset: 0; background: rgba(7,9,13,.92); display: none; align-items: center; justify-content: center;
     text-align: center; padding: 30px; flex-direction: column; gap: 10px; z-index: 5; }
@@ -89,34 +128,86 @@
     <div class="pill" id="state">CONNECTING</div>
   </header>
 
-  <section class="card">
-    <div class="step">
-      <span class="zb" id="zoneBadge">--</span>
-      <span class="name" id="stepName">Waiting for the PC...</span>
-      <span class="idx num" id="stepIdx"></span>
-    </div>
-    <div class="countdown num" id="countdown">--:--</div>
-    <div class="bar"><i id="progress"></i></div>
-    <div class="sub num"><span id="elapsed">0:00</span><span id="remainingTotal"></span></div>
-  </section>
+  <nav class="tabs" role="tablist" id="tabs">
+    <button role="tab" aria-selected="true" data-page="0">Focus</button>
+    <button role="tab" aria-selected="false" data-page="1">Session</button>
+    <button role="tab" aria-selected="false" data-page="2">Balance</button>
+  </nav>
 
-  <section class="card power">
-    <div class="lbl">POWER (3s)</div>
-    <div class="big num" id="power">--<small>W</small></div>
-    <div class="tgt num" id="target">Target --</div>
-    <canvas id="trace"></canvas>
-  </section>
+  <main class="pages" id="pages">
+    <!-- 1. Focus: the current step and target power -->
+    <section class="page" id="pageFocus" aria-label="Focus">
+      <div class="card">
+        <div class="step">
+          <span class="zb" id="zoneBadge">--</span>
+          <span class="name" id="stepName">Waiting for the PC...</span>
+          <span class="idx num" id="stepIdx"></span>
+        </div>
+        <div class="countdown num" id="countdown">--:--</div>
+        <div class="bar"><i id="stepProgress"></i></div>
+      </div>
 
-  <section class="grid">
-    <div class="m" id="mHr"><div class="v num" id="hr">--</div><div class="l">HEART RATE</div><div class="s" id="hrZone">&nbsp;</div></div>
-    <div class="m" id="mCad"><div class="v num" id="cad">--</div><div class="l">CADENCE</div><div class="s num" id="cadTgt">&nbsp;</div></div>
-    <div class="m"><div class="v num" id="bal">--</div><div class="l">L / R</div><div class="s" id="src">&nbsp;</div></div>
-    <div class="m"><div class="v num" id="avg">--</div><div class="l">AVG W</div></div>
-    <div class="m"><div class="v num" id="np">--</div><div class="l">NP</div></div>
-    <div class="m"><div class="v num" id="tss">--</div><div class="l">TSS</div><div class="s num" id="kj">&nbsp;</div></div>
-  </section>
+      <div class="card power">
+        <div class="lbl">POWER (3s)</div>
+        <div class="big num" id="power">--<small>W</small></div>
+        <div class="tgt num" id="target">Target --</div>
+        <canvas id="trace"></canvas>
+      </div>
 
-  <div class="next" id="next">&nbsp;</div>
+      <div class="grid">
+        <div class="m" id="mHr"><div class="v num" id="hr">--</div><div class="l">HEART RATE</div><div class="s" id="hrZone">&nbsp;</div></div>
+        <div class="m" id="mCad"><div class="v num" id="cad">--</div><div class="l">CADENCE</div><div class="s num" id="cadTgt">&nbsp;</div></div>
+      </div>
+
+      <div class="next" id="next">&nbsp;</div>
+    </section>
+
+    <!-- 2. Session: the whole workout and % remaining -->
+    <section class="page" id="pageSession" aria-label="Session">
+      <div class="card hero">
+        <div class="lbl">SESSION COMPLETE</div>
+        <div class="big num" id="pctDone">--<small>%</small></div>
+        <div class="left num" id="remainingTotal">&nbsp;</div>
+        <canvas id="ribbon"></canvas>
+        <div class="sub num"><span id="elapsed">0:00</span><span id="sessionStep"></span><span id="totalDur"></span></div>
+      </div>
+
+      <div class="grid">
+        <div class="m"><div class="v num" id="avg">--</div><div class="l">AVG W</div></div>
+        <div class="m"><div class="v num" id="np">--</div><div class="l">NP</div></div>
+        <div class="m"><div class="v num" id="tss">--</div><div class="l">TSS</div></div>
+        <div class="m"><div class="v num" id="kj">--</div><div class="l">KJ</div></div>
+      </div>
+
+      <div class="next" id="nextSession">&nbsp;</div>
+    </section>
+
+    <!-- 3. Balance: measured L/R split from the pedals -->
+    <section class="page" id="pageBalance" aria-label="Balance">
+      <div class="card">
+        <div class="lbl">PEDAL BALANCE</div>
+        <div class="split">
+          <div class="side"><div class="big num" id="balL">--</div><div class="l">LEFT</div></div>
+          <div class="div"></div>
+          <div class="side"><div class="big num" id="balR">--</div><div class="l">RIGHT</div></div>
+        </div>
+        <div class="balbar"><i id="balFill"></i></div>
+        <div class="verdict" id="balVerdict">&nbsp;</div>
+      </div>
+
+      <div class="card">
+        <div class="sub" style="margin-top:0"><span class="lbl">LAST 2 MIN</span><span class="num" id="balAvg">avg --</span></div>
+        <canvas id="balTrace"></canvas>
+      </div>
+
+      <div class="grid">
+        <div class="m"><div class="v num" id="balCad">--</div><div class="l">CADENCE</div></div>
+        <div class="m"><div class="v num" id="src" style="font-size:18px;line-height:34px">--</div><div class="l">POWER SOURCE</div></div>
+      </div>
+
+      <div class="note" id="balNote">Balance comes from the Assioma pedals. They don't report torque effectiveness or pedal smoothness, so those aren't shown.</div>
+    </section>
+  </main>
 
   <section class="controls">
     <button class="primary" id="btnToggle" disabled>START</button>
@@ -133,6 +224,7 @@
   </div>
   <div class="toast" id="toast"></div>
 
+<script src="js/velo-metrics.js"></script>
 <script>
 (function () {
   'use strict';
@@ -142,7 +234,11 @@
     const h = Math.floor(s / 3600), m = Math.floor((s % 3600) / 60), x = s % 60;
     return (h ? h + ':' + String(m).padStart(2, '0') : m) + ':' + String(x).padStart(2, '0');
   };
-  let snap = null, lastOkAt = 0, failures = 0, sending = false, skipArmedUntil = 0;
+  // Zone colours come from the app's shared Coggan table; a neutral grey if the script failed to load.
+  const zoneColor = (pct) => (window.VeloMetrics ? VeloMetrics.zoneForPct(pct).color : '#566174');
+  const BAL_LEN = 120; // seconds of L/R balance kept for the Balance screen
+  let snap = null, snapAt = 0, lastOkAt = 0, failures = 0, sending = false, skipArmedUntil = 0;
+  let balHistory = [], balLastSecond = -1;
 
   function toast(msg) {
     const t = $('toast'); t.textContent = msg; t.classList.add('show');
@@ -154,6 +250,34 @@
     if (text) $('ovText').textContent = text;
   }
 
+  // ---- Screens ---------------------------------------------------------------------------
+  const pages = $('pages');
+  const tabs = Array.from(document.querySelectorAll('#tabs button'));
+  let page = 0;
+  try { page = Math.min(2, Math.max(0, parseInt(localStorage.getItem('apexLivePage'), 10) || 0)); } catch (e) { /* storage blocked */ }
+
+  function setPage(i, smooth) {
+    page = Math.min(tabs.length - 1, Math.max(0, i));
+    pages.scrollTo({ left: page * pages.clientWidth, behavior: smooth ? 'smooth' : 'auto' });
+    markTab();
+  }
+  function markTab() {
+    tabs.forEach((b, i) => b.setAttribute('aria-selected', String(i === page)));
+    try { localStorage.setItem('apexLivePage', String(page)); } catch (e) { /* storage blocked */ }
+    if (snap) drawAll(snap);
+  }
+  tabs.forEach((b) => b.addEventListener('click', () => setPage(Number(b.dataset.page), true)));
+  pages.addEventListener('scroll', () => {
+    const i = Math.round(pages.scrollLeft / Math.max(1, pages.clientWidth));
+    if (i !== page) { page = i; markTab(); }
+  }, { passive: true });
+  document.addEventListener('keydown', (e) => {
+    if (e.key === 'ArrowRight') setPage(page + 1, true);
+    if (e.key === 'ArrowLeft') setPage(page - 1, true);
+  });
+  window.addEventListener('resize', () => { setPage(page, false); if (snap) drawAll(snap); });
+
+  // ---- Data ------------------------------------------------------------------------------
   async function poll() {
     try {
       const r = await fetch('api/live', { cache: 'no-store' });
@@ -176,8 +300,17 @@
     }
   }
 
+  /** One balance point per ride second while riding; a second without a reading is a gap, never a filled value. */
+  function recordBalance(s) {
+    if (s.state === 'ready') { balHistory = []; balLastSecond = -1; return; }
+    if (s.state !== 'running' || s.elapsed === balLastSecond) return;
+    balLastSecond = s.elapsed;
+    balHistory.push(s.balanceLeft != null ? s.balanceLeft : null);
+    if (balHistory.length > BAL_LEN) balHistory.shift();
+  }
+
   function render(s) {
-    snap = s;
+    snap = s; snapAt = Date.now();
     const st = $('state');
     const state = s ? s.state : (Date.now() - lastOkAt < 5000 ? 'ready' : 'offline');
     st.textContent = { running: 'RIDING', paused: 'PAUSED', finished: 'FINISHED', ready: 'READY', offline: 'OFFLINE' }[state] || state.toUpperCase();
@@ -196,8 +329,17 @@
     if (Date.now() > skipArmedUntil) { $('btnSkip').classList.remove('armed'); $('btnSkip').textContent = 'Skip step'; }
     if (!s) return;
 
+    recordBalance(s);
     document.title = s.state === 'running' ? `${s.power}W - Apex Live` : 'Apex Live';
     $('title').textContent = s.title || 'Workout';
+    $('bias').textContent = (s.bias || 100) + '%';
+    renderFocus(s, riding, finished);
+    renderSession(s);
+    renderBalance(s);
+    drawAll(s);
+  }
+
+  function renderFocus(s, riding, finished) {
     const step = s.step;
     $('stepName').textContent = step ? step.name : (finished ? 'Workout complete' : 'No workout loaded');
     $('stepIdx').textContent = step ? `${step.index}/${step.count}` : '';
@@ -205,9 +347,8 @@
     const zb = $('zoneBadge');
     zb.textContent = s.targetZone ? s.targetZone.short : '--';
     zb.style.setProperty('--zc', s.targetZone ? s.targetZone.color : '');
-    $('progress').style.width = Math.round((s.progress || 0) * 1000) / 10 + '%';
-    $('elapsed').textContent = fmt(s.elapsed);
-    $('remainingTotal').textContent = s.totalDuration ? '-' + fmt(Math.max(0, s.totalDuration * (1 - (s.progress || 0)))) + ' left' : '';
+    const stepDone = step && step.duration ? 1 - (step.remaining || 0) / step.duration : (finished ? 1 : 0);
+    $('stepProgress').style.width = Math.round(Math.min(1, Math.max(0, stepDone)) * 1000) / 10 + '%';
 
     $('power').innerHTML = `${s.power}<small>W</small>`;
     $('power').style.color = s.power > 0 && s.zone ? s.zone.color : '';
@@ -219,33 +360,79 @@
     } else { t.textContent = 'Target --'; t.className = 'tgt num'; }
 
     $('hr').textContent = s.hr || '--';
-    $('hrZone').textContent = s.hrZone || ' ';
+    $('hrZone').textContent = s.hrZone || ' ';
     $('cad').textContent = s.cadence || '--';
-    $('cadTgt').textContent = s.targetCadence ? `target ${s.targetCadence}` : ' ';
+    $('cadTgt').textContent = s.targetCadence ? `target ${s.targetCadence}` : ' ';
     const cd = s.cadence && s.targetCadence ? Math.abs(s.cadence - s.targetCadence) : null;
     $('mCad').className = 'm' + (cd == null ? '' : cd <= 4 ? ' good' : ' warn');
-    $('bal').textContent = s.balanceLeft != null ? `${Math.round(s.balanceLeft)}/${Math.round(100 - s.balanceLeft)}` : '--';
-    $('src').textContent = s.source ? String(s.source).replace('SIMULATOR', 'SIM') : ' ';
+    $('next').innerHTML = nextLine(s);
+  }
+
+  function renderSession(s) {
+    const pct = Math.round((s.progress || 0) * 100);
+    $('pctDone').innerHTML = s.totalDuration ? `${pct}<small>%</small>` : '--<small>%</small>';
+    $('remainingTotal').textContent = s.totalDuration ? fmt(Math.max(0, s.totalDuration * (1 - (s.progress || 0)))) + ' left' : ' ';
+    $('elapsed').textContent = fmt(s.elapsed);
+    $('sessionStep').textContent = s.step ? `step ${s.step.index}/${s.step.count}` : '';
+    $('totalDur').textContent = s.totalDuration ? fmt(s.totalDuration) : '';
     $('avg').textContent = s.avgPower || '--';
     $('np').textContent = s.np || '--';
     $('tss').textContent = s.tss || '--';
-    $('kj').textContent = s.kj ? s.kj + ' kJ' : ' ';
-    $('bias').textContent = (s.bias || 100) + '%';
-    $('next').innerHTML = s.next
-      ? `Next: <b>${esc(s.next.name)}</b> &middot; ${fmt(s.next.duration)} @ ${s.next.watts}W &middot; ${s.next.cadence} rpm`
-      : (step ? 'Final step &mdash; bring it home.' : '&nbsp;');
-    drawTrace(s);
+    $('kj').textContent = s.kj || '--';
+    $('nextSession').innerHTML = nextLine(s);
+  }
+
+  function renderBalance(s) {
+    const L = s.balanceLeft;
+    const has = L != null;
+    $('balL').textContent = has ? Math.round(L) : '--';
+    $('balR').textContent = has ? Math.round(100 - L) : '--';
+    $('balFill').style.width = (has ? Math.min(100, Math.max(0, L)) : 50) + '%';
+    const v = $('balVerdict');
+    if (!has) {
+      v.textContent = s.devices && s.devices.pedals ? 'Pedal to see your balance' : 'Connect the pedals to see balance';
+      v.className = 'verdict';
+    } else {
+      const d = L - 50, a = Math.abs(d);
+      v.textContent = a < 1 ? 'Even' : `${a.toFixed(1)}% ${d > 0 ? 'left' : 'right'} bias`;
+      v.className = 'verdict ' + (a <= 2 ? 'good' : a <= 4 ? 'warn' : 'bad');
+    }
+    const vals = balHistory.filter((x) => x != null);
+    $('balAvg').textContent = vals.length >= 10
+      ? (() => { const m = vals.reduce((a, b) => a + b, 0) / vals.length; return `avg ${Math.round(m)} / ${Math.round(100 - m)}`; })()
+      : 'avg --';
+    $('balCad').textContent = s.cadence || '--';
+    $('src').textContent = s.source ? String(s.source).replace('SIMULATOR', 'SIM') : '--';
+  }
+
+  function nextLine(s) {
+    if (s.next) return `Next: <b>${esc(s.next.name)}</b> &middot; ${fmt(s.next.duration)} @ ${s.next.watts}W &middot; ${s.next.cadence} rpm`;
+    return s.step ? 'Final step &mdash; bring it home.' : '&nbsp;';
   }
 
   function esc(v) { return String(v == null ? '' : v).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c])); }
 
-  function drawTrace(s) {
-    const c = $('trace'), dpr = window.devicePixelRatio || 1;
-    const w = c.clientWidth, h = c.clientHeight;
-    if (c.width !== Math.round(w * dpr)) { c.width = Math.round(w * dpr); c.height = Math.round(h * dpr); }
+  // ---- Canvases --------------------------------------------------------------------------
+  /** Sizes a canvas for the screen's pixel density and returns a context in CSS pixels. */
+  function ctx2d(c) {
+    const dpr = window.devicePixelRatio || 1, w = c.clientWidth, h = c.clientHeight;
+    if (!w || !h) return null;
+    if (c.width !== Math.round(w * dpr) || c.height !== Math.round(h * dpr)) { c.width = Math.round(w * dpr); c.height = Math.round(h * dpr); }
     const g = c.getContext('2d');
     g.setTransform(dpr, 0, 0, dpr, 0, 0);
     g.clearRect(0, 0, w, h);
+    return { g, w, h };
+  }
+
+  function drawAll(s) {
+    if (page === 0) drawTrace(s);
+    if (page === 1) drawRibbon(s, s.progress || 0);
+    if (page === 2) drawBalance();
+  }
+
+  function drawTrace(s) {
+    const cv = ctx2d($('trace')); if (!cv) return;
+    const { g, w, h } = cv;
     const tr = s.trace || [];
     const max = Math.max(s.target * 1.4 || 0, (s.ftp || 200) * 1.2, ...tr) || 1;
     const y = (v) => h - 2 - (v / max) * (h - 4);
@@ -262,6 +449,73 @@
     g.lineWidth = 2; g.lineJoin = 'round'; g.stroke();
   }
 
+  /** The whole workout as zone-coloured blocks; done blocks at full colour, a playhead at `progress`. */
+  function drawRibbon(s, progress) {
+    const cv = ctx2d($('ribbon')); if (!cv) return;
+    const { g, w, h } = cv;
+    const prof = (s.profile || []).filter((p) => p[0] > 0);
+    const total = prof.reduce((a, p) => a + p[0], 0);
+    if (!total) return;
+    const top = 10, maxPct = Math.max(120, ...prof.map((p) => p[1])) * 1.05;
+    const px = progress * w;
+    let x = 0;
+    prof.forEach(([dur, pct], i) => {
+      const bw = (dur / total) * w, bh = Math.max(4, (pct / maxPct) * (h - top));
+      g.fillStyle = zoneColor(pct);
+      g.globalAlpha = 0.4;
+      g.fillRect(x, h - bh, Math.max(1, bw - 1), bh);
+      if (px > x) { g.globalAlpha = 1; g.fillRect(x, h - bh, Math.max(0, Math.min(bw - 1, px - x)), bh); }
+      if (s.step && i === s.step.index - 1) {
+        g.globalAlpha = 1; g.strokeStyle = 'rgba(238,242,247,.8)'; g.lineWidth = 1.5;
+        g.strokeRect(x + .75, h - bh + .75, Math.max(1, bw - 2.5), bh - 1.5);
+      }
+      x += bw;
+    });
+    g.globalAlpha = 1;
+    // FTP reference line
+    const yF = h - (100 / maxPct) * (h - top);
+    g.strokeStyle = 'rgba(238,242,247,.3)'; g.setLineDash([3, 4]); g.lineWidth = 1;
+    g.beginPath(); g.moveTo(0, yF); g.lineTo(w, yF); g.stroke(); g.setLineDash([]);
+    // Playhead
+    g.fillStyle = '#eef2f7';
+    g.fillRect(Math.round(px) - 1, top - 2, 2, h - top + 2);
+    g.beginPath(); g.moveTo(px - 5, 0); g.lineTo(px + 5, 0); g.lineTo(px, top - 1); g.closePath(); g.fill();
+  }
+
+  /** Left-leg share over the last 2 min, centred on 50/50; gaps where the pedals sent nothing. */
+  function drawBalance() {
+    const cv = ctx2d($('balTrace')); if (!cv) return;
+    const { g, w, h } = cv;
+    const span = 10; // +/-10% around 50/50 fills the height
+    const y = (v) => h / 2 - ((v - 50) / span) * (h / 2 - 2);
+    g.strokeStyle = 'rgba(238,242,247,.3)'; g.setLineDash([4, 4]); g.lineWidth = 1;
+    g.beginPath(); g.moveTo(0, h / 2); g.lineTo(w, h / 2); g.stroke(); g.setLineDash([]);
+    g.fillStyle = '#566174'; g.font = '10px -apple-system, sans-serif';
+    g.fillText('L', 2, 11); g.fillText('R', 2, h - 3);
+    if (balHistory.length < 2) return;
+    const step = w / (BAL_LEN - 1), x0 = w - (balHistory.length - 1) * step;
+    g.strokeStyle = '#22d3ee'; g.lineWidth = 2; g.lineJoin = 'round';
+    g.beginPath();
+    let pen = false;
+    balHistory.forEach((v, i) => {
+      if (v == null) { pen = false; return; }
+      const px = x0 + i * step, py = y(Math.min(50 + span, Math.max(50 - span, v)));
+      pen ? g.lineTo(px, py) : g.moveTo(px, py);
+      pen = true;
+    });
+    g.stroke();
+  }
+
+  // Glide the session playhead between the once-a-second updates while riding.
+  function glide() {
+    if (snap && page === 1 && snap.state === 'running' && snap.totalDuration && document.visibilityState === 'visible') {
+      const ahead = Math.min(1.5, (Date.now() - snapAt) / 1000) / snap.totalDuration;
+      drawRibbon(snap, Math.min(1, (snap.progress || 0) + ahead));
+    }
+    requestAnimationFrame(glide);
+  }
+
+  // ---- Commands --------------------------------------------------------------------------
   async function send(cmd, label) {
     if (sending) return;
     sending = true; render(snap);
@@ -298,8 +552,10 @@
   document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') { keepAwake(); poll(); } });
   document.addEventListener('click', keepAwake, { once: true });
 
+  setPage(page, false);
   poll();
   setInterval(() => { if (document.visibilityState === 'visible') poll(); }, 1000);
+  requestAnimationFrame(glide);
 })();
 </script>
 </body>
