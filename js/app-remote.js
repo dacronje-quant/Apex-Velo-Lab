@@ -106,6 +106,7 @@
         np: a.normalizedPower || 0,
         tss: a.tss || 0,
         kj: a.totalJoules ? Math.round(a.totalJoules / 1000) : 0,
+        distanceKm: Number(this.totalDistanceKm) || 0,
         bias: Math.round((this.ergBiasMultiplier || 1) * 100),
         erg: !!this.ergModeEnabled,
         source: this.activePowerSource || null,
