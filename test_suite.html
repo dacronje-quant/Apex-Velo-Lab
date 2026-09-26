@@ -1331,6 +1331,103 @@
               detail: `offline: "${lines.join(' | ')}":${offlineOk} prompt = step table only (${prompt.length} chars):${promptOk} button says low effort:${uiOk} request effort=${sent && sent.effort} (server default was high) model=${sent && sent.model}:${reqOk} answer saved on the ride + shown:${savedOk}` };
           });
 
+          // 46f. Automatic backup + offline assets
+          await suite('Auto-Backup & Offline: Gzipped Backup With Samples Sent to the Server (Mocked), Unchanged History Skipped, .json.gz Restores; Chart.js & Fonts Load From the App Folder', async () => {
+            const realFetch = W.fetch, savedHist = app.completedWorkouts;
+            const t0 = Date.now() - 3600e3;
+            const ride = { id: 'ride_bk_test', source: 'APEX VELO Cockpit', title: 'Backup test', date: new W.Date(t0).toISOString(), duration: 600, tss: 10,
+              samples: Array.from({ length: 600 }, (_, i) => ({ time: i + 1, timestamp: t0 + i * 1000, power: 150 + (i % 5), hr: 130, cadence: 90 })) };
+            let posted = null, calls = 0;
+            W.fetch = async (u, o = {}) => {
+              if (String(u).endsWith('api/backup') && o.method === 'POST') {
+                calls++;
+                posted = { type: o.headers['Content-Type'], text: await new W.Response(new W.Blob([o.body]).stream().pipeThrough(new W.DecompressionStream('gzip'))).text() };
+                return new W.Response(JSON.stringify({ ok: true, name: 'apex_velo_backup_2026-09-26_120000.json.gz', bytes: o.body.byteLength, dir: 'C:\\x\\data\\backups', count: 1, keep: 14 }), { status: 200, headers: { 'Content-Type': 'application/json' } });
+              }
+              return realFetch(u, o);
+            };
+            const savedState = W.localStorage.getItem('apex_auto_backup');
+            let sendOk = false, skipOk = false, statusOk = false, restoreOk = false, scheduledOff = false;
+            try {
+              W.localStorage.removeItem('apex_auto_backup');
+              app.completedWorkouts = [ride];
+              const r1 = await app.runAutoBackup();
+              const j = posted && JSON.parse(posted.text);
+              sendOk = r1.ok && posted.type === 'application/gzip' && j.app === 'APEX VELO LAB' && j.history.length === 1 && j.history[0].samples.length === 600 && Array.isArray(j.profiles);
+              const r2 = await app.runAutoBackup();
+              skipOk = r2.skipped === true && calls === 1;
+              statusOk = /Auto-backup .* 1 ride, .*1 of 14 kept/.test((D.getElementById('autoBackupStatus') || {}).textContent || '');
+              app.scheduleAutoBackup(1); await sleep(30); scheduledOff = calls === 1; // never scheduled in test mode
+              // restore from the gzipped backup through the Import zone
+              app.completedWorkouts = [];
+              const gz = await new W.Response(new W.Blob([posted.text]).stream().pipeThrough(new W.CompressionStream('gzip'))).blob();
+              const file = new W.File([gz], 'apex_velo_backup_2026-09-26_120000.json.gz', { type: 'application/gzip' });
+              const origConfirm = W.confirm; W.confirm = () => false;
+              app.handleIncomingFiles([file]);
+              for (let i = 0; i < 40 && !app.completedWorkouts.length; i++) await sleep(50);
+              W.confirm = origConfirm;
+              const back = app.completedWorkouts.find(r => r.id === 'ride_bk_test');
+              restoreOk = !!back && back.samples.length === 600;
+            } finally {
+              W.fetch = realFetch;
+              if (savedState === null) W.localStorage.removeItem('apex_auto_backup'); else W.localStorage.setItem('apex_auto_backup', savedState);
+              app.completedWorkouts = savedHist;
+              await W.VeloDB.deleteRide('ride_bk_test');
+              app.persistHistoryLocal();
+            }
+            // Offline: no internet URLs in the page; Chart.js and both fonts come from the app folder
+            const html = await (await fetch('index.html', { cache: 'no-store' })).text();
+            const external = (html.match(/(src|href)="https?:\/\/[^"]+"/g) || []);
+            await D.fonts.ready;
+            const offlineOk = external.length === 0 && /vendor\/chart\.umd\.min\.js/.test(html) && W.Chart && W.Chart.version === '4.4.1' &&
+              D.fonts.check('600 16px Inter') && D.fonts.check('700 16px "JetBrains Mono"') && (await fetch('vendor/fonts/inter-latin-400-normal.woff2')).ok;
+            return { ok: sendOk && skipOk && statusOk && scheduledOff && restoreOk && offlineOk,
+              detail: `gzip backup with samples + profiles sent:${sendOk} unchanged history skipped:${skipOk} status line:${statusOk} not scheduled in test mode:${scheduledOff} .json.gz restores the ride with samples:${restoreOk} offline assets (no external URLs ${external.length}, Chart ${W.Chart && W.Chart.version}, fonts):${offlineOk}` };
+          });
+
+          // 46g. Analytics trends + coach context
+          await suite('FTP History & Drift Trend Charts, FTP Change Log, and Recent-Ride Insight in the AI Coach Prompt', async () => {
+            const savedHist = app.completedWorkouts, savedProf = JSON.stringify(app.activeProfile);
+            const mk = (id, daysAgo, n, pw, hr, ftp, target) => { const t0 = Date.now() - daysAgo * 86400e3; return { id, source: 'APEX VELO Cockpit', title: id, date: new W.Date(t0).toISOString(), duration: n, np: 150, avgWatts: 145, tss: 60, ftpAtRide: ftp,
+              samples: Array.from({ length: n }, (_, i) => ({ time: i + 1, timestamp: t0 + i * 1000, target: target ? target(i) : 140, power: pw(i, n), hr: hr(i, n), cadence: 90 })) }; };
+            let chartOk = false, driftOk = false, logOk = false, promptOk = false, offlineAdviceOk = false, detail = '';
+            try {
+              app.activeProfile.ftp = 185; app.activeProfile.maxHr = 175; app.activeProfile.ftpHistory = []; app.applyProfileChange();
+              const rides = [];
+              for (let k = 0; k < 6; k++) rides.push(mk('Z2 ' + k, 100 - k * 15, 4200, () => 140, (i, n) => Math.round(125 + (10 - k) * 1.4 * i / n), 180));
+              rides.push(mk('Threshold 3x10', 2, 3000, (i) => (i >= 600 && i < 1200 ? 185 : i >= 1500 && i < 2100 ? 185 : i >= 2400 && i < 3000 ? (i < 2700 ? 185 : 170) : 110),
+                (i) => (i >= 2400 ? 150 + Math.round((i - 2400) / 40) : 140), 185, (i) => ((i >= 600 && i < 1200) || (i >= 1500 && i < 2100) || i >= 2400 ? 185 : 110)));
+              rides.push(mk('FTP builder', 1, 3600, (i) => (i >= 600 && i < 1800 ? 205 : 150), (i) => (i >= 600 && i < 1800 ? 160 : 135), 185));
+              app.completedWorkouts = rides.reverse();
+              app.acceptFtpSuggestion(195);
+              logOk = app.activeProfile.ftp === 195 && app.activeProfile.ftpHistory.length === 1 && app.activeProfile.ftpHistory[0].from === 185 && app.activeProfile.ftpHistory[0].source === 'ride suggestion';
+              const d = app.getFtpProgressionData();
+              chartOk = d.ftp[d.ftp.length - 1] === 195 && d.proven[d.proven.length - 1] >= 190 && d.proven.slice(0, -1).every(v => v === null) && d.ftp[0] === 180 &&
+                (!app.ftpChart || app.ftpChart.data.datasets.length === 3);
+              const pts = app.driftTrendData();
+              driftOk = pts.length === 6 && pts.every(p => p.id.startsWith('Z2')) && pts[0].pct > pts[pts.length - 1].pct;
+              if (app.driftChart) { app.updateDriftChart(); driftOk = driftOk && app.driftChart.data.datasets[0].data.length === 6; }
+              // restore FTP 185 so the insight still sees a pending suggestion
+              app.activeProfile.ftp = 185; app.activeProfile.ftpHistory = []; app.applyProfileChange();
+              const ctx = app.aiCoach.getPhysiologicalContext('auto', 60, 'ftp', '', 28);
+              const prompt = app.aiCoach.buildPrompt(ctx);
+              const sec = (prompt.match(/RECENT RIDE INSIGHT[\s\S]*?(?=RIDES IN THE LAST)/) || [''])[0];
+              promptOk = /Last hard session .*"Threshold 3x10"/.test(sec) && /Interval 3 .*under target|Interval 3 .*faded|Interval 3 .*heart rate rose/.test(sec) && /FTP about 195 W/.test(sec) && !/Threshold 3x10.*%, .*Threshold 3x10/.test(sec);
+              const adv = app.aiCoach.insightAdvice(ctx, 'threshold');
+              offlineAdviceOk = /faded late/.test(adv) && /FTP of about 195 W/.test(adv);
+              detail = sec.replace(/\s+/g, ' ').slice(0, 400);
+            } finally {
+              const restored = JSON.parse(savedProf);
+              Object.keys(app.activeProfile).forEach(k => delete app.activeProfile[k]);
+              Object.assign(app.activeProfile, restored);
+              app.applyProfileChange();
+              app.completedWorkouts = savedHist;
+              app.refreshAnalytics();
+            }
+            return { ok: chartOk && driftOk && logOk && promptOk && offlineAdviceOk,
+              detail: `FTP chart: FTP line 180 -> 195, proven only when tested:${chartOk} drift trend = steady rides only, falling:${driftOk} FTP change logged:${logOk} coach prompt insight:${promptOk} offline advice uses it:${offlineAdviceOk} | ${detail}` };
+          });
+
           // 47. Calendar buckets rides by local date
           await suite('Calendar Buckets Rides by Local Calendar Day (No UTC Off-by-One)', () => {
             const d = new W.Date();

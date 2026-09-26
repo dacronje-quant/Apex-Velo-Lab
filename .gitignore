@@ -10,6 +10,9 @@
 data/divan_cycling_history.js
 data/divan_cycling_history.json
 data/*.fit
+
+# Automatic history backups (written by the local server after rides)
+data/backups/
 data/*history*
 
 # Local backups / OS clutter

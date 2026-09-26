@@ -14,6 +14,7 @@
 const http = require('http');
 const fs = require('fs');
 const path = require('path');
+const zlib = require('zlib');
 
 const ROOT = __dirname;
 
@@ -87,7 +88,7 @@ const MIME = {
   '.fit': 'application/octet-stream', '.tcx': 'application/xml', '.csv': 'text/csv; charset=utf-8', '.md': 'text/markdown; charset=utf-8'
 };
 // Only app files are served: never dot-files (.env), this script, or the helper scripts.
-const BLOCKED = /(^|[\\/])\.|^server\.js$|\.(ps1|cmd|bat|sh)$/i;
+const BLOCKED = /(^|[\\/])\.|^server\.js$|\.(ps1|cmd|bat|sh)$|^data[\\/]backups([\\/]|$)/i;
 
 function serveStatic(req, res, urlPath) {
   let rel;
@@ -559,6 +560,71 @@ async function handleStrava(req, res, urlPath, query) {
 const LIVE_CMDS = new Set(['toggle', 'skip', 'bias-up', 'bias-down', 'bias-reset', 'watts-up', 'watts-down', 'stand', 'spin-more', 'spin-finish']);
 const live = { snapshot: null, at: 0, cmds: [] };
 
+// ------------------------------------------------ automatic backups (this PC only) --
+// The app posts its history backup (the same JSON as "Backup JSON", gzipped in the browser) after
+// changes and once a day. Kept in data/backups (the newest BACKUP_KEEP), never served to anyone.
+const BACKUP_DIR = path.join(ROOT, 'data', 'backups');
+const BACKUP_KEEP = 14;
+const BACKUP_MAX_BYTES = 200 * 1024 * 1024;
+const BACKUP_NAME_RE = /^apex_velo_backup_\d{4}-\d{2}-\d{2}_\d{6}\.json\.gz$/;
+const BACKUP_PREFIX = '{"app":"APEX VELO LAB"';
+
+/** Only the app opened on this PC (not a phone on the Wi-Fi) may read or write backups. */
+function isPcRequest(req) {
+  const host = req.headers.host || '';
+  const origin = req.headers.origin;
+  return /^(localhost|127\.0\.0\.1|\[::1\])(:\d+)?$/i.test(host) && (!origin || /^http:\/\/(localhost|127\.0\.0\.1|\[::1\])(:\d+)?$/i.test(origin));
+}
+
+function readRaw(req, limit) {
+  return new Promise((resolve, reject) => {
+    let size = 0;
+    const chunks = [];
+    req.on('data', (c) => { size += c.length; if (size <= limit) chunks.push(c); });
+    req.on('end', () => size > limit ? reject(Object.assign(new Error('Backup too large'), { status: 413 })) : resolve(Buffer.concat(chunks)));
+    req.on('error', reject);
+  });
+}
+
+function listBackups() {
+  try { return fs.readdirSync(BACKUP_DIR).filter(n => BACKUP_NAME_RE.test(n)).sort(); } catch (e) { return []; }
+}
+
+function backupStatus() {
+  const files = listBackups();
+  const last = files[files.length - 1];
+  let latest = null;
+  if (last) { const st = fs.statSync(path.join(BACKUP_DIR, last)); latest = { name: last, bytes: st.size, at: st.mtime.toISOString() }; }
+  return { dir: BACKUP_DIR, count: files.length, keep: BACKUP_KEEP, latest };
+}
+
+async function handleBackup(req, res) {
+  if (!isPcRequest(req)) return sendJson(res, 403, { error: 'Backups can only be made from the app on this PC.' });
+  if (req.method === 'GET') return sendJson(res, 200, backupStatus());
+  if (req.method !== 'POST') return sendJson(res, 405, { error: 'Method not allowed' });
+  if (!/^application\/gzip\b/i.test(req.headers['content-type'] || '')) return sendJson(res, 415, { error: 'Content-Type must be application/gzip.' });
+  let buf;
+  try { buf = await readRaw(req, BACKUP_MAX_BYTES); } catch (e) { return sendJson(res, e.status || 400, { error: e.message }); }
+  // Only an Apex Velo Lab backup is accepted (gzip, and it starts like one).
+  let head = '';
+  try { head = zlib.gunzipSync(buf).subarray(0, BACKUP_PREFIX.length).toString('utf8'); } catch (e) { /* not gzip */ }
+  if (head !== BACKUP_PREFIX) return sendJson(res, 400, { error: 'Not an Apex Velo Lab backup.' });
+  const d = new Date();
+  const p2 = (n) => String(n).padStart(2, '0');
+  const name = `apex_velo_backup_${d.getFullYear()}-${p2(d.getMonth() + 1)}-${p2(d.getDate())}_${p2(d.getHours())}${p2(d.getMinutes())}${p2(d.getSeconds())}.json.gz`;
+  try {
+    fs.mkdirSync(BACKUP_DIR, { recursive: true });
+    const tmp = path.join(BACKUP_DIR, `.${name}.tmp`);
+    fs.writeFileSync(tmp, buf);
+    fs.renameSync(tmp, path.join(BACKUP_DIR, name)); // a half-written file never looks like a backup
+    const files = listBackups();
+    files.slice(0, Math.max(0, files.length - BACKUP_KEEP)).forEach(f => { try { fs.unlinkSync(path.join(BACKUP_DIR, f)); } catch (e) { /* ignore */ } });
+  } catch (e) {
+    return sendJson(res, 500, { error: `Could not write the backup (${e.message}).` });
+  }
+  return sendJson(res, 200, { ok: true, name, bytes: buf.length, ...backupStatus() });
+}
+
 async function handleLive(req, res, urlPath) {
   if (!isLocalRequest(req)) return sendJson(res, 403, { error: 'Forbidden' });
   if (urlPath === '/api/live') {
@@ -592,6 +658,9 @@ async function handleLive(req, res, urlPath) {
 function createServer() {
   return http.createServer((req, res) => {
     const urlPath = (req.url || '/').split('?')[0];
+    if (urlPath === '/api/backup') {
+      return handleBackup(req, res).catch((e) => { if (!res.headersSent) sendJson(res, 500, { error: e.message }); });
+    }
     if (urlPath === '/api/live' || urlPath === '/api/live/cmd') {
       return handleLive(req, res, urlPath).catch((e) => { if (!res.headersSent) sendJson(res, 500, { error: e.message }); });
     }

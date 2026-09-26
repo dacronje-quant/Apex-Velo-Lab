@@ -67,11 +67,19 @@
       return VeloInsight.ftpSuggestion(list, this.activeProfile.ftp, { dismissed: this.dismissedFtp() });
     },
 
+    /** Remembers FTP changes on the profile (shown on the FTP history chart; kept in backups). */
+    logFtpChange(from, to, source) {
+      const p = this.activeProfile;
+      if (!p || !(Number(to) > 0) || Number(from) === Number(to)) return;
+      p.ftpHistory = [...(Array.isArray(p.ftpHistory) ? p.ftpHistory : []), { date: new Date().toISOString(), ftp: Number(to), from: Number(from) || null, source }].slice(-100);
+    },
+
     acceptFtpSuggestion(value) {
       const v = Math.round(Number(value));
       if (!(v >= 50)) return;
       const from = this.activeProfile.ftp;
       this.activeProfile.ftp = v;
+      this.logFtpChange(from, v, 'ride suggestion');
       this.applyProfileChange();
       this.showToast(`FTP updated ${from} -> ${v} W. Zones and ERG targets now use ${v} W.`, 'success');
       document.getElementById('ftpSuggestBanner')?.remove();
@@ -118,6 +126,131 @@
           <div class="sub-title"><span>Highlights</span><span class="hint">gold = all-time best &middot; silver = best this year &middot; bronze = best in 90 days</span></div>
           <div class="btn-row btn-row-tight insight-chips">${medals.length ? this.medalChips(medals, record.date) : '<span class="hint">No new power bests on this ride.</span>'}${decHtml}</div>
         </div>`;
+    },
+
+    // ------------------------------------------------------ drift trend --
+    /** Decoupling of every steady ride with heart rate (oldest first, the latest 40). Cached per ride. */
+    driftTrendData(limit = 40) {
+      this._decCache = this._decCache || new Map();
+      const pts = [];
+      this.cyclingRides().filter(VeloInsight.hasSamples).sort((a, b) => new Date(a.date) - new Date(b.date)).forEach(r => {
+        const key = `${r.id}|${r.samples.length}`;
+        if (!this._decCache.has(key)) this._decCache.set(key, VeloInsight.decoupling(r.samples));
+        const d = this._decCache.get(key);
+        if (d.status === 'ok') pts.push({ id: r.id, date: r.date, title: r.title, pct: d.pct, level: d.level, minutes: d.minutes, np: r.np || r.avgWatts || null });
+      });
+      return pts.slice(-limit);
+    },
+
+    initDriftChart() {
+      const cv = document.getElementById('driftTrendCanvas');
+      if (!cv || typeof Chart === 'undefined') return;
+      const color = { good: '#65a30d', mild: '#d97706', high: '#e11d48' };
+      const ink = getComputedStyle(document.documentElement).getPropertyValue('--text-2').trim() || '#94a3b8';
+      const grid = 'rgba(148,163,184,0.12)';
+      this.driftChart = new Chart(cv.getContext('2d'), {
+        type: 'line',
+        data: { labels: [], datasets: [
+          { label: 'Pw:HR drift %', data: [], borderColor: 'rgba(148,163,184,0.5)', borderWidth: 1.5, tension: 0.25, pointRadius: 5, pointHoverRadius: 7, pointBackgroundColor: [], pointBorderColor: [] },
+          { label: '5% (coupled below)', data: [], borderColor: 'rgba(101,163,13,0.7)', borderDash: [6, 5], borderWidth: 1, pointRadius: 0 }
+        ] },
+        options: {
+          responsive: true, maintainAspectRatio: false,
+          onClick: (e, els) => { const el = els && els[0]; if (el && el.datasetIndex === 0 && this._driftPts && this._driftPts[el.index]) this.showRideSummaryById(this._driftPts[el.index].id); },
+          scales: {
+            x: { ticks: { color: ink, maxRotation: 0, autoSkip: true, maxTicksLimit: 8 }, grid: { display: false } },
+            y: { suggestedMin: 0, suggestedMax: 10, ticks: { color: ink, callback: (v) => `${v}%` }, grid: { color: grid } }
+          },
+          plugins: {
+            legend: { display: false },
+            tooltip: { callbacks: {
+              title: (items) => { const p = this._driftPts && this._driftPts[items[0].dataIndex]; return p ? `${p.title} - ${new Date(p.date).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: '2-digit' })}` : ''; },
+              label: (c) => { if (c.datasetIndex !== 0) return ' 5% line'; const p = this._driftPts[c.dataIndex]; return ` Drift ${p.pct}% over ${p.minutes} min${p.np ? ` at ${p.np} W` : ''} - click to open`; }
+            } }
+          }
+        }
+      });
+      this._driftColor = color;
+      this.updateDriftChart();
+    },
+
+    updateDriftChart() {
+      if (!this.driftChart) return;
+      const pts = this.driftTrendData();
+      this._driftPts = pts;
+      const ds = this.driftChart.data.datasets;
+      this.driftChart.data.labels = pts.map(p => new Date(p.date).toLocaleDateString('en-GB', { day: 'numeric', month: 'short' }));
+      ds[0].data = pts.map(p => p.pct);
+      ds[0].pointBackgroundColor = pts.map(p => this._driftColor[p.level]);
+      ds[0].pointBorderColor = pts.map(p => this._driftColor[p.level]);
+      ds[1].data = pts.map(() => 5);
+      this.driftChart.update();
+      const label = document.getElementById('driftTrendLabel');
+      if (label) {
+        if (!pts.length) label.textContent = 'no steady rides with HR yet';
+        else {
+          const recent = pts.slice(-5), avg = recent.reduce((a, p) => a + p.pct, 0) / recent.length;
+          label.textContent = `last ${recent.length}: avg ${avg.toFixed(1)}%`;
+        }
+      }
+    },
+
+    // ---------------------------------------------------- coach context --
+    /**
+     * What the recorded rides say, for the AI coach: the last hard session's interval diagnosis
+     * (and its saved AI breakdown), the Pw:HR drift of recent steady rides, new PR medals and a
+     * pending FTP suggestion. Returns { lines: [...], ... } - lines are ready for the prompt.
+     */
+    coachInsight(lookbackDays = 28, now = new Date()) {
+      const within = (r, days) => now - new Date(r.date) <= days * VeloInsight.DAY && now >= new Date(r.date);
+      const rides = this.cyclingRides().filter(r => VeloInsight.hasSamples(r) && within(r, lookbackDays))
+        .sort((a, b) => new Date(b.date) - new Date(a.date));
+      const out = { lines: [], lastHard: null, drift: [], medals: [], ftp: null };
+      if (!rides.length) return out;
+      const day = (r) => VeloMetrics.localDateKey(r.date);
+
+      // Last hard session (at least one step at 88% FTP or more)
+      for (const r of rides) {
+        const rows = VeloInsight.intervalRows(r.samples, r.ftpAtRide || this.activeProfile.ftp);
+        if (!rows.some(x => x.work)) continue;
+        const diag = VeloInsight.offlineBreakdown(rows).slice(0, 4);
+        out.lastHard = { id: r.id, date: day(r), title: r.title, diag, ai: r.aiBreakdown && r.aiBreakdown.text ? r.aiBreakdown.text.replace(/\s+/g, ' ').slice(0, 320) : null };
+        out.lines.push(`Last hard session ${day(r)} "${r.title}": ${diag.join(' ')}`);
+        if (out.lastHard.ai) out.lines.push(`Coach notes on it: ${out.lastHard.ai}`);
+        break;
+      }
+
+      // Aerobic decoupling of steady rides (newest first, up to 5)
+      this._decCache = this._decCache || new Map();
+      for (const r of rides) {
+        const key = `${r.id}|${r.samples.length}`;
+        if (!this._decCache.has(key)) this._decCache.set(key, VeloInsight.decoupling(r.samples));
+        const d = this._decCache.get(key);
+        if (d.status === 'ok') out.drift.push({ date: day(r), pct: d.pct, label: d.label });
+        if (out.drift.length >= 5) break;
+      }
+      if (out.drift.length) {
+        const avg = Math.round(out.drift.reduce((a, d) => a + d.pct, 0) / out.drift.length * 10) / 10;
+        out.lines.push(`Pw:HR drift on steady rides (newest first): ${out.drift.map(d => `${d.date} ${d.pct}%`).join(', ')} - average ${avg}% (under 5% = aerobically coupled).`);
+      }
+
+      // New PR medals in the last 14 days: real improvements (an earlier best existed) for 5 min and
+      // longer - short ERG peaks only mirror the targets, and a new history's first rides are "bests" anyway.
+      const hist = this.medalHistory();
+      rides.filter(r => within(r, 14)).forEach(r => {
+        this.rideMedals(r, hist).filter(m => m.medal !== 'bronze' && m.prev && m.i >= 2).forEach(m => out.medals.push({ date: day(r), ...m }));
+      });
+      if (out.medals.length) {
+        out.lines.push(`New power bests (14 days): ${out.medals.slice(0, 4).map(m => `${m.date} ${m.label} ${m.watts} W (${m.medal === 'gold' ? 'all-time best' : 'best this year'}, was ${m.prev} W)`).join('; ')}.`);
+      }
+
+      // FTP suggestion not applied yet
+      const sug = this.ftpSuggestionFor(rides[0]);
+      if (sug) {
+        out.ftp = sug;
+        out.lines.push(`Recent power suggests FTP about ${sug.ftp} W (profile still ${sug.from} W, ${sug.basis}) - targets are still based on ${sug.from} W.`);
+      }
+      return out;
     },
 
     // ------------------------------------------------- interval diagnosis --

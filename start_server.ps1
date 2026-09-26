@@ -114,6 +114,70 @@ function Test-LocalRequest($request) {
     return ($hostOk -and $originOk)
 }
 
+# ------------------------------------------------ automatic backups (this PC only) --
+# The app posts its history backup (the same JSON as "Backup JSON", gzipped in the browser) after
+# changes and once a day. Kept in data\backups (the newest $backupKeep), never served. (Same as server.js.)
+$backupDir = [System.IO.Path]::Combine($root, 'data', 'backups')
+$backupKeep = 14
+$backupMaxBytes = 200MB
+$backupNameRe = '^apex_velo_backup_\d{4}-\d{2}-\d{2}_\d{6}\.json\.gz$'
+$backupPrefix = '{"app":"APEX VELO LAB"'
+
+# Only the app opened on this PC (not a phone on the Wi-Fi) may read or write backups.
+function Test-PcRequest($request) {
+    $h = [string]$request.Headers['Host']
+    $origin = $request.Headers['Origin']
+    return (($h -match '^(localhost|127\.0\.0\.1|\[::1\])(:\d+)?$') -and ([string]::IsNullOrEmpty($origin) -or ($origin -match '^http://(localhost|127\.0\.0\.1|\[::1\])(:\d+)?$')))
+}
+
+function Get-BackupFiles {
+    if (-not (Test-Path -LiteralPath $backupDir)) { return @() }
+    return @(Get-ChildItem -LiteralPath $backupDir -File | Where-Object { $_.Name -match $backupNameRe } | Sort-Object Name)
+}
+
+function Get-BackupStatus {
+    $files = Get-BackupFiles
+    $latest = $null
+    if ($files.Count) { $f = $files[$files.Count - 1]; $latest = [ordered]@{ name = $f.Name; bytes = $f.Length; at = $f.LastWriteTimeUtc.ToString('yyyy-MM-ddTHH:mm:ss.fffZ') } }
+    return [ordered]@{ dir = $backupDir; count = $files.Count; keep = $backupKeep; latest = $latest }
+}
+
+function Invoke-Backup($request, $response) {
+    if (-not (Test-PcRequest $request)) { return Send-Json $response 403 @{ error = 'Backups can only be made from the app on this PC.' } }
+    if ($request.HttpMethod -eq 'GET') { return Send-Json $response 200 (Get-BackupStatus) }
+    if ($request.HttpMethod -ne 'POST') { return Send-Json $response 405 @{ error = 'Method not allowed' } }
+    if ($request.ContentType -notmatch '^application/gzip\b') { return Send-Json $response 415 @{ error = 'Content-Type must be application/gzip.' } }
+    if ($request.ContentLength64 -gt $backupMaxBytes) { return Send-Json $response 413 @{ error = 'Backup too large' } }
+    $ms = New-Object System.IO.MemoryStream
+    $request.InputStream.CopyTo($ms)
+    $bytes = $ms.ToArray(); $ms.Dispose()
+    if ($bytes.Length -gt $backupMaxBytes) { return Send-Json $response 413 @{ error = 'Backup too large' } }
+    # Only an Apex Velo Lab backup is accepted (gzip, and it starts like one).
+    $head = ''
+    try {
+        $gz = New-Object System.IO.Compression.GZipStream((New-Object System.IO.MemoryStream(, $bytes)), [System.IO.Compression.CompressionMode]::Decompress)
+        $buf = New-Object byte[] $backupPrefix.Length
+        $read = 0
+        while ($read -lt $buf.Length) { $n = $gz.Read($buf, $read, $buf.Length - $read); if ($n -le 0) { break }; $read += $n }
+        $gz.Dispose()
+        $head = $utf8.GetString($buf, 0, $read)
+    } catch { $head = '' }
+    if ($head -ne $backupPrefix) { return Send-Json $response 400 @{ error = 'Not an Apex Velo Lab backup.' } }
+    $name = 'apex_velo_backup_' + (Get-Date).ToString('yyyy-MM-dd_HHmmss') + '.json.gz'
+    try {
+        [void][System.IO.Directory]::CreateDirectory($backupDir)
+        $tmp = Join-Path $backupDir ('.' + $name + '.tmp')
+        [System.IO.File]::WriteAllBytes($tmp, $bytes)
+        Move-Item -LiteralPath $tmp -Destination (Join-Path $backupDir $name) -Force   # a half-written file never looks like a backup
+        $files = Get-BackupFiles
+        if ($files.Count -gt $backupKeep) { $files | Select-Object -First ($files.Count - $backupKeep) | ForEach-Object { Remove-Item -LiteralPath $_.FullName -Force -ErrorAction SilentlyContinue } }
+    } catch {
+        return Send-Json $response 500 @{ error = "Could not write the backup ($($_.Exception.Message))." }
+    }
+    $st = Get-BackupStatus
+    return Send-Json $response 200 ([ordered]@{ ok = $true; name = $name; bytes = $bytes.Length; dir = $st.dir; count = $st.count; keep = $st.keep; latest = $st.latest })
+}
+
 # ---------------------------------------------------------------- phone view --
 # The PC app posts a live snapshot about once a second; live.html on the phone reads it
 # and queues simple commands that the PC app collects on its next post. Memory only.
@@ -660,7 +724,7 @@ function Send-StaticFile($request, $response) {
     if ($file -ne $root -and -not $file.StartsWith($root + [System.IO.Path]::DirectorySeparatorChar, [System.StringComparison]::OrdinalIgnoreCase)) { return Send-Text $response 403 'Forbidden' }
     # Never serve dot-files (.env), the servers, or helper scripts.
     $relative = $file.Substring($root.Length).TrimStart('\', '/')
-    if ($relative -match '(^|[\\/])\.' -or $relative -match '^server\.js$' -or $relative -match '\.(ps1|cmd|bat|sh)$') { return Send-Text $response 404 'Not found' }
+    if ($relative -match '(^|[\\/])\.' -or $relative -match '^server\.js$' -or $relative -match '\.(ps1|cmd|bat|sh)$' -or $relative -match '^data[\\/]backups([\\/]|$)') { return Send-Text $response 404 'Not found' }
     if (Test-Path $file -PathType Container) { $file = Join-Path $file 'index.html' }
     if (-not (Test-Path $file -PathType Leaf)) { return Send-Text $response 404 'Not found' }
     $ext = [System.IO.Path]::GetExtension($file).ToLower()
@@ -756,7 +820,9 @@ try {
         $response = $context.Response
         try {
             $path = $request.Url.AbsolutePath
-            if ($path -eq '/api/live') {
+            if ($path -eq '/api/backup') {
+                Invoke-Backup $request $response
+            } elseif ($path -eq '/api/live') {
                 Invoke-Live $request $response
             } elseif ($path -eq '/api/live/cmd') {
                 Invoke-LiveCmd $request $response

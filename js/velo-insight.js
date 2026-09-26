@@ -20,7 +20,8 @@ class VeloInsight {
   // ------------------------------------------------------------ decoupling --
   /**
    * Pw:HR decoupling: after the warm-up, compares power per heartbeat in the first and second half.
-   * Only for steady rides (variability index <= 1.10, both halves within 7.5% power) of at least
+   * Only for steady rides (variability index <= 1.05, 80% of the time within +/-20% of the average
+   * power, both halves within 7.5% power) of at least
    * 20 min with heart rate.
    * Returns { status: 'ok', pct, label, level, minutes } or { status: <reason> }.
    */
@@ -33,7 +34,9 @@ class VeloInsight {
     const avg = powers.reduce((a, b) => a + b, 0) / powers.length;
     const np = VeloMetrics.normalizedPower(powers) || avg;
     const vi = np / avg;
-    if (vi > 1.10) return { status: 'not-steady', vi: Math.round(vi * 100) / 100 };
+    // Steady = variability index <= 1.05 and at least 80% of the time within +/-20% of the average.
+    const near = powers.filter(w => Math.abs(w - avg) <= avg * 0.2).length / powers.length;
+    if (vi > 1.05 || near < 0.8) return { status: 'not-steady', vi: Math.round(vi * 100) / 100 };
     const half = Math.floor(win.length / 2);
     // Decoupling compares like with like: both halves must be ridden at about the same power.
     const avgP = (arr) => arr.reduce((a, s) => a + Number(s.power), 0) / arr.length;

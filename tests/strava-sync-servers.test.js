@@ -192,6 +192,29 @@ async function runAgainst(kind, pwsh, mock, appPort) {
     const status = await (await fetch(`${base}/api/strava/status`)).json();
     check(`${tag}: status reports canSync`, status.canSync === true);
 
+    // 4b. Automatic backups: PC only, gzip Apex backups only, never served, newest 14 kept
+    const zlib = require('zlib');
+    const gz = (o) => zlib.gzipSync(Buffer.from(JSON.stringify(o)));
+    const postBackup = (body, headers = {}) => fetch(`${base}/api/backup`, { method: 'POST', headers: { 'Content-Type': 'application/gzip', ...headers }, body });
+    const logBeforeBackups = mock.log.length;
+    const ok1 = await postBackup(gz({ app: 'APEX VELO LAB', exportedAt: 'x', history: [{ id: 'r1', samples: [{ power: 200 }] }] }));
+    const b1 = await ok1.json();
+    const stored = b1.name ? zlib.gunzipSync(fs.readFileSync(path.join(dir, 'data', 'backups', b1.name))).toString() : '';
+    check(`${tag}: backup is written to data/backups and reads back identical`, ok1.status === 200 && /^apex_velo_backup_\d{4}-\d{2}-\d{2}_\d{6}\.json\.gz$/.test(b1.name) && JSON.parse(stored).history[0].samples[0].power === 200 && b1.count === 1 && b1.keep === 14);
+    const junk = await postBackup(gz({ hello: 1 }));
+    const notGz = await postBackup(Buffer.from('{"app":"APEX VELO LAB"}'));
+    const wrongType = await fetch(`${base}/api/backup`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}' });
+    const evilOrigin = await postBackup(gz({ app: 'APEX VELO LAB' }), { Origin: 'https://evil.example' });
+    check(`${tag}: backup rejects non-Apex data, non-gzip, wrong type and other websites`, junk.status === 400 && notGz.status === 400 && wrongType.status === 415 && evilOrigin.status === 403);
+    const dl = await fetch(`${base}/data/backups/${b1.name}`);
+    check(`${tag}: backups are never served`, dl.status === 404);
+    for (let i = 0; i < 15; i++) { await postBackup(gz({ app: 'APEX VELO LAB', i })); await new Promise(r => setTimeout(r, 1010)); }
+    const names = fs.readdirSync(path.join(dir, 'data', 'backups'));
+    const st = await (await fetch(`${base}/api/backup`)).json();
+    check(`${tag}: keeps the newest 14 backups, no temp files left`, names.filter(n => /\.json\.gz$/.test(n)).length === 14 && !names.some(n => /\.tmp$/.test(n)) && st.count === 14 && st.latest && st.latest.name === names.filter(n => /\.json\.gz$/.test(n)).sort().pop(), `${names.length} files`);
+    check(`${tag}: backups never contact Strava`, mock.log.length === logBeforeBackups);
+    results.backupStatusKeys = Object.keys(st).sort().join(',');
+
     // 5. READ ONLY: every request the sync path sent to Strava was a GET to the three allowed endpoints
     const nonGet = mock.log.filter(l => l.method !== 'GET');
     const allowed = mock.log.every(l => l.path === '/api/v3/athlete/activities' || /^\/api\/v3\/activities\/\d+(\/streams)?$/.test(l.path));
@@ -214,7 +237,7 @@ async function runAgainst(kind, pwsh, mock, appPort) {
   } else {
     const psRes = await runAgainst('ps', pwsh, mock, 18612);
     if (nodeRes && psRes) {
-      check('server.js and start_server.ps1 return identical sync data (list, details, streams)', stable(nodeRes.list.activities) === stable(psRes.list.activities) && stable(nodeRes.detail) === stable(psRes.detail) && stable(nodeRes.streams) === stable(psRes.streams));
+      check('server.js and start_server.ps1 return identical sync data (list, details, streams) and backup status', stable(nodeRes.list.activities) === stable(psRes.list.activities) && stable(nodeRes.detail) === stable(psRes.detail) && stable(nodeRes.streams) === stable(psRes.streams) && nodeRes.backupStatusKeys === psRes.backupStatusKeys);
     }
   }
   mock.srv.close();

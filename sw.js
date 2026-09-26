@@ -1,13 +1,15 @@
 // APEX VELO // LAB service worker - network-first for app files so updates are never
 // masked by a stale cache; the cache is only a fallback when offline.
-const CACHE_NAME = 'apex-velo-cache-v12';
+const CACHE_NAME = 'apex-velo-cache-v14';
 const CORE = [
-  './', './index.html', './manifest.json', './css/style.css',
+  './', './index.html', './manifest.json', './css/style.css', './css/fonts.css', './vendor/chart.umd.min.js',
+  './vendor/fonts/inter-latin-400-normal.woff2', './vendor/fonts/inter-latin-500-normal.woff2', './vendor/fonts/inter-latin-600-normal.woff2', './vendor/fonts/inter-latin-700-normal.woff2', './vendor/fonts/inter-latin-800-normal.woff2',
+  './vendor/fonts/jetbrains-mono-latin-400-normal.woff2', './vendor/fonts/jetbrains-mono-latin-500-normal.woff2', './vendor/fonts/jetbrains-mono-latin-600-normal.woff2', './vendor/fonts/jetbrains-mono-latin-700-normal.woff2', './vendor/fonts/jetbrains-mono-latin-800-normal.woff2',
   './data/divan_cycling_history.js',
   './js/velo-metrics.js', './js/velo-db.js', './js/velo-sound.js', './js/velo-pip.js', './js/velo-folder-sync.js',
   './js/velo-biomech.js', './js/velo-analytics.js', './js/velo-workouts.js', './js/velo-ai-architect.js',
   './js/velo-ai-coach.js', './js/velo-block-planner.js', './js/velo-sim.js', './js/velo-ble.js', './js/velo-erg.js', './js/velo-insight.js', './js/velo-importer.js', './js/velo-export.js',
-  './js/velo-clock.js', './js/velo-progress.js', './js/velo-dedupe.js', './js/velo-strava-sync.js', './js/app.js', './js/app-analytics.js', './js/app-history.js', './js/app-coach.js', './js/app-block.js', './js/app-strava.js', './js/app-strava-sync.js', './js/app-insight.js', './js/app-remote.js'
+  './js/velo-clock.js', './js/velo-progress.js', './js/velo-dedupe.js', './js/velo-strava-sync.js', './js/app.js', './js/app-analytics.js', './js/app-history.js', './js/app-coach.js', './js/app-block.js', './js/app-strava.js', './js/app-strava-sync.js', './js/app-insight.js', './js/app-backup.js', './js/app-remote.js'
 ];
 
 self.addEventListener('install', (e) => {
