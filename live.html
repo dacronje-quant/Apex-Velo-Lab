@@ -72,7 +72,7 @@
   .hero { text-align: center; }
   .hero .big { font-size: 76px; font-weight: 800; line-height: 1; letter-spacing: -.04em; margin-top: 4px; }
   .hero .left { font-size: 20px; font-weight: 650; margin-top: 2px; }
-  #ribbon { height: 64px; margin-top: 12px; }
+  #ribbon { height: 72px; margin-top: 12px; }
 
   /* Balance screen */
   .split { display: flex; justify-content: space-between; align-items: baseline; margin-top: 6px; }
@@ -449,43 +449,37 @@
     g.lineWidth = 2; g.lineJoin = 'round'; g.stroke();
   }
 
-  /**
-   * The whole workout as one horizontal bar: every step in its zone colour, sized by its length,
-   * with a needle at `progress`. The part already ridden is shaded; the current step is outlined.
-   */
+  /** The whole workout as zone-coloured blocks; done blocks at full colour, a playhead at `progress`. */
   function drawRibbon(s, progress) {
     const cv = ctx2d($('ribbon')); if (!cv) return;
     const { g, w, h } = cv;
     const prof = (s.profile || []).filter((p) => p[0] > 0);
     const total = prof.reduce((a, p) => a + p[0], 0);
     if (!total) return;
-    const pad = 4, top = 10, bot = h - 10, bh = bot - top;
-    const inner = w - pad * 2;
-    const px = pad + Math.min(1, Math.max(0, progress)) * inner;
-    g.font = '700 11px -apple-system, "Segoe UI", sans-serif';
-    g.textAlign = 'center'; g.textBaseline = 'middle';
-    let x = pad, cur = null;
+    const top = 10, maxPct = Math.max(120, ...prof.map((p) => p[1])) * 1.05;
+    const px = progress * w;
+    let x = 0;
     prof.forEach(([dur, pct], i) => {
-      const bw = (dur / total) * inner;
-      const zone = window.VeloMetrics ? VeloMetrics.zoneForPct(pct) : null;
+      const bw = (dur / total) * w, bh = Math.max(4, (pct / maxPct) * (h - top));
       g.fillStyle = zoneColor(pct);
-      g.fillRect(x, top, Math.max(1, bw - 1), bh);
-      if (zone && bw >= 24) { g.fillStyle = 'rgba(7,9,13,.75)'; g.fillText(zone.short, x + bw / 2, top + bh / 2); }
-      if (s.step && i === s.step.index - 1) cur = [x, bw];
+      g.globalAlpha = 0.4;
+      g.fillRect(x, h - bh, Math.max(1, bw - 1), bh);
+      if (px > x) { g.globalAlpha = 1; g.fillRect(x, h - bh, Math.max(0, Math.min(bw - 1, px - x)), bh); }
+      if (s.step && i === s.step.index - 1) {
+        g.globalAlpha = 1; g.strokeStyle = 'rgba(238,242,247,.8)'; g.lineWidth = 1.5;
+        g.strokeRect(x + .75, h - bh + .75, Math.max(1, bw - 2.5), bh - 1.5);
+      }
       x += bw;
     });
-    // Shade what has been ridden so the upcoming zones stand out.
-    g.fillStyle = 'rgba(7,9,13,.55)';
-    g.fillRect(pad, top, px - pad, bh);
-    if (cur) {
-      g.strokeStyle = '#eef2f7'; g.lineWidth = 2;
-      g.strokeRect(cur[0] + 1, top + 1, Math.max(1, cur[1] - 3), bh - 2);
-    }
-    // Needle: a white line through the bar with a pointer above and below.
-    g.fillStyle = '#07090d'; g.fillRect(px - 2.5, top - 4, 5, bh + 8);
-    g.fillStyle = '#eef2f7'; g.fillRect(px - 1.5, top - 4, 3, bh + 8);
-    g.beginPath(); g.moveTo(px - 6, 0); g.lineTo(px + 6, 0); g.lineTo(px, top - 2); g.closePath(); g.fill();
-    g.beginPath(); g.moveTo(px - 6, h); g.lineTo(px + 6, h); g.lineTo(px, bot + 2); g.closePath(); g.fill();
+    g.globalAlpha = 1;
+    // FTP reference line
+    const yF = h - (100 / maxPct) * (h - top);
+    g.strokeStyle = 'rgba(238,242,247,.3)'; g.setLineDash([3, 4]); g.lineWidth = 1;
+    g.beginPath(); g.moveTo(0, yF); g.lineTo(w, yF); g.stroke(); g.setLineDash([]);
+    // Playhead
+    g.fillStyle = '#eef2f7';
+    g.fillRect(Math.round(px) - 1, top - 2, 2, h - top + 2);
+    g.beginPath(); g.moveTo(px - 5, 0); g.lineTo(px + 5, 0); g.lineTo(px, top - 1); g.closePath(); g.fill();
   }
 
   /** Left-leg share over the last 2 min, centred on 50/50; gaps where the pedals sent nothing. */

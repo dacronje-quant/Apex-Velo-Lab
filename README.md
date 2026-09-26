@@ -50,7 +50,7 @@ The PC keeps the Bluetooth sensors and runs the ride; your phone becomes a live 
 The phone has three screens; swipe sideways or tap the tabs, and it remembers the last one:
 
 - **Focus** - the current step and countdown, power against target, a 2-minute power trace, heart rate and cadence.
-- **Session** - % complete and time left, the whole workout as a bar of zone-coloured steps with a needle gliding across it, avg power, heart rate, cadence and distance.
+- **Session** - % complete and time left, the whole workout as zone-coloured blocks with a gliding playhead, avg power, heart rate, cadence and distance.
 - **Balance** - live L/R split from the pedals, a 2-minute balance trace with its average, cadence and power source.
 
 The controls stay at the bottom of every screen: **Start/Pause**, nudge **ERG +/-1%**, reset ERG, and **Skip step** (tap twice to confirm). Keep the Apex tab open on the PC (it can be minimised). Only devices on your private home network are accepted; anything else gets 403. iPhone Safari cannot keep the screen awake over plain http, so set Settings > Display & Brightness > Auto-Lock to Never while riding (or just tap the screen now and then).
