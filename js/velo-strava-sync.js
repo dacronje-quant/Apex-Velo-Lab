@@ -33,6 +33,69 @@ class VeloStravaSync {
   static DETAIL_BATCH = 10;          // activities/{id} per request to the local server
   static DETAIL_BUDGET = 60;         // detail requests per sync (Strava allows 100 reads / 15 min)
   static DETAIL_STALE_MS = 3 * 86400000;
+  static STREAM_BUDGET = 30;         // activities/{id}/streams per sync (1 read request each)
+  static STREAM_MAX_GAP_S = 5;       // gaps up to 5 s (smart recording) are held; longer gaps are pauses
+  static AUTOCHECK_KEY = 'apex_strava_autocheck';
+
+  // ------------------------------------------------------------- streams --
+  /**
+   * Converts Strava streams ({ time: {data}, watts: {data}, ... } or plain arrays) into the app's
+   * 1 Hz samples. Only recorded channels are included. A gap of 2-5 s (a device's "smart recording")
+   * holds the last reading so every sample is one second; a longer gap is a pause and is left out.
+   * Returns null when there is no power stream.
+   */
+  static streamsToSamples(raw) {
+    if (!raw || typeof raw !== 'object') return null;
+    const get = (k) => { const v = raw[k]; const d = v && !Array.isArray(v) ? v.data : v; return Array.isArray(d) ? d : null; };
+    const time = get('time'), watts = get('watts');
+    if (!time || !watts || time.length < 2 || watts.length !== time.length) return null;
+    const hr = get('heartrate'), cad = get('cadence'), vel = get('velocity_smooth'), dist = get('distance');
+    const same = (arr) => arr && arr.length === time.length ? arr : null;
+    const H = same(hr), C = same(cad), V = same(vel), Dd = same(dist);
+    const sample = (i) => {
+      const s = { power: Math.max(0, Math.round(Number(watts[i]) || 0)) };
+      if (H && Number(H[i]) > 0) s.hr = Math.round(Number(H[i]));
+      if (C) s.cadence = Math.round(Number(C[i]) || 0);
+      if (V) s.speed = Math.round((Number(V[i]) || 0) * 36) / 10;
+      if (Dd) s.dist = Math.round(Number(Dd[i]) || 0) / 1000;
+      return s;
+    };
+    const out = [];
+    for (let i = 0; i < time.length; i++) {
+      const cur = sample(i);
+      if (i > 0) {
+        const gap = Number(time[i]) - Number(time[i - 1]);
+        if (gap > 1 && gap <= VeloStravaSync.STREAM_MAX_GAP_S) {
+          const prev = out[out.length - 1];
+          for (let k = 1; k < gap; k++) out.push({ ...prev, time: out.length + 1 });
+        }
+      }
+      out.push({ time: out.length + 1, ...cur });
+    }
+    return out.length >= 60 ? out : null;
+  }
+
+  /** Real power data worth fetching: a cycling activity with a power meter (not Strava's estimate). */
+  static hasMeasuredPower(a) {
+    return VeloStravaSync.activityKind(a.sport_type || a.type) === 'ride' && a.device_watts === true && VeloStravaSync.num(a.average_watts) > 0;
+  }
+
+  /**
+   * Activities of a plan whose imported record should get second-by-second data:
+   * new or refreshed or unchanged imports with a power meter and no samples yet (and not tried before).
+   */
+  static streamCandidates(plan) {
+    const want = [];
+    const consider = (a, rec) => {
+      if (!a || !rec || !VeloStravaSync.hasMeasuredPower(a) || a.samples) return;
+      if ((Array.isArray(rec.samples) && rec.samples.length) || rec.streams === 'none') return;
+      want.push(String(a.id));
+    };
+    plan.new.forEach(x => consider(x.activity, x.record));
+    plan.refreshed.forEach(x => consider(x.activity, x.record));
+    (plan.unchangedList || []).forEach(x => consider(x.activity, x.record));
+    return [...new Set(want)];
+  }
 
   // ------------------------------------------------------------ helpers --
   static isStravaRecord(r) { return !!r && r.source === VeloStravaSync.SOURCE; }
@@ -229,14 +292,32 @@ class VeloStravaSync {
     if (kind === 'ride') {
       const ftp = n(existing && existing.ftpAtRide) || n(opts.ftp) || 185;
       rec.ftpAtRide = ftp;
+      // Second-by-second power: freshly fetched streams, else the samples already imported.
+      const samples = Array.isArray(a.samples) && a.samples.length ? a.samples
+        : (existing && Array.isArray(existing.samples) && existing.samples.length ? existing.samples : null);
+      const streamsFlag = a.streams === 'none' ? 'none' : samples ? 'ok' : (existing && existing.streams) || undefined;
+      if (streamsFlag) rec.streams = streamsFlag;
       const h = dur / 3600;
       const pw = rec.np || rec.avgWatts || 0;
       let ifv, method;
+      if (samples && typeof VeloMetrics !== 'undefined') {
+        rec.samples = samples;
+        const powers = samples.map(s => s.power || 0);
+        const np = VeloMetrics.normalizedPower(powers) || rec.avgWatts || 0;
+        rec.np = Math.round(np);
+        rec.maxWatts = Math.max(...powers);
+        ifv = np / ftp; method = 'power-stream';
+        rec.if = (Math.round(ifv * 100) / 100).toFixed(2);
+        rec.tss = Math.round((samples.length / 3600) * ifv * ifv * 100);
+        rec.tssMethod = method;
+        rec.tssEstimated = false;
+        return rec;
+      }
       if (pw > 0) { ifv = pw / ftp; method = 'power'; }
       else if (rec.avgHr) {
-        // The threshold HR used is stored with the record, so later profile edits do not churn re-syncs.
-        const lthr = n(existing && existing.lthrAtRide) || n(opts.lthr) || Math.round((n(opts.maxHr) || 175) * 0.9);
-        rec.lthrAtRide = lthr;
+        // A threshold HR from the profile is stored with the record, so later profile edits do not rewrite
+        // old imports. An estimated one (90% of max HR) is replaced once you enter your real threshold HR.
+        const lthr = VeloStravaSync.lthrFor(rec, opts, existing);
         ifv = Math.max(0.4, Math.min(1.2, rec.avgHr / lthr)); method = 'hr';
       } else { ifv = 0.65; method = 'duration'; }
       rec.if = (Math.round(ifv * 100) / 100).toFixed(2);
@@ -250,8 +331,7 @@ class VeloStravaSync {
         let st, method;
         if (rec.sufferScore) { st = rec.sufferScore; method = 'relative effort'; }
         else if (rec.avgHr) {
-          const lthr = n(existing && existing.lthrAtRide) || n(opts.lthr) || Math.round((n(opts.maxHr) || 175) * 0.9);
-          rec.lthrAtRide = lthr;
+          const lthr = VeloStravaSync.lthrFor(rec, opts, existing);
           st = (dur / 3600) * Math.pow(Math.min(1, rec.avgHr / lthr), 2) * 100 * 0.6; method = 'heart rate';
         }
         else { st = (dur / 3600) * 30; method = 'duration'; }
@@ -263,6 +343,18 @@ class VeloStravaSync {
       }
     }
     return rec;
+  }
+
+  /** Threshold HR for heart-rate TSS; sets rec.lthrAtRide (+ lthrEstimated when guessed from max HR). */
+  static lthrFor(rec, opts, existing) {
+    const n = VeloStravaSync.num;
+    let lthr, est = false;
+    if (existing && n(existing.lthrAtRide) && !existing.lthrEstimated) lthr = n(existing.lthrAtRide);
+    else if (n(opts.lthr)) lthr = n(opts.lthr);
+    else { lthr = Math.round((n(opts.maxHr) || 175) * 0.9); est = true; }
+    rec.lthrAtRide = lthr;
+    if (est) rec.lthrEstimated = true;
+    return lthr;
   }
 
   /** What to hand VeloDedupe for any record or activity (explicit sport family, energy in kcal). */
@@ -323,7 +415,7 @@ class VeloStravaSync {
     const out = {
       range, fetched: acts.length,
       new: [], linked: [], refreshed: [], removed: [], merged: [], review: [], staleLinks: [],
-      alreadyLinked: 0, unchanged: 0, knownMerged: 0,
+      alreadyLinked: 0, unchanged: 0, unchangedList: [], knownMerged: 0,
       mergedMap: { ...mergedPrev }, decisions: { ...decisions }
     };
 
@@ -377,7 +469,7 @@ class VeloStravaSync {
         const next = S.toRecord(a, recOpts, existing);
         const changes = S.diffRecords(existing, next);
         if (changes.length) out.refreshed.push({ activity: a, record: next, before: existing, changes });
-        else out.unchanged++;
+        else { out.unchanged++; out.unchangedList.push({ activity: a, record: existing }); }
         return;
       }
       // Rider's earlier decision on a "possible" match
@@ -447,7 +539,10 @@ class VeloStravaSync {
   static diffRecords(a, b) {
     const keys = new Set([...Object.keys(a || {}), ...Object.keys(b || {})]);
     const changes = [];
-    keys.forEach(k => { if (VeloStravaSync.stable(a[k]) !== VeloStravaSync.stable(b[k])) changes.push(k); });
+    keys.forEach(k => {
+      if (k === 'samples') { if (a.samples !== b.samples && VeloStravaSync.stable(a.samples || null) !== VeloStravaSync.stable(b.samples || null)) changes.push(k); return; }
+      if (VeloStravaSync.stable(a[k]) !== VeloStravaSync.stable(b[k])) changes.push(k);
+    });
     return changes.sort();
   }
 
