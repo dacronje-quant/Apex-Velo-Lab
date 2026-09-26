@@ -207,8 +207,12 @@ class VeloAiCoach {
       return `- ${VeloMetrics.localDateKey(w.date)}: "${w.title}" (${Math.round((w.duration || 0) / 60)} min, TSS ${w.tss || 0}, NP ${w.np || 0}W, IF ${w.if || 0})`;
     }).join('\n') || `- No rides logged in the past ${lookback} days.`;
 
+    // Post-ride insight (interval diagnosis, drift, PR medals, FTP) from rides with recorded power.
+    let insight = { lines: [] };
+    try { if (this.app.coachInsight) insight = this.app.coachInsight(lookback, now); } catch (e) { /* insight is optional */ }
+
     return {
-      profile, ctl, atl, tsb,
+      profile, ctl, atl, tsb, insight,
       formZone: form.label, formKey: form.key, formDesc: form.desc,
       sevenDayTss, sevenDayHours, recentWorkouts, recentList, consecutiveDays,
       lookbackDays: lookback, windowRideCount: windowRides.length, listedRideCount: listedRides.length,
@@ -457,6 +461,22 @@ class VeloAiCoach {
     };
   }
 
+  /** One or two sentences for the offline engine's advice, from the recent-ride insight. */
+  insightAdvice(ctx, focus) {
+    const ins = ctx.insight || {};
+    const out = [];
+    const faded = ins.lastHard && ins.lastHard.diag.some(l => /faded|under target|drift/.test(l));
+    if (faded && ['vo2max', 'threshold', 'sweetspot'].includes(focus)) out.push(`Your last hard session (${ins.lastHard.date}) faded late - start today's intervals at the low end of the targets and fuel early.`);
+    const d = ins.drift || [];
+    if (d.length >= 2) {
+      const avg = d.reduce((a, x) => a + x.pct, 0) / d.length;
+      if (avg > 8) out.push(`Pw:HR drift on your steady rides averages ${avg.toFixed(1)}% - more steady Zone 2 volume will help your aerobic base.`);
+      else if (avg < 5) out.push(`Pw:HR drift averages ${avg.toFixed(1)}% - your aerobic base is solid.`);
+    }
+    if (ins.ftp) out.push(`Your recent rides suggest an FTP of about ${ins.ftp.ftp} W - update it in the ride review to scale the targets.`);
+    return out.join(' ');
+  }
+
   generateOfflineHeuristic(ctx) {
     const focus = this.decideFocus(ctx);
     if (ctx.autoDuration) ctx.durationMin = this.optimalDuration(focus, ctx);
@@ -486,7 +506,7 @@ class VeloAiCoach {
         formZone: ctx.formZone,
         fitnessDiagnosis: `CTL ${ctx.ctl.toFixed(1)} / ATL ${ctx.atl.toFixed(1)} / TSB ${ctx.tsb >= 0 ? '+' : ''}${ctx.tsb.toFixed(1)} (${ctx.formZone}). ${ctx.formDesc} ${h.hoursPerWeek4w !== undefined ? `You have averaged ${h.hoursPerWeek4w} h/week over the last 4 weeks.` : ''}`,
         fatigueStatus: `${ctx.sevenDayTss} TSS in 7 days (${ctx.sevenDayHours.toFixed(1)} h). ${ctx.consecutiveDays >= 2 ? `${ctx.consecutiveDays} riding days in a row.` : ''} ${h.daysSinceHard !== null && h.daysSinceHard !== undefined ? `Last hard ride (IF >= 0.85) ${h.daysSinceHard} day(s) ago.` : ''} ${mixText}`.replace(/\s+/g, ' ').trim(),
-        trainingAdvice: `Goal: ${goal.label} - ${goal.summary} ${why} ${ctx.autoDuration ? `Auto duration: ${ctx.durationMin} min - ${{ recovery: 'short enough to aid recovery', endurance: 'a little longer than your usual ride to build durability', vo2max: 'enough work at VO2 without sacrificing quality', threshold: 'enough time at threshold for your current fitness', sweetspot: 'the time-in-zone your fitness can absorb' }[focus] || 'matched to your form'}.` : ''} ${notes}`.replace(/\s+/g, ' ').trim()
+        trainingAdvice: `Goal: ${goal.label} - ${goal.summary} ${why} ${this.insightAdvice(ctx, focus)} ${ctx.autoDuration ? `Auto duration: ${ctx.durationMin} min - ${{ recovery: 'short enough to aid recovery', endurance: 'a little longer than your usual ride to build durability', vo2max: 'enough work at VO2 without sacrificing quality', threshold: 'enough time at threshold for your current fitness', sweetspot: 'the time-in-zone your fitness can absorb' }[focus] || 'matched to your form'}.` : ''} ${notes}`.replace(/\s+/g, ' ').trim()
       },
       workout,
       weekPlan
@@ -511,7 +531,9 @@ PERFORMANCE MANAGEMENT (Banister model):
 - Days since last hard ride (IF>=0.85): ${h.daysSinceHard ?? 'none on record'}; days since last ride >= 90 min: ${h.daysSinceLong ?? 'none on record'}
 - Power profile: ${h.profileType || 'n/a'}
 - Strength training: ${ctx.strength && ctx.strength.line ? ctx.strength.line : 'none recorded'}
-RIDES IN THE LAST ${ctx.lookbackDays} DAYS (newest first${ctx.windowRideCount > ctx.listedRideCount ? `, ${ctx.listedRideCount} most recent of ${ctx.windowRideCount}` : ''}):
+${ctx.insight && ctx.insight.lines.length ? `RECENT RIDE INSIGHT (computed from recorded power and heart rate - use it, e.g. ease or re-pace a session type that faded, keep aerobic work steady while drift is high, build on new bests):
+${ctx.insight.lines.map(l => `- ${l}`).join('\n')}
+` : ''}RIDES IN THE LAST ${ctx.lookbackDays} DAYS (newest first${ctx.windowRideCount > ctx.listedRideCount ? `, ${ctx.listedRideCount} most recent of ${ctx.windowRideCount}` : ''}):
 ${ctx.recentList}
 
 RULES: scale all targets as % of FTP; include warmup and cooldown; interval durations in seconds; every interval needs a cadence target (rpm); ${ctx.autoDuration ? 'total duration 30-150 min as you judge optimal' : `total duration must be within 3 minutes of ${ctx.durationMin} min`}; respect fatigue (TSB < -25 -> recovery). The weekPlan must contain 7 days starting today; use focus "off" for rest days.

@@ -124,6 +124,7 @@ class VeloApp {
     if (this.initStravaUi) this.initStravaUi();
     if (this.initStravaSyncUi) this.initStravaSyncUi();
     if (this.bindInsightActions) this.bindInsightActions(document.getElementById('modalRideDetails'));
+    if (this.initAutoBackup) this.initAutoBackup();
     if (this.initRemoteView) this.initRemoteView();
     this.initAnalyticsUi();
     this.updateProfileUi();
@@ -226,6 +227,7 @@ class VeloApp {
       localStorage.setItem('apex_velo_profiles', JSON.stringify(this.profiles));
       localStorage.setItem('apex_velo_active_prof_id', this.activeProfileId);
     } catch (e) { /* ignore */ }
+    if (this.scheduleAutoBackup) this.scheduleAutoBackup();
   }
 
   loadActiveProfileId() {
@@ -344,7 +346,10 @@ class VeloApp {
     const editId = this.$('profInputName').dataset.editId;
     if (editId) {
       const p = this.profiles.find(x => x.id === editId);
-      if (p) { Object.assign(p, { name, ftp, weightKg, maxHr }); if (lthr) p.lthr = lthr; else delete p.lthr; }
+      if (p) {
+        if (p === this.activeProfile && Number(p.ftp) !== ftp && this.logFtpChange) this.logFtpChange(p.ftp, ftp, 'manual');
+        Object.assign(p, { name, ftp, weightKg, maxHr }); if (lthr) p.lthr = lthr; else delete p.lthr;
+      }
       this.showToast(`Updated "${name}" (${ftp} W FTP)`, 'success');
     } else {
       const newId = 'prof_' + Date.now();
@@ -1991,10 +1996,12 @@ class VeloApp {
     cancelAnimationFrame(this.animFrameId);
     this.releaseWakeLock();
     if (this.stopRemoteView) this.stopRemoteView();
+    clearTimeout(this._backupTimer);
+    clearTimeout(this._stravaAutoTimer);
     this.clock.destroy();
     this._disposers.forEach(fn => { try { fn(); } catch (e) { /* ignore */ } });
     this._disposers = [];
-    [this.telemetryChart, this.pmcChart, this.mmpChart, this.ftpChart, this.torqueChart, this.angleChart, this.currentScrubChart, this.progWeeklyChart, this.progScatterChart]
+    [this.telemetryChart, this.pmcChart, this.mmpChart, this.ftpChart, this.driftChart, this.torqueChart, this.angleChart, this.currentScrubChart, this.progWeeklyChart, this.progScatterChart]
       .forEach(c => { if (c) c.destroy(); });
     this.polarRenderer.destroy();
     this.deepBiomechRenderer.destroy();
@@ -2018,7 +2025,7 @@ class VeloApp {
       requestAnimationFrame(() => {
         this.updateMmpChart();
         this.refreshAnalytics();
-        [this.pmcChart, this.mmpChart, this.ftpChart, this.progWeeklyChart, this.progScatterChart].forEach(c => c && c.resize());
+        [this.pmcChart, this.mmpChart, this.ftpChart, this.driftChart, this.progWeeklyChart, this.progScatterChart].forEach(c => c && c.resize());
       });
     } else if (tabKey === 'biomechanics') {
       requestAnimationFrame(() => {
@@ -2375,6 +2382,7 @@ class VeloApp {
     }
     this.renderCalendarView();
     this.updateHeroStats();
+    if (this.scheduleAutoBackup) this.scheduleAutoBackup();
   }
 
   async initIndexedDb() {

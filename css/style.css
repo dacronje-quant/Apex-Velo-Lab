@@ -1277,3 +1277,6 @@ body.focus-mode #valInstantPower { font-size: clamp(120px, 14vw, 220px); }
 
 .interval-diagnosis .diag-list { margin: 6px 0 10px 18px; padding: 0; line-height: 1.55; }
 .interval-diagnosis .ai-breakdown { border-left: 3px solid var(--accent, #22d3ee); padding: 4px 0 4px 12px; margin-bottom: 6px; }
+
+.auto-backup-status { font-size: 12px; margin: -4px 0 10px; }
+.auto-backup-status .backup-warn { color: #fbbf24; }

@@ -86,6 +86,7 @@
       this.initPmcChart();
       this.initMmpChart();
       this.initFtpChart();
+      if (this.initDriftChart) this.initDriftChart();
       this.initBiomechStudioCharts();
       this.initProgressionCharts();
     },
@@ -120,6 +121,7 @@
     refreshAnalytics() {
       this.recalculatePmc();
       this.updateFtpChart();
+      if (this.updateDriftChart) this.updateDriftChart();
       this.updateMmpChart();
       this.renderProgression();
       this.updateHeroStats && this.updateHeroStats();
@@ -293,25 +295,47 @@
     },
 
     // ------------------------------------------------------ monthly peak NP --
+    /**
+     * Per month: peak NP (bars), the FTP in use at month end (from the FTP stored with each ride and
+     * the profile's FTP-change log) and the best FTP the rides proved (20 min x 0.95 / 60 min).
+     */
     getFtpProgressionData() {
       const rides = this.cyclingRides();
-      if (!rides.length) return { labels: [], data: [] };
+      if (!rides.length) return { labels: [], data: [], ftp: [], proven: [] };
       const monthly = new Map();
+      const monthKey = (d) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
       [...rides]
         .filter(w => w.date && (w.np > 0 || w.avgWatts > 0))
         .sort((a, b) => new Date(a.date) - new Date(b.date))
         .forEach(w => {
           const d = new Date(w.date);
           if (isNaN(d.getTime())) return;
-          const key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+          const key = monthKey(d);
           const val = w.np || w.avgWatts || 0;
-          const e = monthly.get(key);
-          if (!e) monthly.set(key, { label: d.toLocaleDateString('en-US', { month: 'short', year: '2-digit' }), maxNp: val });
+          let e = monthly.get(key);
+          if (!e) { e = { label: d.toLocaleDateString('en-US', { month: 'short', year: '2-digit' }), maxNp: val, ftp: null, ftpAt: 0, proven: null }; monthly.set(key, e); }
           else if (val > e.maxNp) e.maxNp = val;
+          const f = Number(w.ftpAtRide) || 0;
+          if (f > 0 && d.getTime() >= e.ftpAt) { e.ftp = f; e.ftpAt = d.getTime(); }
+          const ev = this.ftpEvidenceOf ? this.ftpEvidenceOf(w) : null;
+          if (ev && ev.estimate > 0 && (e.proven === null || ev.estimate > e.proven)) e.proven = ev.estimate;
         });
-      const labels = [], data = [];
-      monthly.forEach(e => { labels.push(e.label); data.push(e.maxNp); });
-      return { labels, data };
+      // FTP changes made in the profile (one-click update or manual edit) count from their date.
+      const log = Array.isArray(this.activeProfile.ftpHistory) ? this.activeProfile.ftpHistory : [];
+      log.forEach(x => {
+        const d = new Date(x.date);
+        const e = monthly.get(monthKey(d));
+        if (e && d.getTime() >= e.ftpAt && Number(x.ftp) > 0) { e.ftp = Number(x.ftp); e.ftpAt = d.getTime(); }
+      });
+      const labels = [], data = [], ftp = [], proven = [];
+      let carry = null;
+      monthly.forEach(e => {
+        carry = e.ftp || carry;
+        // Only efforts that actually tested FTP (within 5% of it, or above): an easy hour only proves a floor.
+        const tested = e.proven !== null && (!carry || e.proven >= carry * 0.95);
+        labels.push(e.label); data.push(e.maxNp); ftp.push(carry); proven.push(tested ? e.proven : null);
+      });
+      return { labels, data, ftp, proven };
     },
 
     initFtpChart() {
@@ -320,11 +344,22 @@
       const d = this.getFtpProgressionData();
       this.ftpChart = new Chart(ctx, {
         type: 'bar',
-        data: { labels: d.labels, datasets: [{ label: 'Peak monthly NP', data: d.data, backgroundColor: 'rgba(124,58,237,0.55)', hoverBackgroundColor: VIZ.violet, borderRadius: 4, maxBarThickness: 36 }] },
+        data: {
+          labels: d.labels,
+          datasets: [
+            { label: 'Peak monthly NP', data: d.data, backgroundColor: 'rgba(124,58,237,0.55)', hoverBackgroundColor: VIZ.violet, borderRadius: 4, maxBarThickness: 36, order: 3 },
+            { type: 'line', label: 'FTP in use', data: d.ftp, borderColor: VIZ.amber, backgroundColor: VIZ.amber, borderWidth: 2, stepped: 'middle', pointRadius: 0, spanGaps: true, order: 1 },
+            { type: 'line', label: 'FTP your rides proved', data: d.proven, borderColor: VIZ.lime, backgroundColor: VIZ.lime, showLine: false, pointStyle: 'triangle', pointRadius: 6, pointHoverRadius: 8, order: 0 }
+          ]
+        },
         options: {
           responsive: true, maintainAspectRatio: false,
           scales: { x: axis({ grid: { display: false } }), y: axis({ suggestedMin: 100, title: { display: true, text: 'W', color: INK.muted } }) },
-          plugins: { tooltip: { callbacks: { label: (c) => ` Peak NP: ${c.parsed.y} W (${(c.parsed.y / this.activeProfile.ftp * 100).toFixed(0)}% of FTP)` } } }
+          plugins: {
+            legend: { display: true, labels: { color: INK.secondary, boxWidth: 10, usePointStyle: true } },
+            tooltip: { callbacks: { label: (c) => c.datasetIndex === 0 ? ` Peak NP: ${c.parsed.y} W (${(c.parsed.y / this.activeProfile.ftp * 100).toFixed(0)}% of FTP)`
+              : c.datasetIndex === 1 ? ` FTP in use: ${c.parsed.y} W` : ` Proven by a ride: ${c.parsed.y} W (best 20 min x 0.95 or 60 min)` } }
+          }
         }
       });
       this.updateFtpDelta(d);
@@ -335,6 +370,8 @@
       const d = this.getFtpProgressionData();
       this.ftpChart.data.labels = d.labels;
       this.ftpChart.data.datasets[0].data = d.data;
+      if (this.ftpChart.data.datasets[1]) this.ftpChart.data.datasets[1].data = d.ftp;
+      if (this.ftpChart.data.datasets[2]) this.ftpChart.data.datasets[2].data = d.proven;
       this.ftpChart.update();
       this.updateFtpDelta(d);
     },
@@ -342,9 +379,12 @@
     updateFtpDelta(d) {
       const el = document.getElementById('ftpDeltaLabel');
       if (!el) return;
-      if (!d.data.length || d.data.length < 2) { el.textContent = d.data.length ? `${d.data[0]} W` : '--'; return; }
-      const delta = d.data[d.data.length - 1] - d.data[0];
-      el.textContent = `${delta >= 0 ? '+' : ''}${delta} W since ${d.labels[0]}`;
+      // FTP change over the period shown (the FTP in use), else the peak-NP change for rides without FTP.
+      const ftps = (d.ftp || []).filter(v => v > 0);
+      const series = ftps.length >= 2 ? ftps : d.data;
+      if (!series.length || series.length < 2) { el.textContent = ftps.length ? `FTP ${ftps[0]} W` : d.data.length ? `${d.data[0]} W` : '--'; return; }
+      const delta = series[series.length - 1] - series[0];
+      el.textContent = `${ftps.length >= 2 ? 'FTP ' : ''}${delta >= 0 ? '+' : ''}${delta} W since ${d.labels[0]}`;
       el.classList.toggle('chip-lime', delta > 0);
     },
 

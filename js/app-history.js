@@ -107,6 +107,14 @@
       Array.from(fileList).forEach(file => {
         const name = file.name.toLowerCase();
         const stem = file.name.replace(/\.[^/.]+$/, '');
+        // An automatic backup (data\backups\*.json.gz): unzip, then restore like a .json backup.
+        if (name.endsWith('.json.gz')) {
+          if (typeof DecompressionStream === 'undefined') { this.showToast('This browser cannot open .gz backups - unzip it first.', 'error'); return; }
+          new Response(file.stream().pipeThrough(new DecompressionStream('gzip'))).text()
+            .then(text => this.importJsonText(text, file.name))
+            .catch(err => this.showToast(`Could not read ${file.name}: ${err.message}`, 'error'));
+          return;
+        }
         const reader = new FileReader();
         reader.onerror = () => this.showToast(`Could not read ${file.name}.`, 'error');
         if (name.endsWith('.fit')) {
@@ -136,16 +144,7 @@
               ride.title = stem;
               this.addImportedRides([ride]);
             } else if (name.endsWith('.json')) {
-              const parsed = JSON.parse(content);
-              const list = Array.isArray(parsed) ? parsed : (parsed.history || parsed.rides || [parsed]);
-              const known = new Set(this.completedWorkouts.map(r => r.id));
-              const fresh = list.filter(r => r && r.date && !known.has(r.id));
-              if (parsed.profiles && Array.isArray(parsed.profiles) && confirm('This backup includes rider profiles. Restore them too?')) {
-                this.profiles = parsed.profiles;
-                this.activeProfileId = parsed.activeProfileId || this.profiles[0].id;
-                this.applyProfileChange();
-              }
-              this.addImportedRides(fresh, `Restored ${fresh.length} ride${fresh.length === 1 ? '' : 's'} from ${file.name}.`);
+              this.importJsonText(content, file.name);
             } else {
               this.showToast(`Unsupported file type: ${file.name}`, 'warning');
             }
@@ -156,6 +155,27 @@
         };
         reader.readAsText(file);
       });
+    },
+
+    /** Restores a backup (or a list of rides) from JSON text: adds rides not already in the history. */
+    importJsonText(content, fileName) {
+      try {
+        const parsed = JSON.parse(content);
+        const list = Array.isArray(parsed) ? parsed : (parsed.history || parsed.rides || [parsed]);
+        const known = new Set(this.completedWorkouts.map(r => r.id));
+        const fresh = list.filter(r => r && r.date && !known.has(r.id));
+        if (parsed.profiles && Array.isArray(parsed.profiles) && parsed.profiles.length && confirm('This backup includes rider profiles. Restore them too?')) {
+          this.profiles = parsed.profiles;
+          this.activeProfileId = parsed.activeProfileId || this.profiles[0].id;
+          this.applyProfileChange();
+        }
+        if (!fresh.length) { this.showToast(`${fileName}: every ride in it is already in your history.`, 'info'); return 0; }
+        this.addImportedRides(fresh, `Restored ${fresh.length} ride${fresh.length === 1 ? '' : 's'} from ${fileName}.`);
+        return fresh.length;
+      } catch (err) {
+        this.showToast(`Could not parse ${fileName}: ${err.message}`, 'error');
+        return -1;
+      }
     },
 
     // -------------------------------------------------------- history table --
@@ -655,7 +675,7 @@
     exportCsv() { this.exportSession('csv'); },
 
     exportJson() {
-      const data = { app: 'APEX VELO LAB', exportedAt: new Date().toISOString(), profiles: this.profiles, activeProfileId: this.activeProfileId, workoutLibrary: this.loadSavedWorkouts(), history: this.completedWorkouts };
+      const data = this.backupPayload();
       this.downloadFile(`apex_velo_backup_${VeloMetrics.localDateKey(new Date())}.json`, JSON.stringify(data, null, 2), 'application/json');
     },
 

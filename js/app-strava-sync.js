@@ -539,6 +539,7 @@
 
     /** Re-renders every view that depends on the ride list (no storage writes). */
     afterHistoryReplaced() {
+      if (this.scheduleAutoBackup) this.scheduleAutoBackup();
       this.renderHistoryTable();
       this.renderCalendarView();
       this.refreshAnalytics();

@@ -7,9 +7,8 @@
   <meta name="color-scheme" content="dark">
   <link rel="manifest" href="manifest.json">
   <title>Apex Velo Lab</title>
-  <link rel="preconnect" href="https://fonts.googleapis.com">
-  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+  <!-- Fonts and Chart.js are served from this folder (vendor/), so the app works with no internet. -->
+  <link href="css/fonts.css" rel="stylesheet">
   <script>
     // Test isolation: test_suite.html loads the app with ?apexTest=1. In that mode the app gets an
     // in-memory localStorage and its own IndexedDB, so running the tests can never touch your rides.
@@ -28,7 +27,7 @@
       window.__APEX_TEST_MODE__ = true;
     })();
   </script>
-  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+  <script src="vendor/chart.umd.min.js"></script>
   <script src="data/divan_cycling_history.js"></script>
   <link rel="stylesheet" href="css/style.css">
 </head>
@@ -769,11 +768,17 @@
         </div>
         <div class="col-span-5">
           <div class="card">
-            <div class="card-title"><span>Monthly peak NP</span><span class="chip chip-ghost num" id="ftpDeltaLabel">--</span></div>
+            <div class="card-title"><span>FTP history &amp; monthly peak NP</span><span class="chip chip-ghost num" id="ftpDeltaLabel">--</span></div>
             <div class="chart-box" style="height:260px;"><canvas id="ftpProgressChartCanvas"></canvas></div>
-            <p class="footnote">Highest Normalized Power ride per month (average power when NP was not recorded).</p>
+            <p class="footnote">Bars: highest Normalized Power ride per month. Amber line: the FTP your rides used (and your FTP updates). Green triangles: months where a ride tested your FTP - the FTP it proved (best 20 min x 0.95 or best 60 min), shown when it came within 5% of your FTP or beat it.</p>
           </div>
         </div>
+      </div>
+
+      <div class="card">
+        <div class="card-title"><span>Aerobic decoupling (Pw:HR) trend</span><span class="chip chip-ghost num" id="driftTrendLabel">--</span></div>
+        <div class="chart-box" style="height:220px;"><canvas id="driftTrendCanvas"></canvas></div>
+        <p class="footnote" id="driftTrendNote">Each point is a steady ride (Zone 2, tempo, sweet spot) with heart rate: how much power per heartbeat dropped from the first to the second half. Under 5% = aerobically coupled; a falling trend at the same power means your aerobic base is improving.</p>
       </div>
     </section>
 
@@ -808,7 +813,7 @@
         <div class="btn-row btn-row-center">
           <button type="button" class="btn btn-primary" id="btnConnectHealthFitFolder" title="Read a HealthFit folder with the File System Access API"><svg class="ic"><use href="#i-folder"/></svg>Connect HealthFit folder</button>
           <button type="button" class="btn btn-warning" id="btnWipeAndSyncHealthFitFolder" title="Replace history with the folder contents"><svg class="ic"><use href="#i-refresh"/></svg>Wipe &amp; re-sync from folder</button>
-          <input type="file" id="fileInputTcx" accept=".fit,.tcx,.json,.csv" multiple hidden>
+          <input type="file" id="fileInputTcx" accept=".fit,.tcx,.json,.gz,.csv" multiple hidden>
           <button type="button" class="btn" id="btnChooseImportFiles"><svg class="ic"><use href="#i-download"/></svg>Choose files</button>
           <button type="button" class="btn btn-ghost" id="btnImportFromDataFolder">Load sample ride</button>
         </div>
@@ -870,11 +875,13 @@
             <button type="button" class="btn btn-sm" id="btnExportTcxActive"><svg class="ic"><use href="#i-download"/></svg>Session TCX</button>
             <button type="button" class="btn btn-sm" id="btnExportCsvRide"><svg class="ic"><use href="#i-download"/></svg>Session CSV</button>
             <button type="button" class="btn btn-sm" id="btnExportJsonHistory"><svg class="ic"><use href="#i-save"/></svg>Backup JSON</button>
+            <button type="button" class="btn btn-sm" id="btnBackupNow" title="Save a backup to data\backups on this PC now (it also happens automatically after every change)"><svg class="ic"><use href="#i-save"/></svg>Back up now</button>
             <button type="button" class="btn btn-sm btn-warning" id="btnSyncHealthFitHistoryTable"><svg class="ic"><use href="#i-refresh"/></svg>Re-sync</button>
             <button type="button" class="btn btn-sm btn-strava-link" id="btnStravaCheckAll" title="Mark rides that already exist on your Strava account">Check Strava</button>
             <button type="button" class="btn btn-sm btn-danger" id="btnClearAllWorkoutsTable"><svg class="ic"><use href="#i-trash"/></svg>Clear all</button>
           </div>
         </div>
+        <div class="dim auto-backup-status" id="autoBackupStatus" aria-live="polite"></div>
         <div class="table-scroll">
           <table class="history-table data-table">
             <thead>
@@ -1280,6 +1287,7 @@
   <script src="js/app-strava.js"></script>
   <script src="js/app-strava-sync.js"></script>
   <script src="js/app-insight.js"></script>
+  <script src="js/app-backup.js"></script>
   <script src="js/app-remote.js"></script>
 </body>
 </html>
