@@ -1315,6 +1315,8 @@
             const at = (daysAgo, h, m = 0) => { const d = new W.Date(nowMs - daysAgo * DAY); d.setHours(h, m, 0, 0); return d.getTime(); };
             const calls = [];
             let strava = [];   // what the mocked Strava account holds (full detail objects)
+            const streamData = {};          // activity id -> Strava streams (key_by_type)
+            let streamMode = 'ok';          // 'ok' | 'ratelimited'
             const listShape = (a) => { const { description, calories, ...rest } = a; return { ...rest, detailed: false }; };
             const J = (s, b) => new W.Response(JSON.stringify(b), { status: s, headers: { 'Content-Type': 'application/json' } });
             const mockFetch = async (u, o = {}) => {
@@ -1322,6 +1324,12 @@
               if (url.includes('api/strava/')) calls.push({ url, method: (o.method || 'GET').toUpperCase() });
               if (url.includes('api/strava/sync')) {
                 const q = new W.URL(url, W.location.href).searchParams;
+                if (q.get('streams') !== null) {
+                  const id = q.get('streams');
+                  if (streamMode === 'ratelimited') return J(200, { id, rateLimited: true, rate: { used15: 100, limit15: 100 } });
+                  if (!strava.some(a => a.id === id)) return J(200, { id, missing: true, rate: { used15: 6, limit15: 100 } });
+                  return J(200, { id, streams: streamData[id] || { time: { data: [0, 1, 2] } }, rate: { used15: 6, limit15: 100 } });
+                }
                 if (q.get('ids') !== null) {
                   const ids = q.get('ids').split(',');
                   return J(200, { activities: strava.filter(a => ids.includes(a.id)).map(a => ({ ...a, detailed: true })), missing: ids.filter(id => !strava.some(a => a.id === id)), rateLimited: false, rate: { used15: 5, limit15: 100 } });
@@ -1594,6 +1602,144 @@
                 const stillThere = app.completedWorkouts.some(r => r.id === 'ride_after_sync') && ((await W.VeloDB.getAllRides()) || []).some(r => r.id === 'ride_after_sync' && r.samples.length === 60);
                 const undone = !app.completedWorkouts.some(r => r.id === 'strava_705') && app.completedWorkouts.some(r => r.id === 'strava_704');
                 return { ok: kept && u.ok && stillThere && undone, detail: `5 restore points kept:${kept} undo ok:${u.ok} ride recorded after the sync kept:${stillThere} last sync undone:${undone}${undone ? '' : ' ids=' + app.completedWorkouts.filter(r => /strava_7/.test(r.id)).map(r => r.id).join(',') + ' state=' + W.localStorage.getItem(SS.STATE_KEY).slice(0, 300)}` };
+              });
+
+              await suite('Strava Streams: 1 Hz Conversion Holds Short Gaps & Drops Pauses, TSS From the Power Stream, Measured Power Only', async () => {
+                // 60 s, a 3 s smart-recording gap (held), 60 s, a 79 s pause (dropped), 60 s
+                const time = [...Array.from({ length: 60 }, (_, i) => i), ...Array.from({ length: 60 }, (_, i) => 62 + i), ...Array.from({ length: 60 }, (_, i) => 200 + i)];
+                const watts = time.map((t, i) => 150 + (i % 7));
+                const hr = time.map(() => 130);
+                const smp = SS.streamsToSamples({ time: { data: time }, watts: { data: watts }, heartrate: { data: hr }, cadence: { data: time.map(() => 88) } });
+                const heldOk = smp && smp.length === 182 && smp[60].power === smp[59].power && smp[61].power === smp[59].power && smp[62].power === watts[60];
+                const seqOk = smp && smp.every((x, i) => x.time === i + 1) && smp.every(x => x.hr === 130 && x.cadence === 88);
+                const noPower = SS.streamsToSamples({ time: { data: time }, heartrate: { data: hr } }) === null;
+                const tooShort = SS.streamsToSamples({ time: { data: [0, 1, 2] }, watts: { data: [100, 100, 100] } }) === null;
+                // One hour at FTP = 100 TSS, computed from the samples (not estimated)
+                const hour = Array.from({ length: 3600 }, (_, i) => ({ time: i + 1, power: 185 }));
+                const act = { id: '9001', name: 'FTP hour', sport_type: 'VirtualRide', start_date: iso(at(5, 6)), moving_time: 3600, elapsed_time: 3600, average_watts: 185, device_watts: true, samples: hour };
+                const rec = SS.toRecord(act, { ftp: 185 }, null);
+                const tssOk = rec.tss === 100 && rec.np === 185 && rec.tssMethod === 'power-stream' && rec.tssEstimated === false && rec.streams === 'ok' && rec.samples === hour;
+                const measured = SS.hasMeasuredPower({ sport_type: 'Ride', device_watts: true, average_watts: 200 }) && !SS.hasMeasuredPower({ sport_type: 'Ride', device_watts: false, average_watts: 200 }) && !SS.hasMeasuredPower({ sport_type: 'Run', device_watts: true, average_watts: 200 });
+                return { ok: heldOk && seqOk && noPower && tooShort && tssOk && measured,
+                  detail: `3 s gap held + 79 s pause dropped (182 samples):${heldOk} (${smp && smp.length}) 1 Hz sequence + HR/cadence:${seqOk} no power stream -> none:${noPower} too short -> none:${tooShort} TSS from stream (1 h @ FTP = ${rec.tss}):${tssOk} measured power only (not Strava's estimate, not runs):${measured}` };
+              });
+
+              await suite('Strava Streams: Fetched Only for Power-Meter Rides, Preview Writes Nothing, Undo Exact After Streams Added or Removed, Imports Never Sent Back', async () => {
+                const hourStream = (w) => ({ time: { data: Array.from({ length: 3600 }, (_, i) => i) }, watts: { data: Array.from({ length: 3600 }, () => w) }, heartrate: { data: Array.from({ length: 3600 }, () => 140) } });
+                const t6 = at(4, 6, 0);
+                strava.push(
+                  { id: '650', name: 'Power meter ride', sport_type: 'VirtualRide', start_date: iso(t6), moving_time: 3600, elapsed_time: 3600, average_watts: 200, weighted_average_watts: 200, kilojoules: 720, device_watts: true, trainer: true, description: '', calories: 700 },
+                  { id: '651', name: 'Estimated power', sport_type: 'Ride', start_date: iso(t6 + 5 * 3600000), moving_time: 3600, elapsed_time: 3600, average_watts: 150, device_watts: false, description: '', calories: 650 },
+                  { id: '652', name: 'No power stream', sport_type: 'VirtualRide', start_date: iso(t6 + 10 * 3600000), moving_time: 3600, elapsed_time: 3600, average_watts: 170, device_watts: true, trainer: true, description: '', calories: 650 }
+                );
+                streamData['650'] = hourStream(200);
+                streamData['652'] = { time: hourStream(0).time, heartrate: hourStream(0).heartrate };
+                const streamCalls = () => calls.filter(c => /streams=/.test(c.url)).map(c => c.url.split('streams=')[1]).sort().join(',');
+                const idbRec = async (id) => ((await W.VeloDB.getAllRides()) || []).find(r => r.id === id);
+
+                // 1. Strava rate-limited: summaries only, power data pending; nothing written by the preview.
+                streamMode = 'ratelimited';
+                const S0 = await snapshot();
+                const p1 = await app.previewStravaSync(choice);
+                const pendingOk = !!p1 && p1.new.some(x => x.activity.id === '650' && !x.record.samples) && /still without power data/.test(D.getElementById('stravaSyncBody').innerText);
+                const previewClean = (await snapshot()) === S0;
+                const applied1 = await app.applyStravaSync();
+                const diag1 = `p1:${p1 ? 'new=' + p1.new.map(x => x.activity.id).join('/') + ' refreshed=' + p1.refreshed.map(x => x.record.id).join('/') + ' pending=' + (app._stravaSyncPreview ? '' : '') : 'null'} progress:"${(D.getElementById('stravaSyncProgress') || {}).innerText || ''}" apply1:${applied1.ok ? 'ok' : applied1.error}`;
+                const S1 = await snapshot();
+
+                // 2. Streams available: only 650 (measured, no samples) and 652 are fetched, never 651 (estimated).
+                streamMode = 'ok';
+                calls.length = 0;
+                const p2 = await app.previewStravaSync(choice);
+                const fetchedOk = streamCalls() === '650,652';
+                const r650 = p2.refreshed.find(x => x.record.id === 'strava_650');
+                const r652 = p2.refreshed.find(x => x.record.id === 'strava_652');
+                const planOk = !!r650 && r650.record.samples.length === 3600 && r650.record.tssMethod === 'power-stream' && r650.record.tss === Math.round(Math.pow(200 / r650.record.ftpAtRide, 2) * 100) && !!r652 && r652.record.streams === 'none';
+                const labelOk = /adds second-by-second power/.test(D.getElementById('stravaSyncBody').innerText);
+                const preview2Clean = (await snapshot()) === S1;
+                const applied = await app.applyStravaSync();
+                const stored = await idbRec('strava_650');
+                const storedOk = applied.ok && !!stored && Array.isArray(stored.samples) && stored.samples.length === 3600 && stored.streams === 'ok';
+                // Imports never go back to Strava, even with samples.
+                const imp = app.completedWorkouts.find(r => r.id === 'strava_650');
+                const noSend = !app.canSendToStrava(imp);
+                app.showRideSummary(imp);
+                const panelText = (D.getElementById('rideStravaPanel') || {}).innerText || '';
+                const noButton = !D.querySelector('#rideStravaPanel [data-strava="send"]') && /second-by-second power/.test(panelText);
+                app.closeModal('rideSummaryModal');
+                // A third sync asks for nothing again.
+                calls.length = 0;
+                const p3 = await app.previewStravaSync(choice);
+                const quiet = streamCalls() === '' && !p3.refreshed.some(x => /strava_65[012]/.test(x.record.id));
+                app.cancelStravaSync();
+
+                // 3. Undo after streams were ADDED: record is back to summary-only, storage identical to before.
+                await app.undoLastStravaSync({ confirmFirst: false });
+                const afterUndo = await idbRec('strava_650');
+                const undoAdded = (await snapshot()) === S1 && afterUndo && !afterUndo.samples && !app.completedWorkouts.find(r => r.id === 'strava_650').samples;
+
+                // 4. Undo after a record WITH streams was REMOVED (deleted on Strava): the samples come back.
+                await app.previewStravaSync(choice); await app.applyStravaSync();
+                const S2 = await snapshot();
+                const keep650 = strava.find(a => a.id === '650');
+                strava = strava.filter(a => a.id !== '650');
+                const p4 = await app.previewStravaSync(choice);
+                const removing = p4.removed.some(x => x.record.id === 'strava_650');
+                await app.applyStravaSync();
+                const gone = !(await idbRec('strava_650'));
+                const bk = (await backups()).sort((a, b) => b.createdAt - a.createdAt)[0];
+                const inline = bk && Array.isArray(bk.idb.find(r => r.id === 'strava_650').samples);
+                await app.undoLastStravaSync({ confirmFirst: false });
+                const back = await idbRec('strava_650');
+                const undoRemoved = (await snapshot()) === S2 && !!back && Array.isArray(back.samples) && back.samples.length === 3600;
+                strava.push(keep650);
+
+                const ok = pendingOk && previewClean && fetchedOk && planOk && labelOk && preview2Clean && storedOk && noSend && noButton && quiet && undoAdded && removing && gone && inline && undoRemoved;
+                return { ok, detail: `${ok ? '' : '[' + diag1 + '] '}rate-limited -> summary + "pending" note:${pendingOk} previews write nothing:${previewClean}/${preview2Clean} streams fetched only for measured-power rides (${streamCalls() || 'none now'}; asked 650,652):${fetchedOk} stream TSS + no-stream flag:${planOk} "adds power" label:${labelOk} stored 3600 samples:${storedOk}${applied.ok ? '' : ' (apply: ' + applied.error + ')'} import never sent back (guard/panel):${noSend}/${noButton} next sync asks nothing:${quiet} undo after streams added exact:${undoAdded} deleted on Strava removed:${removing}/${gone} restore point keeps its samples:${inline} undo after removal restores samples:${undoRemoved}${undoRemoved ? '' : ` [back samples: ${back && back.samples ? back.samples.length : 'none'}, backup keys: ${bk ? Object.keys(bk.idb.find(r => r.id === 'strava_650') || {}).join('/') : 'no backup'}]`}` };
+              });
+
+              await suite('Strava Background Check: Reads Only (No Streams), Writes Nothing, Badges History & Sync; Off Switch; Real Threshold HR Replaces the Estimate', async () => {
+                const scheduledInTests = app._stravaAutoTimer;
+                strava.push({ id: '660', name: 'New since last sync', sport_type: 'VirtualRide', start_date: iso(at(0, 5, 0)), moving_time: 1800, elapsed_time: 1800, average_watts: 190, device_watts: true, description: '', calories: 350 });
+                streamData['660'] = { time: { data: Array.from({ length: 1800 }, (_, i) => i) }, watts: { data: Array.from({ length: 1800 }, () => 190) } };
+                W.localStorage.removeItem(SS.AUTOCHECK_KEY);
+                app.strava = { reachable: false };
+                const S0 = await snapshot();
+                calls.length = 0;
+                const plan = await app.runStravaAutoCheck();
+                const readOnly = !!plan && calls.every(c => c.method === 'GET') && !calls.some(c => /streams=/.test(c.url)) && (await snapshot()) === S0 && !plan.new.some(x => x.record.samples);
+                const n = (plan ? plan.changeCount + plan.review.length : 0);
+                const navBadge = D.querySelector('.nav-btn[data-tab="history"] .sync-badge');
+                const btnBadge = D.querySelector('#btnStravaSync .sync-badge');
+                const badgeOk = n >= 1 && navBadge && navBadge.textContent === String(n) && btnBadge && btnBadge.textContent === String(n);
+                // Off switch: no check, badges cleared
+                app.setStravaAutoCheck(false);
+                const off = (await app.runStravaAutoCheck()) === null && !D.querySelector('.sync-badge') && W.localStorage.getItem(SS.AUTOCHECK_KEY) === 'false';
+                app.setStravaAutoCheck(true);
+                // A sync clears the badge
+                await app.previewStravaSync(choice); await app.applyStravaSync();
+                const cleared = !D.querySelector('.sync-badge');
+                const noTimerInTests = scheduledInTests === undefined;
+
+                // Threshold HR: estimated from max HR until a real one is entered in the profile, then used (and kept).
+                const hrRide = { id: '9100', name: 'HR only', sport_type: 'Ride', start_date: iso(at(9, 8)), moving_time: 3600, elapsed_time: 3600, average_heartrate: 150 };
+                const est = SS.toRecord(hrRide, { ftp: 185, maxHr: 180 }, null);
+                const real = SS.toRecord(hrRide, { ftp: 185, maxHr: 180, lthr: 165 }, est);
+                const kept = SS.toRecord(hrRide, { ftp: 185, maxHr: 180, lthr: 170 }, real);
+                const lthrOk = est.lthrAtRide === 162 && est.lthrEstimated === true && real.lthrAtRide === 165 && !real.lthrEstimated && real.tss !== est.tss && kept.lthrAtRide === 165;
+                const prof = app.activeProfile;
+                const savedProf = JSON.stringify(prof);
+                app.$('profInputName').dataset.editId = prof.id;
+                app.$('profInputName').value = prof.name; app.$('profInputFtp').value = prof.ftp; app.$('profInputWeight').value = prof.weightKg; app.$('profInputMaxHr').value = prof.maxHr;
+                app.$('profInputLthr').value = '158';
+                app.saveProfileFromInputs();
+                const profileOk = app.activeProfile.lthr === 158 && app.syncOptions().lthr === 158;
+                Object.keys(app.activeProfile).forEach(k => delete app.activeProfile[k]);
+                Object.assign(app.activeProfile, JSON.parse(savedProf));
+                app.applyProfileChange();
+
+                return { ok: readOnly && badgeOk && off && cleared && noTimerInTests && lthrOk && profileOk,
+                  detail: `read-only, no streams, nothing written:${readOnly} badge ${n} on History + Sync:${badgeOk} off switch:${off} sync clears badge:${cleared} not scheduled in test mode:${noTimerInTests} LTHR est 162 -> real 165 kept:${lthrOk} profile field saved + used:${profileOk}` };
               });
 
               await suite('Strava Sync: Real Browser Storage Untouched & Reconnect Error Shown When activity:read_all Is Missing', async () => {

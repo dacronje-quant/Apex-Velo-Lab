@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 /**
  * Runs BOTH local servers (server.js and start_server.ps1) against a mock Strava API and checks
- * GET /api/strava/sync: paging, detail batches, scope check, errors - and that the sync path only
+ * GET /api/strava/sync: paging, detail batches, power streams, scope check, errors - and that the sync path only
  * ever sends GET requests to Strava (the test fails on any other method).
  *
  * Nothing leaves this machine: each server runs from a temporary copy with its own .env and a
@@ -58,6 +58,18 @@ function startMockStrava() {
       const page = Number(u.searchParams.get('page')), per = Number(u.searchParams.get('per_page'));
       const inRange = ACTIVITIES.filter(a => Date.parse(a.start_date) / 1000 > after && Date.parse(a.start_date) / 1000 < before);
       return send(200, inRange.slice((page - 1) * per, page * per));
+    }
+    const st = u.pathname.match(/^\/api\/v3\/activities\/(\d+)\/streams$/);
+    if (st) {
+      if (st[1] === '5002') return send(429, { message: 'Rate Limit Exceeded' });
+      if (st[1] !== '5000') return send(404, { message: 'Record Not Found' });
+      const n = 5;
+      return send(200, {
+        time: { data: [0, 1, 2, 5, 6], series_type: 'distance', original_size: n, resolution: 'high' },
+        watts: { data: [180, 190, 200, 210, 220], series_type: 'distance', original_size: n, resolution: 'high' },
+        heartrate: { data: [120, 121, 122, 123, 124], series_type: 'distance', original_size: n, resolution: 'high' },
+        keys: u.searchParams.get('keys'), key_by_type: u.searchParams.get('key_by_type')
+      });
     }
     const m = u.pathname.match(/^\/api\/v3\/activities\/(\d+)$/);
     if (m) {
@@ -146,6 +158,22 @@ async function runAgainst(kind, pwsh, mock, appPort) {
     const tooMany = await get(`?ids=${Array.from({ length: 11 }, (_, i) => 5000 + i).join(',')}`);
     check(`${tag}: at most 10 ids per detail request`, tooMany.status === 400);
 
+    // 2b. Power streams of one activity, passed through; 404 -> missing, 429 -> rateLimited
+    const sm = await get('?streams=5000');
+    const sb = sm.body || {};
+    check(`${tag}: streams of one activity are passed through (time, watts, heart rate; key_by_type)`,
+      sm.status === 200 && sb.id === '5000' && sb.streams && stable(sb.streams.watts.data) === stable([180, 190, 200, 210, 220]) &&
+      stable(sb.streams.time.data) === stable([0, 1, 2, 5, 6]) && sb.streams.key_by_type === 'true' && /watts/.test(sb.streams.keys) && sb.rate && sb.rate.used15 === 12,
+      JSON.stringify(sb).slice(0, 200));
+    const sGone = await get('?streams=5001');
+    const sLimit = await get('?streams=5002');
+    check(`${tag}: deleted activity -> missing, Strava 429 -> rateLimited (both HTTP 200)`,
+      sGone.status === 200 && sGone.body.missing === true && sGone.body.id === '5001' && sLimit.status === 200 && sLimit.body.rateLimited === true);
+    const sBad = await get('?streams=5000,5001');
+    const sBad2 = await get('?streams=abc');
+    check(`${tag}: streams take exactly one numeric id`, sBad.status === 400 && sBad2.status === 400);
+    results.streams = { ok: sm.body, gone: sGone.body, limit: { id: sLimit.body.id, rateLimited: sLimit.body.rateLimited } };
+
     // 3. Bad input and wrong method
     const bad = await get('?after=yesterday&before=today');
     check(`${tag}: rejects bad dates`, bad.status === 400);
@@ -164,10 +192,10 @@ async function runAgainst(kind, pwsh, mock, appPort) {
     const status = await (await fetch(`${base}/api/strava/status`)).json();
     check(`${tag}: status reports canSync`, status.canSync === true);
 
-    // 5. READ ONLY: every request the sync path sent to Strava was a GET to the two allowed endpoints
+    // 5. READ ONLY: every request the sync path sent to Strava was a GET to the three allowed endpoints
     const nonGet = mock.log.filter(l => l.method !== 'GET');
-    const allowed = mock.log.every(l => l.path === '/api/v3/athlete/activities' || /^\/api\/v3\/activities\/\d+$/.test(l.path));
-    check(`${tag}: sync path sends ONLY GET requests to Strava (activities list / activity detail)`, nonGet.length === 0 && allowed && mock.log.length > 0,
+    const allowed = mock.log.every(l => l.path === '/api/v3/athlete/activities' || /^\/api\/v3\/activities\/\d+(\/streams)?$/.test(l.path));
+    check(`${tag}: sync path sends ONLY GET requests to Strava (activities list / activity detail / streams)`, nonGet.length === 0 && allowed && mock.log.length > 0,
       `${mock.log.length} requests, non-GET: ${nonGet.map(l => l.method + ' ' + l.path).join(', ') || 'none'}`);
     return results;
   } finally {
@@ -186,7 +214,7 @@ async function runAgainst(kind, pwsh, mock, appPort) {
   } else {
     const psRes = await runAgainst('ps', pwsh, mock, 18612);
     if (nodeRes && psRes) {
-      check('server.js and start_server.ps1 return identical sync data', stable(nodeRes.list.activities) === stable(psRes.list.activities) && stable(nodeRes.detail) === stable(psRes.detail));
+      check('server.js and start_server.ps1 return identical sync data (list, details, streams)', stable(nodeRes.list.activities) === stable(psRes.list.activities) && stable(nodeRes.detail) === stable(psRes.detail) && stable(nodeRes.streams) === stable(psRes.streams));
     }
   }
   mock.srv.close();

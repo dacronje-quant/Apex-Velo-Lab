@@ -1,13 +1,16 @@
 /**
  * APEX VELO // LAB - "Sync from Strava" (mixin on VeloApp).
  *
- *  1. Sync  -> reads the chosen range from Strava (GET only, via the local server) and shows a
- *              preview: new / linked / refreshed / removed / merged duplicates / needs review.
+ *  1. Sync  -> reads the chosen range from Strava (GET only, via the local server), fetches
+ *              second-by-second power for imports with a power meter, and shows a preview:
+ *              new / linked / refreshed / removed / merged duplicates / needs review.
  *              The preview writes nothing.
  *  2. Apply -> writes a restore point first (history in localStorage + IndexedDB, training block,
  *              sync state; the last 5 are kept), computes the complete new history in memory,
  *              validates it, then writes it once. Any error: nothing is written.
  *  3. Undo  -> restores the last restore point exactly.
+ *  4. Background check -> ~5 s after the app opens, reads Strava (no streams) and plans without
+ *              applying; a badge on History and on the Sync button shows what a sync would change.
  *
  * Planning rules live in VeloStravaSync (js/velo-strava-sync.js).
  */
@@ -58,8 +61,11 @@
         else if (act === 'undecide') this.decideStravaReview(b.dataset.id, null);
         else if (act === 'connect') this.connectStrava();
       });
+      const auto = document.getElementById('chkStravaAutoCheck');
+      if (auto) { auto.checked = this.stravaAutoCheckEnabled(); this.on(auto, 'change', () => this.setStravaAutoCheck(auto.checked)); }
       this.syncRangeUiState();
       this.renderStravaSyncStatus();
+      this.scheduleStravaAutoCheck();
     },
 
     onSyncRangeChange() {
@@ -136,20 +142,22 @@
     },
 
     /** Reads the range from Strava and fetches missing descriptions in batches (progress shown). */
-    async fetchStravaRange(range) {
-      this.setSyncProgress('Reading your Strava activities...');
+    async fetchStravaRange(range, { detailBudget = S().DETAIL_BUDGET, quiet = false } = {}) {
+      const progress = (t) => { if (!quiet) this.setSyncProgress(t); };
+      progress('Reading your Strava activities...');
       const list = await this.stravaSyncFetch(`api/strava/sync?after=${encodeURIComponent(range.afterIso)}&before=${encodeURIComponent(range.beforeIso)}`);
+      this._lastStravaRate = list.rate || this._lastStravaRate; // fresh usage for this sync's budget checks
       const state = this.loadStravaSyncState();
       const cache = { ...(state.detailCache || {}) };
       const { need } = S().withDetails(list.activities || [], cache);
-      const todo = need.slice(0, S().DETAIL_BUDGET);
+      const todo = need.slice(0, detailBudget);
       let done = 0, rateLimited = false;
       const missing = new Set();
       for (let i = 0; i < todo.length; i += S().DETAIL_BATCH) {
         const rate = this._lastStravaRate;
         if (rate && rate.limit15 && rate.used15 >= rate.limit15 - 5) { rateLimited = true; break; }
         const batch = todo.slice(i, i + S().DETAIL_BATCH);
-        this.setSyncProgress(`Fetching activity details ${done}/${todo.length}...`);
+        progress(`Fetching activity details ${done}/${todo.length}...`);
         const d = await this.stravaSyncFetch(`api/strava/sync?ids=${batch.join(',')}`);
         this._lastStravaRate = d.rate || this._lastStravaRate;
         const now = Date.now();
@@ -185,7 +193,9 @@
         const state = this.loadStravaSyncState();
         this._stravaSyncPreview = { range, choice: c, fetched, decisions: { ...state.decisions }, state };
         this.replanStravaSync();
+        await this.fetchStravaStreams(this._stravaSyncPreview);
         this.setSyncProgress('', false);
+        this.setStravaSyncBadge(this._stravaSyncPreview.plan);
         this.renderStravaSyncDialog();
         this.openModal('stravaSyncModal');
         return this._stravaSyncPreview.plan;
@@ -199,6 +209,45 @@
       } finally {
         this._syncBusy = false;
       }
+    },
+
+    /**
+     * Second-by-second power for imports with a power meter and no samples yet: at most
+     * STREAM_BUDGET per sync, stopping early near Strava's 15-minute read limit. The converted
+     * samples go on the activity (or streams = 'none' when Strava has no power stream), then the
+     * plan is made again. Nothing is written - that only happens on Apply.
+     */
+    async fetchStravaStreams(p) {
+      const ids = S().streamCandidates(p.plan);
+      const f = p.fetched;
+      f.streamsAdded = 0; f.streamsPending = 0; f.streamsError = '';
+      if (!ids.length) return 0;
+      const todo = ids.slice(0, S().STREAM_BUDGET);
+      const byId = new Map(f.activities.map(a => [String(a.id), a]));
+      let done = 0;
+      for (const id of todo) {
+        const rate = this._lastStravaRate;
+        if (rate && rate.limit15 && rate.used15 >= rate.limit15 - 5) { f.streamsRateLimited = true; break; }
+        this.setSyncProgress(`Fetching power data ${done}/${todo.length}...`);
+        let d;
+        try {
+          d = await this.stravaSyncFetch(`api/strava/sync?streams=${encodeURIComponent(id)}`);
+        } catch (e) {
+          // The summaries are already planned; the missing power data is added by the next sync.
+          f.streamsError = e.message || String(e);
+          break;
+        }
+        this._lastStravaRate = d.rate || this._lastStravaRate;
+        if (d.rateLimited) { f.streamsRateLimited = true; break; }
+        done++;
+        const a = byId.get(id);
+        if (!a || d.missing) continue;
+        const samples = S().streamsToSamples(d.streams);
+        if (samples) { a.samples = samples; f.streamsAdded++; } else a.streams = 'none';
+      }
+      f.streamsPending = ids.length - done;
+      this.replanStravaSync();
+      return done;
     },
 
     replanStravaSync() {
@@ -255,7 +304,13 @@
         return `<li>${actLine(x.activity)}<span class="sync-sub">${esc(load)}</span></li>`;
       };
       const linkRows = (x) => `<li>${actLine(x.activity)}<span class="sync-sub">links to your ride "${esc(x.rideTitle || '')}" (${fmtDate(x.rideDate)})${x.score !== null ? ` - ${Math.round(x.score * 100)}% match` : ''}</span></li>`;
-      const refRows = (x) => `<li>${actLine(x.activity)}<span class="sync-sub">changed on Strava: ${esc(x.changes.join(', '))}</span></li>`;
+      const STREAM_KEYS = new Set(['samples', 'streams', 'np', 'tss', 'if', 'tssMethod', 'tssEstimated', 'maxWatts']);
+      const refRows = (x) => {
+        const powerOnly = x.changes.every(k => STREAM_KEYS.has(k));
+        const what = !powerOnly ? `changed on Strava: ${x.changes.join(', ')}`
+          : x.record.streams === 'ok' ? 'adds second-by-second power (TSS from the power stream)' : 'no power stream on Strava - keeps the summary';
+        return `<li>${actLine(x.activity)}<span class="sync-sub">${esc(what)}</span></li>`;
+      };
       const remRows = (x) => `<li><span class="sync-when num">${fmtDate(x.record.date)}</span><b>${esc(x.record.title)}</b><span class="sync-sub">deleted on Strava - removes the imported copy</span></li>`;
       const mergeRows = (x) => `<li>${actLine(x.activity)}<span class="sync-sub">${esc(x.reason)}${x.keptName ? ` - keeps "${esc(x.keptName)}"` : ''}${x.removeRecordId ? ' - removes its imported copy' : ''}</span></li>`;
       const reviewRows = (x) => `<li class="sync-review-row">${actLine(x.activity)}
@@ -269,6 +324,8 @@
       if (plan.unchanged) notes.push(`${plan.unchanged} imported earlier and unchanged`);
       if (plan.knownMerged) notes.push(`${plan.knownMerged} merged duplicate${plan.knownMerged === 1 ? '' : 's'} skipped`);
       if (plan.staleLinks.length) notes.push(`${plan.staleLinks.length} of your rides link to a Strava activity that no longer exists (your rides are not changed)`);
+      if (p.fetched.streamsAdded) notes.push(`${p.fetched.streamsAdded} ride${p.fetched.streamsAdded === 1 ? '' : 's'} get${p.fetched.streamsAdded === 1 ? 's' : ''} second-by-second power data`);
+      if (p.fetched.streamsPending) notes.push(`${p.fetched.streamsPending} ride${p.fetched.streamsPending === 1 ? '' : 's'} still without power data (${p.fetched.streamsError ? 'Strava could not be read' : 'Strava rate limit'}) - the next sync adds ${p.fetched.streamsPending === 1 ? 'it' : 'them'}`);
       if (p.fetched.pending) notes.push(`${p.fetched.pending} activit${p.fetched.pending === 1 ? 'y' : 'ies'} without description yet (Strava rate limit) - the next sync adds them`);
       body.innerHTML = `
         <div class="sync-head">
@@ -282,7 +339,7 @@
         </div>
         ${section('new', 'New from Strava', plan.new, newRows, true)}
         ${section('linked', 'Linked to rides already in the app (not imported)', plan.linked, linkRows, true)}
-        ${section('refreshed', 'Refreshed (edited on Strava)', plan.refreshed, refRows, true)}
+        ${section('refreshed', 'Refreshed (edited on Strava or power data added)', plan.refreshed, refRows, true)}
         ${section('removed', 'Removed (deleted on Strava)', plan.removed, remRows, true)}
         ${section('merged', 'Merged Strava duplicates', plan.merged, mergeRows, false)}
         ${section('review', 'Needs review (possible duplicates - never imported automatically)', plan.review, reviewRows, true)}
@@ -297,13 +354,28 @@
     },
 
     // ------------------------------------------------------ restore points --
-    /** Everything a sync can change, captured exactly (ride samples by reference, not copied). */
-    async snapshotForSync() {
+    /**
+     * Everything a sync can change, captured exactly. Ride samples are kept by reference (they are
+     * still stored at undo time), except for records the sync deletes or whose samples it replaces:
+     * those samples are stored in full, since they will be gone.
+     */
+    async snapshotForSync(next = null) {
       const idb = await VeloDB.getAllRides();
       if (idb === null) throw new Error('The ride database could not be read, so no restore point could be made. Nothing was changed.');
+      const full = new Set();
+      if (next) {
+        (next.del || []).forEach(id => full.add(id));
+        const memById = new Map(this.completedWorkouts.map(r => [r.id, r]));
+        (next.put || []).forEach(q => {
+          const m = memById.get(q.id);
+          if (m && Array.isArray(m.samples) && m.samples.length && q.samples !== m.samples) full.add(q.id);
+        });
+      }
       const strip = (r) => {
         const o = {};
-        Object.keys(r).forEach(k => { o[k] = k === 'samples' && Array.isArray(r.samples) ? { [SAMPLES_REF]: r.samples.length } : r[k]; });
+        Object.keys(r).forEach(k => {
+          o[k] = k === 'samples' && Array.isArray(r.samples) && !full.has(r.id) ? { [SAMPLES_REF]: r.samples.length } : r[k];
+        });
         return o;
       };
       return {
@@ -364,11 +436,13 @@
         return o;
       };
       const idbRides = snap.idb.map(r => withSamples(r, curById));
-      // App-native rides recorded after the sync are never dropped by an undo.
+      // App-native rides recorded after the sync are never dropped by an undo (they stay as stored).
       const snapIds = new Set(snap.idb.map(r => r.id));
       const extraNative = (keepAfter || []).filter(r => S().isAppNative(r) && !snapIds.has(r.id));
-      const del = current.filter(r => !snapIds.has(r.id) && !extraNative.some(x => x.id === r.id)).map(r => r.id);
-      const ok = await VeloDB.applyRideChanges([...idbRides, ...extraNative], del);
+      const keepIds = new Set(extraNative.map(r => r.id));
+      const del = current.filter(r => !snapIds.has(r.id) && !keepIds.has(r.id)).map(r => r.id);
+      // Exact: a record that had no samples before the sync gets none back (streams added by the sync go).
+      const ok = await VeloDB.applyRideChanges(idbRides, del, { exact: true });
       if (!ok) throw new Error('Could not write the ride database - nothing was restored.');
       const memory = [...extraNative, ...snap.memory.map(r => withSamples(r, memById))];
       const setRaw = (k, v) => { if (v === null || v === undefined) localStorage.removeItem(k); else localStorage.setItem(k, v); };
@@ -408,7 +482,7 @@
         const summary = `${plan.new.length} new, ${plan.linked.length} linked, ${plan.refreshed.length} refreshed, ${plan.removed.length} removed, ${plan.merged.length} merged`;
 
         // 1. Restore point BEFORE any change.
-        const snap = await this.snapshotForSync();
+        const snap = await this.snapshotForSync(next);
         backupKey = await this.writeStravaBackup(snap, { range: p.range.label, summary, links: plan.linked.map(l => ({ rideId: l.rideId, activityId: String(l.activity.id) })) });
 
         // 2. One IndexedDB transaction with every put and delete.
@@ -429,6 +503,7 @@
         if (this.reviewTrainingBlock) this.reviewTrainingBlock({ announce: true });
         this.afterHistoryReplaced();
         this.renderStravaSyncStatus();
+        this.setStravaSyncBadge(null);
         this.showToast(`Strava sync applied: ${summary}. "Undo last sync" restores the previous state.`, 'success');
         return { ok: true, plan, backupKey };
       } catch (e) {
@@ -468,6 +543,70 @@
       this.renderCalendarView();
       this.refreshAnalytics();
       if (this.activeTab === 'ai-coach' && this.renderTrainingBlock) this.renderTrainingBlock();
+    },
+
+    // ---------------------------------------------------- background check --
+    stravaAutoCheckEnabled() { return rawGet(S().AUTOCHECK_KEY) !== 'false'; },
+
+    setStravaAutoCheck(on) {
+      try { localStorage.setItem(S().AUTOCHECK_KEY, on ? 'true' : 'false'); } catch (e) { /* ignore */ }
+      if (!on) { clearTimeout(this._stravaAutoTimer); this.setStravaSyncBadge(null); }
+      this.showToast(on ? 'Strava is checked for changes each time the app opens (nothing is imported until you press Sync).' : 'Automatic Strava check turned off.', 'info');
+    },
+
+    scheduleStravaAutoCheck(delayMs = 5000) {
+      if (window.__APEX_TEST_MODE__ || !this.stravaAutoCheckEnabled()) return;
+      clearTimeout(this._stravaAutoTimer);
+      this._stravaAutoTimer = setTimeout(() => { this.runStravaAutoCheck().catch(() => {}); }, delayMs);
+    },
+
+    /**
+     * Read-only look at the chosen range: the activity list plus ~20 details, no streams, planned
+     * but never applied. Only sets the badges (and one toast). Returns the plan, or null when skipped.
+     */
+    async runStravaAutoCheck() {
+      if (this._syncBusy || this._stravaAutoRunning || this._stravaSyncPreview || !this.stravaAutoCheckEnabled()) return null;
+      if (!this.strava || !this.strava.reachable) await this.refreshStravaStatus(false);
+      const sv = this.strava || {};
+      if (!sv.connected || !sv.canSync) return null;
+      // Its own flag: pressing "Sync from Strava" meanwhile is never blocked, and wins.
+      this._stravaAutoRunning = true;
+      try {
+        const range = S().rangeFor(this._syncChoice || S().normaliseChoice(null));
+        const fetched = await this.fetchStravaRange(range, { detailBudget: 20, quiet: true });
+        const state = this.loadStravaSyncState();
+        const plan = S().plan({
+          activities: fetched.activities, history: this.completedWorkouts, range,
+          state: { merged: state.merged, decisions: state.decisions }, opts: this.syncOptions()
+        });
+        if (this._syncBusy || this._stravaSyncPreview) return null;
+        const n = this.setStravaSyncBadge(plan);
+        if (n && !this._stravaAutoToasted) {
+          this._stravaAutoToasted = true;
+          this.showToast(`Strava has ${n} change${n === 1 ? '' : 's'} for ${range.label.toLowerCase()} - open History and press "Sync from Strava" to review.`, 'info');
+        }
+        return plan;
+      } catch (e) {
+        return null; // a background check stays quiet; "Sync from Strava" shows real errors
+      } finally {
+        this._stravaAutoRunning = false;
+      }
+    },
+
+    /** Count badge on the History tab and the Sync button (none when plan is null or has nothing). */
+    setStravaSyncBadge(plan) {
+      const n = plan ? (plan.changeCount || 0) + (plan.review ? plan.review.length : 0) : 0;
+      const targets = [document.querySelector('.nav-btn[data-tab="history"]'), document.getElementById('btnStravaSync')];
+      targets.forEach(el => {
+        if (!el) return;
+        let b = el.querySelector('.sync-badge');
+        if (!n) { if (b) b.remove(); return; }
+        if (!b) { b = document.createElement('span'); b.className = 'sync-badge num'; el.appendChild(b); }
+        b.textContent = n > 99 ? '99+' : String(n);
+        b.title = `${n} change${n === 1 ? '' : 's'} waiting on Strava`;
+      });
+      this._stravaPendingCount = n;
+      return n;
     },
 
     // ---------------------------------------------------------------- undo --
