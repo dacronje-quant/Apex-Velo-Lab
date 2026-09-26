@@ -257,7 +257,7 @@
 
     updateAiCoachTelemetry() {
       const profile = this.activeProfile;
-      const pmc = this.analytics.calculatePmcHistory(this.completedWorkouts, 0);
+      const pmc = this.analytics.calculatePmcHistory(this.completedWorkouts, 0, this.pmcOpts());
       this.setText('aiCoachFtpVal', `${profile.ftp}W`);
       this.setText('aiCoachCtlVal', pmc.currentCtl.toFixed(1));
       this.setText('aiCoachAtlVal', pmc.currentAtl.toFixed(1));
@@ -267,10 +267,10 @@
         tsbEl.dataset.form = VeloMetrics.formZone(pmc.currentTsb).key;
       }
       const since = Date.now() - 7 * 86400000;
-      const tss7 = Math.round(this.completedWorkouts.filter(w => new Date(w.date).getTime() >= since).reduce((s, w) => s + (w.tss || 0), 0));
+      const tss7 = Math.round(this.cyclingRides().filter(w => new Date(w.date).getTime() >= since).reduce((s, w) => s + (w.tss || 0), 0));
       this.setText('aiCoach7DayTssVal', `${tss7} TSS`);
 
-      const h = VeloProgress.coachProfile(this.completedWorkouts, profile.ftp);
+      const h = VeloProgress.coachProfile(this.cyclingRides(), profile.ftp);
       const ins = document.getElementById('aiCoachInsights');
       if (ins) {
         const chip = (label, val) => `<span class="insight"><small>${label}</small><b class="num">${val}</b></span>`;

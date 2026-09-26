@@ -14,7 +14,7 @@
       const days = document.getElementById('blockDays');
       let saved = null;
       try { saved = JSON.parse(localStorage.getItem(OPTIONS_KEY) || 'null'); } catch (e) { /* ignore */ }
-      const h = VeloProgress.coachProfile(this.completedWorkouts, (this.activeProfile || {}).ftp || 185);
+      const h = VeloProgress.coachProfile(this.cyclingRides(), (this.activeProfile || {}).ftp || 185);
       const defaults = {
         goal: this.coachGoal || 'ftp', weeks: 8, days: [1, 3, 5, 6], longDay: 6,
         hoursPerWeek: h.hoursPerWeek4w ? Math.max(3, Math.min(20, Math.ceil(h.hoursPerWeek4w * 1.15 * 2) / 2)) : 6

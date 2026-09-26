@@ -123,6 +123,7 @@ class VeloApp {
     this.initCalendarEvents();
     this.initAiCoachUi();
     if (this.initStravaUi) this.initStravaUi();
+    if (this.initStravaSyncUi) this.initStravaSyncUi();
     if (this.initRemoteView) this.initRemoteView();
     this.initAnalyticsUi();
     this.updateProfileUi();
@@ -2163,6 +2164,12 @@ class VeloApp {
       }
     });
   }
+
+  /** Cycling records only (non-cycling Strava activities stay out of power/fitness analytics). */
+  cyclingRides() { return (this.completedWorkouts || []).filter(r => VeloMetrics.isCycling(r)); }
+
+  /** PMC options (strength load toggles); defaults when the Strava sync module is absent. */
+  pmcOpts() { return this.pmcOptions ? this.pmcOptions() : {}; }
 
   // --------------------------------------------------------- persistence --
   loadHistory() {

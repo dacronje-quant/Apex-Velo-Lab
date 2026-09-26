@@ -190,7 +190,7 @@
     },
 
     recalculatePmc() {
-      const pmc = this.analytics.calculatePmcHistory(this.completedWorkouts, this.pmcDays());
+      const pmc = this.analytics.calculatePmcHistory(this.completedWorkouts, this.pmcDays(), this.pmcOpts());
       if (this.pmcChart) {
         this._pmcKeys = pmc.dateKeys;
         this.pmcChart.data.labels = pmc.labels;
@@ -200,7 +200,7 @@
         if (this.pmcChart.data.datasets[3]) this.pmcChart.data.datasets[3].data = pmc.tssData;
         this.pmcChart.update();
       }
-      const has = this.completedWorkouts.length > 0;
+      const has = this.cyclingRides().length > 0;
       this.setText('pmcValCtl', has ? pmc.currentCtl.toFixed(1) : '--');
       this.setText('pmcValAtl', has ? pmc.currentAtl.toFixed(1) : '--');
       this.setText('pmcValTsb', has ? (pmc.currentTsb >= 0 ? '+' : '') + pmc.currentTsb.toFixed(1) : '--');
@@ -216,12 +216,13 @@
 
     // ------------------------------------------------------------------ MMP --
     getAllTimeMmpBests() {
-      if (!this.completedWorkouts || this.completedWorkouts.length === 0) return [];
+      const rides = this.cyclingRides();
+      if (!rides.length) return [];
       const durations = VeloMetrics.MMP_DURATIONS;
       const archive = (typeof DIVAN_HEALTHFIT_DATA !== 'undefined' && DIVAN_HEALTHFIT_DATA.allTimeMmp && Array.isArray(DIVAN_HEALTHFIT_DATA.allTimeMmp.watts))
         ? DIVAN_HEALTHFIT_DATA.allTimeMmp.watts : null;
       const bests = durations.map((d, i) => (archive && Number(archive[i]) > 0 ? Number(archive[i]) : null));
-      this.completedWorkouts.forEach(w => {
+      rides.forEach(w => {
         if (w.samples && w.samples.length >= 5) {
           const curve = VeloMetrics.mmpCurve(w.samples.map(s => s.power || 0), durations);
           curve.forEach((v, i) => { if (v !== null && (bests[i] === null || v > bests[i])) bests[i] = v; });
@@ -293,9 +294,10 @@
 
     // ------------------------------------------------------ monthly peak NP --
     getFtpProgressionData() {
-      if (!this.completedWorkouts || this.completedWorkouts.length === 0) return { labels: [], data: [] };
+      const rides = this.cyclingRides();
+      if (!rides.length) return { labels: [], data: [] };
       const monthly = new Map();
-      [...this.completedWorkouts]
+      [...rides]
         .filter(w => w.date && (w.np > 0 || w.avgWatts > 0))
         .sort((a, b) => new Date(a.date) - new Date(b.date))
         .forEach(w => {
@@ -483,7 +485,7 @@
     },
 
     renderProgression() {
-      const rides = this.completedWorkouts || [];
+      const rides = this.cyclingRides();
       const weeks = VeloProgress.weekly(rides, this.progWeeks);
       this._progWeeks = weeks;
       const metric = this.progMetric || 'tss';
@@ -573,7 +575,7 @@
       const el = document.getElementById('progWeekRides');
       if (!w || !el) return;
       el.dataset.week = w.key;
-      const rides = this.completedWorkouts.filter(r => w.rideIds.includes(r.id)).sort((a, b) => new Date(a.date) - new Date(b.date));
+      const rides = this.cyclingRides().filter(r => w.rideIds.includes(r.id)).sort((a, b) => new Date(a.date) - new Date(b.date));
       el.innerHTML = `<div class="week-rides-head">Week of ${w.start.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}: <b class="num">${w.tss} TSS</b> - <b class="num">${w.hours} h</b> - ${w.rides} ride${w.rides === 1 ? '' : 's'}</div>` +
         (rides.length ? rides.map(r => `<button type="button" class="ride-chip" data-ride="${VeloApp.esc(r.id)}"><span>${new Date(r.date).toLocaleDateString('en-US', { weekday: 'short' })}</span><b>${VeloApp.esc(r.title)}</b><small class="num">${this.fmtTime(r.duration)}${r.tss ? ` - ${r.tss} TSS` : ''}</small></button>`).join('') : '<span class="mix-note">Rest week.</span>');
     }

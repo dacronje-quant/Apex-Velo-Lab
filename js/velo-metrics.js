@@ -30,6 +30,12 @@ class VeloMetrics {
     return VeloMetrics.ZONES[6];
   }
 
+  /**
+   * True for cycling records. Non-cycling activities imported from Strava (strength, walks, yoga...)
+   * carry activityType and are kept out of cycling analytics, MMP, FTP and power charts.
+   */
+  static isCycling(r) { return !!r && (!r.activityType || r.activityType === 'ride'); }
+
   /** Local-calendar YYYY-MM-DD key (avoids the UTC shift of toISOString at local midnight). */
   static localDateKey(input) {
     const d = input instanceof Date ? input : new Date(input);

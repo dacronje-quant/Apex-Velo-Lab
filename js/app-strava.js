@@ -112,6 +112,7 @@
     /** Small status chip for the history table. */
     stravaChip(ride) {
       const st = this.stravaStateOf(ride);
+      if (st.state === 'imported') return `<a class="chip chip-xs chip-strava chip-strava-imported" href="${this.stravaActivityUrl(st.activityId)}" target="_blank" rel="noopener noreferrer" title="Imported from Strava (activity #${esc(st.activityId)})">from Strava</a>`;
       if (st.state === 'sent' || st.state === 'duplicate' || st.state === 'found') return `<a class="chip chip-xs chip-strava" href="${this.stravaActivityUrl(st.activityId)}" target="_blank" rel="noopener noreferrer" title="On Strava (activity #${esc(st.activityId)})">Strava &#10003;</a>`;
       if (st.state === 'failed') return `<span class="chip chip-xs chip-strava-bad" title="${esc(st.error || 'Upload failed')}">Strava failed</span>`;
       if (st.state === 'processing' || st.state === 'sending') return '<span class="chip chip-xs chip-strava-busy">Strava...</span>';
@@ -141,7 +142,11 @@
         </div>` : '';
       let state, cls, body, action = '';
       const who = sv.athlete ? ` as ${esc(sv.athlete)}` : '';
-      if (st.state === 'sent') {
+      if (st.state === 'imported') {
+        cls = 'ok'; state = 'Imported from Strava';
+        body = `Summary imported by "Sync from Strava" (activity #${esc(st.activityId)}). It is refreshed on the next sync and removed if you delete it on Strava.${ride.tssEstimated ? ` TSS is estimated from ${esc(ride.tssMethod)}.` : ''}`;
+        action = link;
+      } else if (st.state === 'sent') {
         cls = 'ok'; state = 'Sent to Strava';
         body = `Uploaded ${esc(when)}${who}. Strava activity #${esc(st.activityId)}.`;
         action = link;
@@ -243,7 +248,8 @@
         if (!silent) this.showToast(sv.connected ? 'Reconnect Strava to allow checking your activities (Disconnect, then Connect Strava).' : 'Connect Strava first (open a ride summary, click Connect Strava).', 'warning');
         return null;
       }
-      const todo = rides.filter(r => r && !['sent', 'duplicate', 'found'].includes(this.stravaStateOf(r).state) && Number.isFinite(new Date(r.date).getTime()));
+      // Only app-recorded cycling rides; Strava-imported records are managed by "Sync from Strava".
+      const todo = rides.filter(r => r && r.source !== 'Strava' && VeloMetrics.isCycling(r) && !['sent', 'duplicate', 'found', 'imported'].includes(this.stravaStateOf(r).state) && Number.isFinite(new Date(r.date).getTime()));
       if (!todo.length) { if (!silent) this.showToast('Every ride is already linked to Strava.', 'success'); return { checked: 0, found: 0 }; }
       const starts = todo.map(r => new Date(r.date).getTime() / 1000);
       const ends = todo.map(r => new Date(r.date).getTime() / 1000 + (Number(r.duration) || 0));

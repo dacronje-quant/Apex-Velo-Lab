@@ -109,6 +109,64 @@ class VeloDB {
     });
   }
 
+  /**
+   * Puts and deletes rides in ONE transaction: either every change lands or none does.
+   * A ride put without samples keeps the samples already stored for it.
+   */
+  static applyRideChanges(put = [], del = []) {
+    const list = (put || []).filter(r => r && r.id !== undefined && r.id !== null);
+    const gone = (del || []).filter(id => id !== undefined && id !== null);
+    if (!list.length && !gone.length) return Promise.resolve(true);
+    return VeloDB._write((store) => {
+      for (const id of gone) store.delete(id);
+      for (const r of list) {
+        if (VeloDB.hasSamples(r)) { store.put(r); continue; }
+        const get = store.get(r.id);
+        get.onsuccess = () => {
+          const existing = get.result;
+          store.put(VeloDB.hasSamples(existing) ? { ...r, samples: existing.samples } : r);
+        };
+      }
+    });
+  }
+
+  // ------------------------------------------------ settings store (restore points) --
+  static async _settingsTx(mode, fn) {
+    const db = await VeloDB.open();
+    if (!db) return { ok: false, value: null };
+    return new Promise((resolve) => {
+      let settled = false, value = null;
+      const finish = (ok) => { if (!settled) { settled = true; clearTimeout(tm); resolve({ ok, value }); } };
+      const tm = setTimeout(() => finish(false), VeloDB.TX_TIMEOUT_MS);
+      try {
+        const tx = db.transaction('settings', mode);
+        tx.oncomplete = () => finish(true);
+        tx.onerror = () => finish(false);
+        tx.onabort = () => finish(false);
+        fn(tx.objectStore('settings'), (v) => { value = v; });
+      } catch (e) {
+        console.warn('IndexedDB settings transaction failed', e);
+        finish(false);
+      }
+    });
+  }
+
+  /** Stores { key, ... }; resolves true only when the write is committed. */
+  static async putSetting(obj) { return (await VeloDB._settingsTx('readwrite', (s) => s.put(obj))).ok; }
+
+  static async getSetting(key) {
+    const r = await VeloDB._settingsTx('readonly', (s, set) => { const g = s.get(key); g.onsuccess = () => set(g.result || null); });
+    return r.ok ? r.value : null;
+  }
+
+  /** All settings whose key starts with prefix (null when the database could not be read). */
+  static async listSettings(prefix) {
+    const r = await VeloDB._settingsTx('readonly', (s, set) => { const g = s.getAll(); g.onsuccess = () => set((g.result || []).filter(x => String(x.key).startsWith(prefix))); });
+    return r.ok ? r.value || [] : null;
+  }
+
+  static async deleteSetting(key) { return (await VeloDB._settingsTx('readwrite', (s) => s.delete(key))).ok; }
+
   static clearAllRides() { return VeloDB._write((store) => store.clear()); }
 
   static deleteRide(id) { return VeloDB._write((store) => store.delete(id)); }

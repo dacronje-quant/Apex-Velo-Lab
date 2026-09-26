@@ -1300,6 +1300,324 @@
             }
           });
 
+
+          // ======================================================================
+          // 53+. SYNC FROM STRAVA - Strava is mocked at the app's fetch: nothing leaves the machine.
+          // ======================================================================
+          {
+            const SS = W.VeloStravaSync;
+            const realFetch = W.fetch;
+            const DAY = 864e5;
+            const nowMs = Date.now();
+            const iso = (ms) => new W.Date(ms).toISOString().replace('.000Z', 'Z');
+            // HealthFit stores the local wall clock labelled as UTC ("Z").
+            const localAsZ = (ms) => new W.Date(ms - new W.Date(ms).getTimezoneOffset() * 60000).toISOString().replace('.000Z', 'Z');
+            const at = (daysAgo, h, m = 0) => { const d = new W.Date(nowMs - daysAgo * DAY); d.setHours(h, m, 0, 0); return d.getTime(); };
+            const calls = [];
+            let strava = [];   // what the mocked Strava account holds (full detail objects)
+            const listShape = (a) => { const { description, calories, ...rest } = a; return { ...rest, detailed: false }; };
+            const J = (s, b) => new W.Response(JSON.stringify(b), { status: s, headers: { 'Content-Type': 'application/json' } });
+            const mockFetch = async (u, o = {}) => {
+              const url = String(u);
+              if (url.includes('api/strava/')) calls.push({ url, method: (o.method || 'GET').toUpperCase() });
+              if (url.includes('api/strava/sync')) {
+                const q = new W.URL(url, W.location.href).searchParams;
+                if (q.get('ids') !== null) {
+                  const ids = q.get('ids').split(',');
+                  return J(200, { activities: strava.filter(a => ids.includes(a.id)).map(a => ({ ...a, detailed: true })), missing: ids.filter(id => !strava.some(a => a.id === id)), rateLimited: false, rate: { used15: 5, limit15: 100 } });
+                }
+                const after = Date.parse(q.get('after')), before = Date.parse(q.get('before'));
+                return J(200, { activities: strava.filter(a => Date.parse(a.start_date) >= after && Date.parse(a.start_date) < before).map(listShape), rate: { used15: 2, limit15: 100 } });
+              }
+              if (url.endsWith('api/strava/status')) return J(200, { configured: true, connected: true, athlete: 'Test Rider', canUpload: true, canCheck: true, canSync: true });
+              return realFetch(u, o);
+            };
+            const snapshot = async () => {
+              const ls = {};
+              for (let i = 0; i < W.localStorage.length; i++) { const k = W.localStorage.key(i); if (/^apex_/.test(k)) ls[k] = W.localStorage.getItem(k); }
+              const idb = (await W.VeloDB.getAllRides()) || [];
+              idb.sort((a, b) => (a.id < b.id ? -1 : 1));
+              return JSON.stringify({ ls, idb });
+            };
+            const backups = async () => (await W.VeloDB.listSettings(SS.BACKUP_PREFIX)) || [];
+            const nativeJson = () => JSON.stringify(app.completedWorkouts.filter(SS.isAppNative).map(r => { const { strava, ...rest } = r; return rest; }).sort((a, b) => (a.id < b.id ? -1 : 1)));
+            const calendarNativeIds = () => {
+              const prev = [app.calendarViewPreset, app.calendarWeekOffset, app.calendarMonthOffset];
+              const ids = [];
+              app.calendarViewPreset = '1week';
+              for (let w = -6; w <= 0; w++) { app.calendarWeekOffset = w; app.renderCalendarView(); D.querySelectorAll('#calendarContentArea [data-ride]').forEach(e => ids.push('w' + w + ':' + e.dataset.ride)); }
+              app.calendarViewPreset = '1month';
+              for (let m = -2; m <= 0; m++) { app.calendarMonthOffset = m; app.renderCalendarView(); D.querySelectorAll('#calendarContentArea .cal-month-matrix [data-ride]').forEach(e => ids.push('m' + m + ':' + e.dataset.ride)); }
+              [app.calendarViewPreset, app.calendarWeekOffset, app.calendarMonthOffset] = prev;
+              app.renderCalendarView();
+              const native = new Set(app.completedWorkouts.filter(SS.isAppNative).map(r => r.id));
+              return ids.filter(x => native.has(x.split(':')[1])).sort().join('|');
+            };
+            const origConfirm = W.confirm;
+            W.confirm = () => true;
+            W.fetch = mockFetch;
+            const savedHistory = app.completedWorkouts;
+            const savedBlock = app.blockPlanner.block;
+            app.blockPlanner.block = null; app.blockPlanner.save();
+            try {
+              // Fixture: app-native rides (with 1 Hz samples) + one old Strava import outside every range.
+              const tHF = at(10, 7, 0);          // HealthFit ride, local time stored as Z
+              const tCk = at(8, 18, 0);          // cockpit ride, already sent to Strava as #900
+              const tPos = at(6, 12, 0);         // a ride that Strava has only "possibly"
+              const native = [
+                { id: 'ride_fx_hf', source: 'HealthFit FIT', title: 'HealthFit Indoor', date: localAsZ(tHF), duration: 3600, np: 190, avgWatts: 180, tss: 62, if: '0.99', kj: 640, samples: makeSamples(90) },
+                { id: 'ride_fx_ck', source: 'APEX VELO Cockpit', title: 'Cockpit SweetSpot', date: iso(tCk), duration: 3000, np: 200, tss: 58, kj: 560, samples: makeSamples(60), strava: { state: 'sent', activityId: '900', sentAt: 1 } },
+                { id: 'ride_fx_pos', source: 'FIT import', title: 'Tempo', date: iso(tPos), duration: 2700, np: 170, tss: 40 },
+                { id: 'ride_fx_old', source: 'HealthFit FIT', title: 'Old ride', date: iso(at(70, 9)), duration: 3600, np: 160, tss: 50 }
+              ];
+              const oldImport = { id: 'strava_777', source: 'Strava', stravaActivityId: '777', strava: { state: 'imported', activityId: '777' }, title: 'Old Strava ride', date: iso(at(60, 9)), duration: 3000, activityType: 'ride', sportType: 'Ride', tss: 40 };
+              await W.VeloDB.clearAllRides();
+              for (const b of await backups()) await W.VeloDB.deleteSetting(b.key);
+              W.localStorage.removeItem(SS.STATE_KEY);
+              app.completedWorkouts = [...native, oldImport];
+              app.persistHistoryLocal();
+              await W.VeloDB.saveRidesBatch(app.completedWorkouts);
+              strava = [
+                // layer 2: same session as the HealthFit ride (true UTC start, 10 s later)
+                { id: '100', name: 'Zwift - Watopia', sport_type: 'VirtualRide', start_date: iso(tHF + 10000), start_date_local: localAsZ(tHF + 10000), moving_time: 3590, elapsed_time: 3600, weighted_average_watts: 190, average_watts: 180, kilojoules: 638, trainer: true, description: '', calories: 640 },
+                // the same ride shape 3 h later: a different session
+                { id: '101', name: 'Evening Zwift', sport_type: 'VirtualRide', start_date: iso(tHF + 3 * 3600000), moving_time: 3600, elapsed_time: 3600, weighted_average_watts: 190, average_watts: 180, kilojoules: 640, trainer: true, description: '', calories: 640 },
+                // layer 1: the cockpit ride we uploaded (#900)
+                { id: '900', name: 'Cockpit SweetSpot', sport_type: 'VirtualRide', start_date: iso(tCk), moving_time: 3000, elapsed_time: 3000, weighted_average_watts: 200, kilojoules: 560, description: 'Recorded with Apex Velo Lab', calories: 560 },
+                // possible match (6 min / 8 % apart, no energy data)
+                { id: '500', name: 'Lunch ride', sport_type: 'VirtualRide', start_date: iso(tPos + 6 * 60000), moving_time: 2480, elapsed_time: 2480, description: '' },
+                // two Strava rides exactly 2 h apart (true UTC times): different sessions
+                { id: '102', name: 'Late Zwift', sport_type: 'VirtualRide', start_date: iso(tHF + 5 * 3600000), moving_time: 3600, elapsed_time: 3600, weighted_average_watts: 190, average_watts: 180, kilojoules: 640, trainer: true, description: '', calories: 640 },
+                // layer 3: one gym session logged by Motra and by the watch, 8 s apart
+                { id: '200', name: 'Leg day (Motra)', sport_type: 'WeightTraining', start_date: iso(at(3, 17, 0)), moving_time: 3300, elapsed_time: 3300, suffer_score: 38, average_heartrate: 118, description: 'Back Squat - 4 x 8 @ 80 kg\nRomanian Deadlift - 3 x 10 @ 70 kg\nWalking Lunge - 3 x 12', calories: 330 },
+                { id: '201', name: 'Strength Training', sport_type: 'WeightTraining', start_date: iso(at(3, 17, 0) + 8000), moving_time: 3290, elapsed_time: 3295, suffer_score: 37, average_heartrate: 117, description: '', calories: 325 },
+                // new outdoor ride with heart rate only, and a walk
+                { id: '300', name: 'Coffee ride', sport_type: 'Ride', start_date: iso(at(2, 9, 0)), moving_time: 5400, elapsed_time: 5700, distance: 42000, average_heartrate: 138, description: 'Easy spin', calories: 950 },
+                { id: '400', name: 'Evening walk', sport_type: 'Walk', start_date: iso(at(1, 19, 0)), moving_time: 1800, elapsed_time: 1900, distance: 2400, description: '', calories: 150 }
+              ];
+              const choice = { mode: 'preset', weeks: 4 };
+
+              let S0, planA, cal0, native0;
+              await suite('Strava Sync: Preview Writes Nothing, Only GET Requests, 3-Layer Dedupe, Possible Matches Not Auto-Imported', async () => {
+                S0 = await snapshot();
+                cal0 = calendarNativeIds();
+                native0 = nativeJson();
+                calls.length = 0;
+                planA = await app.previewStravaSync(choice);
+                const S1 = await snapshot();
+                const untouched = S0 === S1 && (await backups()).length === 0;
+                const onlyGet = calls.length > 0 && calls.every(c => c.method === 'GET' && /api\/strava\/sync\?/.test(c.url));
+                const ids = (arr) => arr.map(x => x.activity.id).sort().join(',');
+                const l1 = planA.alreadyLinked === 1 && !planA.new.some(x => x.activity.id === '900');
+                const l2 = planA.linked.length === 1 && planA.linked[0].activity.id === '100' && planA.linked[0].rideId === 'ride_fx_hf';
+                const threeH = planA.new.some(x => x.activity.id === '101') && planA.new.some(x => x.activity.id === '102');
+                const l3 = planA.merged.length === 1 && planA.merged[0].activity.id === '201' && planA.merged[0].keptId === '200';
+                const possible = planA.review.length === 1 && planA.review[0].activity.id === '500' && !planA.new.some(x => x.activity.id === '500');
+                const newOk = ids(planA.new) === '101,102,200,300,400';
+                const str = planA.new.find(x => x.activity.id === '200').record;
+                const strengthOk = str.activityType === 'strength' && str.tss === 0 && str.strengthTss === 38 && str.heavyLegs === true && str.exercises.length === 3;
+                const ride = planA.new.find(x => x.activity.id === '300').record;
+                const tssOk = ride.tssMethod === 'hr' && ride.tssEstimated === true && ride.tss > 0;
+                const dialog = D.getElementById('stravaSyncModal').classList.contains('open') && !!D.querySelector('#stravaSyncBody [data-sync="same"][data-id="500"]') && !!D.querySelector('#stravaSyncBody [data-sync="import"][data-id="500"]');
+                return { ok: untouched && onlyGet && l1 && l2 && threeH && l3 && possible && newOk && strengthOk && tssOk && dialog,
+                  detail: `preview wrote nothing:${untouched} only GET /api/strava/sync (${calls.length} calls):${onlyGet} layer1 id skip:${l1} layer2 link (tz-mislabelled HealthFit):${l2} same ride 3 h later not matched:${threeH} (and 2 h apart on Strava) layer3 Motra/watch merge:${l3} possible not auto-imported:${possible} new=${ids(planA.new)} strength record:${strengthOk} estimated TSS:${tssOk} dialog + review buttons:${dialog}` };
+              });
+
+              await suite('Strava Sync: Apply Backs Up First & Writes Once; App Rides Unchanged; Calendar Same; Undo Restores Byte-Identical', async () => {
+                let dbWrites = 0, lsHistoryWrites = 0;
+                const origApply = W.VeloDB.applyRideChanges;
+                W.VeloDB.applyRideChanges = (...a) => { dbWrites++; return origApply.apply(W.VeloDB, a); };
+                const origSet = W.localStorage.setItem;
+                W.localStorage.setItem = function (k, v) { if (k === 'apex_velo_history') lsHistoryWrites++; return origSet.call(this, k, v); };
+                let res;
+                try { res = await app.applyStravaSync(); } finally { W.VeloDB.applyRideChanges = origApply; W.localStorage.setItem = origSet; }
+                const once = res && res.ok && dbWrites === 1 && lsHistoryWrites === 1;
+                const bks = await backups();
+                const backupOk = bks.length === 1 && bks[0].local.history !== null && bks[0].idb.some(r => r.id === 'ride_fx_hf' && r.samples && r.samples.__samplesRef === 90);
+                const nativeSame = nativeJson() === native0;
+                const hf = app.completedWorkouts.find(r => r.id === 'ride_fx_hf');
+                const linkOk = hf.strava && hf.strava.activityId === '100' && hf.samples.length === 90;
+                const ck = app.completedWorkouts.find(r => r.id === 'ride_fx_ck');
+                const ckOk = ck.strava.state === 'sent' && ck.strava.activityId === '900' && ck.strava.sentAt === 1;
+                const calSame = calendarNativeIds() === cal0;
+                const idsNow = app.completedWorkouts.map(r => r.id);
+                const imported = ['strava_101', 'strava_102', 'strava_200', 'strava_300', 'strava_400'].every(id => idsNow.includes(id)) && !idsNow.includes('strava_201') && !idsNow.includes('strava_100') && !idsNow.includes('strava_900') && !idsNow.includes('strava_500');
+                const idb = await W.VeloDB.getAllRides();
+                const idbOk = idb.length === app.completedWorkouts.length && idb.find(r => r.id === 'ride_fx_hf').samples.length === 90;
+                // Undo -> byte-identical storage and memory
+                const u = await app.undoLastStravaSync({ confirmFirst: false });
+                const S2 = await snapshot();
+                const identical = u.ok && S2 === S0 && nativeJson() === native0 && app.completedWorkouts.length === 5 && (await backups()).length === 0;
+                return { ok: once && backupOk && nativeSame && linkOk && ckOk && calSame && imported && idbOk && identical,
+                  detail: `apply ok, 1 IndexedDB transaction + 1 history write:${once} (${dbWrites}/${lsHistoryWrites}) restore point with sample refs:${backupOk} app rides unchanged:${nativeSame} link added (samples kept):${linkOk} sent ride untouched:${ckOk} calendar renders same app rides:${calSame} imported 101/102/200/300/400 only:${imported} IndexedDB:${idbOk} undo byte-identical:${identical}` };
+              });
+
+              await suite('Strava Sync: Refresh Semantics - Second Sync = No Changes, Strava Edit Updates, Strava Delete Removes Only That, Out-of-Range Untouched', async () => {
+                await app.previewStravaSync(choice);
+                const r1 = await app.applyStravaSync();
+                const oldRef = app.completedWorkouts.find(r => r.id === 'strava_777');
+                const oldJson = JSON.stringify(oldRef);
+                const p2 = await app.previewStravaSync(choice);
+                const noChanges = p2 && !p2.hasChanges && !!D.getElementById('stravaSyncNoChanges') && D.getElementById('btnStravaSyncApply').disabled;
+                app.cancelStravaSync();
+                // Edit #300 on Strava, delete #400 there.
+                strava = strava.filter(a => a.id !== '400').map(a => a.id === '300' ? { ...a, name: 'Coffee ride (edited)', description: 'Easy spin + cake', calories: 990 } : a);
+                // Details are cached for 3 days; the edited description comes back once the cache is stale.
+                const st = JSON.parse(W.localStorage.getItem(SS.STATE_KEY));
+                st.detailCache['300'].fetchedAt = Date.now() - 4 * DAY;
+                W.localStorage.setItem(SS.STATE_KEY, JSON.stringify(st));
+                const p3 = await app.previewStravaSync(choice);
+                const refOk = p3.refreshed.length === 1 && p3.refreshed[0].activity.id === '300' && p3.refreshed[0].changes.includes('title') && p3.refreshed[0].changes.includes('description');
+                const remOk = p3.removed.length === 1 && p3.removed[0].record.id === 'strava_400' && p3.new.length === 0;
+                const r3 = await app.applyStravaSync();
+                const rec300 = app.completedWorkouts.find(r => r.id === 'strava_300');
+                const applied = r3.ok && rec300.title === 'Coffee ride (edited)' && rec300.description === 'Easy spin + cake' && rec300.totalCalories === 990 && !app.completedWorkouts.some(r => r.id === 'strava_400');
+                const nativeKept = app.completedWorkouts.filter(SS.isAppNative).length === 4;
+                const outOfRange = JSON.stringify(app.completedWorkouts.find(r => r.id === 'strava_777')) === oldJson;
+                const p4 = await app.previewStravaSync(choice);
+                const idem = p4 && !p4.hasChanges;
+                app.cancelStravaSync();
+                return { ok: r1.ok && noChanges && refOk && remOk && applied && nativeKept && outOfRange && idem,
+                  detail: `second sync "no changes":${noChanges} edit -> refreshed:${refOk} delete -> removes only that record:${remOk} applied:${applied} app rides kept:${nativeKept} out-of-range record untouched:${outOfRange} idempotent after:${idem}` };
+              });
+
+              await suite('Strava Sync: "It\'s the Same" / Import Decisions Remembered by Strava Id; Custom Range Respected', async () => {
+                const p = await app.previewStravaSync(choice);
+                const btn = D.querySelector('#stravaSyncBody [data-sync="same"][data-id="500"]');
+                if (btn) btn.click();
+                const linked = app._stravaSyncPreview.plan.linked.some(l => l.activity.id === '500' && l.rideId === 'ride_fx_pos');
+                const res = await app.applyStravaSync();
+                const st = JSON.parse(W.localStorage.getItem(SS.STATE_KEY));
+                const remembered = res.ok && st.decisions['500'] && st.decisions['500'].verdict === 'same';
+                const pos = app.completedWorkouts.find(r => r.id === 'ride_fx_pos');
+                const linkOk = pos.strava && pos.strava.activityId === '500';
+                const again = await app.previewStravaSync(choice);
+                const layer1 = again.review.length === 0 && !again.hasChanges;
+                app.cancelStravaSync();
+                // Custom range: only the Motra day
+                calls.length = 0;
+                const day = SS.dayKey(new W.Date(at(3, 12)));
+                const pc = await app.previewStravaSync({ mode: 'custom', from: day, to: day });
+                app.cancelStravaSync();
+                const q = new W.URL(calls[0].url, W.location.href).searchParams;
+                const exp = SS.rangeFor({ mode: 'custom', from: day, to: day });
+                const customOk = q.get('after') === exp.afterIso && q.get('before') === exp.beforeIso && pc.fetched === 2 && Date.parse(q.get('before')) - Date.parse(q.get('after')) <= 25 * 3600000;
+                const presetOk = SS.rangeFor({ mode: 'preset', weeks: 8 }).afterMs === new W.Date(new W.Date().getFullYear(), new W.Date().getMonth(), new W.Date().getDate() - 55).getTime();
+                return { ok: !!p && linked && remembered && linkOk && layer1 && customOk && presetOk,
+                  detail: `"It's the same" links:${linked} decision saved on Apply:${remembered} ride linked:${linkOk} next sync hits layer 1:${layer1} custom range ${day} (after/before + 2 activities):${customOk} 8-week preset:${presetOk}` };
+              });
+
+              await suite('Strava Sync: Failure Mid-Apply (Simulated) Leaves Storage & Memory Unchanged', async () => {
+                strava.push({ id: '600', name: 'New ride', sport_type: 'VirtualRide', start_date: iso(at(0, 7, 0)), moving_time: 1800, elapsed_time: 1800, weighted_average_watts: 180, description: '', calories: 300 });
+                const out = [];
+                for (const stage of ['backup', 'idb', 'local', 'after-local']) {
+                  await app.previewStravaSync(choice);
+                  const before = await snapshot();
+                  const mem = JSON.stringify(app.completedWorkouts.map(r => r.id));
+                  const nb = (await backups()).length;
+                  app._syncFailAt = stage;
+                  let res;
+                  try { res = await app.applyStravaSync(); } finally { app._syncFailAt = null; }
+                  const after = await snapshot();
+                  out.push(`${stage}:${!res.ok && after === before && JSON.stringify(app.completedWorkouts.map(r => r.id)) === mem && (await backups()).length === nb}`);
+                  app.cancelStravaSync();
+                }
+                const good = await app.previewStravaSync(choice);
+                const ok2 = (await app.applyStravaSync()).ok && app.completedWorkouts.some(r => r.id === 'strava_600');
+                return { ok: out.every(x => x.endsWith('true')) && !!good && ok2, detail: `${out.join(' ')} then a normal apply works:${ok2}` };
+              });
+
+              await suite('Strava Sync: Strength on Calendar, Excluded From Power Analytics, Counts in Fatigue (Toggle), Block & Coach Aware', async () => {
+                const strength = app.completedWorkouts.find(r => r.id === 'strava_200');
+                const excluded = !app.cyclingRides().includes(strength) && app.cyclingRides().every(r => W.VeloMetrics.isCycling(r));
+                // calendar card with its own class/icon
+                const prev = [app.calendarViewPreset, app.calendarWeekOffset];
+                app.calendarViewPreset = '1week';
+                let card = null;
+                for (let w = -1; w <= 0 && !card; w++) { app.calendarWeekOffset = w; app.renderCalendarView(); card = D.querySelector('#calendarContentArea .act-card.act-strength[data-ride="strava_200"]'); }
+                const calOk = !!card && !!card.querySelector('use[href="#i-dumbbell"]');
+                [app.calendarViewPreset, app.calendarWeekOffset] = prev; app.renderCalendarView();
+                // PMC: strength adds to ATL only (default), never CTL unless toggled
+                const A = app.analytics;
+                const on = A.calculatePmcHistory(app.completedWorkouts, 0, { strengthInAtl: true });
+                const off = A.calculatePmcHistory(app.completedWorkouts, 0, { strengthInAtl: false });
+                const cyc = A.calculatePmcHistory(app.cyclingRides(), 0, {});
+                const ctlBoth = A.calculatePmcHistory(app.completedWorkouts, 0, { strengthInAtl: true, strengthInCtl: true });
+                const pmcOk = on.currentAtl > off.currentAtl && on.currentCtl === cyc.currentCtl && off.currentAtl === cyc.currentAtl && ctlBoth.currentCtl > on.currentCtl;
+                // MMP / FTP charts ignore non-cycling records
+                const mmpA = JSON.stringify(app.getAllTimeMmpBests());
+                const saved = app.completedWorkouts;
+                app.completedWorkouts = saved.filter(r => W.VeloMetrics.isCycling(r));
+                const mmpB = JSON.stringify(app.getAllTimeMmpBests());
+                const ftpB = JSON.stringify(app.getFtpProgressionData());
+                app.completedWorkouts = saved;
+                const analyticsOk = mmpA === mmpB && JSON.stringify(app.getFtpProgressionData()) === ftpB;
+                // history row chip + detail view with the exercise list
+                app.renderHistoryTable();
+                const chip = !!D.querySelector('tr[data-id="strava_200"] .act-chip');
+                app.showRideSummary(strength);
+                const detail = D.getElementById('modalRideDetails').innerText;
+                const detailOk = /Back Squat - 4 x 8/.test(detail) && /Imported from Strava/.test(detail);
+                app.closeModal('rideSummaryModal');
+                // Coach prompts: one line on strength sessions
+                const ctx = app.aiCoach.getPhysiologicalContext('auto', 60, 'ftp');
+                const prompt = app.aiCoach.buildPrompt(ctx);
+                const blockPrompt = app.blockPlanner.buildDesignPrompt(W.VeloBlockPlanner.normaliseOptions({ goal: 'ftp', weeks: 8, hoursPerWeek: 6, days: [1, 3, 5, 6], longDay: 6, startDate: W.VeloBlockPlanner.today() }), ctx);
+                const promptOk = /Strength training: 1 strength session/.test(prompt) && /Back squat, Romanian deadlift, Lunge/.test(prompt) && /STRENGTH TRAINING: 1 strength session/.test(blockPrompt) && !/Leg day/.test(ctx.recentList);
+                // Block review: heavy leg day -> no key ride the day after
+                const P = W.VeloBlockPlanner, bp = app.blockPlanner;
+                await bp.create({ goal: 'ftp', weeks: 8, hoursPerWeek: 7, days: [0, 1, 2, 3, 4, 5, 6], longDay: 6, startDate: P.today() }, { useAi: false });
+                const key = bp.allSessions().filter(s => s.key && s.focus !== 'test' && s.date > P.today()).sort((a, b) => a.date.localeCompare(b.date))[0];
+                const legDay = { id: 'tmp_leg', source: 'Strava', activityType: 'strength', title: 'Legs', date: new W.Date(`${P.addDays(key.date, -1)}T18:00:00`).toISOString(), duration: 3600, tss: 0, strengthTss: 30, description: 'Deadlift 5x5' };
+                const noLeg = bp.review([{ ...legDay, id: 'tmp_arms', description: 'Bench press 5x5', strengthTss: 20 }], { tsb: 0 });
+                const fresh = bp.review([legDay], { tsb: 0 });
+                const sg = fresh.find(f => f.key === `strength_${key.id}`);
+                const blockOk = !!sg && sg.changes[0].patch.focus === 'endurance' && sg.changes[0].patch.key === false;
+                bp.block = null; bp.save();
+                const blockOk2 = blockOk && !noLeg.some(f => /^strength_/.test(f.key));
+                return { ok: excluded && calOk && pmcOk && analyticsOk && chip && detailOk && promptOk && blockOk2,
+                  detail: `not in cycling analytics:${excluded} calendar strength card+icon:${calOk} ATL yes/CTL no (toggle):${pmcOk} MMP/FTP unaffected:${analyticsOk} history chip:${chip} detail view exercises:${detailOk} coach+block prompts:${promptOk} heavy leg day -> next key ride eased (upper body not):${blockOk2}` };
+              });
+
+              await suite('Strava Sync: Restore Points - Last 5 Kept, Undo Keeps Rides Recorded After The Sync', async () => {
+                for (let i = 0; i < 6; i++) {
+                  strava.push({ id: String(700 + i), name: `Spin ${i}`, sport_type: 'VirtualRide', start_date: iso(at(0, 1, 0) + i * 45 * 60000), moving_time: 600, elapsed_time: 600, weighted_average_watts: 150, description: '', calories: 90 });
+                  await app.previewStravaSync(choice);
+                  await app.applyStravaSync();
+                }
+                const kept = (await backups()).length === 5;
+                const newRide = { id: 'ride_after_sync', source: 'APEX VELO Cockpit', title: 'Ridden after sync', date: new W.Date().toISOString(), duration: 60, tss: 1, samples: makeSamples(60) };
+                app.completedWorkouts.unshift(newRide);
+                app.persistHistoryLocal();
+                await W.VeloDB.saveRidesBatch([newRide]);
+                const u = await app.undoLastStravaSync({ confirmFirst: false });
+                const stillThere = app.completedWorkouts.some(r => r.id === 'ride_after_sync') && ((await W.VeloDB.getAllRides()) || []).some(r => r.id === 'ride_after_sync' && r.samples.length === 60);
+                const undone = !app.completedWorkouts.some(r => r.id === 'strava_705') && app.completedWorkouts.some(r => r.id === 'strava_704');
+                return { ok: kept && u.ok && stillThere && undone, detail: `5 restore points kept:${kept} undo ok:${u.ok} ride recorded after the sync kept:${stillThere} last sync undone:${undone}${undone ? '' : ' ids=' + app.completedWorkouts.filter(r => /strava_7/.test(r.id)).map(r => r.id).join(',') + ' state=' + W.localStorage.getItem(SS.STATE_KEY).slice(0, 300)}` };
+              });
+
+              await suite('Strava Sync: Real Browser Storage Untouched & Reconnect Error Shown When activity:read_all Is Missing', async () => {
+                W.fetch = async (u, o) => String(u).includes('api/strava/sync') ? J(403, { error: 'Strava sync needs permission to read all your activities. Reconnect Strava (Disconnect, then Connect Strava) and allow access to your activities.', needsReconnect: true }) : mockFetch(u, o);
+                const r = await app.previewStravaSync(choice);
+                const msg = (D.getElementById('stravaSyncProgress') || {}).innerText || '';
+                const reconnect = r === null && /Reconnect Strava/.test(msg) && !!D.getElementById('btnStravaSyncReconnect');
+                W.fetch = mockFetch;
+                const realStorageAfter = (() => { const o = {}; for (let i = 0; i < localStorage.length; i++) { const k = localStorage.key(i); if (/^apex_/.test(k)) o[k] = localStorage.getItem(k); } return JSON.stringify(o); })();
+                const realUntouched = realStorageAfter === realStorageBefore;
+                return { ok: reconnect && realUntouched, detail: `clear "reconnect Strava" error:${reconnect} real browser storage unchanged:${realUntouched}` };
+              });
+            } finally {
+              W.fetch = realFetch;
+              W.confirm = origConfirm;
+              app._syncFailAt = null;
+              app.closeModal('stravaSyncModal');
+              for (const b of await backups()) await W.VeloDB.deleteSetting(b.key);
+              W.localStorage.removeItem(SS.STATE_KEY);
+              app.blockPlanner.block = savedBlock; app.blockPlanner.save();
+              app.completedWorkouts = savedHistory;
+            }
+          }
+
           await app.resyncHealthFitHistory(true);
           app.selectWorkoutById('carson');
           app.resetWorkout(false);

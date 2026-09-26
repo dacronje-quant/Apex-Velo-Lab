@@ -53,6 +53,41 @@ The secret stays in `.env`; the access tokens are stored in `.strava-tokens.json
 
 What is uploaded: the ride's FIT file (per-second power, cadence, heart rate, speed, distance and L/R balance, validated with Garmin's FIT SDK), the workout title, the trainer flag, and a short description (avg/NP power, IF, TSS, heart rate, balance, work). Only rides recorded with per-second data can be sent; summary-only imports cannot.
 
+## Sync from Strava (import your activities)
+
+The **Sync from Strava** card in *History* imports your Strava activities for a date range into the history and the Calendar - outdoor rides, Zwift rides from other apps, gym sessions, walks, yoga.
+
+1. Pick a range: the last **2 / 4 / 8 (default) / 12 / 26 weeks**, or **Custom dates** (from - to). The last choice is remembered.
+2. Click **Sync from Strava**. The app reads the range from Strava and shows a **preview** - nothing is changed yet:
+   **New** (will be imported) · **Linked** (already in the app, only a link is added) · **Refreshed** (edited on Strava) · **Removed** (deleted on Strava) · **Merged Strava duplicates** · **Needs review** (possible duplicates).
+3. Press **Apply** to write it, or **Cancel**. **Undo last sync** (with the time of that sync) puts everything back.
+
+**Refresh semantics.** A sync is a complete, repeatable refresh of the chosen range:
+- Records imported from Strava (source *Strava*) inside the range are rebuilt from what Strava returns now: updated when you edited them on Strava (name, description, calories...), added when new, and removed from the app **only** when they no longer exist on Strava. Removals are listed in the preview and need Apply.
+- Records outside the range are never touched.
+- Rides recorded in this app are never removed; their Strava links are re-checked (a link to a deleted activity is reported, not changed).
+- Running the same sync twice: the second preview says **No changes**.
+
+**Duplicates - three layers, in order.**
+1. *Exact id:* an activity already linked to a ride (sent with *Send to Strava*, found by *Check Strava*, or linked by an earlier sync) is never imported again.
+2. *Fuzzy match* (`js/velo-dedupe.js`): start time, overlap, duration, distance and energy - titles are ignored. The timezone rule only applies to HealthFit rides (they store local time with a `Z`) and only for this PC's UTC offset; a ride that is identical but 3 h later is a different ride. A duplicate (score >= 0.8) is not imported; the Strava id is linked to your ride instead (the app's ride with 1 Hz data always wins). A **possible** match (0.6-0.8) is never imported automatically: it waits in *Needs review* with **Import** / **It's the same**, and your answer is remembered per Strava activity.
+3. *Within Strava:* the same session logged twice (e.g. Motra + your watch's "Strength Training" a few seconds apart) keeps the richer one (the description with the exercises); the other id is remembered as merged and never imported later.
+
+**What is imported.** A summary record (no per-second samples) with source *Strava* and the Strava activity id. Rides get TSS from weighted average power / FTP when there is power, else from heart rate (hrTSS), else from duration at IF 0.65; estimated TSS is flagged (*est.* chip in History). The FTP / threshold HR used is stored with the record, so changing your profile later does not rewrite old imports.
+Strength, walks, yoga and other sports are **non-cycling** activities: they appear on the Calendar with their own icon and colour and in History, but never in cycling analytics, the power curve (MMP), FTP or power charts. Strength sessions keep Motra's exercise list for the detail view and get a **strength load** from Strava's relative effort (capped at 60). It counts toward fatigue (ATL) - toggle **Count strength sessions in fatigue** - and toward cycling fitness (CTL) only if you tick the second toggle. A heavy leg day (squats, deadlifts, lunges... or a high strength load) counts like a hard day: the training block review suggests turning a key ride on the next day into endurance, and the AI coach does not prescribe a key session right after it. The coach and block prompts get one line on the strength sessions in the look-back window (count, dates, main lifts).
+
+**Safety.**
+- Strava is **read-only** for this feature: the sync only calls `GET /athlete/activities` and `GET /activities/{id}`. No uploads, edits or deletes on Strava (tested - see *Tests*).
+- Rides recorded here (cockpit, HealthFit, FIT imports - anything not from Strava) are never modified, replaced or deleted by a sync; the only change allowed is adding the Strava link.
+- **Preview first:** nothing is written until you press Apply.
+- **Restore point before apply:** the full history (localStorage + the IndexedDB ride database, with per-second samples kept by reference), the training block and the sync state are saved first; if that fails, the sync is aborted. The last 5 restore points are kept.
+- **Atomic apply:** the complete new history is computed in memory and validated (no app ride lost or changed, no duplicate ids, counts add up), then written once (one database transaction). Any error: storage is rolled back to exactly the previous state and the error is shown.
+- **Undo last sync** restores that restore point exactly; rides you recorded after the sync are kept.
+
+**Strava limits.** Strava allows 100 read requests per 15 minutes. One sync uses 1 request per 200 activities plus one per activity for descriptions and calories; details are cached (and re-read after 3 days) and at most 60 are fetched per sync, with progress shown. If the limit is reached, the preview says how many descriptions are still missing and the next sync adds them.
+
+**Permission.** The sync needs *View data about your private activities* (`activity:read_all`). If your connection is older or that box was unticked, the app asks you to **Reconnect Strava** (Disconnect, then Connect Strava). Deleting an imported record in the app is allowed; the next sync of that range imports it again. *Re-sync HealthFit* / *Wipe & re-sync from folder* rebuild the whole history (Strava imports included) - run a Strava sync afterwards.
+
 ## Phone view (ride in another room)
 
 The PC keeps the Bluetooth sensors and runs the ride; your phone becomes a live screen and remote.
@@ -74,6 +109,7 @@ A thin zone-coloured bar of the whole workout sits above the controls on every s
 - **Secrets live only in `.env`** (Anthropic key, Strava client secret) and `.strava-tokens.json`; both are git-ignored and the local server refuses to serve any dot-file, `.git`, the server scripts or helper scripts. The browser never sees a key.
 - **The server only answers this PC and devices on your private home network** (10.x, 172.16-31.x, 192.168.x). Requests from any other address or from other websites are refused (403). Do **not** forward port 8080 on your router - the app is not meant to be reachable from the internet.
 - `Enable-Phone-View.bat` opens the port in Windows Firewall for **Private** networks only; `Enable-Phone-View.bat remove` undoes it.
+- Strava sync data stays in the browser (history, restore points in IndexedDB); the server keeps nothing but `.strava-tokens.json`.
 - Personal ride history (`data/divan_cycling_history.*`) is git-ignored; run `parse_healthfit.ps1` to build your own from HealthFit `.fit` exports (set `HEALTHFIT_DIR` if they are not in `Downloads\HealthFit\HealthFit`).
 
 ## Data integrity rules
@@ -143,7 +179,11 @@ js/
   app-coach.js        Coach UI and markdown renderer (mixin)
   app-block.js        Training block UI and planned sessions on the calendar (mixin)
   app-strava.js       Send to Strava: upload, status per ride, workout image (mixin)
+  velo-dedupe.js      Fuzzy duplicate detection (start, overlap, duration, distance, energy)
+  velo-strava-sync.js Sync from Strava: range, 3-layer dedupe, refresh plan, validation (pure logic)
+  app-strava-sync.js  Sync from Strava UI: preview, restore points, atomic apply, undo (mixin)
 test_suite.html       In-browser test suite
+tests/strava-sync-servers.test.js  Runs server.js and start_server.ps1 against a mock Strava
 ```
 
 The mixins extend `VeloApp.prototype` with `Object.assign` and load after `app.js`. The app keeps one `requestAnimationFrame` loop, which pauses while the page is hidden. `destroy()` removes every listener, chart, observer and timer.
@@ -188,7 +228,9 @@ The mixins extend `VeloApp.prototype` with `Object.assign` and load after `app.j
 
 ## Tests
 
-Open `test_suite.html`. It covers metrics, a FIT CRC round-trip, TCX/CSV round-trips, summary-only exports, the CPS 0x0C command, BLE reconnect with a fake device, write serialisation, PMC ranges, progression, the MMP scrub, the AI goals and week plan, Zen thresholds, resource lifecycle, the clock, calendar bucketing and the device badges. It also checks the Claude path with a mocked `/api/coach` (request shape, reasoning parsing, fallback), switching between Claude and Gemini, auto session duration, the history look-back window, training blocks (3:1 structure, 48 h between key sessions, hours respected, calendar cards, post-ride adjustments), and that no API key is stored in the browser. It also checks Polar H10 contact handling, first-connect retries, that a real ride never falls back to simulator data, and that the tests leave your real storage untouched. It also checks the Send to Strava flow with a mocked Strava (upload, processing, sent link, failure, history chip, workout image, and matching rides that already exist on Strava). The suite has 75 checks.
+Open `test_suite.html`. It covers metrics, a FIT CRC round-trip, TCX/CSV round-trips, summary-only exports, the CPS 0x0C command, BLE reconnect with a fake device, write serialisation, PMC ranges, progression, the MMP scrub, the AI goals and week plan, Zen thresholds, resource lifecycle, the clock, calendar bucketing and the device badges. It also checks the Claude path with a mocked `/api/coach` (request shape, reasoning parsing, fallback), switching between Claude and Gemini, auto session duration, the history look-back window, training blocks (3:1 structure, 48 h between key sessions, hours respected, calendar cards, post-ride adjustments), and that no API key is stored in the browser. It also checks Polar H10 contact handling, first-connect retries, that a real ride never falls back to simulator data, and that the tests leave your real storage untouched. It also checks the Send to Strava flow with a mocked Strava (upload, processing, sent link, failure, history chip, workout image, and matching rides that already exist on Strava). It also checks **Sync from Strava** with Strava mocked (nothing leaves the machine): the preview writes nothing; only GET requests go out; Apply writes a restore point first and then writes once; Undo restores byte-identical storage; app-recorded rides are unchanged and the Calendar renders the same rides before and after; the three dedupe layers (id skip, fuzzy link, Motra/watch merge), possible matches never auto-imported, decisions remembered; refresh (Strava edit updates, Strava delete removes only that record, out-of-range records untouched, second sync = no changes); custom ranges; a timezone-mislabelled HealthFit ride matched while the same ride 3 h later is not; strength on the Calendar but excluded from power analytics and counted in fatigue; the training block and coach prompts; a simulated failure at every stage of Apply leaves storage unchanged; and the real-storage-untouched check. The suite has 83 checks (the *Banister PMC* check compares against fixed values from the HealthFit archive, so it drifts as days pass).
+
+`node tests/strava-sync-servers.test.js` starts both local servers (from a temporary copy, with a fake token file - your real `.env` and tokens are never used) against a mock Strava and checks `/api/strava/sync`: paging, detail batches, the `activity:read_all` check, errors, identical answers from both servers, and that the sync path only ever sends GET requests to Strava. The PowerShell part runs when `pwsh` or `powershell` is on the PATH.
 
 ## License
 

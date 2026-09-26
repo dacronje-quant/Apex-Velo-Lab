@@ -10,6 +10,7 @@
 data/divan_cycling_history.js
 data/divan_cycling_history.json
 data/*.fit
+data/*history*
 
 # Local backups / OS clutter
 *_backup*/
