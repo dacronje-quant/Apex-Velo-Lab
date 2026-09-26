@@ -121,8 +121,10 @@
 
     stravaActivityUrl(id) { return `https://www.strava.com/activities/${encodeURIComponent(id)}`; },
 
+    /** Only rides recorded here can be uploaded; a Strava import (even with power streams) never goes back. */
     canSendToStrava(ride) {
-      return !!(ride && Array.isArray(ride.samples) && ride.samples.length >= 60);
+      if (!ride || ride.source === 'Strava') return false;
+      return Array.isArray(ride.samples) && ride.samples.length >= 60;
     },
 
     renderStravaPanel(ride) {
@@ -144,7 +146,7 @@
       const who = sv.athlete ? ` as ${esc(sv.athlete)}` : '';
       if (st.state === 'imported') {
         cls = 'ok'; state = 'Imported from Strava';
-        body = `Summary imported by "Sync from Strava" (activity #${esc(st.activityId)}). It is refreshed on the next sync and removed if you delete it on Strava.${ride.tssEstimated ? ` TSS is estimated from ${esc(ride.tssMethod)}.` : ''}`;
+        body = `${ride.streams === 'ok' ? 'Imported with second-by-second power' : 'Summary imported'} by "Sync from Strava" (activity #${esc(st.activityId)}). It is refreshed on the next sync and removed if you delete it on Strava.${ride.tssEstimated ? ` TSS is estimated from ${esc(ride.tssMethod)}.` : ''}`;
         action = link;
       } else if (st.state === 'sent') {
         cls = 'ok'; state = 'Sent to Strava';
@@ -172,7 +174,9 @@
         action = sv.connected || !sv.reachable ? '<button type="button" class="btn btn-strava" data-strava="send">Retry</button>' : '<button type="button" class="btn btn-strava" data-strava="connect">Connect Strava</button>';
       } else {
         cls = 'idle'; state = 'Not sent to Strava';
-        if (!this.canSendToStrava(ride)) {
+        if (ride.source === 'Strava') {
+          body = 'This activity came from Strava, so it is never sent back.';
+        } else if (!this.canSendToStrava(ride)) {
           body = 'Only rides with second-by-second data can be sent (this one is a summary import).';
         } else if (!sv.reachable) {
           body = 'Open the app with Launch-Apex-Velo.bat to enable Strava.';

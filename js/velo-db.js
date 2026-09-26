@@ -111,16 +111,17 @@ class VeloDB {
 
   /**
    * Puts and deletes rides in ONE transaction: either every change lands or none does.
-   * A ride put without samples keeps the samples already stored for it.
+   * A ride put without samples keeps the samples already stored for it - unless `exact` is set
+   * (used by restore points), which writes every record exactly as given.
    */
-  static applyRideChanges(put = [], del = []) {
+  static applyRideChanges(put = [], del = [], { exact = false } = {}) {
     const list = (put || []).filter(r => r && r.id !== undefined && r.id !== null);
     const gone = (del || []).filter(id => id !== undefined && id !== null);
     if (!list.length && !gone.length) return Promise.resolve(true);
     return VeloDB._write((store) => {
       for (const id of gone) store.delete(id);
       for (const r of list) {
-        if (VeloDB.hasSamples(r)) { store.put(r); continue; }
+        if (exact || VeloDB.hasSamples(r)) { store.put(r); continue; }
         const get = store.get(r.id);
         get.onsuccess = () => {
           const existing = get.result;
