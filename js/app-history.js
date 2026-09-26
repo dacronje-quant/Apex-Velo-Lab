@@ -5,6 +5,15 @@
 (function () {
   const esc = (s) => VeloApp.esc(s);
   const pos = (v) => Number(v) > 0;
+  /** Non-cycling activities (imported from Strava): label, icon and colour on the calendar and in history. */
+  const ACT = {
+    strength: { label: 'Strength', icon: 'i-dumbbell', color: '#f472b6' },
+    walk: { label: 'Walk', icon: 'i-footsteps', color: '#34d399' },
+    run: { label: 'Run', icon: 'i-footsteps', color: '#fb923c' },
+    mobility: { label: 'Mobility', icon: 'i-lotus', color: '#a78bfa' },
+    other: { label: 'Activity', icon: 'i-activity', color: '#94a3b8' }
+  };
+  const actOf = (r) => ACT[r.activityType] || ACT.other;
 
   Object.assign(VeloApp.prototype, {
     initHistoryDom() {
@@ -220,7 +229,7 @@
           <tr data-id="${esc(r.id)}">
             <td class="num nowrap">${dateStr}</td>
             <td class="muted">${esc(r.profileName || 'Divan (HealthFit)')}</td>
-            <td><div class="cell-title">${z ? `<i class="zone-dot" style="--zc:${z.color}" title="${z.label}"></i>` : ''}<b>${esc(r.title)}</b>${hasSamples ? '<span class="chip chip-ghost chip-xs">1 Hz</span>' : ''}${this.stravaChip ? this.stravaChip(r) : ''}</div></td>
+            <td><div class="cell-title">${z ? `<i class="zone-dot" style="--zc:${z.color}" title="${z.label}"></i>` : ''}<b>${esc(r.title)}</b>${hasSamples ? '<span class="chip chip-ghost chip-xs">1 Hz</span>' : ''}${VeloMetrics.isCycling(r) ? '' : `<span class="chip chip-xs act-chip act-${esc(r.activityType)}">${actOf(r).label}</span>`}${r.tssEstimated ? `<span class="chip chip-ghost chip-xs" title="TSS estimated from ${esc(r.tssMethod)}">est.</span>` : ''}${this.stravaChip ? this.stravaChip(r) : ''}</div></td>
             <td class="num">${this.fmtTime(r.duration)}</td>
             <td class="num">${dist > 0 ? dist + ' km' : '--'}</td>
             <td class="num">${spd > 0 ? spd + ' km/h' : '--'}</td>
@@ -293,7 +302,7 @@
 
     /** HealthFit banner: every value is derived from the archive or the ride history. */
     updateHeroStats() {
-      const rides = this.completedWorkouts || [];
+      const rides = this.cyclingRides();
       const data = typeof DIVAN_HEALTHFIT_DATA !== 'undefined' ? DIVAN_HEALTHFIT_DATA : null;
       this.setText('hfTotalRides', rides.length);
       const totalKj = rides.reduce((s, r) => s + (Number(r.kj) || 0), 0);
@@ -455,6 +464,16 @@
           </div>
         </div>`;
 
+      if (!VeloMetrics.isCycling(record)) {
+        details.innerHTML = this.activitySummaryHtml(record);
+        if (this.renderStravaPanel) {
+          details.insertAdjacentHTML('afterbegin', '<div id="rideStravaPanel" class="strava-panel" aria-live="polite"></div>');
+          this.renderStravaPanel(record);
+        }
+        this.openModal('rideSummaryModal');
+        return;
+      }
+
       details.innerHTML = `
         ${banner}
         <div class="inspector-header-stats">
@@ -502,6 +521,33 @@
         clearTimeout(this._scrubTimer);
         this._scrubTimer = setTimeout(() => this.initRideScrubChart(record), 60);
       }
+    },
+
+    /** Detail view of a non-cycling activity: duration, heart rate, strength load and the exercise list. */
+    activitySummaryHtml(r) {
+      const a = actOf(r);
+      const cell = (lbl, val, accent) => `<div class="metric-cell"${accent ? ` data-accent="${accent}"` : ''}><span class="metric-cell-lbl">${lbl}</span><span class="metric-cell-val num">${val}</span></div>`;
+      const ex = Array.isArray(r.exercises) ? r.exercises : [];
+      const lifts = r.activityType === 'strength' && typeof VeloStravaSync !== 'undefined' ? VeloStravaSync.mainLifts(r) : [];
+      return `
+        <div class="inspector-header-stats">
+          ${cell('Activity', `<svg class="ic"><use href="#${a.icon}"/></svg> ${esc(r.sportType || a.label)}`)}
+          ${cell('Duration', this.fmtTime(r.duration))}
+          ${cell('Heart Rate (Avg/Max)', pos(r.avgHr) ? `${r.avgHr}${pos(r.maxHr) ? ' / ' + r.maxHr : ''} bpm` : '--', 'rose')}
+          ${cell('Calories', pos(r.totalCalories) ? `${r.totalCalories} kcal` : '--', 'amber')}
+          ${cell('Relative effort', pos(r.sufferScore) ? r.sufferScore : '--', 'violet')}
+          ${r.activityType === 'strength' ? cell('Strength load', pos(r.strengthTss) ? `${r.strengthTss}<small class="num"> ${esc(r.strengthTssMethod || '')}</small>` : '--', 'lime') : ''}
+          ${pos(r.distanceKm) ? cell('Distance', `${r.distanceKm} km`, 'cyan') : ''}
+        </div>
+        <div class="review-block">
+          <div class="sub-title"><span>${r.activityType === 'strength' ? 'Exercises' : 'Notes'}</span><span class="hint">${r.heavyLegs ? 'Heavy leg day - counts like a hard day for the training block' : 'Not counted in cycling power, MMP or FTP analytics'}</span></div>
+          ${lifts.length ? `<div class="btn-row btn-row-tight">${lifts.map(l => `<span class="chip chip-xs act-chip act-strength">${esc(l)}</span>`).join('')}</div>` : ''}
+          ${ex.length ? `<ol class="exercise-list">${ex.map(l => `<li>${esc(l)}</li>`).join('')}</ol>` : `<div class="dim">${r.description ? esc(r.description) : 'No exercise list on Strava for this session.'}</div>`}
+        </div>
+        <div class="modal-actions">
+          <div class="btn-row"><button type="button" class="btn btn-danger" data-act="delete"><svg class="ic"><use href="#i-trash"/></svg>Delete</button></div>
+          <button type="button" class="btn btn-ghost" data-act="close">Close</button>
+        </div>`;
     },
 
     destroyScrubChart() {
@@ -658,7 +704,9 @@
       return Array.from({ length: 7 }, (_, i) => new Date(mon.getFullYear(), mon.getMonth(), mon.getDate() + i));
     },
 
-    rollup(rides) {
+    /** Period totals of the cycling records (strength and other activities are shown, not summed). */
+    rollup(all) {
+      const rides = (all || []).filter(r => VeloMetrics.isCycling(r));
       let tss = 0, sec = 0, kj = 0, dist = 0, npSum = 0, npN = 0;
       rides.forEach(r => {
         tss += r.tss || 0; sec += r.duration || 0; kj += r.kj || 0; dist += this.getRideDistanceKm(r);
@@ -668,7 +716,26 @@
       return { tss, sec, kj, dist, rides: rides.length, avgNp: npN ? npSum / npN : 0 };
     },
 
+    /** Calendar card of a non-cycling activity (strength, walk, yoga...). */
+    activityCardHtml(r, mini = false) {
+      const a = actOf(r);
+      const load = pos(r.strengthTss) ? `load ${r.strengthTss}` : a.label;
+      if (mini) {
+        return `<div class="calendar-ride-card mini act-card act-${esc(r.activityType)}" data-ride="${esc(r.id)}" title="${esc(r.title)} (${a.label})" style="--zc:${a.color}">
+          <div class="crc-row"><span class="crc-title"><svg class="ic ic-xs"><use href="#${a.icon}"/></svg>${esc(r.title)}</span><button type="button" class="btn-delete-cal-ride-mini" data-id="${esc(r.id)}" title="Delete">&times;</button></div>
+          <div class="crc-meta num">${this.fmtTime(r.duration)} - ${esc(load)}</div></div>`;
+      }
+      const lifts = r.activityType === 'strength' && typeof VeloStravaSync !== 'undefined' ? VeloStravaSync.mainLifts(r).slice(0, 3).join(', ') : '';
+      return `<div class="calendar-ride-card act-card act-${esc(r.activityType)}" data-ride="${esc(r.id)}" style="--zc:${a.color}">
+        <div class="crc-row"><span class="crc-title" title="${esc(r.title)}"><svg class="ic ic-xs"><use href="#${a.icon}"/></svg>${esc(r.title)}</span>
+          <button type="button" class="btn-delete-cal-ride" data-id="${esc(r.id)}" title="Delete"><svg class="ic ic-xs"><use href="#i-trash"/></svg></button></div>
+        <div class="crc-meta num"><span>${a.label} - ${this.fmtTime(r.duration)}</span><b>${esc(load)}</b></div>
+        ${lifts || r.heavyLegs ? `<div class="crc-meta dim"><span>${esc(lifts)}</span>${r.heavyLegs ? '<span class="chip chip-xs act-heavy">heavy legs</span>' : ''}</div>` : ''}
+      </div>`;
+    },
+
     rideCardHtml(r, mini = false) {
+      if (!VeloMetrics.isCycling(r)) return this.activityCardHtml(r, mini);
       const np = r.np || r.avgWatts || 0;
       const band = pos(r.if) ? VeloProgress.ifBand(parseFloat(r.if)) : null;
       if (mini) {
@@ -751,16 +818,16 @@
           const rides = byDay.get(k) || [];
           const plans = planned.get(k) || [];
           monthRides.push(...rides);
-          const tss = rides.reduce((a, r) => a + (r.tss || 0), 0);
+          const tss = rides.filter(r => VeloMetrics.isCycling(r)).reduce((a, r) => a + (r.tss || 0), 0);
           cells += `<div class="cal-cell ${k === todayKey ? 'today' : ''}" style="--load:${Math.min(1, tss / 150)}">
             <div class="cal-cell-head"><span class="num">${d}</span>${tss > 0 ? `<span class="cal-cell-tss num">${Math.round(tss)}</span>` : ''}</div>
             ${rides.map(r => this.rideCardHtml(r, true)).join('')}${plans.map(p => this.plannedCardHtml(p, true)).join('')}
           </div>`;
         }
         const list = monthRides.sort((a, b) => new Date(a.date) - new Date(b.date)).map(r => `
-          <div class="calendar-ride-card list" data-ride="${esc(r.id)}">
+          <div class="calendar-ride-card list ${VeloMetrics.isCycling(r) ? '' : `act-card act-${esc(r.activityType)}`}" data-ride="${esc(r.id)}" ${VeloMetrics.isCycling(r) ? '' : `style="--zc:${actOf(r).color}"`}>
             <span class="num dim">${new Date(r.date).toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' })}</span>
-            <b class="crc-title">${esc(r.title)}</b>
+            <b class="crc-title">${VeloMetrics.isCycling(r) ? '' : `<svg class="ic ic-xs"><use href="#${actOf(r).icon}"/></svg>`}${esc(r.title)}</b>
             <span class="num dim">${this.fmtTime(r.duration)}</span>
             <span class="num">${(r.np || r.avgWatts) ? (r.np || r.avgWatts) + 'W' : '--'}</span>
             <b class="num">${pos(r.tss) ? r.tss + ' TSS' : '--'}</b>
@@ -771,7 +838,7 @@
             <div class="cal-weekdays">${['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'].map(d => `<span>${d}</span>`).join('')}</div>
             <div class="cal-month-matrix">${cells}</div>
           </div>
-          <div class="card"><div class="card-title"><span>Rides in ${monthName}</span><span class="chip chip-ghost num">${monthRides.length}</span></div>
+          <div class="card"><div class="card-title"><span>Activities in ${monthName}</span><span class="chip chip-ghost num">${monthRides.length}</span></div>
             <div class="cal-list">${list || `<div class="empty-state">No rides in ${monthName}.</div>`}</div></div>`;
         const r = this.rollup(monthRides);
         this.updateCalendarRollups('MONTHLY TSS', r.tss, r.sec, r.kj, r.dist, r.rides, r.avgNp);
@@ -802,9 +869,9 @@
         if (btnPrev) btnPrev.style.display = 'none';
         if (btnNext) btnNext.style.display = 'none';
         if (btnToday) btnToday.style.display = 'none';
-        if (titleEl) titleEl.textContent = `All-time (${this.completedWorkouts.length} rides)`;
         const r = this.rollup(this.completedWorkouts);
-        const peak = this.completedWorkouts.reduce((m, x) => Math.max(m, x.maxWatts || 0), 0);
+        if (titleEl) titleEl.textContent = `All-time (${r.rides} rides)`;
+        const peak = this.cyclingRides().reduce((m, x) => Math.max(m, x.maxWatts || 0), 0);
         const years = {};
         this.completedWorkouts.forEach(x => { const yy = new Date(x.date).getFullYear(); (years[yy] = years[yy] || []).push(x); });
         const hrs = Math.floor(r.sec / 3600);

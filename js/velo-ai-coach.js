@@ -164,8 +164,10 @@ class VeloAiCoach {
   // ---------------------------------------------------------------- context --
   getPhysiologicalContext(targetFocus = 'auto', durationMin = 45, goal = 'ftp', notes = '', lookbackDays = this.lookbackDays) {
     const profile = this.app.activeProfile || { name: 'Rider', ftp: 185, weightKg: 75, maxHr: 175 };
-    const workouts = this.app.completedWorkouts || [];
-    const pmc = this.app.analytics.calculatePmcHistory(workouts, 0);
+    const all = this.app.completedWorkouts || [];
+    // Strength sessions add fatigue (per the app's toggle) but are not rides.
+    const pmc = this.app.analytics.calculatePmcHistory(all, 0, this.app.pmcOpts ? this.app.pmcOpts() : {});
+    const workouts = all.filter(w => VeloMetrics.isCycling(w));
     const ctl = pmc.currentCtl || 0;
     const atl = pmc.currentAtl || 0;
     const tsb = pmc.currentTsb || 0;
@@ -195,6 +197,12 @@ class VeloAiCoach {
       .filter(w => now - new Date(w.date) <= lookback * 86400000)
       .sort((a, b) => new Date(b.date) - new Date(a.date));
     const listedRides = windowRides.slice(0, VeloAiCoach.MAX_LISTED_RIDES);
+    const strength = typeof VeloStravaSync !== 'undefined'
+      ? VeloStravaSync.strengthSummary(all, lookback, now)
+      : { count: 0, sessions: [], line: '' };
+    const yesterday = VeloMetrics.localDateKey(new Date(now.getFullYear(), now.getMonth(), now.getDate() - 1));
+    const today = VeloMetrics.localDateKey(now);
+    const heavyLegsRecent = strength.sessions.some(s => s.heavyLegs && (s.date === yesterday || s.date === today));
     const recentList = listedRides.map(w => {
       return `- ${VeloMetrics.localDateKey(w.date)}: "${w.title}" (${Math.round((w.duration || 0) / 60)} min, TSS ${w.tss || 0}, NP ${w.np || 0}W, IF ${w.if || 0})`;
     }).join('\n') || `- No rides logged in the past ${lookback} days.`;
@@ -204,7 +212,7 @@ class VeloAiCoach {
       formZone: form.label, formKey: form.key, formDesc: form.desc,
       sevenDayTss, sevenDayHours, recentWorkouts, recentList, consecutiveDays,
       lookbackDays: lookback, windowRideCount: windowRides.length, listedRideCount: listedRides.length,
-      history,
+      history, strength, heavyLegsRecent,
       goal: VeloAiCoach.GOALS[goal] ? goal : 'ftp',
       notes: String(notes || '').slice(0, 280),
       targetFocus,
@@ -217,7 +225,8 @@ class VeloAiCoach {
   decideFocus(ctx) {
     if (ctx.targetFocus && ctx.targetFocus !== 'auto') return ctx.targetFocus;
     const h = ctx.history || {};
-    const hardRecently = h.daysSinceHard !== null && h.daysSinceHard !== undefined && h.daysSinceHard <= 1;
+    // A heavy leg strength day yesterday (or today) counts like a hard ride: no key session now.
+    const hardRecently = (h.daysSinceHard !== null && h.daysSinceHard !== undefined && h.daysSinceHard <= 1) || !!ctx.heavyLegsRecent;
     if (ctx.tsb < -25 || (ctx.consecutiveDays >= 3 && ctx.tsb < -10)) return 'recovery';
     if (ctx.tsb < -12 || hardRecently) return 'endurance';
     switch (ctx.goal) {
@@ -501,6 +510,7 @@ PERFORMANCE MANAGEMENT (Banister model):
 - Intensity mix (${ctx.lookbackDays} d, by ride IF): easy ${h.lowIntensityPct ?? 'n/a'}%, tempo/SweetSpot ${h.midIntensityPct ?? 'n/a'}%, threshold+ ${h.highIntensityPct ?? 'n/a'}%
 - Days since last hard ride (IF>=0.85): ${h.daysSinceHard ?? 'none on record'}; days since last ride >= 90 min: ${h.daysSinceLong ?? 'none on record'}
 - Power profile: ${h.profileType || 'n/a'}
+- Strength training: ${ctx.strength && ctx.strength.line ? ctx.strength.line : 'none recorded'}
 RIDES IN THE LAST ${ctx.lookbackDays} DAYS (newest first${ctx.windowRideCount > ctx.listedRideCount ? `, ${ctx.listedRideCount} most recent of ${ctx.windowRideCount}` : ''}):
 ${ctx.recentList}
 

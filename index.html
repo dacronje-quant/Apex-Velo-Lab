@@ -67,6 +67,9 @@
       <symbol id="i-upload" viewBox="0 0 24 24"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4M17 8l-5-5-5 5M12 3v12"/></symbol>
       <symbol id="i-download" viewBox="0 0 24 24"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4M7 10l5 5 5-5M12 15V3"/></symbol>
       <symbol id="i-folder" viewBox="0 0 24 24"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/></symbol>
+      <symbol id="i-dumbbell" viewBox="0 0 24 24"><path d="M6.5 6.5v11M17.5 6.5v11M3.5 9v6M20.5 9v6M6.5 12h11"/></symbol>
+      <symbol id="i-footsteps" viewBox="0 0 24 24"><path d="M8 3c1.7 0 3 1.8 3 4.5S10 12 8.5 12 6 10.3 6 8c0-2.6.4-5 2-5zM6.5 15h4v1.8a2 2 0 0 1-4 0zM16 7c1.6 0 2 2.4 2 5 0 2.3-1 4-2.5 4S13 14.2 13 11.5 14.3 7 16 7zM13.5 19h4v1.2a2 2 0 0 1-4 0z"/></symbol>
+      <symbol id="i-lotus" viewBox="0 0 24 24"><path d="M12 20c-4 0-8-2-9-6 3-.5 6 .5 9 3 3-2.5 6-3.5 9-3-1 4-5 6-9 6zM12 17c-2-2-3-5-3-8 1.2.5 2.2 1.3 3 2.4.8-1.1 1.8-1.9 3-2.4 0 3-1 6-3 8z"/></symbol>
       <symbol id="i-refresh" viewBox="0 0 24 24"><path d="M21 12a9 9 0 0 1-15.5 6.2L3 16M3 12a9 9 0 0 1 15.5-6.2L21 8"/><path d="M21 3v5h-5M3 21v-5h5"/></symbol>
       <symbol id="i-x" viewBox="0 0 24 24"><path d="M18 6 6 18M6 6l12 12"/></symbol>
       <symbol id="i-check" viewBox="0 0 24 24"><path d="M20 6 9 17l-5-5"/></symbol>
@@ -820,6 +823,43 @@
         </div>
       </details>
 
+      <div class="card strava-sync-card" id="stravaSyncCard">
+        <div class="card-title">
+          <span class="strava-sync-title"><svg class="ic strava-glyph" viewBox="0 0 24 24" aria-hidden="true"><path d="M15.4 17.9 13.3 13.7h-3.1l5.2 10.3 5.2-10.3h-3.1M10.4 5.1l2.8 5.5h4.2L10.4 0 3.5 13.7h4.2"/></svg>Sync from Strava</span>
+          <span class="chip chip-ghost chip-xs" title="The sync only reads from Strava - it never uploads, edits or deletes anything there">read-only</span>
+        </div>
+        <p class="field-help">Imports your Strava activities for a date range into history and the calendar. Rides recorded in this app are never changed (only linked). You see a preview first; a restore point is saved before anything is applied.</p>
+        <div class="strava-sync-row">
+          <label class="field"><span>Range</span>
+            <select id="stravaSyncRange" class="input-field">
+              <option value="2">Last 2 weeks</option>
+              <option value="4">Last 4 weeks</option>
+              <option value="8" selected>Last 8 weeks</option>
+              <option value="12">Last 12 weeks</option>
+              <option value="26">Last 26 weeks</option>
+              <option value="custom">Custom dates...</option>
+            </select>
+          </label>
+          <div class="strava-sync-custom" id="stravaSyncCustom" hidden>
+            <label class="field"><span>From</span><input type="date" id="stravaSyncFrom" class="input-field"></label>
+            <label class="field"><span>To</span><input type="date" id="stravaSyncTo" class="input-field"></label>
+          </div>
+          <div class="btn-row">
+            <button type="button" class="btn btn-strava" id="btnStravaSync"><svg class="ic"><use href="#i-refresh"/></svg>Sync from Strava</button>
+            <button type="button" class="btn btn-sm btn-ghost" id="btnStravaUndo" disabled title="Restore history exactly as it was before the last sync">Undo last sync</button>
+          </div>
+        </div>
+        <div class="strava-sync-meta">
+          <span class="dim" id="stravaSyncRangeLabel"></span>
+          <span class="strava-sync-progress" id="stravaSyncProgress" aria-live="polite"></span>
+          <span class="dim" id="stravaSyncUndoInfo"></span>
+        </div>
+        <div class="strava-sync-strength">
+          <label class="toggle"><input type="checkbox" id="chkStrengthInFatigue" checked><span class="toggle-ui"></span><span>Count strength sessions in fatigue (ATL)</span></label>
+          <label class="toggle"><input type="checkbox" id="chkStrengthInFitness"><span class="toggle-ui"></span><span>Also count them in cycling fitness (CTL)</span></label>
+        </div>
+      </div>
+
       <div class="card">
         <div class="card-title">
           <span>Workout log &amp; export</span>
@@ -1064,6 +1104,16 @@
   </div>
 
   <!-- ============================== MODAL: SHORTCUTS ============================== -->
+  <div class="modal-overlay" id="stravaSyncModal" role="dialog" aria-modal="true" aria-labelledby="stravaSyncTitle">
+    <div class="modal-content strava-sync-modal">
+      <div class="modal-header">
+        <h3 id="stravaSyncTitle">Strava sync preview</h3>
+        <button type="button" class="close-modal icon-btn" data-sync="cancel" aria-label="Close"><svg class="ic"><use href="#i-x"/></svg></button>
+      </div>
+      <div id="stravaSyncBody"></div>
+    </div>
+  </div>
+
   <div class="modal-overlay" id="shortcutsModal" role="dialog" aria-modal="true" aria-labelledby="shortcutsTitle">
     <div class="modal-content narrow-modal">
       <div class="modal-header">
@@ -1214,12 +1264,15 @@
   <script src="js/velo-export.js"></script>
   <script src="js/velo-clock.js"></script>
   <script src="js/velo-progress.js"></script>
+  <script src="js/velo-dedupe.js"></script>
+  <script src="js/velo-strava-sync.js"></script>
   <script src="js/app.js"></script>
   <script src="js/app-analytics.js"></script>
   <script src="js/app-history.js"></script>
   <script src="js/app-coach.js"></script>
   <script src="js/app-block.js"></script>
   <script src="js/app-strava.js"></script>
+  <script src="js/app-strava-sync.js"></script>
   <script src="js/app-remote.js"></script>
 </body>
 </html>

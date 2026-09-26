@@ -80,19 +80,26 @@ class VeloAnalytics {
    * Banister impulse-response PMC (CTL tau 42 d, ATL tau 7 d) computed for every
    * calendar day from the first ride through today.
    * @param days number of trailing days to return (0 / 'all' = everything)
+   * @param opts { strengthInAtl = true, strengthInCtl = false }: strength sessions (strengthTss) add to
+   *        fatigue (ATL) but not to cycling fitness (CTL) unless asked. Other non-cycling records add nothing.
    */
-  calculatePmcHistory(workouts = [], days = 90) {
+  calculatePmcHistory(workouts = [], days = 90, opts = {}) {
+    const inAtl = opts.strengthInAtl !== false;
+    const inCtl = opts.strengthInCtl === true;
     const empty = { labels: [], dateKeys: [], ctlData: [], atlData: [], tsbData: [], tssData: [], currentCtl: 0, currentAtl: 0, currentTsb: 0 };
     if (!workouts || workouts.length === 0) return empty;
 
-    const dailyTss = new Map();
+    const dailyTss = new Map();      // cycling TSS
+    const dailyStrength = new Map(); // strength load
     let minDate = null;
     workouts.forEach(w => {
-      if (!w.date) return;
+      if (!w || !w.date) return;
       const d = new Date(w.date);
       if (isNaN(d.getTime())) return;
       const k = VeloMetrics.localDateKey(d);
-      dailyTss.set(k, (dailyTss.get(k) || 0) + (Number(w.tss) || 0));
+      if (VeloMetrics.isCycling(w)) dailyTss.set(k, (dailyTss.get(k) || 0) + (Number(w.tss) || 0));
+      else if (Number(w.strengthTss) > 0 && (inAtl || inCtl)) dailyStrength.set(k, (dailyStrength.get(k) || 0) + Number(w.strengthTss));
+      else return;
       if (!minDate || d < minDate) minDate = d;
     });
     if (!minDate) return empty;
@@ -109,8 +116,9 @@ class VeloAnalytics {
     while (curr <= end) {
       const k = VeloMetrics.localDateKey(curr);
       const dayTss = dailyTss.get(k) || 0;
-      ctl += (dayTss - ctl) * kCtl;
-      atl += (dayTss - atl) * kAtl;
+      const dayStrength = dailyStrength.get(k) || 0;
+      ctl += (dayTss + (inCtl ? dayStrength : 0) - ctl) * kCtl;
+      atl += (dayTss + (inAtl ? dayStrength : 0) - atl) * kAtl;
       all.push({
         dateKey: k,
         label: curr.toLocaleDateString('en-US', { month: 'short', day: 'numeric' }),

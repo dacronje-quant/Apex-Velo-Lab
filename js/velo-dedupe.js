@@ -24,6 +24,9 @@ class VeloDedupe {
     const clockIso = iso.replace(/(Z|[+-]\d{2}:?\d{2})$/, '');
     return {
       id: r.id, source: r.source || '', title: r.title || r.name || '',
+      // true = this record's clock is local time labelled as UTC (HealthFit); false = a true UTC instant
+      // (Strava, cockpit); undefined = unknown (the mislabel check then applies as before).
+      localAsUtc: r.localAsUtc,
       family: VeloDedupe.FAMILY[r.sport || r.sport_type || r.type] || (r.family || 'ride'),
       startMs: Date.parse(iso.endsWith('Z') || /[+-]\d{2}:?\d{2}$/.test(iso) ? iso : iso + 'Z'),
       clockMs: Date.parse(clockIso + 'Z'), // wall-clock reading, timezone ignored
@@ -48,7 +51,9 @@ class VeloDedupe {
     // Only this computer's UTC offset on that date counts as a timezone mislabel (local time stored
     // as UTC); any other whole-hour gap is a different session.
     const tzH = Math.abs(new Date(a.startMs).getTimezoneOffset()) / 60;
-    const dShift = tzH ? Math.abs(dAbs - tzH * 60) : Infinity;
+    // A mislabel needs a record that stores local time as UTC; two true UTC instants are never shifted.
+    const mislabelPossible = (a.localAsUtc === undefined && b.localAsUtc === undefined) || a.localAsUtc === true || b.localAsUtc === true;
+    const dShift = tzH && mislabelPossible ? Math.abs(dAbs - tzH * 60) : Infinity;
     let dt = Math.min(dAbs, dClock);
     let tzNote = '';
     if (dShift < dt) { dt = dShift; tzNote = `${tzH} h timezone offset (local time stored as UTC)`; }

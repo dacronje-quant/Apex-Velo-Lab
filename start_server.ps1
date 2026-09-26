@@ -338,6 +338,7 @@ function Get-StravaStatus {
         athlete    = $name
         canUpload  = [bool]($t -and ([string]$t.scope) -match 'activity:write')
         canCheck   = [bool]($t -and ([string]$t.scope) -match 'activity:read')
+        canSync    = [bool]($t -and ([string]$t.scope) -match 'activity:read_all')
     }
 }
 function Send-Html($response, [int]$status, [string]$title, [string]$body) {
@@ -479,6 +480,127 @@ function Invoke-StravaActivities($request, $response) {
         if ($items.Count -lt 200) { break }
     }
     Send-Json $response 200 @{ activities = @($list) }
+}
+
+# --------------------------------------------------------- Strava sync (READ ONLY) --
+# "Sync from Strava" only ever reads: GET /api/v3/athlete/activities and GET /api/v3/activities/{id}.
+# Nothing is uploaded, edited or deleted on Strava by this path. (Same behaviour as server.js.)
+$syncMaxPages = 10        # 10 x 200 activities
+$syncMaxDetailIds = 10    # activities/{id} per request; the app batches and shows progress
+$syncFields = @('name', 'type', 'sport_type', 'start_date', 'start_date_local', 'timezone', 'moving_time', 'elapsed_time', 'distance',
+    'calories', 'average_watts', 'weighted_average_watts', 'max_watts', 'kilojoules', 'device_watts', 'average_heartrate', 'max_heartrate',
+    'average_cadence', 'suffer_score', 'trainer', 'description')
+
+# Strava's read rate-limit usage from the response headers.
+function Get-StravaRate($resp) {
+    $pick = {
+        param([string]$a, [string]$b)
+        $vals = $null
+        foreach ($n in @($a, $b)) { if ($resp.Headers.TryGetValues($n, [ref]$vals)) { return (@($vals)[0] -split ',') } }
+        return @()
+    }
+    $used = & $pick 'X-ReadRateLimit-Usage' 'X-RateLimit-Usage'
+    $lim = & $pick 'X-ReadRateLimit-Limit' 'X-RateLimit-Limit'
+    $n = { param($arr, [int]$i, [int]$d) if ($arr.Count -gt $i -and $arr[$i] -match '^\s*\d+\s*$') { return [int]$arr[$i] } else { return $d } }
+    return [ordered]@{ used15 = (& $n $used 0 0); usedDay = (& $n $used 1 0); limit15 = (& $n $lim 0 100); limitDay = (& $n $lim 1 1000) }
+}
+# ISO UTC string for a Strava date (PowerShell 7 turns ISO strings into DateTime objects).
+function ConvertTo-IsoUtc($v) {
+    if ($null -eq $v) { return '' }
+    if ($v -is [datetime]) { return $v.ToUniversalTime().ToString('yyyy-MM-ddTHH:mm:ssZ', [System.Globalization.CultureInfo]::InvariantCulture) }
+    $d = [DateTimeOffset]::MinValue
+    if ([DateTimeOffset]::TryParse([string]$v, [System.Globalization.CultureInfo]::InvariantCulture, [System.Globalization.DateTimeStyles]::AssumeUniversal, [ref]$d)) {
+        return $d.UtcDateTime.ToString('yyyy-MM-ddTHH:mm:ssZ', [System.Globalization.CultureInfo]::InvariantCulture)
+    }
+    return ''
+}
+# The compact activity the app works with. detailed = fetched from activities/{id} (has description/calories).
+function ConvertTo-SlimActivity($a, [bool]$detailed) {
+    $o = [ordered]@{ id = [string]$a.id; detailed = $detailed }
+    $names = @($a.PSObject.Properties.Name)
+    foreach ($k in $syncFields) {
+        if ($names -contains $k -and $null -ne $a.$k) { $o[$k] = $a.$k }
+    }
+    $o['start_date'] = ConvertTo-IsoUtc $a.start_date
+    if ($null -ne $a.start_date_local) { $o['start_date_local'] = ConvertTo-IsoUtc $a.start_date_local }
+    if (-not $detailed) { $o.Remove('description'); $o.Remove('calories') }
+    $o['trainer'] = [bool]$a.trainer
+    return $o
+}
+# One GET to the Strava API. The sync path has no other way to reach Strava.
+function Invoke-StravaGet([string]$pathAndQuery, [string]$token) {
+    $msg = New-Object System.Net.Http.HttpRequestMessage([System.Net.Http.HttpMethod]::Get, "$stravaBase/api/v3/$pathAndQuery")
+    $msg.Headers.Authorization = New-Object System.Net.Http.Headers.AuthenticationHeaderValue('Bearer', $token)
+    try {
+        $resp = $http.SendAsync($msg).GetAwaiter().GetResult()
+        $text = $utf8.GetString($resp.Content.ReadAsByteArrayAsync().GetAwaiter().GetResult())
+    } finally { $msg.Dispose() }
+    $data = $null; try { $data = $text | ConvertFrom-Json } catch { }
+    return @{ status = [int]$resp.StatusCode; ok = $resp.IsSuccessStatusCode; data = $data; rate = (Get-StravaRate $resp) }
+}
+
+function Invoke-StravaSync($request, $response) {
+    if ($request.HttpMethod -ne 'GET') { return Send-Json $response 405 @{ error = 'Method not allowed' } }
+    if (-not (Test-LocalRequest $request)) { return Send-Json $response 403 @{ error = 'Forbidden' } }
+    $t = Read-StravaTokens
+    if (-not $t -or -not $t.refresh_token) { return Send-Json $response 401 @{ error = 'Strava is not connected. Connect Strava first.'; needsConnect = $true } }
+    if (([string]$t.scope) -notmatch 'activity:read_all') {
+        return Send-Json $response 403 @{ error = 'Strava sync needs permission to read all your activities. Reconnect Strava (Disconnect, then Connect Strava) and allow access to your activities.'; needsReconnect = $true }
+    }
+    $token = Get-StravaAccessToken
+    if (-not $token) { return Send-Json $response 401 @{ error = 'Strava sign-in expired or was revoked. Reconnect Strava.'; needsConnect = $true } }
+
+    $ids = $request.QueryString['ids']
+    if ($null -ne $ids) {
+        if ($ids -notmatch '^\d+(,\d+)*$') { return Send-Json $response 400 @{ error = 'ids must be a comma-separated list of activity ids' } }
+        $list = @($ids.Split(',') | Select-Object -Unique)
+        if ($list.Count -gt $syncMaxDetailIds) { return Send-Json $response 400 @{ error = "At most $syncMaxDetailIds ids per request" } }
+        $out = New-Object System.Collections.ArrayList
+        $missing = New-Object System.Collections.ArrayList
+        $rate = $null
+        foreach ($id in $list) {
+            try { $r = Invoke-StravaGet "activities/$id" $token }
+            catch { return Send-Json $response 502 @{ error = "Could not reach Strava ($($_.Exception.Message))."; activities = @($out); missing = @($missing) } }
+            $rate = $r.rate
+            if ($r.status -eq 401) { return Send-Json $response 401 @{ error = 'Strava rejected the sign-in. Reconnect Strava.'; needsConnect = $true } }
+            if ($r.status -eq 429) { return Send-Json $response 200 ([ordered]@{ activities = @($out); missing = @($missing); rateLimited = $true; rate = $rate }) }
+            if ($r.status -eq 404) { [void]$missing.Add([string]$id); continue }
+            if (-not $r.ok -or -not $r.data) { return Send-Json $response 502 @{ error = "Strava activity $id failed (HTTP $($r.status))."; activities = @($out); missing = @($missing) } }
+            [void]$out.Add((ConvertTo-SlimActivity $r.data $true))
+        }
+        return Send-Json $response 200 ([ordered]@{ activities = @($out); missing = @($missing); rateLimited = $false; rate = $rate })
+    }
+
+    $inv = [System.Globalization.CultureInfo]::InvariantCulture
+    $sty = [System.Globalization.DateTimeStyles]::AssumeUniversal
+    $a0 = [DateTimeOffset]::MinValue; $b0 = [DateTimeOffset]::MinValue
+    $okA = [DateTimeOffset]::TryParse([string]$request.QueryString['after'], $inv, $sty, [ref]$a0)
+    $okB = [DateTimeOffset]::TryParse([string]$request.QueryString['before'], $inv, $sty, [ref]$b0)
+    if (-not $okA -or -not $okB -or $b0 -le $a0) { return Send-Json $response 400 @{ error = 'after and before must be ISO dates, with after before before' } }
+    $after = [long][Math]::Floor($a0.ToUnixTimeMilliseconds() / 1000)
+    $before = [long][Math]::Ceiling($b0.ToUnixTimeMilliseconds() / 1000)
+    $list = New-Object System.Collections.ArrayList
+    $rate = $null; $pages = 0
+    for ($page = 1; $page -le $syncMaxPages; $page++) {
+        try { $r = Invoke-StravaGet "athlete/activities?after=$after&before=$before&per_page=200&page=$page" $token }
+        catch { return Send-Json $response 502 @{ error = "Could not reach Strava ($($_.Exception.Message))." } }
+        $rate = $r.rate; $pages = $page
+        if ($r.status -eq 401) { return Send-Json $response 401 @{ error = 'Strava needs permission to read your activities. Reconnect Strava.'; needsConnect = $true } }
+        if ($r.status -eq 429) { return Send-Json $response 429 @{ error = 'Strava rate limit reached - try again in 15 minutes.'; rate = $rate } }
+        if (-not $r.ok -or $null -eq $r.data) { return Send-Json $response 502 @{ error = "Strava activity list failed (HTTP $($r.status))." } }
+        # Windows PowerShell 5.1 returns a JSON array as ONE object: enumerate it explicitly.
+        $items = @(foreach ($x in $r.data) { $x })
+        foreach ($a in $items) { if ($null -ne $a -and $null -ne $a.id) { [void]$list.Add((ConvertTo-SlimActivity $a $false)) } }
+        if ($items.Count -lt 200) { break }
+    }
+    Write-Host "[strava] sync list $($a0.UtcDateTime.ToString('yyyy-MM-dd'))..$($b0.UtcDateTime.ToString('yyyy-MM-dd')): $($list.Count) activities ($pages page(s))"
+    Send-Json $response 200 ([ordered]@{
+        activities = @($list)
+        after = $a0.UtcDateTime.ToString('yyyy-MM-ddTHH:mm:ss.fffZ', $inv)
+        before = $b0.UtcDateTime.ToString('yyyy-MM-ddTHH:mm:ss.fffZ', $inv)
+        pages = $pages
+        rate = $rate
+    })
 }
 
 function Invoke-StravaUploadStatus($request, $response, [string]$uploadId) {
@@ -637,6 +759,8 @@ try {
                 else { Invoke-StravaUpload $request $response }
             } elseif ($path -eq '/api/strava/activities') {
                 Invoke-StravaActivities $request $response
+            } elseif ($path -eq '/api/strava/sync') {
+                Invoke-StravaSync $request $response
             } elseif ($path -match '^/api/strava/upload/(\d+)$') {
                 Invoke-StravaUploadStatus $request $response $Matches[1]
             } elseif ($path.StartsWith('/api/')) {

@@ -92,6 +92,12 @@ class VeloBlockPlanner {
   static mondayOf(k) { return VeloBlockPlanner.addDays(k, -VeloBlockPlanner.dow(k)); }
   static today() { return VeloBlockPlanner.key(new Date()); }
 
+  /** A strength session that loads the legs hard (squat/deadlift... or a high strength load). */
+  static isHeavyLegDay(r) {
+    if (typeof VeloStravaSync !== 'undefined') return VeloStravaSync.isHeavyLegDay(r);
+    return !!(r && r.activityType === 'strength' && (r.heavyLegs || Number(r.strengthTss) >= 45));
+  }
+
   // ------------------------------------------------------------- estimates --
   static tssFor(focus, minutes) {
     const f = VeloBlockPlanner.FOCUS[focus];
@@ -405,6 +411,7 @@ RIDER: FTP ${ctx.profile.ftp} W, weight ${ctx.profile.weightKg} kg.
 GOAL: ${goal.label} - ${goal.summary}
 AVAILABILITY: ${opts.hoursPerWeek} h/week on ${dayNames}${opts.longDay !== null ? `; long ride on ${VeloBlockPlanner.DAY_NAMES[opts.longDay]}` : ''}. Block starts ${opts.startDate}.
 CURRENT STATE: CTL ${ctx.ctl.toFixed(1)}, ATL ${ctx.atl.toFixed(1)}, TSB ${ctx.tsb.toFixed(1)} (${ctx.formZone}); last 7 days ${ctx.sevenDayTss} TSS.
+STRENGTH TRAINING: ${ctx.strength && ctx.strength.line ? ctx.strength.line : 'none recorded'}
 LAST ${ctx.lookbackDays} DAYS: ${h.ridesWin} rides, ${h.hoursPerWeekWin} h/week, intensity mix easy ${h.lowIntensityPct ?? 'n/a'}% / tempo-SweetSpot ${h.midIntensityPct ?? 'n/a'}% / threshold+ ${h.highIntensityPct ?? 'n/a'}%; days since last hard ride ${h.daysSinceHard ?? 'n/a'}; power profile ${h.profileType || 'n/a'}.
 ${ctx.notes ? `RIDER NOTES: ${ctx.notes}\n` : ''}DEFAULT STRUCTURE (adjust if the physiology says so): ${skel.map((s, i) => `W${i + 1} ${s.type}`).join(', ')}.
 
@@ -534,11 +541,17 @@ Exactly ${opts.weeks} weeks; the last week has type "test". targetTss is the wee
     if (!b) return [];
     const today = VeloBlockPlanner.key(now);
     const byDay = new Map();
+    const heavyLegDays = new Set(); // heavy leg strength days count like a hard day
     (rides || []).forEach(r => {
       const k = VeloMetrics.localDateKey(r.date);
       if (!k) return;
+      if (!VeloMetrics.isCycling(r)) {
+        if (VeloBlockPlanner.isHeavyLegDay(r)) heavyLegDays.add(k);
+        return; // strength, walks, yoga... never mark a planned ride as done
+      }
       byDay.set(k, (byDay.get(k) || 0) + (Number(r.tss) || 0));
     });
+    const afterHeavyLegs = (d) => heavyLegDays.has(VeloBlockPlanner.addDays(d, -1)) || heavyLegDays.has(d);
     // 1. Mark done / missed.
     this.allSessions().forEach(s => {
       if (s.status === 'skipped') return;
@@ -562,6 +575,17 @@ Exactly ${opts.weeks} weeks; the last week has type "test". targetTss is the wee
     const nextKey = upcoming.find(s => s.key && s.focus !== 'test');
     const tsb = ctx ? ctx.tsb : 0;
     const F = VeloBlockPlanner.FOCUS;
+
+    // 1b. A key ride planned the day after (or the day of) a heavy leg strength session -> make it endurance.
+    upcoming.filter(s => s.key && s.focus !== 'test' && afterHeavyLegs(s.date)).forEach(s => {
+      add({
+        key: `strength_${s.id}`,
+        type: 'ease',
+        title: `Heavy leg day before ${s.title}: turn it into endurance`,
+        reason: 'Squats/deadlifts leave the legs fatigued for 24-48 h. A key ride the day after mostly adds fatigue and gets executed poorly.',
+        changes: [{ sessionId: s.id, patch: { focus: 'endurance', title: `${F.endurance.label} (after strength)`, durationMin: Math.max(F.endurance.min, Math.min(F.endurance.max, s.durationMin)), key: false } }]
+      });
+    });
 
     // 2. Fatigue: ease the next key session (or the next two days) when form is deep in the red.
     if (ctx && tsb < -25 && nextKey && VeloBlockPlanner.parse(nextKey.date) - VeloBlockPlanner.parse(today) <= 3 * 86400000) {
@@ -600,7 +624,7 @@ Exactly ${opts.weeks} weeks; the last week has type "test". targetTss is the wee
       if (!w || w.type !== 'build') return;
       const end = VeloBlockPlanner.addDays(w.start, 6);
       const keyDates = this.allSessions().filter(s => s.key && s !== m && s.status !== 'missed').map(s => s.date);
-      const ok = (d) => !keyDates.some(k => Math.abs(VeloBlockPlanner.parse(k) - VeloBlockPlanner.parse(d)) < 2 * 86400000);
+      const ok = (d) => !afterHeavyLegs(d) && !keyDates.some(k => Math.abs(VeloBlockPlanner.parse(k) - VeloBlockPlanner.parse(d)) < 2 * 86400000);
       const target = upcoming.find(s => !s.key && s.focus !== 'long' && s.date <= end && ok(s.date));
       if (target) {
         add({
@@ -641,7 +665,7 @@ Exactly ${opts.weeks} weeks; the last week has type "test". targetTss is the wee
 
     // 6. Fresh and consistent in a load week -> a small push on the next key session.
     const wNow = this.weekOf(today);
-    if (ctx && tsb > 12 && nextKey && wNow && wNow.type === 'build' && past14.length >= 3 && past14.filter(s => s.status === 'done').length / past14.length >= 0.8) {
+    if (ctx && tsb > 12 && nextKey && !afterHeavyLegs(nextKey.date) && wNow && wNow.type === 'build' && past14.length >= 3 && past14.filter(s => s.status === 'done').length / past14.length >= 0.8) {
       const lim = F[nextKey.focus];
       const longer = Math.min(lim.max, Math.round(nextKey.durationMin * 1.15 / 5) * 5);
       if (longer > nextKey.durationMin) add({

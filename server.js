@@ -321,7 +321,8 @@ function stravaStatus() {
     connected: !!(t && t.refresh_token),
     athlete: t && t.athlete ? `${t.athlete.firstname || ''} ${t.athlete.lastname || ''}`.trim() : null,
     canUpload: !!(t && /activity:write/.test(t.scope || '')),
-    canCheck: !!(t && /activity:read/.test(t.scope || ''))
+    canCheck: !!(t && /activity:read/.test(t.scope || '')),
+    canSync: !!(t && /activity:read_all/.test(t.scope || ''))
   };
 }
 function sendHtml(res, status, title, body) {
@@ -338,6 +339,97 @@ function convertUpload(d) {
   else if (dup) { state = 'duplicate'; activity = dup; }
   else if (err) state = 'failed';
   return { uploadId: String(d.id_str || d.id || ''), state, activityId: activity, status: d.status || '', error: err || null };
+}
+
+// --------------------------------------------------------- Strava sync (READ ONLY) --
+// "Sync from Strava" only ever reads: GET /api/v3/athlete/activities and GET /api/v3/activities/{id}.
+// Nothing is uploaded, edited or deleted on Strava by this path.
+const SYNC_MAX_PAGES = 10;        // 10 x 200 activities
+const SYNC_MAX_DETAIL_IDS = 10;   // activities/{id} per request; the app batches and shows progress
+const SYNC_FIELDS = ['name', 'type', 'sport_type', 'start_date', 'start_date_local', 'timezone', 'moving_time', 'elapsed_time', 'distance',
+  'calories', 'average_watts', 'weighted_average_watts', 'max_watts', 'kilojoules', 'device_watts', 'average_heartrate', 'max_heartrate',
+  'average_cadence', 'suffer_score', 'trainer', 'description'];
+
+/** Strava's read rate-limit usage from the response headers: { used15, limit15, usedDay, limitDay }. */
+function stravaRate(r) {
+  const pick = (a, b) => (r.headers.get(a) || r.headers.get(b) || '').split(',').map(x => parseInt(x, 10));
+  const used = pick('x-readratelimit-usage', 'x-ratelimit-usage');
+  const lim = pick('x-readratelimit-limit', 'x-ratelimit-limit');
+  return { used15: used[0] || 0, usedDay: used[1] || 0, limit15: lim[0] || 100, limitDay: lim[1] || 1000 };
+}
+function toIsoUtc(v) {
+  const t = Date.parse(v);
+  return Number.isFinite(t) ? new Date(t).toISOString().replace('.000Z', 'Z') : '';
+}
+/** The compact activity the app works with. `detailed` = fetched from activities/{id} (has description/calories). */
+function slimActivity(a, detailed) {
+  const o = { id: String(a.id), detailed: !!detailed };
+  for (const k of SYNC_FIELDS) if (a[k] !== undefined && a[k] !== null) o[k] = a[k];
+  o.start_date = toIsoUtc(a.start_date);
+  // start_date_local is the local wall clock labelled with a Z; keep it as that label.
+  if (a.start_date_local) o.start_date_local = toIsoUtc(a.start_date_local);
+  if (!detailed) { delete o.description; delete o.calories; }
+  o.trainer = !!a.trainer;
+  return o;
+}
+/** One GET to the Strava API. The sync path has no other way to reach Strava. */
+async function stravaGet(pathAndQuery, token) {
+  const r = await fetch(`${STRAVA_BASE}/api/v3/${pathAndQuery}`, { method: 'GET', headers: { Authorization: `Bearer ${token}` } });
+  const data = await r.json().catch(() => null);
+  return { status: r.status, ok: r.ok, data, rate: stravaRate(r) };
+}
+
+async function handleStravaSync(req, res, query) {
+  if (req.method !== 'GET') return sendJson(res, 405, { error: 'Method not allowed' });
+  if (!isLocalRequest(req)) return sendJson(res, 403, { error: 'Forbidden' });
+  const t = readStravaTokens();
+  if (!t || !t.refresh_token) return sendJson(res, 401, { error: 'Strava is not connected. Connect Strava first.', needsConnect: true });
+  if (!/activity:read_all/.test(t.scope || '')) {
+    return sendJson(res, 403, { error: 'Strava sync needs permission to read all your activities. Reconnect Strava (Disconnect, then Connect Strava) and allow access to your activities.', needsReconnect: true });
+  }
+  const token = await stravaAccessToken();
+  if (!token) return sendJson(res, 401, { error: 'Strava sign-in expired or was revoked. Reconnect Strava.', needsConnect: true });
+
+  const ids = query.get('ids');
+  if (ids !== null) {
+    if (!/^\d+(,\d+)*$/.test(ids)) return sendJson(res, 400, { error: 'ids must be a comma-separated list of activity ids' });
+    const list = [...new Set(ids.split(','))];
+    if (list.length > SYNC_MAX_DETAIL_IDS) return sendJson(res, 400, { error: `At most ${SYNC_MAX_DETAIL_IDS} ids per request` });
+    const out = [], missing = [];
+    let rate = null;
+    for (const id of list) {
+      let r;
+      try { r = await stravaGet(`activities/${id}`, token); } catch (e) { return sendJson(res, 502, { error: `Could not reach Strava (${e.message}).`, activities: out, missing }); }
+      rate = r.rate;
+      if (r.status === 401) return sendJson(res, 401, { error: 'Strava rejected the sign-in. Reconnect Strava.', needsConnect: true });
+      if (r.status === 429) return sendJson(res, 200, { activities: out, missing, rateLimited: true, rate });
+      if (r.status === 404) { missing.push(id); continue; }
+      if (!r.ok || !r.data) return sendJson(res, 502, { error: `Strava activity ${id} failed (HTTP ${r.status}).`, activities: out, missing });
+      out.push(slimActivity(r.data, true));
+    }
+    return sendJson(res, 200, { activities: out, missing, rateLimited: false, rate });
+  }
+
+  const afterMs = Date.parse(query.get('after') || ''), beforeMs = Date.parse(query.get('before') || '');
+  if (!Number.isFinite(afterMs) || !Number.isFinite(beforeMs) || beforeMs <= afterMs) {
+    return sendJson(res, 400, { error: 'after and before must be ISO dates, with after before before' });
+  }
+  const after = Math.floor(afterMs / 1000), before = Math.ceil(beforeMs / 1000);
+  const out = [];
+  let rate = null, pages = 0;
+  for (let page = 1; page <= SYNC_MAX_PAGES; page++) {
+    let r;
+    try { r = await stravaGet(`athlete/activities?after=${after}&before=${before}&per_page=200&page=${page}`, token); }
+    catch (e) { return sendJson(res, 502, { error: `Could not reach Strava (${e.message}).` }); }
+    rate = r.rate; pages = page;
+    if (r.status === 401) return sendJson(res, 401, { error: 'Strava needs permission to read your activities. Reconnect Strava.', needsConnect: true });
+    if (r.status === 429) return sendJson(res, 429, { error: 'Strava rate limit reached - try again in 15 minutes.', rate });
+    if (!r.ok || !Array.isArray(r.data)) return sendJson(res, 502, { error: `Strava activity list failed (HTTP ${r.status}).` });
+    for (const a of r.data) if (a && a.id != null) out.push(slimActivity(a, false));
+    if (r.data.length < 200) break;
+  }
+  console.log(`[strava] sync list ${new Date(afterMs).toISOString().slice(0, 10)}..${new Date(beforeMs).toISOString().slice(0, 10)}: ${out.length} activities (${pages} page${pages === 1 ? '' : 's'})`);
+  return sendJson(res, 200, { activities: out, after: new Date(afterMs).toISOString(), before: new Date(beforeMs).toISOString(), pages, rate });
 }
 
 async function handleStrava(req, res, urlPath, query) {
@@ -423,6 +515,7 @@ async function handleStrava(req, res, urlPath, query) {
     }
     return sendJson(res, 200, { activities: out });
   }
+  if (urlPath === '/api/strava/sync') return handleStravaSync(req, res, query);
   const m = urlPath.match(/^\/api\/strava\/upload\/(\d+)$/);
   if (m) {
     if (!isLocalRequest(req)) return sendJson(res, 403, { error: 'Forbidden' });
@@ -540,4 +633,4 @@ if (require.main === module) {
   });
 }
 
-module.exports = { createServer, buildClaudeRequest, buildGeminiRequest, loadDotEnv, MODELS, PROVIDERS };
+module.exports = { createServer, buildClaudeRequest, buildGeminiRequest, loadDotEnv, slimActivity, MODELS, PROVIDERS };
