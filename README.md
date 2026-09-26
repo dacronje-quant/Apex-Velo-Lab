@@ -47,7 +47,13 @@ The PC keeps the Bluetooth sensors and runs the ride; your phone becomes a live 
 2. Start `Launch-Apex-Velo.bat` as usual and open the app on the PC. The console window prints the phone address, e.g. `http://192.168.1.23:8080/live.html`.
 3. On the iPhone (same Wi-Fi, not mobile data) open that address in Safari, then **Share > Add to Home Screen** for a full-screen "Apex Live" icon.
 
-The phone shows power, target, interval countdown, HR, cadence, L/R balance, NP/TSS and a 2-minute power trace, and can **Start/Pause**, nudge **ERG +/-1%**, reset ERG, and **Skip step** (tap twice to confirm). Keep the Apex tab open on the PC (it can be minimised). Only devices on your private home network are accepted; anything else gets 403. iPhone Safari cannot keep the screen awake over plain http, so set Settings > Display & Brightness > Auto-Lock to Never while riding (or just tap the screen now and then).
+The phone has three screens; swipe sideways or tap the tabs, and it remembers the last one:
+
+- **Focus** - the current step and countdown, power against target, a 2-minute power trace, heart rate and cadence.
+- **Session** - % complete and time left, the whole workout as zone-coloured blocks with a gliding playhead, avg power, NP, TSS and kJ.
+- **Balance** - live L/R split from the pedals, a 2-minute balance trace with its average, cadence and power source.
+
+The controls stay at the bottom of every screen: **Start/Pause**, nudge **ERG +/-1%**, reset ERG, and **Skip step** (tap twice to confirm). Keep the Apex tab open on the PC (it can be minimised). Only devices on your private home network are accepted; anything else gets 403. iPhone Safari cannot keep the screen awake over plain http, so set Settings > Display & Brightness > Auto-Lock to Never while riding (or just tap the screen now and then).
 
 ## Security & privacy
 
