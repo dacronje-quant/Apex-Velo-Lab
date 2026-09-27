@@ -124,6 +124,17 @@ const sendJson = (res, status, obj) => send(res, status, JSON.stringify(obj), 'a
 // Wi-Fi as this PC can reach the API too - never a public/internet address.
 const LAN_HOST_RE = /^(10(?:\.\d{1,3}){3}|172\.(?:1[6-9]|2\d|3[0-1])(?:\.\d{1,3}){2}|192\.168(?:\.\d{1,3}){2}|169\.254(?:\.\d{1,3}){2})(:\d+)?$/;
 /** Only pages served by this server (from this PC or another device on the same LAN) may call the API. */
+/**
+ * The real client address (not a header a client can set) must be this PC or a private home
+ * network address - so even on a cafe Wi-Fi nothing outside answers. IPv4-mapped IPv6 is unwrapped.
+ */
+function isAllowedClient(req) {
+  let ip = String((req.socket && req.socket.remoteAddress) || '');
+  if (ip.startsWith('::ffff:')) ip = ip.slice(7);
+  if (ip === '::1' || /^127\./.test(ip)) return true;
+  return /^(10\.|192\.168\.|169\.254\.|172\.(1[6-9]|2\d|3[01])\.)/.test(ip) || /^(f[cd][0-9a-f]{2}|fe80):/i.test(ip);
+}
+
 function isLocalRequest(req) {
   const host = req.headers.host || '';
   const hostOk = /^(localhost|127\.0\.0\.1|\[::1\])(:\d+)?$/i.test(host) || LAN_HOST_RE.test(host);
@@ -658,6 +669,7 @@ async function handleLive(req, res, urlPath) {
 function createServer() {
   return http.createServer((req, res) => {
     const urlPath = (req.url || '/').split('?')[0];
+    if (!isAllowedClient(req)) return send(res, 403, 'Forbidden');
     if (urlPath === '/api/backup') {
       return handleBackup(req, res).catch((e) => { if (!res.headersSent) sendJson(res, 500, { error: e.message }); });
     }
@@ -679,6 +691,8 @@ function createServer() {
     }
     if (urlPath.startsWith('/api/')) return sendJson(res, 404, { error: 'Not found' });
     if (req.method !== 'GET' && req.method !== 'HEAD') return send(res, 405, 'Method not allowed');
+    // Pages and data files (your ride history) too: a website cannot read them via DNS rebinding.
+    if (!isLocalRequest(req)) return send(res, 403, 'Forbidden');
     return serveStatic(req, res, urlPath);
   });
 }

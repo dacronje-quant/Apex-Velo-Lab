@@ -1,6 +1,6 @@
 // APEX VELO // LAB service worker - network-first for app files so updates are never
 // masked by a stale cache; the cache is only a fallback when offline.
-const CACHE_NAME = 'apex-velo-cache-v14';
+const CACHE_NAME = 'apex-velo-cache-v15';
 const CORE = [
   './', './index.html', './manifest.json', './css/style.css', './css/fonts.css', './vendor/chart.umd.min.js',
   './vendor/fonts/inter-latin-400-normal.woff2', './vendor/fonts/inter-latin-500-normal.woff2', './vendor/fonts/inter-latin-600-normal.woff2', './vendor/fonts/inter-latin-700-normal.woff2', './vendor/fonts/inter-latin-800-normal.woff2',
@@ -13,7 +13,9 @@ const CORE = [
 ];
 
 self.addEventListener('install', (e) => {
-  e.waitUntil(caches.open(CACHE_NAME).then((c) => c.addAll(CORE)).catch(() => {}));
+  // Each file on its own: addAll() is all-or-nothing, so one missing file (e.g. no personal
+  // history in data/) used to leave the whole offline cache empty.
+  e.waitUntil(caches.open(CACHE_NAME).then((c) => Promise.allSettled(CORE.map((u) => c.add(u)))).catch(() => {}));
   self.skipWaiting();
 });
 

@@ -279,6 +279,9 @@
       this.renderHistoryTable();
       this.renderCalendarView();
       this.refreshAnalytics();
+      this.updateHeroStats();
+      if (this.reviewTrainingBlock) this.reviewTrainingBlock({ announce: false });
+      if (this.scheduleAutoBackup) this.scheduleAutoBackup();
       this.showToast(`Removed "${removed.title || 'Workout'}" from history.`);
     },
 
