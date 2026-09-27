@@ -320,31 +320,125 @@ function Invoke-Health($request, $response, [string]$path) {
 }
 
 # ---------------------------------------------------------------- phone view --
-# The PC app posts a live snapshot about once a second; live.html on the phone reads it
-# and queues simple commands that the PC app collects on its next post. Memory only.
+# The PC app posts a live snapshot right after every ride tick; live.html on the phone reads it
+# and queues simple commands. Memory only.
+# Low latency without polling: the phone asks GET /api/live?after=<seq> and that request is held
+# (not answered) until the next snapshot arrives, at most $liveHoldMs (long-poll). The PC app
+# holds GET /api/live/cmds open the same way, so a tapped command reaches it at once. Held
+# requests are just parked responses, so this single-threaded loop never blocks on them.
+# Every command has an id and stays queued until the PC confirms it (cmdAck in its next
+# publish), so a command is never lost on a dropped connection and never applied twice.
 $liveCmdsAllowed = @('toggle', 'skip', 'bias-up', 'bias-down', 'bias-reset', 'watts-up', 'watts-down', 'stand', 'spin-more', 'spin-finish')
+$liveHoldMs = 2500
+$liveCmdHoldMs = 20000
+$liveMaxWaiters = 8
+$liveCmdTtlMs = 10000
 $script:liveSnapshotJson = 'null'
 $script:liveAt = $null
+$script:liveSeq = 0
 $script:liveCmds = New-Object System.Collections.ArrayList
+$script:liveWaiters = New-Object System.Collections.ArrayList
+$script:liveCmdWaiter = $null
+$script:liveCmdId = [DateTimeOffset]::UtcNow.ToUnixTimeMilliseconds() # ids keep rising across restarts
+
+function Get-LiveJson {
+    $age = if ($script:liveAt) { [int]((Get-Date) - $script:liveAt).TotalMilliseconds } else { 'null' }
+    return '{"snapshot":' + $script:liveSnapshotJson + ',"ageMs":' + $age + ',"pending":' + $script:liveCmds.Count + ',"seq":' + $script:liveSeq + '}'
+}
+# Commands newer than $after (expired ones are dropped), as the reply JSON.
+function Get-LiveCmdsJson([long]$after) {
+    $now = Get-Date
+    foreach ($c in @($script:liveCmds)) { if (($now - $c.At).TotalMilliseconds -ge $liveCmdTtlMs) { $script:liveCmds.Remove($c) } }
+    $parts = @(foreach ($c in $script:liveCmds) { if ($c.Id -gt $after) { '{"id":' + $c.Id + ',"cmd":"' + $c.Cmd + '"}' } })
+    return '{"cmds":[' + ($parts -join ',') + ']}'
+}
+# A parked phone or PC may have gone away (screen locked, tab closed): a failed write is ignored.
+function Complete-LiveWaiter($response, [string]$json) {
+    try { Send-RawJson $response 200 $json; return $true } catch { try { $response.Abort() } catch { }; return $false }
+}
+function Send-LiveWaiters {
+    if ($script:liveWaiters.Count -eq 0) { return }
+    $json = Get-LiveJson
+    foreach ($w in @($script:liveWaiters)) { [void](Complete-LiveWaiter $w.Response $json) }
+    $script:liveWaiters.Clear()
+}
+function Send-LiveCmdWaiter {
+    $w = $script:liveCmdWaiter
+    if ($null -eq $w) { return }
+    $json = Get-LiveCmdsJson $w.After
+    if ($json -eq '{"cmds":[]}') { return }
+    $script:liveCmdWaiter = $null
+    # Stays queued until the PC confirms it, so a lost reply is repeated on the next publish.
+    [void](Complete-LiveWaiter $w.Response $json)
+}
+# Called between requests: answer parked requests whose hold time is up.
+function Update-LiveWaiters {
+    $now = Get-Date
+    if ($script:liveWaiters.Count -gt 0) {
+        $json = $null
+        foreach ($w in @($script:liveWaiters)) {
+            if (($now - $w.At).TotalMilliseconds -ge $liveHoldMs) {
+                if ($null -eq $json) { $json = Get-LiveJson }
+                [void](Complete-LiveWaiter $w.Response $json)
+                $script:liveWaiters.Remove($w)
+            }
+        }
+    }
+    $cw = $script:liveCmdWaiter
+    if ($null -ne $cw -and ($now - $cw.At).TotalMilliseconds -ge $liveCmdHoldMs) {
+        $script:liveCmdWaiter = $null
+        [void](Complete-LiveWaiter $cw.Response '{"cmds":[]}')
+    }
+}
 
 function Invoke-Live($request, $response) {
     if (-not (Test-LocalRequest $request)) { return Send-Json $response 403 @{ error = 'Forbidden' } }
     if ($request.HttpMethod -eq 'GET') {
-        $age = if ($script:liveAt) { [int]((Get-Date) - $script:liveAt).TotalMilliseconds } else { 'null' }
-        $json = '{"snapshot":' + $script:liveSnapshotJson + ',"ageMs":' + $age + ',"pending":' + $script:liveCmds.Count + '}'
-        return Send-RawJson $response 200 $json
+        $after = $request.QueryString['after']
+        $afterN = 0
+        if ($null -ne $after -and [int]::TryParse($after, [ref]$afterN) -and $afterN -eq $script:liveSeq) {
+            # Nothing newer than what the phone has: park it until the next snapshot (or the hold time).
+            if ($script:liveWaiters.Count -ge $liveMaxWaiters) {
+                $old = $script:liveWaiters[0]; $script:liveWaiters.RemoveAt(0)
+                [void](Complete-LiveWaiter $old.Response (Get-LiveJson))
+            }
+            [void]$script:liveWaiters.Add(@{ Response = $response; At = (Get-Date) })
+            return
+        }
+        return Send-RawJson $response 200 (Get-LiveJson)
     }
     if ($request.HttpMethod -ne 'POST') { return Send-Json $response 405 @{ error = 'Method not allowed' } }
     if ($request.ContentLength64 -gt 65536) { return Send-Json $response 413 @{ error = 'Request too large' } }
     $reader = New-Object System.IO.StreamReader($request.InputStream, $utf8)
     $bodyText = $reader.ReadToEnd(); $reader.Close()
-    try { $null = $bodyText | ConvertFrom-Json } catch { return Send-Json $response 400 @{ error = 'Invalid JSON.' } }
+    try { $b = $bodyText | ConvertFrom-Json } catch { return Send-Json $response 400 @{ error = 'Invalid JSON.' } }
     $script:liveSnapshotJson = $bodyText.Trim()
     if ($script:liveSnapshotJson -eq '') { $script:liveSnapshotJson = 'null' }
     $script:liveAt = Get-Date
-    $parts = @(foreach ($c in $script:liveCmds) { '{"cmd":"' + $c + '"}' })
-    $script:liveCmds.Clear()
-    return Send-RawJson $response 200 ('{"cmds":[' + ($parts -join ',') + ']}')
+    $script:liveSeq++
+    $ack = $null
+    if ($null -ne $b -and $null -ne $b.PSObject.Properties['cmdAck'] -and $null -ne $b.cmdAck) { try { $ack = [long]$b.cmdAck } catch { $ack = $null } }
+    if ($null -ne $ack) {
+        foreach ($c in @($script:liveCmds)) { if ($c.Id -le $ack) { $script:liveCmds.Remove($c) } }
+        $json = Get-LiveCmdsJson $ack
+    } else {
+        $json = Get-LiveCmdsJson 0   # no ack: an older app, hand over once
+        $script:liveCmds.Clear()
+    }
+    Send-RawJson $response 200 $json
+    Send-LiveWaiters
+}
+
+function Invoke-LiveCmds($request, $response) {
+    # Only the app on this PC collects commands.
+    if (-not (Test-PcRequest $request)) { return Send-Json $response 403 @{ error = 'Forbidden' } }
+    if ($request.HttpMethod -ne 'GET') { return Send-Json $response 405 @{ error = 'Method not allowed' } }
+    $after = [long]0
+    [void][long]::TryParse([string]$request.QueryString['after'], [ref]$after)
+    $json = Get-LiveCmdsJson $after
+    if ($json -ne '{"cmds":[]}') { return Send-RawJson $response 200 $json }
+    if ($null -ne $script:liveCmdWaiter) { [void](Complete-LiveWaiter $script:liveCmdWaiter.Response '{"cmds":[]}') }
+    $script:liveCmdWaiter = @{ Response = $response; At = (Get-Date); After = $after }
 }
 
 function Invoke-LiveCmd($request, $response) {
@@ -357,8 +451,9 @@ function Invoke-LiveCmd($request, $response) {
     $cmd = [string]$b.cmd
     if ($liveCmdsAllowed -notcontains $cmd) { return Send-Json $response 400 @{ error = 'Unknown command' } }
     if (-not $script:liveAt -or ((Get-Date) - $script:liveAt).TotalSeconds -gt 10) { return Send-Json $response 409 @{ error = 'The app on the PC is not open.' } }
-    if ($script:liveCmds.Count -lt 20) { [void]$script:liveCmds.Add($cmd) }
-    return Send-Json $response 200 @{ ok = $true }
+    if ($script:liveCmds.Count -lt 20) { $script:liveCmdId++; [void]$script:liveCmds.Add(@{ Id = $script:liveCmdId; Cmd = $cmd; At = (Get-Date) }) }
+    Send-Json $response 200 @{ ok = $true }
+    Send-LiveCmdWaiter
 }
 
 function Get-StatusObject {
@@ -955,7 +1050,8 @@ try {
     while ($listener.IsListening) {
         # Poll so Ctrl+C can stop the server between requests.
         $task = $listener.GetContextAsync()
-        while (-not $task.AsyncWaitHandle.WaitOne(500)) { }
+        # Short waits so parked phone-view requests are answered on time.
+        while (-not $task.AsyncWaitHandle.WaitOne(100)) { Update-LiveWaiters }
         $context = $task.GetAwaiter().GetResult()
         $request = $context.Request
         $response = $context.Response
@@ -971,6 +1067,8 @@ try {
                 Invoke-Live $request $response
             } elseif ($path -eq '/api/live/cmd') {
                 Invoke-LiveCmd $request $response
+            } elseif ($path -eq '/api/live/cmds') {
+                Invoke-LiveCmds $request $response
             } elseif ($path -eq '/api/coach/status') {
                 if ($request.HttpMethod -ne 'GET') { Send-Json $response 405 @{ error = 'Method not allowed' } }
                 elseif (-not (Test-LocalRequest $request)) { Send-Json $response 403 @{ error = 'Forbidden' } }
@@ -1011,6 +1109,7 @@ try {
             Write-Host "Request error: $($_.Exception.Message)" -ForegroundColor Yellow
             try { Send-Json $response 500 @{ error = 'Internal error' } } catch { }
         }
+        Update-LiveWaiters
     }
 } finally {
     $listener.Stop()

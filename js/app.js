@@ -84,7 +84,8 @@ class VeloApp {
     this.ble = new VeloBle((d) => this.handleBleTelemetry(d));
     this.aiCoach = new VeloAiCoach(this);
     this.blockPlanner = typeof VeloBlockPlanner === 'function' ? new VeloBlockPlanner(this.aiCoach) : null;
-    this.clock = new VeloClock(() => this.tick1Hz());
+    // Every tick is pushed to the phone view straight away, so the phone never trails the PC by a second.
+    this.clock = new VeloClock(() => { this.tick1Hz(); if (this.publishSoon) this.publishSoon(); });
     this.workoutTimer = null; // legacy handle; VeloClock owns the 1 Hz tick
 
     this.recordedSamples = [];
@@ -1668,6 +1669,7 @@ class VeloApp {
     }
     this._previewShown = true;
     this.renderDevicePreview(r);
+    if (this.publishSoon) this.publishSoon();
   }
 
   /** Writes live device values into the power / cadence / HR tiles (cockpit + zen) only. */

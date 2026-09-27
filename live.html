@@ -171,7 +171,7 @@
       </div>
 
       <div class="card power">
-        <div class="lbl">POWER (3s)</div>
+        <div class="lbl" id="powerLbl">POWER (5s)</div>
         <div class="big num" id="power">--<small>W</small></div>
         <div class="tgt num" id="target">Target --</div>
         <canvas id="trace"></canvas>
@@ -326,24 +326,46 @@
   window.addEventListener('resize', () => { setPage(page, false); if (snap) drawAll(snap); });
 
   // ---- Data ------------------------------------------------------------------------------
-  async function poll() {
-    try {
-      const r = await fetch('api/live', { cache: 'no-store' });
-      if (!r.ok) throw new Error(String(r.status));
-      const d = await r.json();
-      lastOkAt = Date.now(); failures = 0;
-      if (!d.snapshot || d.ageMs == null || d.ageMs > 8000) {
-        render(null);
-        overlay(true, 'Open the app on the PC', 'The server is running, but Apex Velo Lab is not open in Chrome on the PC (or the tab is closed). Open it there and this screen comes alive.');
-      } else {
-        overlay(false);
-        render(d.snapshot);
-      }
-    } catch (e) {
-      failures++;
-      if (failures >= 3) {
-        render(null);
-        overlay(true, "Can't reach your PC", 'Make sure Launch-Apex-Velo is running on the PC, and your phone is on the same Wi-Fi (not mobile data).');
+  // Long-poll: the server answers as soon as the PC publishes a newer snapshot (right after each
+  // ride tick), or after ~2.5 s with the current one. So the phone follows the PC within a few ms
+  // instead of up to two seconds with two unsynchronised 1 s timers.
+  let seq = null, pollGen = 0, pollCtl = null;
+  const wait = (ms) => new Promise((r) => setTimeout(r, ms));
+  function restartPoll() {
+    pollGen++;
+    if (pollCtl) { try { pollCtl.abort(); } catch (e) { /* ignore */ } }
+    pollLoop(pollGen);
+  }
+  async function pollLoop(gen) {
+    while (gen === pollGen) {
+      const ctl = new AbortController(); pollCtl = ctl;
+      const guard = setTimeout(() => ctl.abort(), 6000); // a dropped Wi-Fi connection never hangs the view
+      try {
+        const r = await fetch('api/live' + (seq != null ? '?after=' + seq : ''), { cache: 'no-store', signal: ctl.signal });
+        if (!r.ok) throw new Error(String(r.status));
+        const d = await r.json();
+        if (gen !== pollGen) return;
+        lastOkAt = Date.now(); failures = 0;
+        seq = typeof d.seq === 'number' ? d.seq : null;
+        if (!d.snapshot || d.ageMs == null || d.ageMs > 8000) {
+          render(null);
+          overlay(true, 'Open the app on the PC', 'The server is running, but Apex Velo Lab is not open in Chrome on the PC (or the tab is closed). Open it there and this screen comes alive.');
+        } else {
+          overlay(false);
+          render(d.snapshot);
+        }
+        if (seq == null) await wait(1000); // older server without long-poll: plain 1 s polling
+      } catch (e) {
+        if (gen !== pollGen) return;
+        seq = null;
+        failures++;
+        if (failures >= 3) {
+          render(null);
+          overlay(true, "Can't reach your PC", 'Make sure Launch-Apex-Velo is running on the PC, and your phone is on the same Wi-Fi (not mobile data).');
+        }
+        await wait(1000);
+      } finally {
+        clearTimeout(guard);
       }
     }
   }
@@ -385,7 +407,8 @@
     if (!s) return;
 
     recordBalance(s);
-    document.title = s.state === 'running' ? `${s.power}W - Apex Live` : 'Apex Live';
+    const pw = s.power5 != null ? s.power5 : s.power; // big number: 5 s average
+    document.title = s.state === 'running' ? `${pw}W - Apex Live` : 'Apex Live';
     $('title').textContent = s.title || 'Workout';
     // ERG change from the plan in watts (the PC keeps it as a %, so later steps scale the same way).
     const dW = s.baseTarget > 0 && s.target > 0 ? s.target - s.baseTarget : null;
@@ -409,13 +432,16 @@
     const stepDone = step && step.duration ? 1 - (step.remaining || 0) / step.duration : (finished ? 1 : 0);
     $('stepProgress').style.width = Math.round(Math.min(1, Math.max(0, stepDone)) * 1000) / 10 + '%';
 
-    $('power').innerHTML = `${s.power}<small>W</small>`;
-    $('power').style.color = s.power > 0 && s.zone ? s.zone.color : '';
+    const pw = s.power5 != null ? s.power5 : s.power; // 5 s average (older PC app: its own smoothing)
+    const pz = s.power5 != null && s.zone5 ? s.zone5 : s.zone;
+    $('powerLbl').textContent = `POWER (${s.powerAvgSec || 5}s)`;
+    $('power').innerHTML = `${pw}<small>W</small>`;
+    $('power').style.color = pw > 0 && pz ? pz.color : '';
     const t = $('target');
     if (s.target > 0) {
-      const diff = s.power - s.target, pct = Math.abs(diff) / s.target * 100;
+      const diff = pw - s.target, pct = Math.abs(diff) / s.target * 100;
       t.textContent = `Target ${s.target}W${s.targetPct != null ? ` (${s.targetPct}%)` : ''}${riding ? `  ${diff >= 0 ? '+' : ''}${diff}` : ''}`;
-      t.className = 'tgt num ' + (!riding || s.power === 0 ? '' : pct <= 5 ? 'on' : pct <= 10 ? 'close' : 'off');
+      t.className = 'tgt num ' + (!riding || pw === 0 ? '' : pct <= 5 ? 'on' : pct <= 10 ? 'close' : 'off');
     } else { t.textContent = 'Target --'; t.className = 'tgt num'; }
 
     $('hr').textContent = s.hr || '--';
@@ -643,7 +669,7 @@
       toast(e.message || 'Could not reach the PC');
     } finally {
       sending = false;
-      setTimeout(poll, 400);
+      render(snap); // the PC republishes at once after a command; the long-poll brings it in
     }
   }
 
@@ -684,14 +710,13 @@
     try { if (awakeVideo.paused) await awakeVideo.play(); } catch (e) { /* needs a tap first */ }
   }
   window.__apexKeepAwake = () => ({ secure: window.isSecureContext, lock: !!(wakeSentinel && !wakeSentinel.released), video: !!(awakeVideo && !awakeVideo.paused) });
-  document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') { keepAwake(); poll(); } });
+  document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') { keepAwake(); restartPoll(); } });
   document.addEventListener('click', keepAwake);
   document.addEventListener('touchend', keepAwake, { passive: true });
   if (!window.isSecureContext) setTimeout(() => toast('Tap anywhere once to keep the screen on'), 1500);
 
   setPage(page, false);
-  poll();
-  setInterval(() => { if (document.visibilityState === 'visible') poll(); }, 1000);
+  restartPoll();
   requestAnimationFrame(glide);
 })();
 </script>

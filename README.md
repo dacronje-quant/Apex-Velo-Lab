@@ -158,7 +158,7 @@ The PC keeps the Bluetooth sensors and runs the ride; your phone becomes a live 
 
 The phone has four screens; swipe sideways or tap the tabs, and it remembers the last one:
 
-- **Focus** - the current step and countdown, power against target, a 2-minute power trace, heart rate and cadence.
+- **Focus** - the current step and countdown, **5 s average power** against target, a 2-minute power trace, heart rate and cadence.
 - **Session** - % complete and time left, the whole workout as zone-coloured blocks with a gliding playhead, avg power, heart rate, cadence and distance.
 - **Balance** - live L/R split from the pedals, a 2-minute balance trace with its average, cadence and power source.
 - **Pedal** - the pedal-stroke polar view: lobe split = measured L/R balance, size = measured power vs FTP, rotation = measured cadence. The lobe shape itself is a model (labelled MODEL) - the pedals don't send force per crank angle.
@@ -166,6 +166,8 @@ The phone has four screens; swipe sideways or tap the tabs, and it remembers the
 Before you press Start (and while paused) the phone already shows live heart rate, power and cadence from connected devices; nothing is recorded until the ride runs.
 
 A thin zone-coloured bar of the whole workout sits above the controls on every screen, with a needle showing where you are. The controls stay at the bottom of every screen, sized for sweaty fingers (60 px targets): **Start/Pause**, **-5 W / +5 W** (the middle shows the change from the plan in watts - tap it to go back to the plan), **Stand 30s** and **Skip step** (tap twice to confirm). When a workout ends, the phone shows the **+5 min easy spin** offer with giant buttons too. Keep the Apex tab open on the PC (it can be minimised). Only devices on your private home network are accepted; anything else gets 403.
+
+**No visible lag.** The PC pushes every ride second to the phone the moment it happens, and the phone keeps a request open that the server answers as soon as the new data arrives (long-poll), so the phone shows each update about 10-20 ms after the PC. Taps on the phone reach the PC just as fast: the PC keeps its own request open for commands, and each command is confirmed by the PC so it is never lost or applied twice.
 
 **Screen stays on.** Over plain http on your home Wi-Fi, iPhone Safari has no Wake Lock, so the phone view plays a tiny silent, invisible looping video - the technique the NoSleep.js library uses - which keeps the screen on. Browsers only allow it after a tap, so the page asks you to tap anywhere once. If your phone still dims, set Settings > Display & Brightness > Auto-Lock to Never while riding.
 
