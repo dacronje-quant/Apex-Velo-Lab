@@ -26,24 +26,13 @@
         this.on(dz, 'dragleave', () => dz.classList.remove('dragover'));
         this.on(dz, 'drop', (e) => { e.preventDefault(); dz.classList.remove('dragover'); this.handleIncomingFiles(e.dataTransfer.files); });
       }
-      this.on(document.getElementById('btnImportFromDataFolder'), 'click', async () => {
-        try {
-          const resp = await fetch('data/sample_sweetspot_ride.tcx');
-          if (!resp.ok) throw new Error('fetch failed');
-          const ride = VeloRideImporter.parseTcx(await resp.text(), this.activeProfile.ftp, this.activeProfile.name);
-          ride.title = 'Sample SweetSpot Ride (data/ folder)';
-          this.addImportedRides([ride]);
-        } catch (err) {
-          this.showToast('Browsers block file:// fetches - use "Choose files" and pick data/sample_sweetspot_ride.tcx.', 'warning');
-          fileInput && fileInput.click();
-        }
-      });
       this.on(document.getElementById('btnSyncHealthFitHistory'), 'click', () => this.resyncHealthFitHistory());
-      this.on(document.getElementById('btnSyncHealthFitHistoryTable'), 'click', () => this.resyncHealthFitHistory());
-      this.on(document.getElementById('btnClearAllWorkoutsBanner'), 'click', () => this.clearAllWorkouts());
       this.on(document.getElementById('btnClearAllWorkoutsTable'), 'click', () => this.clearAllWorkouts());
       this.on(document.getElementById('btnConnectHealthFitFolder'), 'click', () => this.folderSync.connectFolder(false));
       this.on(document.getElementById('btnWipeAndSyncHealthFitFolder'), 'click', () => this.folderSync.connectFolder(true));
+      // Menus close after a choice (and when clicking elsewhere).
+      document.querySelectorAll('details.menu').forEach(d => this.on(d, 'click', (e) => { if (e.target.closest('.menu-item')) d.open = false; }));
+      this.on(document, 'click', (e) => document.querySelectorAll('details.menu[open]').forEach(d => { if (!d.contains(e.target)) d.open = false; }));
       document.querySelectorAll('.history-table th.sortable-th').forEach(th => this.on(th, 'click', () => th.dataset.sort && this.sortHistory(th.dataset.sort)));
 
       const tbody = document.getElementById('historyTableBody');
@@ -169,6 +158,7 @@
           this.activeProfileId = parsed.activeProfileId || this.profiles[0].id;
           this.applyProfileChange();
         }
+        if (parsed.health && parsed.health.days && this.restoreHealthStore) this.restoreHealthStore(parsed.health);
         if (!fresh.length) { this.showToast(`${fileName}: every ride in it is already in your history.`, 'info'); return 0; }
         this.addImportedRides(fresh, `Restored ${fresh.length} ride${fresh.length === 1 ? '' : 's'} from ${fileName}.`);
         return fresh.length;
@@ -224,6 +214,9 @@
       const medalHist = this.medalHistory ? this.medalHistory() : null;
       const tbody = document.getElementById('historyTableBody');
       if (!tbody) return;
+      // Menus close after a choice (and when clicking elsewhere).
+      document.querySelectorAll('details.menu').forEach(d => this.on(d, 'click', (e) => { if (e.target.closest('.menu-item')) d.open = false; }));
+      this.on(document, 'click', (e) => document.querySelectorAll('details.menu[open]').forEach(d => { if (!d.contains(e.target)) d.open = false; }));
       document.querySelectorAll('.history-table th.sortable-th').forEach(th => {
         const sorted = th.dataset.sort === this.historySortColumn;
         th.classList.toggle('sorted-th', sorted);
@@ -324,28 +317,13 @@
       if (!silent) this.showToast(`Re-synced ${this.completedWorkouts.length} HealthFit rides.`, 'success');
     },
 
-    /** HealthFit banner: every value is derived from the archive or the ride history. */
+    /** History header: ride count and the date span of the history. */
     updateHeroStats() {
       const rides = this.cyclingRides();
-      const data = typeof DIVAN_HEALTHFIT_DATA !== 'undefined' ? DIVAN_HEALTHFIT_DATA : null;
       this.setText('hfTotalRides', rides.length);
-      const totalKj = rides.reduce((s, r) => s + (Number(r.kj) || 0), 0);
-      this.setText('hfTotalWork', totalKj > 0 ? `${Math.round(totalKj).toLocaleString()} kJ` : '0 kJ');
-      const mmp = this.getAllTimeMmpBests ? this.getAllTimeMmpBests() : [];
-      const p20 = mmp[7] || (data && data.peak20mPower) || null;
-      this.setText('hfPeak20', p20 ? `${p20} W` : '--');
-      this.setText('hfSprint5s', mmp[0] ? `${mmp[0]} W` : '--');
-      const ftp = (data && data.estimatedFtp) || null;
-      this.setText('hfEstFtp', ftp ? `${ftp} W` : '--');
-      this.setText('hfEstFtpSub', ftp && p20 ? `${Math.round((ftp / p20) * 100)}% of ${p20} W 20-min peak` : 'Needs a 20-min effort');
-      const maxHrRides = rides.reduce((m, r) => Math.max(m, Number(r.maxHr) || 0), 0);
-      const maxHr = Math.max(maxHrRides, (data && data.maxHeartRate) || 0);
-      this.setText('hfMaxHr', maxHr ? `${maxHr} bpm` : '--');
       const dates = rides.map(r => new Date(r.date)).filter(d => !isNaN(d)).sort((a, b) => a - b);
-      this.setText('hfArchiveSub', dates.length
-        ? `${rides.length} cycling sessions - ${dates[0].toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })} to ${dates[dates.length - 1].toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}`
-        : 'No rides loaded');
-      if (data && data.riderName) this.setText('hfArchiveTitle', `${data.riderName}'s HealthFit cycling archive`);
+      const f = (d) => d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+      this.setText('hfArchiveSub', dates.length ? `${f(dates[0])} to ${f(dates[dates.length - 1])}` : 'No rides loaded yet');
     },
 
     // ----------------------------------------------------------- ride review --
@@ -447,14 +425,37 @@
       let stepsHtml = '';
       if (hasSamples) {
         const ftp = record.ftpAtRide || this.activeProfile.ftp;
-        const zs = [0, 0, 0, 0, 0, 0, 0];
-        samples.forEach(s => { zs[VeloMetrics.zoneForPct(((s.power || 0) / ftp) * 100).idx - 1]++; });
-        const tot = samples.length;
+        const zs = VeloInsight.timeInZones(samples, ftp);
+        const tot = Math.max(1, samples.length);
+        const mins = (sec) => (sec >= 60 ? `${Math.round(sec / 60)} min` : `${sec} s`);
+        const lot = VeloInsight.longestOnTarget(samples);
+        const hrr = VeloInsight.hrRecovery(samples, ftp, this.activeProfile.maxHr);
+        const torque = VeloInsight.avgTorque(samples);
+        const cadAvg = VeloMetrics.stats(samples.map(s => s.cadence)).avg;
+        const hrrHtml = hrr ? `
+            <div class="analysis-item">
+              <div class="ai-lbl">Heart-rate recovery &middot; 60 s</div>
+              <div class="hrr-row">${hrr.efforts.map(e => `<span class="hrr-chip num" title="Effort ${e.n}: ${e.hrEnd} bpm at the end, ${e.hr60} bpm 60 s later">#${e.n} <b>&minus;${e.drop}</b></span>`).join('')}</div>
+              <div class="ai-sub ${hrr.slowing ? 'warn' : ''}">${hrr.slowing ? `Recovery slowed from &minus;${hrr.first} to &minus;${hrr.last} bpm - fatigue building on later repeats.` : 'bpm drop in the 60 s after each hard effort (pedalling easy in ERG, so compare repeats, not rides).'}</div>
+            </div>` : '';
         zonesHtml = `
           <div class="review-block">
             <div class="sub-title"><span>Time in power zone</span><span class="hint num">FTP ${ftp} W</span></div>
-            <div class="zone-bars-stacked tall">${zs.map((v, i) => `<div class="zone-seg z-seg-${i + 1}" style="width:${(v / tot) * 100}%" title="${VeloMetrics.ZONES[i].short}: ${this.fmtTime(v)}"></div>`).join('')}</div>
+            <div class="zone-bars-stacked tall">${zs.map((v, i) => `<div class="zone-seg z-seg-${i + 1}" style="width:${(v / tot) * 100}%" title="${VeloMetrics.ZONES[i].short} ${VeloMetrics.ZONES[i].name}: ${mins(v)} (${Math.round((v / tot) * 100)}%)"></div>`).join('')}</div>
             <div class="zone-legend-row">${zs.map((v, i) => `<span><i class="zdot z-seg-${i + 1}"></i>${VeloMetrics.ZONES[i].short} <strong class="num">${this.fmtTime(v)}</strong></span>`).join('')}</div>
+          </div>
+          <div class="review-block ride-analysis">
+            <div class="analysis-item">
+              <div class="ai-lbl">Longest on target (&plusmn;5%)</div>
+              <div class="ai-val num">${lot ? this.fmtTime(lot.seconds) : '--'}</div>
+              <div class="ai-sub">${lot ? `at ${lot.target} W, from ${this.fmtTime(lot.from)} into the ride` : 'No targets on this ride (free ride or import).'}</div>
+            </div>
+            <div class="analysis-item">
+              <div class="ai-lbl">Cadence &amp; torque</div>
+              <div class="ai-val num">${cadAvg ? cadAvg + ' rpm' : '--'} <small>&middot;</small> ${torque !== null ? torque + ' N&middot;m' : '--'}</div>
+              <div class="ai-sub">Average pedalling torque while pedalling. Same power at lower cadence = more torque per stroke.</div>
+            </div>
+            ${hrrHtml}
           </div>`;
         const segs = this.segmentByTarget(samples);
         const diagnosis = this.intervalBreakdownHtml ? this.intervalBreakdownHtml(record) : '';
@@ -725,6 +726,62 @@
       this.setText('calPeriodAvgNp', avgNp > 0 ? `${Math.round(avgNp)} W NP` : '--');
     },
 
+    /**
+     * Apple Health recovery for one calendar day: a readiness bar and resting HR / HRV / sleep, each
+     * coloured against your own normal (plain = in range, amber = worse, red = much worse).
+     * Nothing for days without data or in the future.
+     */
+    recoveryStripHtml(dayKey, compact = false) {
+      if (!this.healthForDay || !this.healthDays || !this.healthDays.length) return '';
+      const h = this.healthForDay(dayKey);
+      if (!h) return '';
+      const { rec, flags } = h;
+      const rd = VeloHealth.readiness(this.healthDays, dayKey);
+      const lvl = rd.day === dayKey && ['green', 'amber', 'red'].includes(rd.level) ? rd.level : 'none';
+      const item = (cls, flag, icon, val) => (val === null || val === undefined ? '' : `<span class="rv ${cls} rv-${flag || 'ok'}">${icon}<b class="num">${val}</b></span>`);
+      const tip = [
+        rec.rhr !== null ? `Resting HR ${rec.rhr} bpm` : '', rec.hrv !== null ? `HRV ${rec.hrv} ms` : '',
+        rec.sleepH !== null ? `Sleep ${VeloHealth.fmtH(rec.sleepH)}${rec.deepH !== null ? ` (deep ${VeloHealth.fmtH(rec.deepH)}, REM ${VeloHealth.fmtH(rec.remH)})` : ''}` : '',
+        lvl !== 'none' ? `Readiness: ${rd.label}${rd.reasons.length ? ' - ' + rd.reasons.join('; ') : ''}` : ''
+      ].filter(Boolean).join('\n');
+      return `<div class="recov-strip ${compact ? 'compact' : ''}" data-ready="${lvl}" title="${esc(tip)}">
+        ${item('rv-rhr', flags.rhr, '&hearts;', rec.rhr)}${item('rv-hrv', flags.hrv, '&#8767;', rec.hrv)}${item('rv-sleep', flags.sleep, '&#9790;', rec.sleepH !== null ? VeloHealth.fmtH(rec.sleepH) : null)}
+      </div>`;
+    },
+
+    /** Period averages of resting HR, HRV and sleep, with the change from the previous period. */
+    updateRecoveryRollup(from, to, unit) {
+      const box = document.getElementById('calRecoveryRollup');
+      if (!box) return;
+      const days = this.healthDays || [];
+      const cur = this.healthPeriod ? this.healthPeriod(from, to) : { rhr: null, hrv: null, sleepH: null };
+      const has = days.length && (cur.rhr !== null || cur.hrv !== null || cur.sleepH !== null);
+      box.hidden = !has;
+      if (!has) return;
+      // The previous week / calendar month / year, for the change arrows.
+      let prev = null;
+      if (unit) {
+        const a = new Date(from + 'T12:00:00');
+        const k = VeloMetrics.localDateKey;
+        const range = unit === 'week' ? [VeloHealth.addDays(from, -7), VeloHealth.addDays(from, -1)]
+          : unit === 'month' ? [k(new Date(a.getFullYear(), a.getMonth() - 1, 1)), k(new Date(a.getFullYear(), a.getMonth(), 0))]
+            : [`${a.getFullYear() - 1}-01-01`, `${a.getFullYear() - 1}-12-31`];
+        prev = this.healthPeriod(range[0], range[1]);
+      }
+      const delta = (now, before, unitTxt, goodUp, fmt = (x) => x) => {
+        if (now === null || !prev || before === null) return '';
+        const d = Math.round((now - before) * 10) / 10;
+        if (Math.abs(d) < (unitTxt === 'h' ? 0.1 : 1)) return ' <small class="rd flat">=</small>';
+        const good = goodUp ? d > 0 : d < 0;
+        return ` <small class="rd ${good ? 'good' : 'bad'}">${d > 0 ? '&#9650;' : '&#9660;'}${fmt(Math.abs(d))}${unitTxt === 'h' ? '' : ' ' + unitTxt}</small>`;
+      };
+      const el = (id, html) => { const e = document.getElementById(id); if (e) e.innerHTML = html; };
+      el('calAvgRhr', cur.rhr !== null ? `${cur.rhr} bpm${delta(cur.rhr, prev && prev.rhr, 'bpm', false)}` : '--');
+      el('calAvgHrv', cur.hrv !== null ? `${cur.hrv} ms${delta(cur.hrv, prev && prev.hrv, 'ms', true)}` : '--');
+      el('calAvgSleep', cur.sleepH !== null ? `${VeloHealth.fmtH(cur.sleepH)}${delta(cur.sleepH, prev && prev.sleepH, 'h', true, (x) => VeloHealth.fmtH(x))}` : '--');
+      this.setText('calRecoveryHint', unit ? `period averages from Apple Health, change vs the previous ${unit}` : 'all-time averages from Apple Health');
+    },
+
     getWeekRange(offset = 0) {
       const mon = VeloProgress.weekStart(new Date());
       mon.setDate(mon.getDate() + offset * 7);
@@ -813,6 +870,7 @@
           const r = this.rollup(rides);
           return `<div class="calendar-day-col ${k === todayKey ? 'today' : ''}">
             <div class="calendar-day-header"><span class="calendar-day-name">${day.toLocaleDateString('en-US', { weekday: 'short' })}</span><span class="calendar-day-date num">${day.getDate()}</span></div>
+            ${this.recoveryStripHtml(k)}
             ${r.tss ? `<div class="day-load" style="--load:${Math.min(1, r.tss / 150)}"><span class="num">${Math.round(r.tss)} TSS</span></div>` : ''}
             ${rides.map(x => this.rideCardHtml(x)).join('')}${plans.map(p => this.plannedCardHtml(p)).join('')}
             ${rides.length || plans.length ? '' : '<div class="rest-day">Rest</div>'}
@@ -821,6 +879,7 @@
         container.innerHTML = `<div class="calendar-grid" id="calendarGrid">${cols}</div>`;
         const r = this.rollup(all);
         this.updateCalendarRollups('WEEKLY TSS', r.tss, r.sec, r.kj, r.dist, r.rides, r.avgNp);
+        this.updateRecoveryRollup(VeloMetrics.localDateKey(days[0]), VeloMetrics.localDateKey(days[6]), 'week');
         if (plannedTss > 0) {
           this.setText('calRollupTssLbl', 'WEEK TSS / STILL PLANNED');
           this.setText('calWeeklyTss', `${Math.round(r.tss)} / ${Math.round(plannedTss)} TSS`);
@@ -848,6 +907,7 @@
           const tss = rides.filter(r => VeloMetrics.isCycling(r)).reduce((a, r) => a + (r.tss || 0), 0);
           cells += `<div class="cal-cell ${k === todayKey ? 'today' : ''}" style="--load:${Math.min(1, tss / 150)}">
             <div class="cal-cell-head"><span class="num">${d}</span>${tss > 0 ? `<span class="cal-cell-tss num">${Math.round(tss)}</span>` : ''}</div>
+            ${this.recoveryStripHtml(k, true)}
             ${rides.map(r => this.rideCardHtml(r, true)).join('')}${plans.map(p => this.plannedCardHtml(p, true)).join('')}
           </div>`;
         }
@@ -869,6 +929,7 @@
             <div class="cal-list">${list || `<div class="empty-state">No rides in ${monthName}.</div>`}</div></div>`;
         const r = this.rollup(monthRides);
         this.updateCalendarRollups('MONTHLY TSS', r.tss, r.sec, r.kj, r.dist, r.rides, r.avgNp);
+        this.updateRecoveryRollup(VeloMetrics.localDateKey(new Date(y, m, 1)), VeloMetrics.localDateKey(new Date(y, m, daysInMonth)), 'month');
       } else if (this.calendarViewPreset === 'ytd') {
         if (btnPrev) btnPrev.textContent = '← Prev year';
         if (btnNext) btnNext.textContent = 'Next year →';
@@ -892,6 +953,7 @@
           </button>`).join('')}</div>`;
         const r = this.rollup(yearRides);
         this.updateCalendarRollups('YEAR TSS', r.tss, r.sec, r.kj, r.dist, r.rides, r.avgNp);
+        this.updateRecoveryRollup(`${year}-01-01`, `${year}-12-31`, 'year');
       } else {
         if (btnPrev) btnPrev.style.display = 'none';
         if (btnNext) btnNext.style.display = 'none';
@@ -919,6 +981,7 @@
                 <div><small>Distance</small><b class="num">${q.dist.toFixed(0)} km</b></div><div><small>Avg NP</small><b class="num">${q.avgNp ? Math.round(q.avgNp) + 'W' : '--'}</b></div></div></div>`;
             }).join('')}</div></div>`;
         this.updateCalendarRollups('CAREER TSS', r.tss, r.sec, r.kj, r.dist, r.rides, r.avgNp);
+        this.updateRecoveryRollup('1970-01-01', '2999-12-31', null);
       }
     },
 

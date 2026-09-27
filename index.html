@@ -107,7 +107,6 @@
       <button type="button" class="nav-btn" data-tab="analytics" title="Analytics &amp; progression"><svg class="ic"><use href="#i-activity"/></svg><span>Analytics</span></button>
       <button type="button" class="nav-btn" data-tab="history" title="History &amp; Sync"><svg class="ic"><use href="#i-history"/></svg><span>History</span></button>
       <button type="button" class="nav-btn" data-tab="calendar" title="Training Calendar"><svg class="ic"><use href="#i-calendar"/></svg><span>Calendar</span></button>
-      <button type="button" class="nav-btn" data-tab="biomechanics" title="Biomechanics Studio"><svg class="ic"><use href="#i-crank"/></svg><span>Biomech</span></button>
     </nav>
 
     <div class="header-actions">
@@ -115,7 +114,7 @@
         <div class="profile-avatar" id="headerProfileAvatar">D</div>
         <span id="headerProfileName" hidden></span>
         <select id="headerProfileSelect" class="header-profile-dropdown" aria-label="Select active rider profile"></select>
-        <button type="button" class="icon-btn icon-btn-sm" id="btnManageProfiles" title="Rider profiles &amp; biometrics"><svg class="ic"><use href="#i-gear"/></svg></button>
+        <button type="button" class="icon-btn icon-btn-sm" id="btnManageProfiles" title="Rider profiles &amp; biometrics"><svg class="ic"><use href="#i-user"/></svg></button>
       </div>
 
       <div class="device-cluster" role="group" aria-label="Bluetooth devices">
@@ -131,6 +130,7 @@
         <button type="button" class="icon-btn" id="btnHeaderZenMode" title="Zen cockpit (Z)"><svg class="ic"><use href="#i-zen"/></svg></button>
         <button type="button" class="icon-btn" id="btnToggleFullscreen" title="Fullscreen (F)"><svg class="ic"><use href="#i-expand"/></svg></button>
         <button type="button" class="icon-btn" id="btnShowShortcuts" title="Keyboard shortcuts (?)"><svg class="ic"><use href="#i-keyboard"/></svg></button>
+        <button type="button" class="icon-btn" id="btnOpenSettings" title="Settings: rider, AI engine, Apple Health, backups, phone view"><svg class="ic"><use href="#i-gear"/></svg></button>
       </div>
     </div>
   </header>
@@ -151,6 +151,7 @@
                 <span id="hudProfileAvatarText" hidden></span>
                 <span id="hudRiderProfileName">Divan (185W)</span>
               </button>
+              <button type="button" class="readiness-chip" id="cockpitReadinessChip" data-level="none" hidden title="Today's readiness from Apple Health">Readiness --</button>
               <span class="workout-status-pill status-ready" id="hudWorkoutStatusPill">READY TO START</span>
               <span class="compliance-pill compliance-idle num" id="hudCompliancePill">TARGET --</span>
             </div>
@@ -309,11 +310,10 @@
         <div class="col-span-4 stack">
           <div class="card polar-card">
             <div class="card-title">
-              <span>Pedal stroke &middot; L/R</span>
-              <span class="chip chip-ghost num" id="polarLiveAngleBadge">000&deg; CRANK</span>
+              <span>Left / right balance</span>
+              <span class="chip chip-ghost">MEASURED</span>
             </div>
             <div class="polar-container">
-              <div class="polar-canvas-wrap"><canvas id="polarPedalCanvas"></canvas></div>
               <div class="balance-gauge" aria-label="Left/right balance">
                 <div class="balance-gauge-labels"><span>L <b class="num" id="valLeftBalance">50.0%</b></span><span><b class="num" id="valRightBalance">50.0%</b> R</span></div>
                 <div class="balance-bar-visual">
@@ -327,22 +327,18 @@
                   <div class="leg-stat-title">Left leg</div>
                   <div class="biomech-submetrics">
                     <span>Power <strong class="num" id="valLeftWatts">0W</strong></span>
-                    <span>Smooth <strong class="num" id="valLeftSmooth">--</strong></span>
-                    <span>Torque eff. <strong class="num" id="valLeftTorque">--</strong></span>
                   </div>
                 </div>
                 <div class="leg-stat-box right">
                   <div class="leg-stat-title">Right leg</div>
                   <div class="biomech-submetrics">
                     <span>Power <strong class="num" id="valRightWatts">0W</strong></span>
-                    <span>Smooth <strong class="num" id="valRightSmooth">--</strong></span>
-                    <span>Torque eff. <strong class="num" id="valRightTorque">--</strong></span>
                   </div>
                 </div>
               </div>
               <div class="coaching-tip-card">
                 <svg class="ic"><use href="#i-sparkles"/></svg>
-                <div class="coaching-tip-text"><strong>Insight</strong> <span id="valBiomechFeedback">Press START to begin telemetry acquisition and live pedal-stroke analysis.</span></div>
+                <div class="coaching-tip-text"><strong>Insight</strong> <span id="valBiomechFeedback">Press START to begin telemetry acquisition and pedal-balance feedback.</span></div>
               </div>
             </div>
           </div>
@@ -377,47 +373,11 @@
 
     <!-- ============================== WORKOUTS ============================== -->
     <section class="tab-view" id="view-workouts">
-      <div class="card ai-generator-card">
-        <div class="section-head">
-          <div>
-            <span class="eyebrow eyebrow-violet">Workout architect</span>
-            <h2 class="section-title">Describe a session, get a structured workout</h2>
-            <p class="section-sub">Generate, inspect the interval profile and target watts, then load it into the cockpit. For goal-driven sessions built from your history, use the <button type="button" class="link-btn" id="btnGoToCoach">AI Coach</button>.</p>
-          </div>
-        </div>
-        <div class="ai-prompt-box">
-          <svg class="ic prompt-ic"><use href="#i-sparkles"/></svg>
-          <input type="text" id="inputAiPrompt" class="ai-prompt-input" placeholder="e.g. 45 min with 3x8 min over-unders at 95% and 105% FTP">
-          <button type="button" class="btn btn-ai" id="btnGenerateAiWorkout"><svg class="ic"><use href="#i-sparkles"/></svg>Generate</button>
-        </div>
-        <div class="ai-chips-row">
-          <span class="ctrl-label">Try</span>
-          <button type="button" class="ai-chip" data-prompt="45 min scientific hard-start VO2 max workout with 4x4 min sets">Hard-start VO2 4x4</button>
-          <button type="button" class="ai-chip" data-prompt="55 min hard-start SweetSpot session with 4x8 min sets at 90% FTP">Hard-start SweetSpot 4x8</button>
-          <button type="button" class="ai-chip" data-prompt="45 min SweetSpot session with 3x10 min intervals at 90% FTP">3x10 SweetSpot</button>
-          <button type="button" class="ai-chip" data-prompt="40 min spicy VO2 max microbursts with 15s on at 150% and 15s off">15/15 microbursts</button>
-          <button type="button" class="ai-chip" data-prompt="60 min threshold over-unders with 3 sets of 9 min alternating 95% and 105%">Threshold over-unders</button>
-          <button type="button" class="ai-chip" data-prompt="30 min easy recovery spin at 50% FTP">Recovery flush</button>
-        </div>
-
-        <div class="ai-preview-panel" id="aiWorkoutPreviewPanel">
-          <div class="ai-preview-header">
-            <div>
-              <span class="preview-badge-status"><svg class="ic ic-xs"><use href="#i-eye"/></svg>Review before loading</span>
-              <div class="ai-preview-title" id="aiPreviewTitle">Generated Workout</div>
-            </div>
-            <button type="button" class="icon-btn" id="btnCloseAiPreview" title="Close review"><svg class="ic"><use href="#i-x"/></svg></button>
-          </div>
-          <div class="ai-preview-meta" id="aiPreviewMeta"></div>
-          <div class="ai-preview-canvas-wrap"><canvas id="aiPreviewCanvas"></canvas></div>
-          <div class="ctrl-label" style="margin-bottom:8px;">Steps &amp; target watts (<span id="aiPreviewFtpRef">185W FTP</span>)</div>
-          <div id="aiPreviewIntervalList" class="preview-step-list"></div>
-          <div class="btn-row">
-            <button type="button" class="btn btn-start" id="btnLoadAiWorkoutToCockpit"><svg class="ic"><use href="#i-play"/></svg>Load into cockpit</button>
-            <button type="button" class="btn btn-primary" id="btnSaveAiWorkoutPermanent"><svg class="ic"><use href="#i-save"/></svg>Save to library</button>
-            <button type="button" class="btn" id="btnEditAiWorkoutInTable"><svg class="ic"><use href="#i-edit"/></svg>Fine-tune in table</button>
-            <button type="button" class="btn btn-ghost" id="btnDiscardAiPreview"><svg class="ic"><use href="#i-trash"/></svg>Discard</button>
-          </div>
+      <div class="section-head workouts-head">
+        <div>
+          <span class="eyebrow eyebrow-violet">Workout library</span>
+          <h2 class="section-title">Pick a session, fine-tune it, ride it</h2>
+          <p class="section-sub">Want something built for you from your history and today's form? Ask the <button type="button" class="link-btn" id="btnGoToCoach">AI Coach</button>.</p>
         </div>
       </div>
 
@@ -470,12 +430,13 @@
           </div>
           <span class="engine-pill" id="aiCoachEngineStatus"><span class="status-indicator-dot"></span>Offline engine</span>
         </div>
-        <div class="ai-coach-telemetry-banner">
-          <div class="metric-cell" data-accent="cyan"><span class="metric-cell-lbl">FTP</span><span class="metric-cell-val num" id="aiCoachFtpVal">185W</span></div>
-          <div class="metric-cell" data-accent="violet"><span class="metric-cell-lbl">CTL &middot; fitness</span><span class="metric-cell-val num" id="aiCoachCtlVal">--</span></div>
-          <div class="metric-cell" data-accent="rose"><span class="metric-cell-lbl">ATL &middot; fatigue</span><span class="metric-cell-val num" id="aiCoachAtlVal">--</span></div>
-          <div class="metric-cell" data-accent="amber"><span class="metric-cell-lbl">TSB &middot; form</span><span class="metric-cell-val num" id="aiCoachTsbVal">--</span></div>
-          <div class="metric-cell" data-accent="lime"><span class="metric-cell-lbl">7-day load</span><span class="metric-cell-val num" id="aiCoach7DayTssVal">-- TSS</span></div>
+        <div class="coach-status-line">
+          <span class="readiness-chip" id="coachReadinessChip" data-level="none" title="Readiness from resting HR, HRV and sleep (Apple Health)">Readiness --</span>
+          <span>Form <b class="num" id="aiCoachTsbVal">--</b></span>
+          <span>Fitness <b class="num" id="aiCoachCtlVal">--</b></span>
+          <span>Fatigue <b class="num" id="aiCoachAtlVal">--</b></span>
+          <span>7-day <b class="num" id="aiCoach7DayTssVal">-- TSS</b></span>
+          <span>FTP <b class="num" id="aiCoachFtpVal">--</b></span>
         </div>
         <div class="insight-strip" id="aiCoachInsights"></div>
       </div>
@@ -530,34 +491,6 @@
             <div class="think-timer num" id="aiCoachThinkTimer" hidden></div>
           </div>
 
-          <details class="card ai-coach-card" id="aiCoachConfigCard">
-            <summary class="ai-coach-card-title"><span>AI engine</span><svg class="ic"><use href="#i-chevron"/></svg></summary>
-            <p class="field-help" id="aiCoachEngineDetail">Checking the local server...</p>
-            <label class="field"><span>Provider</span>
-              <select id="selectCoachProvider" class="input-field">
-                <option value="claude">Claude (Anthropic)</option>
-                <option value="gemini">Gemini (Google)</option>
-              </select>
-            </label>
-            <label class="field"><span>Model</span>
-              <select id="selectCoachModel" class="input-field">
-                <option value="">Default</option>
-              </select>
-            </label>
-            <label class="field"><span>Reasoning effort</span>
-              <select id="selectCoachEffort" class="input-field">
-                <option value="">Server default</option>
-                <option value="low">Low - fastest, cheapest</option>
-                <option value="medium">Medium</option>
-                <option value="high">High - deepest reasoning</option>
-              </select>
-            </label>
-            <div class="input-row">
-              <button type="button" class="btn btn-primary" id="btnSaveAiCoachConfig">Save</button>
-              <button type="button" class="btn" id="btnRecheckAiEngine">Re-check server</button>
-            </div>
-            <p class="field-help">The API keys (<code>ANTHROPIC_API_KEY</code>, <code>GEMINI_API_KEY</code>) live in the <code>.env</code> file in the app folder and are read only by the local server on this computer. They are never stored in or sent to the browser. For Gemini, effort sets the thinking level. Start the app with <code>Launch-Apex-Velo.bat</code>.</p>
-          </details>
         </div>
 
         <div class="stack">
@@ -689,72 +622,88 @@
 
     <!-- ============================== ANALYTICS ============================== -->
     <section class="tab-view" id="view-analytics">
-      <div class="pmc-status-row">
-        <div class="pmc-stat-pill" data-accent="cyan"><span class="title">CTL &middot; Fitness (42d)</span><span class="val num" id="pmcValCtl">--</span><span class="desc">Chronic training load</span></div>
-        <div class="pmc-stat-pill" data-accent="rose"><span class="title">ATL &middot; Fatigue (7d)</span><span class="val num" id="pmcValAtl">--</span><span class="desc">Acute training load</span></div>
+      <!-- TODAY -->
+      <div class="ana-head">
+        <div>
+          <span class="eyebrow">Progression</span>
+          <h2 class="section-title">Am I getting fitter - and am I ready today?</h2>
+        </div>
+        <div class="segmented" id="anaRangePills" role="radiogroup" aria-label="Time range for the whole page">
+          <button type="button" class="ana-range" data-range="6w">6 weeks</button>
+          <button type="button" class="ana-range" data-range="3m">3 months</button>
+          <button type="button" class="ana-range active" data-range="6m">6 months</button>
+          <button type="button" class="ana-range" data-range="1y">1 year</button>
+          <button type="button" class="ana-range" data-range="all">All</button>
+        </div>
+      </div>
+      <div class="pmc-status-row today-strip">
+        <div class="pmc-stat-pill" data-accent="lime"><span class="title">Readiness &middot; today</span><span class="val"><button type="button" class="readiness-chip" id="anaReadinessChip" data-level="none">Readiness --</button></span><span class="desc" id="anaReadinessNote">Resting HR, HRV &amp; sleep</span></div>
         <div class="pmc-stat-pill" data-accent="amber"><span class="title">TSB &middot; Form</span><span class="val num" id="pmcValTsb">--</span><span class="desc"><span class="form-badge" id="pmcFormStatus">--</span></span></div>
-        <div class="pmc-stat-pill" data-accent="violet"><span class="title">Active FTP</span><span class="val num" id="pmcValFtp">185 W</span><span class="desc num" id="pmcValWkg">2.47 W/kg (75 kg)</span></div>
+        <div class="pmc-stat-pill" data-accent="cyan"><span class="title">CTL &middot; Fitness (42d)</span><span class="val num" id="pmcValCtl">--</span><span class="desc">ATL fatigue <b class="num" id="pmcValAtl">--</b></span></div>
+        <div class="pmc-stat-pill" data-accent="violet"><span class="title">Ramp rate &middot; 7 days</span><span class="val num" id="anaRampVal">--</span><span class="desc" id="anaRampNote">CTL change per week</span></div>
+        <div class="pmc-stat-pill" data-accent="rose"><span class="title">Active FTP</span><span class="val num" id="pmcValFtp">185 W</span><span class="desc num" id="pmcValWkg">2.47 W/kg (75 kg)</span></div>
       </div>
 
-      <!-- PROGRESSION DASHBOARD -->
-      <div class="card prog-card">
-        <div class="card-title">
-          <span>Progression</span>
-          <div class="pmc-toolbar">
-            <div class="segmented" id="progMetricPills" role="radiogroup" aria-label="Weekly metric">
-              <button type="button" class="prog-metric active" data-metric="tss">TSS</button>
-              <button type="button" class="prog-metric" data-metric="hours">Hours</button>
-              <button type="button" class="prog-metric" data-metric="kj">kJ</button>
-              <button type="button" class="prog-metric" data-metric="rides">Rides</button>
-            </div>
-            <div class="segmented" id="progRangePills" role="radiogroup" aria-label="Progression range">
-              <button type="button" class="prog-range" data-weeks="8">8w</button>
-              <button type="button" class="prog-range active" data-weeks="26">6m</button>
-              <button type="button" class="prog-range" data-weeks="52">12m</button>
-              <button type="button" class="prog-range" data-weeks="0">All</button>
-            </div>
-          </div>
-        </div>
-        <div class="kpi-grid" id="progKpis"></div>
-        <div class="prog-grid">
-          <div class="prog-main">
-            <div class="sub-title"><span id="progWeeklyTitle">Weekly training load</span><span class="hint">Click a week to list its rides</span></div>
-            <div class="chart-box" style="height:250px;"><canvas id="progWeeklyChart"></canvas></div>
-            <div class="week-rides" id="progWeekRides"></div>
-          </div>
-          <div class="prog-side">
-            <div class="sub-title"><span>Intensity mix</span><span class="hint">hours by ride IF</span></div>
-            <div class="intensity-mix" id="progIntensityMix"></div>
-            <div class="sub-title" style="margin-top:14px;"><span>Records</span></div>
-            <div class="records-list" id="progRecords"></div>
-          </div>
-        </div>
-        <div class="sub-title" style="margin-top:6px;"><span>Every ride &middot; duration vs NP</span><span class="hint">Colour = IF band &middot; click a dot to review</span></div>
-        <div class="chart-box" style="height:260px;"><canvas id="progScatterChart"></canvas></div>
-      </div>
+      <!-- PROGRESSION TILES -->
+      <div class="tile-grid" id="anaTiles"></div>
 
+      <!-- FITNESS & LOAD -->
+      <h3 class="ana-section">Fitness &amp; load</h3>
       <div class="card">
         <div class="card-title">
           <span>Performance management chart</span>
-          <div class="pmc-toolbar">
-            <div class="segmented" id="pmcRangePills" role="radiogroup" aria-label="PMC range">
-              <button type="button" class="range-pill" data-range="30">30d</button>
-              <button type="button" class="range-pill active" data-range="90">90d</button>
-              <button type="button" class="range-pill" data-range="180">180d</button>
-              <button type="button" class="range-pill" data-range="ytd">YTD</button>
-              <button type="button" class="range-pill" data-range="all">All</button>
-            </div>
+          <div class="legend-inline legend-block">
+            <span><i class="lg lg-ctl"></i>CTL fitness</span><span><i class="lg lg-atl"></i>ATL fatigue</span><span><i class="lg lg-tsb"></i>TSB form</span><span><i class="lg lg-tss"></i>Daily TSS</span>
           </div>
         </div>
-        <div class="legend-inline legend-block">
-          <span><i class="lg lg-ctl"></i>CTL fitness</span><span><i class="lg lg-atl"></i>ATL fatigue</span><span><i class="lg lg-tsb"></i>TSB form</span><span><i class="lg lg-tss"></i>Daily TSS</span>
-          <span class="form-key">
-            <span class="form-badge form-fresh">Fresh &gt;+5</span><span class="form-badge form-productive">Productive</span><span class="form-badge form-optimal">Optimal &minus;10&hellip;&minus;25</span><span class="form-badge form-fatigue">High fatigue</span><span class="form-badge form-overtraining">Overtraining &lt;&minus;40</span>
-          </span>
+        <div class="chart-box" style="height:300px;"><canvas id="pmcChartCanvas"></canvas></div>
+      </div>
+      <div class="card prog-card">
+        <div class="card-title">
+          <span id="progWeeklyTitle">Weekly training load</span>
+          <div class="segmented" id="progMetricPills" role="radiogroup" aria-label="Weekly metric">
+            <button type="button" class="prog-metric active" data-metric="tss">TSS</button>
+            <button type="button" class="prog-metric" data-metric="hours">Hours</button>
+            <button type="button" class="prog-metric" data-metric="kj">kJ</button>
+            <button type="button" class="prog-metric" data-metric="rides">Rides</button>
+          </div>
         </div>
-        <div class="chart-box" style="height:320px;"><canvas id="pmcChartCanvas"></canvas></div>
+        <div class="kpi-grid" id="progKpis"></div>
+        <div class="sub-title"><span>Consistency week by week</span><span class="hint">Click a week to list its rides</span></div>
+        <div class="chart-box" style="height:230px;"><canvas id="progWeeklyChart"></canvas></div>
+        <div class="week-rides" id="progWeekRides"></div>
       </div>
 
+      <!-- AEROBIC ENGINE -->
+      <h3 class="ana-section">Aerobic engine</h3>
+      <div class="cockpit-grid">
+        <div class="col-span-6">
+          <div class="card">
+            <div class="card-title"><span>Efficiency factor (NP &divide; HR)</span><span class="chip chip-ghost num" id="efTrendLabel">--</span></div>
+            <div class="chart-box" style="height:220px;"><canvas id="efTrendCanvas"></canvas></div>
+            <p class="footnote">Steady aerobic rides only (Z2 to tempo, VI &le; 1.06, 20 min+). Dots = rides, line = 30-day average. Rising = more watts per heartbeat: your aerobic engine is growing.</p>
+          </div>
+        </div>
+        <div class="col-span-6">
+          <div class="card">
+            <div class="card-title"><span>Aerobic decoupling (Pw:HR) trend</span><span class="chip chip-ghost num" id="driftTrendLabel">--</span></div>
+            <div class="chart-box" style="height:220px;"><canvas id="driftTrendCanvas"></canvas></div>
+            <p class="footnote" id="driftTrendNote">Each point is a steady ride (Zone 2, tempo, sweet spot) with heart rate: how much power per heartbeat dropped from the first to the second half. 3.5% or less = base consolidated, under 5% = coupled; a falling trend at the same power means your aerobic base is improving.</p>
+          </div>
+        </div>
+      </div>
+      <div class="card">
+        <div class="card-title"><span>Resting HR &amp; HRV</span><span class="chip chip-ghost num" id="recoveryTrendLabel">Apple Health</span></div>
+        <div class="chart-box" style="height:220px;"><canvas id="recoveryTrendCanvas"></canvas></div>
+        <p class="footnote" id="recoveryTrendNote">From your Apple Watch via Health Auto Export (Settings &rsaquo; Apple Health). Falling resting HR and rising HRV over months = adaptation. Lines are 7-day averages.</p>
+      </div>
+
+      <!-- POWER -->
+      <h3 class="ana-section">Power</h3>
+      <div class="card">
+        <div class="card-title"><span>Power profile &middot; last 90 days vs the 90 before</span><span class="hint">PR = your all-time best, set in the last 90 days</span></div>
+        <div class="power-profile" id="anaPowerProfile"></div>
+      </div>
       <div class="cockpit-grid">
         <div class="col-span-7">
           <div class="card">
@@ -778,59 +727,60 @@
         </div>
       </div>
 
+      <!-- BALANCE -->
+      <h3 class="ana-section">Pedal balance</h3>
       <div class="card">
-        <div class="card-title"><span>Aerobic decoupling (Pw:HR) trend</span><span class="chip chip-ghost num" id="driftTrendLabel">--</span></div>
-        <div class="chart-box" style="height:220px;"><canvas id="driftTrendCanvas"></canvas></div>
-        <p class="footnote" id="driftTrendNote">Each point is a steady ride (Zone 2, tempo, sweet spot) with heart rate: how much power per heartbeat dropped from the first to the second half. Under 5% = aerobically coupled; a falling trend at the same power means your aerobic base is improving.</p>
+        <div class="card-title"><span>Left / right balance per ride</span><span class="chip chip-ghost num" id="balanceTrendLabel">--</span></div>
+        <div class="chart-box" style="height:200px;"><canvas id="balanceTrendCanvas"></canvas></div>
+        <p class="footnote">Average left-leg share per ride, measured by the pedals (50% = even). Within 48-52% is normal; a steady drift one way is worth watching.</p>
       </div>
+
+      <!-- EXPLORE -->
+      <details class="card explore-card">
+        <summary><span>Explore &middot; intensity mix, records and every ride</span><svg class="ic"><use href="#i-chevron"/></svg></summary>
+        <div class="prog-grid">
+          <div class="prog-side">
+            <div class="sub-title"><span>Intensity mix</span><span class="hint">hours by ride IF</span></div>
+            <div class="intensity-mix" id="progIntensityMix"></div>
+          </div>
+          <div class="prog-side">
+            <div class="sub-title"><span>Records</span></div>
+            <div class="records-list" id="progRecords"></div>
+          </div>
+        </div>
+        <div class="sub-title" style="margin-top:6px;"><span>Every ride &middot; duration vs NP</span><span class="hint">Colour = IF band &middot; click a dot to review</span></div>
+        <div class="chart-box" style="height:260px;"><canvas id="progScatterChart"></canvas></div>
+      </details>
     </section>
 
     <!-- ============================== HISTORY ============================== -->
     <section class="tab-view" id="view-history">
-      <div class="card healthfit-hero-banner" id="healthfitHeroBanner">
+      <div class="card import-card" id="importSyncCard">
         <div class="section-head">
           <div>
-            <span class="eyebrow eyebrow-lime"><span class="live-dot"></span>HealthFit archive</span>
-            <h2 class="section-title" id="hfArchiveTitle">HealthFit cycling profile</h2>
-            <p class="section-sub" id="hfArchiveSub">Imported from Downloads/HealthFit</p>
-          </div>
-          <div class="btn-row">
-            <button type="button" class="btn btn-warning" id="btnSyncHealthFitHistory"><svg class="ic"><use href="#i-refresh"/></svg>Re-sync HealthFit</button>
-            <button type="button" class="btn btn-danger" id="btnClearAllWorkoutsBanner"><svg class="ic"><use href="#i-trash"/></svg>Clear all</button>
+            <span class="eyebrow eyebrow-lime">History</span>
+            <h2 class="section-title" id="hfArchiveTitle">Import &amp; sync</h2>
+            <p class="section-sub"><b class="num" id="hfTotalRides">0</b> rides in history &middot; <span id="hfArchiveSub">--</span></p>
           </div>
         </div>
-        <div class="healthfit-stats-grid">
-          <div class="hf-stat-box"><span class="hf-stat-lbl">Rides</span><span class="hf-stat-val num" id="hfTotalRides">104</span><span class="hf-stat-sub">in history</span></div>
-          <div class="hf-stat-box" data-accent="cyan"><span class="hf-stat-lbl">Estimated FTP</span><span class="hf-stat-val num" id="hfEstFtp">--</span><span class="hf-stat-sub" id="hfEstFtpSub">--</span></div>
-          <div class="hf-stat-box" data-accent="violet"><span class="hf-stat-lbl">Peak 20-min</span><span class="hf-stat-val num" id="hfPeak20">--</span><span class="hf-stat-sub">Best 20 min power</span></div>
-          <div class="hf-stat-box" data-accent="rose"><span class="hf-stat-lbl">Max heart rate</span><span class="hf-stat-val num" id="hfMaxHr">--</span><span class="hf-stat-sub">Observed peak</span></div>
-          <div class="hf-stat-box" data-accent="amber"><span class="hf-stat-lbl">Peak 5 s</span><span class="hf-stat-val num" id="hfSprint5s">--</span><span class="hf-stat-sub">Neuromuscular</span></div>
-          <div class="hf-stat-box" data-accent="lime"><span class="hf-stat-lbl">Lifetime work</span><span class="hf-stat-val num" id="hfTotalWork">0 kJ</span><span class="hf-stat-sub">Recorded mechanical work</span></div>
+        <div class="import-rows">
+          <div class="import-dropzone" id="historyDropzone">
+            <svg class="ic ic-lg"><use href="#i-download"/></svg>
+            <h4>Ride files &middot; .fit .tcx .csv .json</h4>
+            <p>Drop files from Garmin, Wahoo, Strava, Apple Watch or HealthFit, or a backup (.json / .json.gz) to restore.</p>
+            <input type="file" id="fileInputTcx" accept=".fit,.tcx,.json,.gz,.csv" multiple hidden>
+            <button type="button" class="btn" id="btnChooseImportFiles"><svg class="ic"><use href="#i-download"/></svg>Choose files</button>
+          </div>
+          <div class="import-row">
+            <div><h4>HealthFit folder</h4><p class="dim">Reads the HealthFit export folder on this PC and adds new rides.</p></div>
+            <div class="btn-row btn-row-tight">
+              <button type="button" class="btn btn-sm btn-primary" id="btnConnectHealthFitFolder" title="Read a HealthFit folder with the File System Access API"><svg class="ic"><use href="#i-folder"/></svg>Connect folder</button>
+              <button type="button" class="btn btn-sm" id="btnSyncHealthFitHistory"><svg class="ic"><use href="#i-refresh"/></svg>Re-sync archive</button>
+            </div>
+            <div id="folderSyncStatus" class="folder-sync-pill" hidden></div>
+          </div>
         </div>
       </div>
-
-      <div class="import-dropzone" id="historyDropzone">
-        <svg class="ic ic-lg"><use href="#i-download"/></svg>
-        <h4>Import rides &middot; .fit .tcx .csv .json</h4>
-        <p>Drop files from Garmin, Wahoo, Strava, Apple Watch or HealthFit. NP, TSS, the PMC and your power curve update automatically.</p>
-        <div class="btn-row btn-row-center">
-          <button type="button" class="btn btn-primary" id="btnConnectHealthFitFolder" title="Read a HealthFit folder with the File System Access API"><svg class="ic"><use href="#i-folder"/></svg>Connect HealthFit folder</button>
-          <button type="button" class="btn btn-warning" id="btnWipeAndSyncHealthFitFolder" title="Replace history with the folder contents"><svg class="ic"><use href="#i-refresh"/></svg>Wipe &amp; re-sync from folder</button>
-          <input type="file" id="fileInputTcx" accept=".fit,.tcx,.json,.gz,.csv" multiple hidden>
-          <button type="button" class="btn" id="btnChooseImportFiles"><svg class="ic"><use href="#i-download"/></svg>Choose files</button>
-          <button type="button" class="btn btn-ghost" id="btnImportFromDataFolder">Load sample ride</button>
-        </div>
-        <div id="folderSyncStatus" class="folder-sync-pill" hidden></div>
-      </div>
-
-      <details class="card sync-ecosystem-card">
-        <summary><span>Sync to HealthFit, Apple Health &amp; Google Health Connect</span><svg class="ic"><use href="#i-chevron"/></svg></summary>
-        <div class="sync-grid">
-          <div class="sync-method-item"><h4>iPhone / HealthFit</h4><p>Export a ride as <strong>.FIT</strong> or <strong>.TCX</strong> and save it to <em>iCloud Drive &rsaquo; HealthFit &rsaquo; Import</em>. HealthFit writes power, cadence and HR into Apple Health.</p></div>
-          <div class="sync-method-item"><h4>Strava &amp; Google Health Connect</h4><p>Upload the exported .FIT to Strava or Garmin Connect and enable their Health Connect sync.</p></div>
-          <div class="sync-method-item"><h4>Local storage</h4><p>History lives in this browser (IndexedDB + localStorage). Use <strong>Backup JSON</strong> to keep an archive.</p></div>
-        </div>
-      </details>
 
       <div class="card strava-sync-card" id="stravaSyncCard">
         <div class="card-title">
@@ -872,19 +822,27 @@
 
       <div class="card">
         <div class="card-title">
-          <span>Workout log &amp; export</span>
+          <span>Ride log</span>
           <div class="btn-row btn-row-tight">
-            <button type="button" class="btn btn-sm" id="btnExportFitActive"><svg class="ic"><use href="#i-download"/></svg>Session FIT</button>
-            <button type="button" class="btn btn-sm" id="btnExportTcxActive"><svg class="ic"><use href="#i-download"/></svg>Session TCX</button>
-            <button type="button" class="btn btn-sm" id="btnExportCsvRide"><svg class="ic"><use href="#i-download"/></svg>Session CSV</button>
-            <button type="button" class="btn btn-sm" id="btnExportJsonHistory"><svg class="ic"><use href="#i-save"/></svg>Backup JSON</button>
-            <button type="button" class="btn btn-sm" id="btnBackupNow" title="Save a backup to data\backups on this PC now (it also happens automatically after every change)"><svg class="ic"><use href="#i-save"/></svg>Back up now</button>
-            <button type="button" class="btn btn-sm btn-warning" id="btnSyncHealthFitHistoryTable"><svg class="ic"><use href="#i-refresh"/></svg>Re-sync</button>
             <button type="button" class="btn btn-sm btn-strava-link" id="btnStravaCheckAll" title="Mark rides that already exist on your Strava account">Check Strava</button>
-            <button type="button" class="btn btn-sm btn-danger" id="btnClearAllWorkoutsTable"><svg class="ic"><use href="#i-trash"/></svg>Clear all</button>
+            <details class="menu">
+              <summary class="btn btn-sm"><svg class="ic"><use href="#i-download"/></svg>Export</summary>
+              <div class="menu-pop">
+                <button type="button" class="menu-item" id="btnExportFitActive">Current session &middot; FIT</button>
+                <button type="button" class="menu-item" id="btnExportTcxActive">Current session &middot; TCX</button>
+                <button type="button" class="menu-item" id="btnExportCsvRide">Current session &middot; CSV</button>
+                <button type="button" class="menu-item" id="btnExportJsonHistory">Full backup &middot; JSON</button>
+              </div>
+            </details>
+            <details class="menu">
+              <summary class="btn btn-sm btn-ghost" title="Destructive actions">&middot;&middot;&middot;</summary>
+              <div class="menu-pop menu-pop-right">
+                <button type="button" class="menu-item" id="btnWipeAndSyncHealthFitFolder" title="Replace history with the folder contents">Replace history from HealthFit folder&hellip;</button>
+                <button type="button" class="menu-item menu-danger" id="btnClearAllWorkoutsTable">Clear all history&hellip;</button>
+              </div>
+            </details>
           </div>
         </div>
-        <div class="dim auto-backup-status" id="autoBackupStatus" aria-live="polite"></div>
         <div class="table-scroll">
           <table class="history-table data-table">
             <thead>
@@ -935,38 +893,95 @@
             <div class="calendar-stat-group"><span class="calendar-stat-lbl">Sessions</span><span class="calendar-stat-val num" id="calPeriodRides">0 Rides</span></div>
             <div class="calendar-stat-group"><span class="calendar-stat-lbl">Avg intensity</span><span class="calendar-stat-val num" id="calPeriodAvgNp">0 W NP</span></div>
           </div>
+          <div class="calendar-recovery-rollup" id="calRecoveryRollup" hidden>
+            <div class="calendar-stat-group"><span class="calendar-stat-lbl">&hearts; Resting HR</span><span class="calendar-stat-val num" id="calAvgRhr">--</span></div>
+            <div class="calendar-stat-group"><span class="calendar-stat-lbl">&#8767; HRV</span><span class="calendar-stat-val num" id="calAvgHrv">--</span></div>
+            <div class="calendar-stat-group"><span class="calendar-stat-lbl">&#9790; Sleep</span><span class="calendar-stat-val num" id="calAvgSleep">--</span></div>
+            <span class="hint" id="calRecoveryHint">period averages from Apple Health</span>
+          </div>
         </div>
         <div id="calendarContentArea"><div class="calendar-grid" id="calendarGrid"></div></div>
       </div>
     </section>
 
     <!-- ============================== BIOMECHANICS ============================== -->
-    <section class="tab-view" id="view-biomechanics">
-      <div class="cockpit-grid">
-        <div class="col-span-6">
-          <div class="card">
-            <div class="card-title"><span>Pedal stroke dynamics</span><span class="chip chip-ghost" id="biomechModelBadge">MODEL &middot; SCALED BY MEASURED L/R</span></div>
-            <div class="deep-polar-wrap"><canvas id="deepBiomechCanvas"></canvas></div>
-            <ul class="explainer-list">
-              <li><strong>Power phase arcs</strong> mark the driving sector of each leg (typically ~15&deg;&ndash;165&deg;).</li>
-              <li><strong>Lobe size</strong> follows measured power vs FTP; <strong>lobe split</strong> follows measured L/R balance.</li>
-              <li><strong>Dead spots</strong> at 0&deg; (TDC) and 180&deg; (BDC) are where torque drops.</li>
-            </ul>
-          </div>
-        </div>
-        <div class="col-span-6 stack">
-          <div class="card">
-            <div class="card-title"><span>Torque effectiveness &amp; pedal smoothness</span><span class="chip chip-ghost" id="torqueSourceBadge">--</span></div>
-            <div class="chart-box" style="height:250px;"><canvas id="chartTorqueSmoothness"></canvas></div>
-          </div>
-          <div class="card">
-            <div class="card-title"><span>Torque by crank angle</span><span class="chip chip-ghost" id="angleSourceBadge">--</span></div>
-            <div class="chart-box" style="height:220px;"><canvas id="chartPowerPhaseAngle"></canvas></div>
-          </div>
-        </div>
-      </div>
-    </section>
   </main>
+
+  <!-- ============================== MODAL: SETTINGS ============================== -->
+  <div class="modal-overlay" id="settingsModal" role="dialog" aria-modal="true" aria-labelledby="settingsTitle">
+    <div class="modal-content settings-modal">
+      <div class="modal-header">
+        <div><span class="eyebrow">Apex Velo Lab</span><h3 id="settingsTitle">Settings</h3></div>
+        <button type="button" class="close-modal icon-btn" id="btnCloseSettings" aria-label="Close"><svg class="ic"><use href="#i-x"/></svg></button>
+      </div>
+      <nav class="settings-nav segmented" id="settingsNav">
+        <button type="button" class="cat-pill active" data-sec="rider">Rider</button>
+        <button type="button" class="cat-pill" data-sec="ai">AI engine</button>
+        <button type="button" class="cat-pill" data-sec="health">Apple Health</button>
+        <button type="button" class="cat-pill" data-sec="backups">Backups</button>
+        <button type="button" class="cat-pill" data-sec="phone">Phone view</button>
+      </nav>
+
+      <section class="settings-section active" data-sec="rider">
+        <p class="field-help">FTP, weight and heart-rate limits drive every zone, target and W/kg in the app.</p>
+        <div class="settings-kv" id="settingsRiderSummary"></div>
+        <div class="btn-row"><button type="button" class="btn btn-primary" id="btnSettingsEditRider"><svg class="ic"><use href="#i-user"/></svg>Edit rider profiles</button></div>
+      </section>
+
+      <section class="settings-section" data-sec="ai" id="aiCoachConfigCard">
+            <p class="field-help" id="aiCoachEngineDetail">Checking the local server...</p>
+            <label class="field"><span>Provider</span>
+              <select id="selectCoachProvider" class="input-field">
+                <option value="claude">Claude (Anthropic)</option>
+                <option value="gemini">Gemini (Google)</option>
+              </select>
+            </label>
+            <label class="field"><span>Model</span>
+              <select id="selectCoachModel" class="input-field">
+                <option value="">Default</option>
+              </select>
+            </label>
+            <label class="field"><span>Reasoning effort</span>
+              <select id="selectCoachEffort" class="input-field">
+                <option value="">Server default</option>
+                <option value="low">Low - fastest, cheapest</option>
+                <option value="medium">Medium</option>
+                <option value="high">High - deepest reasoning</option>
+              </select>
+            </label>
+            <div class="input-row">
+              <button type="button" class="btn btn-primary" id="btnSaveAiCoachConfig">Save</button>
+              <button type="button" class="btn" id="btnRecheckAiEngine">Re-check server</button>
+            </div>
+            <p class="field-help">The API keys (<code>ANTHROPIC_API_KEY</code>, <code>GEMINI_API_KEY</code>) live in the <code>.env</code> file in the app folder and are read only by the local server on this computer. They are never stored in or sent to the browser. For Gemini, effort sets the thinking level. Start the app with <code>Launch-Apex-Velo.bat</code>.</p>
+      </section>
+
+      <section class="settings-section" data-sec="health" id="healthSettings">
+        <p class="field-help">Resting heart rate, HRV and sleep from your Apple Watch, sent by the <b>Health Auto Export</b> iPhone app to this PC. They drive the readiness score, the calendar recovery strip and the recovery trends.</p>
+        <div class="settings-kv" id="healthStatus"><span class="dim">Checking the local server...</span></div>
+        <ol class="setup-steps" id="healthSetupSteps"></ol>
+        <div class="btn-row">
+          <button type="button" class="btn" id="btnHealthCopyUrl">Copy URL</button>
+          <button type="button" class="btn" id="btnHealthCopyToken">Copy token</button>
+          <button type="button" class="btn btn-ghost" id="btnHealthNewToken" title="Makes a new token - the old one stops working">New token</button>
+          <button type="button" class="btn btn-ghost" id="btnHealthRefresh"><svg class="ic"><use href="#i-refresh"/></svg>Check now</button>
+        </div>
+      </section>
+
+      <section class="settings-section" data-sec="backups">
+        <p class="field-help">Your history lives in this browser. After every change the app also saves a compressed backup to <code>data\backups</code> on this PC (newest 14 kept). Restore by dropping a backup on the Import zone in History.</p>
+        <div class="dim auto-backup-status" id="autoBackupStatus" aria-live="polite"></div>
+        <div class="btn-row">
+          <button type="button" class="btn btn-primary" id="btnBackupNow" title="Save a backup to data\backups on this PC now (it also happens automatically after every change)"><svg class="ic"><use href="#i-save"/></svg>Back up now</button>
+        </div>
+      </section>
+
+      <section class="settings-section" data-sec="phone">
+        <p class="field-help">Open this address on your phone (same Wi-Fi) for the live screen and remote: Focus, Session, Balance and Pedal. One-time setup: run <code>Enable-Phone-View.bat</code> on this PC.</p>
+        <div class="settings-kv" id="phoneViewAddress"><span class="dim">Checking the local server...</span></div>
+      </section>
+    </div>
+  </div>
 
   <!-- ============================== MODAL: PROFILES ============================== -->
   <div class="modal-overlay" id="profileManagerModal" role="dialog" aria-modal="true" aria-labelledby="profileModalTitle">
@@ -1266,10 +1281,8 @@
   <script src="js/velo-sound.js"></script>
   <script src="js/velo-pip.js"></script>
   <script src="js/velo-folder-sync.js"></script>
-  <script src="js/velo-biomech.js"></script>
   <script src="js/velo-analytics.js"></script>
   <script src="js/velo-workouts.js"></script>
-  <script src="js/velo-ai-architect.js"></script>
   <script src="js/velo-ai-coach.js"></script>
   <script src="js/velo-block-planner.js"></script>
   <script src="js/velo-sim.js"></script>
@@ -1282,8 +1295,11 @@
   <script src="js/velo-progress.js"></script>
   <script src="js/velo-dedupe.js"></script>
   <script src="js/velo-strava-sync.js"></script>
+  <script src="js/velo-health.js"></script>
+  <script src="js/velo-trends.js"></script>
   <script src="js/app.js"></script>
   <script src="js/app-analytics.js"></script>
+  <script src="js/app-dashboard.js"></script>
   <script src="js/app-history.js"></script>
   <script src="js/app-coach.js"></script>
   <script src="js/app-block.js"></script>
@@ -1292,5 +1308,7 @@
   <script src="js/app-insight.js"></script>
   <script src="js/app-backup.js"></script>
   <script src="js/app-remote.js"></script>
+  <script src="js/app-health.js"></script>
+  <script src="js/app-settings.js"></script>
 </body>
 </html>

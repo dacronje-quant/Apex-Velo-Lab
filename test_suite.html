@@ -256,15 +256,15 @@
           const hasVeloSound = typeof win.VeloSoundEngine === 'function';
           const hasVeloPip = typeof win.VeloPip === 'function';
           const hasVeloSync = typeof win.VeloFolderSync === 'function';
-          const hasVeloBiomech = typeof win.VeloBiomechanicsRenderer === 'function';
+          const hasVeloHealth = !!win.VeloHealth && typeof win.VeloHealth.readiness === 'function';
           const hasVeloAnalytics = typeof win.VeloAnalytics === 'function';
-          const hasVeloArchitect = typeof win.VeloAiWorkoutArchitect === 'function';
+          const hasVeloTrends = typeof win.VeloTrends === 'function';
           const hasVeloCoach = typeof win.VeloAiCoach === 'function';
           const hasVeloSim = typeof win.VeloSimulator === 'function';
           const hasVeloBle = typeof win.VeloBle === 'function';
           const hasVeloImporter = typeof win.VeloRideImporter === 'function';
           const allModulesLoaded = hasVeloDb && hasVeloSound && hasVeloPip && hasVeloSync && 
-                                   hasVeloBiomech && hasVeloAnalytics && hasVeloArchitect && 
+                                   hasVeloHealth && hasVeloAnalytics && hasVeloTrends && 
                                    hasVeloCoach && hasVeloSim && hasVeloBle && hasVeloImporter;
           log('Modular Architecture: All 11 Domain Classes Loaded Independently', allModulesLoaded, 'VeloDB, VeloAiCoach, VeloAnalytics, etc.');
 
@@ -414,12 +414,10 @@
           log('FTP Progression Dynamically Aggregates Authentic Monthly Peak NP (184W Peak in Aug 26)', isFtpProgReal, 
             `Months: ${ftpProg.labels.join(', ')} | Max: ${Math.max(...ftpProg.data)}W`);
 
-          // 26. Biomechanics Studio Idle Charts (Zero Fake Points)
-          const torqueDataL = app.torqueChart ? app.torqueChart.data.datasets[0].data : null;
-          const angleDataL = app.angleChart ? app.angleChart.data.datasets[0].data : null;
-          const isBiomechIdleZero = torqueDataL && torqueDataL[0] === 0 && torqueDataL[1] === 0 && angleDataL && angleDataL.length === 0;
-          log('Biomechanics Studio Charts Idle State Has Zero Fabricated Torque Points', isBiomechIdleZero, 
-            `Torque: [${torqueDataL}], Angle Points: ${angleDataL ? angleDataL.length : 0}`);
+          // 26. No modelled biomechanics in the app: no Biomech tab, no simulated smoothness / torque tiles
+          const noBiomech = !frame.contentDocument.querySelector('.nav-btn[data-tab="biomechanics"]') && !frame.contentDocument.getElementById('view-biomechanics') &&
+            !frame.contentDocument.getElementById('valLeftSmooth') && !frame.contentDocument.getElementById('polarPedalCanvas') && !frame.contentDocument.getElementById('inputAiPrompt');
+          log('No Modelled Biomechanics or Keyword "Architect": Biomech Tab, Sim Smoothness/Torque Tiles and Prompt Box Removed', noBiomech, 'measured L/R balance only');
 
           // 27. Workout Deep-Dive Modal Displays Honest Unrecorded Telemetry (Zero Fake Multipliers or Sine Waves)
           const testSummaryRide = app.completedWorkouts.find(w => !w.samples || w.samples.length === 0);
@@ -927,24 +925,24 @@
           });
 
           // 40. PMC explorer ranges, tooltip data and form badge
-          await suite('PMC Explorer: 30d/90d/180d/YTD/All Ranges, Daily TSS Series & Form Zone Badge', () => {
+          await suite('PMC Explorer: One Page Range (6w/3m/6m/1y/All), Daily TSS Series & Form Zone Badge', () => {
             const lens = {};
-            for (const r of ['30', '90', '180', 'ytd', 'all']) {
-              D.querySelector(`#pmcRangePills [data-range="${r}"]`).click();
+            for (const r of ['6w', '3m', '6m', '1y', 'all']) {
+              D.querySelector(`#anaRangePills [data-range="${r}"]`).click();
               lens[r] = app.pmcChart.data.labels.length;
             }
             const ds = app.pmcChart.data.datasets;
             const tssOk = ds.length === 4 && ds[3].data.length === lens.all && app._pmcKeys.length === lens.all;
             const badge = D.getElementById('pmcFormStatus');
             const badgeOk = /form-(fresh|productive|optimal|fatigue|overtraining)/.test(badge.className);
-            D.querySelector('#pmcRangePills [data-range="90"]').click();
-            const ok = lens['30'] === 30 && lens['90'] === 90 && lens['180'] === 180 && lens.ytd === W.VeloMetrics.daysYearToDate() && lens.all > 180 && tssOk && badgeOk;
-            return { ok, detail: `points 30:${lens['30']} 90:${lens['90']} 180:${lens['180']} ytd:${lens.ytd} all:${lens.all} | badge "${badge.textContent}"` };
+            D.querySelector('#anaRangePills [data-range="6m"]').click();
+            const ok = lens['6w'] === 42 && lens['3m'] === 91 && lens['6m'] === 182 && lens['1y'] === 365 && lens.all > 365 && tssOk && badgeOk && app.progWeeks === 26;
+            return { ok, detail: `points 6w:${lens['6w']} 3m:${lens['3m']} 6m:${lens['6m']} 1y:${lens['1y']} all:${lens.all} | badge "${badge.textContent}"` };
           });
 
           // 41. Progression dashboard
           await suite('Progression Dashboard: Weekly Buckets, KPI Deltas, Intensity Mix, Records & Clickable Rides', () => {
-            D.querySelector('#progRangePills [data-weeks="52"]').click();
+            D.querySelector('#anaRangePills [data-range="1y"]').click();
             const weeks = app._progWeeks;
             const sumTss = weeks.reduce((a, w) => a + w.tss, 0);
             const direct = Math.round(app.completedWorkouts.filter(r => new W.Date(r.date) >= weeks[0].start).reduce((a, r) => a + (Number(r.tss) || 0), 0));
@@ -958,7 +956,7 @@
             chips && D.querySelector('#progWeekRides .ride-chip').click();
             const opened = D.getElementById('rideSummaryModal').classList.contains('open');
             app.closeModal('rideSummaryModal');
-            D.querySelector('#progRangePills [data-weeks="26"]').click();
+            D.querySelector('#anaRangePills [data-range="6m"]').click();
             const ok = weeks.length === 52 && Math.abs(sumTss - direct) <= weeks.length && kpis === 6 && mixRows === 6 && records >= 4 && scatter > 50 && chips === weeks[busiest].rides && opened;
             return { ok, detail: `52 weeks, TSS ${sumTss} vs ${direct} | KPIs:${kpis} mix:${mixRows} records:${records} scatter:${scatter} week chips:${chips} review opened:${opened}` };
           });
@@ -1418,6 +1416,141 @@
             }
             return { ok: hrOk && pedOk && snapOk && clearOk && noRecOk,
               detail: `HR shown before Start:${hrOk} pedal power/cadence/balance shown:${pedOk} phone snapshot carries them:${snapOk} no contact / stale -> '--':${clearOk} nothing recorded (samples, time, analytics, distance, buffer):${noRecOk}` };
+          });
+
+          // 46h. Apple Health: parse, de-duplicate, readiness from own baselines, app pickup, calendar, backup
+          await suite('Apple Health: Health Auto Export Parsing, No Double Counting, Readiness Baseline/Green/Amber/Red, Inbox Pickup, Calendar Strip & Backup', async () => {
+            const W = frame.contentWindow, H = W.VeloHealth;
+            const savedStore = app.healthStore, savedFetch = W.fetch, savedHist = app.completedWorkouts;
+            const today = app.healthToday();
+            const mk = (n, f) => {
+              const pay = { data: { metrics: [{ name: 'resting_heart_rate', units: 'count/min', data: [] }, { name: 'heart_rate_variability', units: 'ms', data: [] }, { name: 'sleep_analysis', units: 'hr', data: [] }, { name: 'step_count', data: [{ date: today + ' 00:00:00 +0000', qty: 1 }] }] } };
+              for (let i = n - 1; i >= 0; i--) {
+                const d = H.addDays(today, -i), v = f(i);
+                pay.data.metrics[0].data.push({ date: d + ' 00:00:00 +0000', qty: v.rhr });
+                pay.data.metrics[1].data.push({ date: d + ' 02:00:00 +0000', qty: v.hrv }, { date: d + ' 05:00:00 +0000', qty: v.hrv + 2 });
+                pay.data.metrics[2].data.push({ date: d + ' 00:00:00 +0000', totalSleep: v.sleep, deep: 1, rem: 1.5, core: v.sleep - 2.5, sleepEnd: d + ' 06:30:00 +0000' });
+              }
+              return pay;
+            };
+            let parseOk = false, dedupeOk = false, levelsOk = false, pickupOk = false, calOk = false, backupOk = false, detail = '';
+            try {
+              const normal = mk(40, (i) => ({ rhr: 52 + (i % 3), hrv: 60 + (i % 5), sleep: 7.3 }));
+              const p1 = H.parsePayload(normal);
+              parseOk = p1.rhr.length === 40 && p1.hrv.length === 80 && p1.sleep.length === 40 && p1.ignored.includes('step_count');
+              const m1 = H.merge(H.emptyStore(), p1), m2 = H.merge(m1.store, H.parsePayload(normal));
+              const d1 = H.daily(m1.store);
+              dedupeOk = m1.added === 160 && m2.added === 0 && d1.length === 40 && d1[d1.length - 1].hrv === Math.round((60 + 62) / 2);
+              const lvl = (f, n = 40) => H.readiness(H.daily(H.merge(H.emptyStore(), H.parsePayload(mk(n, f))).store), today);
+              const base = lvl((i) => ({ rhr: 52, hrv: 60, sleep: 7.3 }), 4);
+              const green = lvl((i) => ({ rhr: 52 + (i % 3), hrv: 60 + (i % 5), sleep: 7.3 }));
+              const amber = lvl((i) => ({ rhr: i === 0 ? 59 : 52 + (i % 3), hrv: 60 + (i % 5), sleep: 7.3 }));
+              const red = lvl((i) => ({ rhr: i === 0 ? 62 : 52 + (i % 3), hrv: i < 6 ? 38 : 60 + (i % 5), sleep: i === 0 ? 4.6 : 7.3 }));
+              levelsOk = base.level === 'baseline' && /4\/7/.test(base.label) && green.level === 'green' && amber.level === 'amber' && red.level === 'red' && red.reasons.length >= 3;
+              detail = `levels ${base.level}/${green.level}/${amber.level}/${red.level}`;
+              // App pickup from the server inbox (mocked), then ack
+              app.healthStore = H.emptyStore(); app.refreshHealthDerived();
+              let acked = null;
+              W.fetch = async (url, opts) => {
+                const u = String(url);
+                if (u.endsWith('api/health/inbox')) return new W.Response(JSON.stringify(acked ? { files: [], remaining: 0 } : { files: [{ name: 'hae_20260927_060000_abcdef.json', body: normal }], remaining: 0 }), { status: 200 });
+                if (u.endsWith('api/health/ack')) { acked = JSON.parse(opts.body).names; return new W.Response('{"ok":true,"removed":1}', { status: 200 }); }
+                return savedFetch(url, opts);
+              };
+              const res = await app.pullHealthInbox({ force: true });
+              pickupOk = res.ok && res.added === 160 && acked && acked[0] === 'hae_20260927_060000_abcdef.json' && app.healthDays.length === 40 && D.getElementById('cockpitReadinessChip').dataset.level === 'green';
+              // Calendar: this week shows the strip and period averages
+              app.calendarViewPreset = '1week'; app.calendarWeekOffset = 0; app.renderCalendarView();
+              calOk = D.querySelectorAll('#calendarContentArea .recov-strip').length >= 1 && !D.getElementById('calRecoveryRollup').hidden && /bpm/.test(D.getElementById('calAvgRhr').textContent);
+              // Backup carries it; restore adds only missing days
+              const payload = app.backupPayload();
+              const days = Object.keys(payload.health.days).length;
+              app.healthStore = H.emptyStore(); app.refreshHealthDerived();
+              const added = app.restoreHealthStore(payload.health);
+              backupOk = days === 40 && added === 40 && app.restoreHealthStore(payload.health) === 0;
+            } finally {
+              W.fetch = savedFetch;
+              app.healthStore = savedStore; app.saveHealthStore(); app.refreshHealthDerived();
+              app.completedWorkouts = savedHist;
+            }
+            return { ok: parseOk && dedupeOk && levelsOk && pickupOk && calOk && backupOk, detail: `parse:${parseOk} same data twice adds nothing:${dedupeOk} ${detail}:${levelsOk} inbox pickup + ack:${pickupOk} calendar strip + averages:${calOk} backup/restore:${backupOk}` };
+          });
+
+          // 46i. Ride review analysis: longest on target, HR recovery, torque, decoupling bands
+          await suite('Ride Review: Longest On-Target Stretch, 60 s HR Recovery Slowing on Later Repeats, Torque, 4 Decoupling Bands', async () => {
+            const I = frame.contentWindow.VeloInsight;
+            const s = []; let hr = 110;
+            for (let k = 0; k < 600; k++) s.push({ power: 120, target: 120, hr: 110, cadence: 90 });
+            for (let r = 0; r < 5; r++) {
+              for (let k = 0; k < 180; k++) { hr = Math.min(172, hr + 0.5); s.push({ power: 220, target: 220, hr, cadence: 95 }); }
+              for (let k = 0; k < 180; k++) { hr = Math.max(110, hr - (k < 60 ? 0.6 - r * 0.09 : 0.1)); s.push({ power: 100, target: 100, hr, cadence: 85 }); }
+            }
+            const rec = I.hrRecovery(s, 200, 180);
+            const lot = I.longestOnTarget(s);
+            const tq = I.avgTorque(s);
+            const bands = [2, 3.5, 4.2, 6, 9].map(x => I.decouplingBand(x).tier).join(',');
+            const noHr = I.hrRecovery(s.map(x => ({ ...x, hr: 0 })), 200, 180);
+            const ok = rec && rec.efforts.length === 5 && rec.slowing && rec.first === 36 && rec.last === 14 && lot && lot.seconds === 600 && lot.target === 120 && tq > 14 && tq < 17 && bands === 'consolidated,consolidated,coupled,mild,high' && noHr === null;
+            return { ok, detail: `HRR ${rec && rec.efforts.map(e => e.drop).join('/')} slowing:${rec && rec.slowing} | longest ${lot && lot.seconds}s @${lot && lot.target}W | torque ${tq} N·m | bands ${bands} | no HR -> ${noHr}` };
+          });
+
+          // 46j. Analytics dashboard: tiles, EF on steady rides only, power profile PRs, ramp rate
+          await suite('Analytics Dashboard: 6 Progression Tiles, EF Only From Steady Rides, Power Profile 90 d vs 90 d With Honest PRs, Ramp Rate', async () => {
+            const T = frame.contentWindow.VeloTrends;
+            const W = frame.contentWindow;
+            const DAY = 86400000, now = Date.now();
+            const mkS = (n, pw, hr) => Array.from({ length: n }, (_, i) => ({ time: i + 1, power: pw(i), hr: hr(i), cadence: 90 }));
+            const steady = { id: 's', date: new W.Date(now - 3 * DAY).toISOString(), ftpAtRide: 185, samples: mkS(3600, () => 140, () => 130) };
+            const vo2 = { id: 'v', date: new W.Date(now - 2 * DAY).toISOString(), ftpAtRide: 185, samples: mkS(3600, i => (i % 240 < 120 ? 260 : 90), () => 150) };
+            const ef = T.efOf(steady), efV = T.efOf(vo2);
+            const peaks = { a: [500, 300, 250, 200], b: [450, 290, 240, 210], c: [520, 310, 260, 190] };
+            const rides = [{ id: 'a', date: new W.Date(now - 10 * DAY).toISOString() }, { id: 'b', date: new W.Date(now - 120 * DAY).toISOString() }, { id: 'c', date: new W.Date(now - 400 * DAY).toISOString() }];
+            const pp = T.powerProfile(rides, r => peaks[r.id], now, null, 75);
+            const ppOk = pp[0].last === 500 && pp[0].prev === 450 && pp[0].pr === false && pp[3].last === 200 && pp[3].pr === false && pp[3].delta === -10 && pp[1].pr === false;
+            const pp2 = T.powerProfile([rides[0], rides[1]], r => peaks[r.id], now, null, 75);
+            const prOk = pp2[0].pr === true && pp2[3].pr === false && pp2[0].wkg === 6.67;
+            const ramp = T.rampRate([10, 10, 10, 10, 10, 10, 10, 17.5]);
+            const rampOk = ramp === 7.5 && T.rampVerdict(ramp).key === 'high' && T.rampVerdict(2).key === 'ok' && T.rampVerdict(-4).key === 'down';
+            app.switchTab('analytics');
+            await new Promise(r => setTimeout(r, 300));
+            const tiles = D.querySelectorAll('#anaTiles .tile').length;
+            const profile = D.querySelectorAll('#anaPowerProfile .pp-cell').length;
+            const charts = !!(app.efChart && app.recoveryChart && app.balanceChart);
+            D.querySelector('#anaRangePills [data-range="3m"]').click();
+            const rangeOk = app.efChart.options.scales.x.max - app.efChart.options.scales.x.min > 90 * DAY && app.efChart.options.scales.x.max - app.efChart.options.scales.x.min < 92 * DAY;
+            D.querySelector('#anaRangePills [data-range="6m"]').click();
+            app.switchTab('cockpit');
+            const ok = ef && ef.ef === Math.round((140 / 130) * 100) / 100 && efV === null && ppOk && prOk && rampOk && tiles === 6 && profile === 4 && charts && rangeOk;
+            return { ok, detail: `EF steady ${ef && ef.ef}, intervals ${efV} | profile:${ppOk} PR only when it beats older bests:${prOk} | ramp ${ramp}:${rampOk} | tiles ${tiles}, profile cells ${profile}, charts:${charts}, page range drives charts:${rangeOk}` };
+          });
+
+          // 46k. Settings screen + readiness in the AI coach
+          await suite('Settings Screen (Rider, AI Engine, Apple Health, Backups, Phone) and Readiness Steering the Coach', async () => {
+            const W = frame.contentWindow;
+            D.getElementById('btnOpenSettings').click();
+            const secs = {};
+            for (const sec of ['rider', 'ai', 'health', 'backups', 'phone']) {
+              D.querySelector(`#settingsNav [data-sec="${sec}"]`).click();
+              secs[sec] = D.querySelector(`#settingsModal .settings-section[data-sec="${sec}"]`).classList.contains('active');
+            }
+            const engineInSettings = !!D.querySelector('#settingsModal #selectCoachEffort') && !!D.querySelector('#settingsModal #btnBackupNow') && !!D.querySelector('#settingsModal #autoBackupStatus');
+            D.querySelector('#settingsNav [data-sec="rider"]').click();
+            const rider = /FTP/.test(D.getElementById('settingsRiderSummary').textContent);
+            app.closeModal('settingsModal');
+            const savedR = app.healthReadiness;
+            let redFocus = '', amberFocus = '', promptOk = false;
+            try {
+              app.healthReadiness = () => ({ level: 'red', label: 'Recover', advice: 'x', reasons: ['Resting HR 62 bpm is 9 above your 53 bpm average'], hrv: { avg7: 40, normalLow: 55, normalHigh: 66 }, rhr: { today: 62, base: 53 }, sleep: { last: 4.8 } });
+              const ctx = app.aiCoach.getPhysiologicalContext('auto', 45, 'vo2');
+              ctx.tsb = 10;
+              redFocus = app.aiCoach.decideFocus(ctx);
+              promptOk = /DAILY READINESS \(Apple Watch/.test(app.aiCoach.buildPrompt(ctx)) && /Resting HR 62 bpm/.test(app.aiCoach.buildPrompt(ctx));
+              app.healthReadiness = () => ({ level: 'amber', label: 'Go easier', reasons: [] });
+              const ctx2 = app.aiCoach.getPhysiologicalContext('auto', 45, 'vo2'); ctx2.tsb = 10;
+              amberFocus = app.aiCoach.decideFocus(ctx2);
+            } finally { app.healthReadiness = savedR; }
+            const ok = Object.values(secs).every(Boolean) && engineInSettings && rider && redFocus === 'recovery' && amberFocus === 'endurance' && promptOk;
+            return { ok, detail: `sections ${JSON.stringify(secs)} engine+backups moved:${engineInSettings} rider:${rider} | red -> ${redFocus}, amber -> ${amberFocus}, prompt:${promptOk}` };
           });
 
           // 46g. Analytics trends + coach context

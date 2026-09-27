@@ -41,10 +41,40 @@ Then restart `Launch-Apex-Velo.bat` (the server only reads its code at start) an
 Your ride history lives in the browser (IndexedDB + localStorage), so clearing Chrome's site data would erase it. The app therefore backs it up **automatically**:
 
 - About 15 s after anything changes the history (a ride saved, an import, a Strava sync, a delete, a profile change), and at least once a day, the app sends the same backup as **Backup JSON** - profiles, workout library and every ride **with its per-second samples** - gzipped, to the local server.
-- The server saves it as `data\backups\apex_velo_backup_<date>_<time>.json.gz` and keeps the **newest 14**. An unchanged history is not backed up twice in a day. The line under the History toolbar shows the last backup; **Back up now** makes one immediately.
+- The server saves it as `data\backups\apex_velo_backup_<date>_<time>.json.gz` and keeps the **newest 14**. An unchanged history is not backed up twice in a day. **Settings (gear icon) > Backups** shows the last backup; **Back up now** makes one immediately. Apple Health recovery days are included in every backup.
 - **Restore:** drop a backup file (`.json.gz` or `.json`) on the **Import** zone in History. Rides already in the history are skipped; you are asked whether to restore the rider profiles too.
 - Only the app opened **on this PC** can write backups (not a phone on the Wi-Fi, not another website), only real Apex Velo Lab backups are accepted, and the folder is **never served** by the web server. `data/backups/` is git-ignored.
 - Want an off-PC copy? Point OneDrive / Google Drive at the `data\backups` folder, or copy a file to a USB stick now and then.
+
+## Settings
+
+The **gear icon** in the header opens Settings - everything you set up once:
+
+- **Rider** - FTP, weight, max / threshold heart rate (opens the rider profiles).
+- **AI engine** - Claude or Gemini, model and reasoning effort (low by default).
+- **Apple Health** - live status, the address and token for Health Auto Export, and the setup steps with your PC's address filled in.
+- **Backups** - last automatic backup and **Back up now**.
+- **Phone view** - the address to open on your phone.
+
+## Apple Health: resting HR, HRV and sleep (Health Auto Export)
+
+Your Apple Watch's **resting heart rate**, **HRV** (Apple's SDNN, in ms) and **sleep** reach the app through the **Health Auto Export** iPhone app, which posts them to this PC. They drive the daily **readiness**, the **calendar recovery strip** and the resting HR / HRV trends in Analytics. Nothing is uploaded anywhere else.
+
+**Setup (about 2 minutes, once):**
+1. Phone view must be enabled (`Enable-Phone-View.bat`, see below) - the iPhone talks to the PC over your home Wi-Fi. Tip: give the PC a fixed address in your router (DHCP reservation) so the URL never changes.
+2. In the app open **Settings > Apple Health** and copy the **URL** (e.g. `http://192.168.1.23:8080/api/health`) and the **token**.
+3. On the iPhone install **Health Auto Export** (automations need its Premium tier) and allow it to read *Resting Heart Rate*, *Heart Rate Variability* and *Sleep Analysis*.
+4. **Automations > New automation > REST API**: paste the URL; add a header `Authorization` = `Bearer <token>`; data type **Health Metrics** with those three metrics; format **JSON** (version 2); date range **Since last sync** (the first time: the last 60 days, so readiness has a baseline straight away); sync **every hour**; turn it on. If iOS asks to find devices on your local network, tap **Allow**.
+5. Tap **Manual export**, then **Check now** in Settings - *Last received* updates.
+
+**How it works.** The server only stores what arrives (`data\health\inbox`, never served, git-ignored) - after checking the token; the app on the PC collects it at start-up, every 10 minutes and when Settings opens, folds it into one record per day and then lets the server delete the payloads. Every reading is keyed by its own timestamp (sleep by stage and start/end), so hourly exports that overlap, or the same data sent twice, never count twice. A new token (Settings) stops the old one working. Missed days fill in on the next sync (the phone must be on home Wi-Fi and the PC server running).
+
+**Readiness** (advisory - it never blocks a workout), against your own normal:
+- **HRV:** 7-day average (log scale) against your 60-day normal range (mean +/- 0.5 SD); last night far below normal (more than 1.5 SD) counts too.
+- **Resting HR:** today against your 30-day average - +5 bpm is a flag, +8 a strong one.
+- **Sleep:** under 6 h (or 1.5 h under your average) is a flag, under 5 h a strong one.
+- 0 flags = **green** (ready for threshold / VO2), 1-2 = **amber** (go easier), 3+ = **red** (Z1-Z2 recovery). Until 7 nights of HRV exist it shows *Building baseline (n/7 nights)*.
+- It shows in the cockpit before Start, in Analytics and in the Coach; the AI coach (and the offline engine) turn a key session into endurance on amber and a recovery spin on red. Click the chip for the reasons.
 
 ## Training blocks (periodised plans)
 
@@ -126,11 +156,12 @@ The PC keeps the Bluetooth sensors and runs the ride; your phone becomes a live 
 2. Start `Launch-Apex-Velo.bat` as usual and open the app on the PC. The console window prints the phone address, e.g. `http://192.168.1.23:8080/live.html`.
 3. On the iPhone (same Wi-Fi, not mobile data) open that address in Safari, then **Share > Add to Home Screen** for a full-screen "Apex Live" icon.
 
-The phone has three screens; swipe sideways or tap the tabs, and it remembers the last one:
+The phone has four screens; swipe sideways or tap the tabs, and it remembers the last one:
 
 - **Focus** - the current step and countdown, power against target, a 2-minute power trace, heart rate and cadence.
 - **Session** - % complete and time left, the whole workout as zone-coloured blocks with a gliding playhead, avg power, heart rate, cadence and distance.
 - **Balance** - live L/R split from the pedals, a 2-minute balance trace with its average, cadence and power source.
+- **Pedal** - the pedal-stroke polar view: lobe split = measured L/R balance, size = measured power vs FTP, rotation = measured cadence. The lobe shape itself is a model (labelled MODEL) - the pedals don't send force per crank angle.
 
 Before you press Start (and while paused) the phone already shows live heart rate, power and cadence from connected devices; nothing is recorded until the ride runs.
 
@@ -161,6 +192,7 @@ A thin zone-coloured bar of the whole workout sits above the controls on every s
   - *PowerMatch* - the trim is a pedal/trainer calibration, so it carries to the next step in proportion to the new target (short intervals start already matched). After any target change it waits 6 s before adjusting, it is off during a ramp, and it never adds watts while cadence is low, so it can't overshoot a step or deepen a stall.
 - **The simulator never touches a real ride.** It switches off as soon as a device connects, and once a ride has used real hardware a dropout is recorded as no power (`NONE`), never filled with simulated values.
 - **Heart rate.** A strap reporting no skin contact or 0 bpm (a Polar H10 does this while the electrodes are dry) shows `--` and is not recorded; the last value is never frozen on screen.
+- **Apple Health.** Recovery values appear only for days that have them - no carrying forward, no averages dressed up as a day. Implausible readings are dropped (resting HR outside 25-130 bpm, HRV of 0 or above 300 ms, more than 20 h of sleep); several sleep sources for one night are never added together (the longest is kept).
 
 ## Features
 
@@ -177,7 +209,8 @@ A thin zone-coloured bar of the whole workout sits above the controls on every s
 - **+5 min easy spin.** When the last step ends, the ride keeps going on a 5-minute easy spin (45 % FTP) and a prompt offers **+5 min easy spin** or **Finish now** for 10 s (on the PC and the phone). No answer = finish: the extra step is dropped and the workout is saved as completed. Accept, and at the end of the spin you are asked again.
 - **Keyboard.** Space start/pause, Tab or -> next step, `S` stand break, `Z` Zen, `F` fullscreen, `P` mini-HUD, `M` mute; the full list is behind the keyboard icon.
 
-### AI workout builder
+### AI Coach
+- **Build a session:** the Workouts tab is the library (filter, search, fine-tune in the table); anything built for you comes from the **AI Coach** (its notes box takes free-text requests like "45 min over-unders").
 - **Goals:** FTP, Longevity (Z2/durability), VO2max and Balanced.
 - **Context from your real history.** 28-day hours per week, intensity mix, CTL/ATL/TSB, days since the last hard and last long ride, and a power-profile type from your all-time MMP curve. Free-text notes are passed through as well.
 - **Claude or Gemini (Claude Opus 5.5 or Gemini 3.8 Flash, low effort by default).** The summarised reasoning trace is rendered as markdown with a live timer, alongside phase cards and a 7-day plan that ramps CTL, drops the ramp to 0 when fatigued and never stacks hard days within 48 h. Click a day of the plan to pre-fill the request.
@@ -185,20 +218,23 @@ A thin zone-coloured bar of the whole workout sits above the controls on every s
 - **One-click load** into the cockpit, and **Clear Recommendation**.
 - **Recent ride insight in the prompt.** From rides with recorded power, the coach (Claude/Gemini, and the offline engine's advice) gets: the last hard session's interval diagnosis (and its saved AI breakdown), the Pw:HR drift of recent steady rides, new power bests over an earlier best (5 min and longer), and an FTP suggestion you have not applied yet - so a session type that faded is re-paced, aerobic work stays steady while drift is high, and targets reflect a proven FTP.
 
-### Analytics
-- **PMC** with 30d, 90d, 180d, YTD and All ranges. Coloured form bands, daily TSS bars, tooltips (date, CTL, ATL, TSB, TSS) and a form badge: Fresh, Productive, Optimal, High Fatigue or Overtraining.
-- **Progression dashboard.** Weekly TSS, hours, kJ or rides with a 4-week average; click a week to list its rides. KPIs with the change from the previous period, the intensity mix, a personal-records board (best NP, longest ride, biggest TSS, most kJ, best week, streak) and an NP-vs-duration scatter.
-- **MMP.** The all-time curve comes from your real FIT archive (`compute_mmp.ps1`) merged with rides recorded here. The scrub slider compares the PR with the live ride at each duration.
-- **FTP history & monthly peak NP.** Bars: the highest-NP ride of each month. Amber line: the FTP in use (the FTP stored with each ride, plus your FTP changes - one-click updates and manual edits are logged in the profile from the day you make them). Green triangles: months where a ride tested your FTP - the FTP it proved (best 20 min x 0.95 or best 60 min), shown when within 5 % of your FTP or above. The badge shows the FTP change over the period.
-- **Aerobic decoupling trend.** Every steady ride with heart rate, as its Pw:HR drift %, against the 5 % line (points coloured good / mild / high; click one to open the ride). A falling trend at the same power means your aerobic base is improving.
-- **Ride review.** Each ride opens in a modal with a completion banner, comparisons against the last 90 days, peaks versus PRs, time in zone, interval execution, a scrub chart and prev/next navigation.
+### Analytics - progression dashboard
+One **time range for the whole page** (6 weeks, 3 months, 6 months, 1 year, All).
+- **Today strip:** readiness, form (TSB) with its zone, fitness (CTL) and fatigue (ATL), **ramp rate** (CTL gained in 7 days - above ~7/week is flagged as injury/illness risk) and FTP with W/kg.
+- **Progression tiles** - value, trend sparkline over the range and change vs 6 weeks ago (green = the good direction): FTP, fitness (CTL), **efficiency factor**, 20-min peak (best in 90 days), resting HR and HRV (30-day averages).
+- **Fitness & load:** the PMC (coloured form bands, daily TSS bars, tooltips and a form badge: Fresh, Productive, Optimal, High Fatigue or Overtraining) and weekly TSS / hours / kJ / rides with a 4-week average and KPIs vs the previous period; click a week to list its rides.
+- **Aerobic engine:** **efficiency factor** (NP / average HR) of steady aerobic rides only (Z2 to tempo, VI <= 1.06, 20 min+) with a 30-day average line - rising = more watts per heartbeat; the **Pw:HR decoupling trend**; and **resting HR & HRV** (7-day averages, from Apple Health).
+- **Power:** a **power profile** (5 s, 1 min, 5 min, 20 min) - best of the last 90 days vs the 90 days before, W/kg, and a **PR** badge only when it beats everything before (HealthFit archive included); the power-duration curve with the scrub tool (all-time curve from your FIT archive merged with rides recorded here); and **FTP history & monthly peak NP** (bars: highest-NP ride per month; amber line: the FTP in use and your logged FTP changes; green triangles: months where a ride proved an FTP within 5 % of yours or above).
+- **Pedal balance:** average left-leg % per ride, measured by the pedals.
+- **Explore** (collapsed): intensity mix, the records board (best NP, longest ride, biggest TSS, most kJ, best week, streak) and every ride as NP vs duration.
+- **Ride review.** Each ride opens in a modal with a completion banner, comparisons against the last 90 days, peaks versus PRs, time in zone, interval execution, a scrub chart and prev/next navigation. Plus: the **longest stretch held on target** (+/-5 %, 3 s power), **cadence & average torque** (N·m while pedalling), and **heart-rate recovery**: the bpm drop in the 60 s after each hard effort that took HR to 85 % of max or more, flagged when it slows on later repeats (you keep pedalling in ERG, so compare repeats within a ride, not rides).
 - **Highlights: PR medals.** Best power for 5 s, 1 min, 5 min, 20 min and 60 min against rides *before* this one: **gold** = all-time best (including the HealthFit archive), **silver** = best this year, **bronze** = best in the last 90 days. Shown in the ride review and as chips in History.
-- **Aerobic decoupling (Pw:HR).** On steady rides (after the warm-up: variability index at most 1.05, 80 % of the time within 20 % of the average power, both halves at about the same power, at least 20 min with heart rate): power per heartbeat, first half vs second half. Under 5 % = aerobically coupled, 5-8 % mild drift, over 8 % decoupled. Interval rides say "not measured".
+- **Aerobic decoupling (Pw:HR).** On steady rides (after the warm-up: variability index at most 1.05, 80 % of the time within 20 % of the average power, both halves at about the same power, at least 20 min with heart rate): power per heartbeat, first half vs second half. Four bands: **3.5 % or less = base consolidated**, under 5 % = coupled, 5-8 % = mild drift, over 8 % = decoupled (fatigue, heat or dehydration). Interval rides say "not measured".
 - **FTP suggestion - only when a ride proves it.** Estimate = best 20 min x 0.95 or best 60 min, whichever is higher; it must beat your FTP by 2 % and 3 W, and the 20-min effort must be steady (not sprints). If heart rate shows a hard effort (>= 85 % of max HR or >= 90 % of threshold HR), one ride is enough; otherwise a second ride within 21 days must confirm it and the lower value is suggested. **Update FTP** changes the profile in one click; **Not now** is remembered and you are only asked again for a higher value.
 - **Interval diagnosis.** For every hard step (88 % FTP and up, numbered *Interval 1, 2...*): on target or not, cadence fade and heart-rate rise from the first to the last third of the step - computed offline, free. **Ask the AI coach** sends only that step table (no raw data) to your AI coach at **low** effort (the cheapest level, whatever the coach card is set to) and saves the answer with the ride, so reopening it costs nothing.
-- **Biomechanics.** Drawn only from measured power and balance, using spring animations. Real CPS hardware does not report torque effectiveness or pedal smoothness, so those charts stay empty and are labelled "NOT REPORTED BY CPS". In simulator mode they are labelled "SIMULATOR MODEL".
+- **Pedal balance.** Only measured L/R balance is shown (cockpit, phone, Analytics). The Assioma pedals over Bluetooth do not send torque effectiveness, pedal smoothness or force per crank angle, so the app shows none of those (the old Biomech tab and its simulated charts are gone; the pedal polar view lives on the phone, labelled MODEL).
 - **Exports.** FIT (binary, CRC-checked, per-second records including L/R balance), TCX (with TPX extensions) and CSV (with a named header, which the importer reads back). Rides that have only summary data export only a summary.
-- **Calendar.** Rides are bucketed by local date. It shows YTD monthly bars and all-time totals.
+- **Calendar.** Rides are bucketed by local date. It shows YTD monthly bars and all-time totals. With Apple Health set up, every day shows a **recovery strip** - a readiness-coloured bar and resting HR (♥), HRV (∿) and sleep (☾), each coloured against your own normal (hover for the details) - and the week / month / year shows average resting HR, HRV and sleep with the change vs the previous period. Future days show only the plan; days without data show nothing.
 
 ## Architecture
 
@@ -212,7 +248,7 @@ css/style.css         Design system (obsidian/slate tokens, glass surfaces, resp
 css/fonts.css         Local Inter / JetBrains Mono fonts (no internet needed)
 vendor/               Chart.js 4.4.1 (MIT) and the font files (SIL OFL), with their licences
 sw.js                 Network-first service worker (bump CACHE_NAME when files change; never caches /api/)
-data/                 divan_cycling_history.json/.js - HealthFit archive + all-time MMP; backups/ - automatic backups
+data/                 divan_cycling_history.json/.js - HealthFit archive + all-time MMP; backups/ - automatic backups; health/ - Health Auto Export token + inbox
 js/
   velo-metrics.js     Pure maths: zones, NP/IF/TSS, MMP, form bands, backoff, compliance
   velo-db.js          IndexedDB persistence
@@ -227,11 +263,16 @@ js/
   velo-export.js      FIT / TCX / CSV export
   velo-ai-coach.js    Goals, context, offline engine, week plan, Claude/Gemini prompt
   velo-block-planner.js  Training blocks: periodisation, session placement, post-ride review
-  velo-ai-architect.js, velo-workouts.js  Workout library and builder
-  velo-biomech.js     HiDPI biomech canvas with spring animation
+  velo-workouts.js    Workout library
+  velo-biomech.js     Pedal-stroke polar view (phone Pedal screen)
+  velo-health.js      Apple Health: payload parsing, per-day de-duplication, readiness, calendar flags (pure)
+  velo-trends.js      Dashboard maths: efficiency factor, ramp rate, power profile, balance trend, sparklines (pure)
   velo-sound.js, velo-pip.js, velo-folder-sync.js
   app.js              Orchestrator: state, tick loop, cockpit, Zen, BLE events, calibration
-  app-analytics.js    PMC, MMP, progression and biomech charts (mixin)
+  app-analytics.js    PMC, MMP, FTP and weekly progression charts, page range (mixin)
+  app-dashboard.js    Analytics dashboard: today strip, tiles, power profile, EF / recovery / balance charts (mixin)
+  app-health.js       Apple Health pickup, storage, readiness chips, calendar helpers, Settings panel (mixin)
+  app-settings.js     Settings screen (mixin)
   app-history.js      History, ride review, exports, calendar (mixin)
   app-coach.js        Coach UI and markdown renderer (mixin)
   app-block.js        Training block UI and planned sessions on the calendar (mixin)
@@ -243,7 +284,7 @@ js/
   app-backup.js       Automatic gzipped history backups to the local server, status line, Back up now (mixin)
 test_suite.html       In-browser test suite
 tests/strava-sync-servers.test.js  Runs server.js and start_server.ps1 against a mock Strava
-live.html             Phone view (three screens, remote controls)
+live.html             Phone view (four screens, remote controls)
 Enable-Phone-View.bat One-time firewall/URL setup for the phone view (`remove` undoes it)
 ```
 

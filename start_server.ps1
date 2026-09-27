@@ -189,6 +189,136 @@ function Invoke-Backup($request, $response) {
     return Send-Json $response 200 ([ordered]@{ ok = $true; name = $name; bytes = $bytes.Length; dir = $st.dir; count = $st.count; keep = $st.keep; latest = $st.latest })
 }
 
+# ------------------------------------------------ Apple Health (Health Auto Export) --
+# The Health Auto Export iPhone app POSTs its JSON to /api/health with "Authorization: Bearer <token>".
+# Payloads are stored as-is in data\health\inbox; the app on this PC reads them (parsing lives in
+# js\velo-health.js), then acknowledges them so they are deleted. data\health is never served. (Same as server.js.)
+$healthDir = [System.IO.Path]::Combine($root, 'data', 'health')
+$healthInbox = [System.IO.Path]::Combine($healthDir, 'inbox')
+$healthTokenFile = [System.IO.Path]::Combine($healthDir, 'token.txt')
+$healthMetaFile = [System.IO.Path]::Combine($healthDir, 'status.json')
+$healthMaxBytes = 50MB
+$healthInboxKeep = 500
+$healthNameRe = '^hae_\d{8}_\d{6}_[0-9a-f]{6}\.json$'
+
+function Get-HealthToken([bool]$renew = $false) {
+    if (-not $renew -and (Test-Path -LiteralPath $healthTokenFile)) {
+        $t = ([System.IO.File]::ReadAllText($healthTokenFile)).Trim()
+        if ($t -match '^[0-9a-f]{32,}$') { return $t }
+    }
+    $b = New-Object byte[] 24
+    [System.Security.Cryptography.RandomNumberGenerator]::Create().GetBytes($b)
+    $t = -join ($b | ForEach-Object { $_.ToString('x2') })
+    [void][System.IO.Directory]::CreateDirectory($healthDir)
+    [System.IO.File]::WriteAllText($healthTokenFile, $t)
+    return $t
+}
+
+function Get-HealthInboxFiles {
+    if (-not (Test-Path -LiteralPath $healthInbox)) { return @() }
+    return @(Get-ChildItem -LiteralPath $healthInbox -File | Where-Object { $_.Name -match $healthNameRe } | Sort-Object Name)
+}
+
+function Get-LanAddresses {
+    try {
+        return @([System.Net.NetworkInformation.NetworkInterface]::GetAllNetworkInterfaces() |
+            Where-Object { $_.OperationalStatus -eq 'Up' -and $_.NetworkInterfaceType -ne 'Loopback' } |
+            ForEach-Object { $_.GetIPProperties().UnicastAddresses } |
+            Where-Object { $_.Address.AddressFamily -eq 'InterNetwork' -and $_.Address.ToString() -match $lanHostRe } |
+            ForEach-Object { $_.Address.ToString() })
+    } catch { return @() }
+}
+
+function Get-HealthStatus {
+    $meta = $null
+    if (Test-Path -LiteralPath $healthMetaFile) { try { $meta = [System.IO.File]::ReadAllText($healthMetaFile) | ConvertFrom-Json } catch { $meta = $null } }
+    $ips = @(Get-LanAddresses)
+    return [ordered]@{
+        token = (Get-HealthToken); port = $port
+        urls = @($ips | ForEach-Object { "http://${_}:$port/api/health" })
+        phoneUrls = @($ips | ForEach-Object { "http://${_}:$port/live.html" })
+        inbox = @(Get-HealthInboxFiles).Count
+        lastReceived = $(if ($meta) { $meta.lastReceived } else { $null })
+        lastBytes = $(if ($meta) { [int64]$meta.lastBytes } else { 0 })
+        received = $(if ($meta) { [int]$meta.received } else { 0 })
+    }
+}
+
+function Test-HealthToken([string]$given) {
+    $want = Get-HealthToken
+    if ([string]::IsNullOrEmpty($given) -or $given.Length -ne $want.Length) { return $false }
+    $diff = 0
+    for ($i = 0; $i -lt $want.Length; $i++) { $diff = $diff -bor ([int][char]$want[$i] -bxor [int][char]$given[$i]) }
+    return ($diff -eq 0)
+}
+
+function Invoke-Health($request, $response, [string]$path) {
+    if ($path -eq '/api/health' -and $request.HttpMethod -eq 'POST') {
+        # From the phone: the bearer token is the gate (the address check already limits it to this PC / home Wi-Fi).
+        $auth = [string]$request.Headers['Authorization']
+        $given = ($auth -replace '^Bearer\s+', '').Trim()
+        if ($given -eq '') { $given = [string]$request.QueryString['token'] }
+        if (-not (Test-HealthToken $given)) { return Send-Json $response 401 @{ error = 'Missing or wrong token - copy it from Settings > Apple Health in the app.' } }
+        if ($request.ContentLength64 -gt $healthMaxBytes) { return Send-Json $response 413 @{ error = 'Over 50 MB - export a shorter date range.' } }
+        $ms = New-Object System.IO.MemoryStream
+        $request.InputStream.CopyTo($ms)
+        $bytes = $ms.ToArray(); $ms.Dispose()
+        if ($bytes.Length -gt $healthMaxBytes) { return Send-Json $response 413 @{ error = 'Over 50 MB - export a shorter date range.' } }
+        try { $body = $utf8.GetString($bytes) | ConvertFrom-Json } catch { return Send-Json $response 400 @{ error = 'Invalid JSON.' } }
+        if ($null -eq $body -or -not ($body.data -or $body.metrics)) { return Send-Json $response 400 @{ error = 'Not a Health Auto Export payload (no "data").' } }
+        $rb = New-Object byte[] 3
+        [System.Security.Cryptography.RandomNumberGenerator]::Create().GetBytes($rb)
+        $name = 'hae_' + (Get-Date).ToString('yyyyMMdd_HHmmss') + '_' + (-join ($rb | ForEach-Object { $_.ToString('x2') })) + '.json'
+        try {
+            [void][System.IO.Directory]::CreateDirectory($healthInbox)
+            $tmp = Join-Path $healthInbox ('.' + $name + '.tmp')
+            [System.IO.File]::WriteAllBytes($tmp, $bytes)
+            Move-Item -LiteralPath $tmp -Destination (Join-Path $healthInbox $name) -Force
+            $files = Get-HealthInboxFiles
+            if ($files.Count -gt $healthInboxKeep) { $files | Select-Object -First ($files.Count - $healthInboxKeep) | ForEach-Object { Remove-Item -LiteralPath $_.FullName -Force -ErrorAction SilentlyContinue } }
+            $prev = 0
+            if (Test-Path -LiteralPath $healthMetaFile) { try { $prev = [int](([System.IO.File]::ReadAllText($healthMetaFile) | ConvertFrom-Json).received) } catch { $prev = 0 } }
+            $meta = [ordered]@{ lastReceived = (Get-Date).ToUniversalTime().ToString('yyyy-MM-ddTHH:mm:ss.fffZ'); lastBytes = $bytes.Length; received = $prev + 1 }
+            [System.IO.File]::WriteAllText($healthMetaFile, ($meta | ConvertTo-Json -Compress))
+        } catch {
+            return Send-Json $response 500 @{ error = "Could not save the data ($($_.Exception.Message))." }
+        }
+        return Send-Json $response 200 ([ordered]@{ ok = $true; stored = $name })
+    }
+    # Everything else - the token, the stored data - only for the app on this PC.
+    if (-not (Test-PcRequest $request)) { return Send-Json $response 403 @{ error = 'Only the app on this PC can read Apple Health data.' } }
+    if ($path -eq '/api/health/status' -and $request.HttpMethod -eq 'GET') { return Send-Json $response 200 (Get-HealthStatus) }
+    if ($path -eq '/api/health/token' -and $request.HttpMethod -eq 'POST') { [void](Get-HealthToken $true); return Send-Json $response 200 (Get-HealthStatus) }
+    if ($path -eq '/api/health/inbox' -and $request.HttpMethod -eq 'GET') {
+        $all = @(Get-HealthInboxFiles)
+        $take = @($all | Select-Object -First 20)
+        # Stream the stored JSON through untouched (no re-serialisation of the phone's data).
+        $parts = @(foreach ($f in $take) {
+            $txt = [System.IO.File]::ReadAllText($f.FullName, $utf8).Trim()
+            try { $null = $txt | ConvertFrom-Json } catch { $txt = 'null' }
+            if ($txt -eq '') { $txt = 'null' }
+            '{"name":"' + $f.Name + '","body":' + $txt + '}'
+        })
+        $remaining = [Math]::Max(0, $all.Count - $take.Count)
+        return Send-RawJson $response 200 ('{"files":[' + ($parts -join ',') + '],"remaining":' + $remaining + '}')
+    }
+    if ($path -eq '/api/health/ack' -and $request.HttpMethod -eq 'POST') {
+        if ($request.ContentLength64 -gt 65536) { return Send-Json $response 413 @{ error = 'Request too large' } }
+        $reader = New-Object System.IO.StreamReader($request.InputStream, $utf8)
+        $bodyText = $reader.ReadToEnd(); $reader.Close()
+        try { $b = $bodyText | ConvertFrom-Json } catch { return Send-Json $response 400 @{ error = 'Invalid JSON.' } }
+        $removed = 0
+        foreach ($n in @($b.names)) {
+            $n = [string]$n
+            if ($n -notmatch $healthNameRe) { continue }
+            $fp = Join-Path $healthInbox $n
+            if (Test-Path -LiteralPath $fp) { Remove-Item -LiteralPath $fp -Force -ErrorAction SilentlyContinue; $removed++ }
+        }
+        return Send-Json $response 200 ([ordered]@{ ok = $true; removed = $removed })
+    }
+    return Send-Json $response 404 @{ error = 'Not found' }
+}
+
 # ---------------------------------------------------------------- phone view --
 # The PC app posts a live snapshot about once a second; live.html on the phone reads it
 # and queues simple commands that the PC app collects on its next post. Memory only.
@@ -735,7 +865,7 @@ function Send-StaticFile($request, $response) {
     if ($file -ne $root -and -not $file.StartsWith($root + [System.IO.Path]::DirectorySeparatorChar, [System.StringComparison]::OrdinalIgnoreCase)) { return Send-Text $response 403 'Forbidden' }
     # Never serve dot-files (.env), the servers, or helper scripts.
     $relative = $file.Substring($root.Length).TrimStart('\', '/')
-    if ($relative -match '(^|[\\/])\.' -or $relative -match '^server\.js$' -or $relative -match '\.(ps1|cmd|bat|sh)$' -or $relative -match '^data[\\/]backups([\\/]|$)') { return Send-Text $response 404 'Not found' }
+    if ($relative -match '(^|[\\/])\.' -or $relative -match '^server\.js$' -or $relative -match '\.(ps1|cmd|bat|sh)$' -or $relative -match '^data[\\/](backups|health)([\\/]|$)') { return Send-Text $response 404 'Not found' }
     if (Test-Path $file -PathType Container) { $file = Join-Path $file 'index.html' }
     if (-not (Test-Path $file -PathType Leaf)) { return Send-Text $response 404 'Not found' }
     $ext = [System.IO.Path]::GetExtension($file).ToLower()
@@ -835,6 +965,8 @@ try {
                 Send-Text $response 403 'Forbidden'
             } elseif ($path -eq '/api/backup') {
                 Invoke-Backup $request $response
+            } elseif ($path -eq '/api/health' -or $path.StartsWith('/api/health/')) {
+                Invoke-Health $request $response $path
             } elseif ($path -eq '/api/live') {
                 Invoke-Live $request $response
             } elseif ($path -eq '/api/live/cmd') {

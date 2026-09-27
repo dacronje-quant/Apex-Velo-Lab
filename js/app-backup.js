@@ -16,7 +16,7 @@
   Object.assign(VeloApp.prototype, {
     /** The backup object - also what "Backup JSON" downloads (the importer reads it back). */
     backupPayload() {
-      return { app: 'APEX VELO LAB', exportedAt: new Date().toISOString(), profiles: this.profiles, activeProfileId: this.activeProfileId, workoutLibrary: this.loadSavedWorkouts(), history: this.completedWorkouts };
+      return { app: 'APEX VELO LAB', exportedAt: new Date().toISOString(), profiles: this.profiles, activeProfileId: this.activeProfileId, workoutLibrary: this.loadSavedWorkouts(), health: this.healthStore || null, history: this.completedWorkouts };
     },
 
     /** Cheap fingerprint of what a backup would contain, to skip identical uploads. */
@@ -26,7 +26,8 @@
       const ids = this.completedWorkouts.map(r => r.id).sort().join(',');
       let h = 0;
       for (let i = 0; i < ids.length; i++) h = (h * 31 + ids.charCodeAt(i)) | 0;
-      return [this.completedWorkouts.length, h, samples, Math.round(tss), JSON.stringify(this.profiles || []).length, this.loadSavedWorkouts().length].join('|');
+      const healthDays = this.healthStore && this.healthStore.days ? Object.keys(this.healthStore.days).length : 0;
+      return [this.completedWorkouts.length, h, samples, Math.round(tss), JSON.stringify(this.profiles || []).length, this.loadSavedWorkouts().length, healthDays].join('|');
     },
 
     backupState() {

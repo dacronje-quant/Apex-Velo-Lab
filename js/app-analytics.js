@@ -1,6 +1,6 @@
 /**
  * APEX VELO // LAB - Analytics mixin: Chart.js charts, PMC explorer, power-duration
- * curve with scrub tool, monthly peak NP, biomechanics charts and the progression dashboard.
+ * curve with scrub tool, monthly peak NP and the weekly progression charts.
  */
 (function () {
   // Categorical series colours validated for the dark surface (CVD-safe, >=3:1 contrast).
@@ -53,6 +53,8 @@
     }
   };
 
+  VeloApp.CHART = { VIZ, INK, axis };
+
   Object.assign(VeloApp.prototype, {
     // ---------------------------------------------------------------- init --
     initCharts() {
@@ -87,21 +89,15 @@
       this.initMmpChart();
       this.initFtpChart();
       if (this.initDriftChart) this.initDriftChart();
-      this.initBiomechStudioCharts();
       this.initProgressionCharts();
+      if (this.initDashboardCharts) this.initDashboardCharts();
     },
 
     initAnalyticsUi() {
-      document.querySelectorAll('#pmcRangePills .range-pill').forEach(p => this.on(p, 'click', () => {
-        document.querySelectorAll('#pmcRangePills .range-pill').forEach(x => x.classList.toggle('active', x === p));
-        this.pmcRange = p.dataset.range === 'ytd' ? 'ytd' : (p.dataset.range === 'all' ? 0 : parseInt(p.dataset.range, 10));
-        this.recalculatePmc();
-      }));
-      document.querySelectorAll('#progRangePills .prog-range').forEach(p => this.on(p, 'click', () => {
-        document.querySelectorAll('#progRangePills .prog-range').forEach(x => x.classList.toggle('active', x === p));
-        this.progWeeks = parseInt(p.dataset.weeks, 10) || 0;
-        this.renderProgression();
-      }));
+      // One time range for the whole Analytics page (PMC, weekly load, trends).
+      document.querySelectorAll('#anaRangePills .ana-range').forEach(p => this.on(p, 'click', () => this.setAnalyticsRange(p.dataset.range)));
+      const explore = document.querySelector('#view-analytics .explore-card');
+      if (explore) this.on(explore, 'toggle', () => { if (explore.open && this.progScatterChart) requestAnimationFrame(() => this.progScatterChart.resize()); });
       document.querySelectorAll('#progMetricPills .prog-metric').forEach(p => this.on(p, 'click', () => {
         document.querySelectorAll('#progMetricPills .prog-metric').forEach(x => x.classList.toggle('active', x === p));
         this.progMetric = p.dataset.metric;
@@ -117,6 +113,19 @@
       this.refreshAnalytics();
     },
 
+    /** Sets the page-wide range: '6w' | '3m' | '6m' | '1y' | 'all'. */
+    setAnalyticsRange(key) {
+      const R = { '6w': [42, 6], '3m': [91, 13], '6m': [182, 26], '1y': [365, 52], all: [0, 0] };
+      const v = R[key] || R['6m'];
+      this.anaRange = R[key] ? key : '6m';
+      this.pmcRange = v[0];
+      this.progWeeks = v[1];
+      document.querySelectorAll('#anaRangePills .ana-range').forEach(x => x.classList.toggle('active', x.dataset.range === this.anaRange));
+      this.recalculatePmc();
+      this.renderProgression();
+      if (this.renderDashboard) this.renderDashboard();
+    },
+
     /** Recomputes everything derived from history (cheap enough to call after any history change). */
     refreshAnalytics() {
       this.recalculatePmc();
@@ -124,6 +133,7 @@
       if (this.updateDriftChart) this.updateDriftChart();
       this.updateMmpChart();
       this.renderProgression();
+      if (this.renderDashboard) this.renderDashboard();
       this.updateHeroStats && this.updateHeroStats();
     },
 
@@ -389,85 +399,6 @@
     },
 
     // ---------------------------------------------------------- biomechanics --
-    initBiomechStudioCharts() {
-      const ctxT = document.getElementById('chartTorqueSmoothness')?.getContext('2d');
-      if (ctxT) {
-        this.torqueChart = new Chart(ctxT, {
-          type: 'bar',
-          data: {
-            labels: ['Torque effectiveness (%)', 'Pedal smoothness (%)'],
-            datasets: [
-              { label: 'Left', data: [0, 0], backgroundColor: VIZ.amber, borderRadius: 4, maxBarThickness: 48 },
-              { label: 'Right', data: [0, 0], backgroundColor: VIZ.cyan, borderRadius: 4, maxBarThickness: 48 }
-            ]
-          },
-          options: { responsive: true, maintainAspectRatio: false, animation: false, scales: { y: axis({ min: 0, max: 100 }), x: axis({ grid: { display: false } }) }, plugins: { legend: { display: true, labels: { color: INK.secondary, boxWidth: 10 } } } }
-        });
-      }
-      const ctxA = document.getElementById('chartPowerPhaseAngle')?.getContext('2d');
-      if (ctxA) {
-        this.angleChart = new Chart(ctxA, {
-          type: 'line',
-          data: {
-            labels: ['0°', '30°', '60°', '90°', '120°', '150°', '180°', '210°', '240°', '270°', '300°', '330°'],
-            datasets: [
-              { label: 'Left (N·m)', data: [], borderColor: VIZ.amber, tension: 0.35 },
-              { label: 'Right (N·m)', data: [], borderColor: VIZ.cyan, tension: 0.35 }
-            ]
-          },
-          options: { responsive: true, maintainAspectRatio: false, animation: false, scales: { y: axis(), x: axis() }, plugins: { legend: { display: true, labels: { color: INK.secondary, boxWidth: 10 } } } }
-        });
-      }
-    },
-
-    resetBiomechStudioCharts() {
-      if (this.torqueChart) {
-        this.torqueChart.data.datasets[0].data = [0, 0];
-        this.torqueChart.data.datasets[1].data = [0, 0];
-        this.torqueChart.update('none');
-      }
-      if (this.angleChart) {
-        this.angleChart.data.datasets[0].data = [];
-        this.angleChart.data.datasets[1].data = [];
-        this.angleChart.update('none');
-      }
-      this.setText('torqueSourceBadge', '--');
-      this.setText('angleSourceBadge', '--');
-    },
-
-    /**
-     * Torque effectiveness / smoothness and crank-angle torque are not part of the
-     * Bluetooth CPS stream. With real hardware these charts stay empty ("not reported");
-     * in simulator mode they show the simulator's model, clearly labelled.
-     */
-    updateBiomechStudioCharts(power, cadence, leftBal, rightBal) {
-      if (!this.torqueChart || !this.angleChart) return;
-      if (this.activePowerSource !== 'SIMULATOR') {
-        if (this._biomechMode !== 'hw') {
-          this._biomechMode = 'hw';
-          this.resetBiomechStudioCharts();
-          this.setText('torqueSourceBadge', 'NOT REPORTED BY CPS');
-          this.setText('angleSourceBadge', 'NOT REPORTED BY CPS');
-        }
-        return;
-      }
-      this._biomechMode = 'sim';
-      this.setText('torqueSourceBadge', 'SIMULATOR MODEL');
-      this.setText('angleSourceBadge', 'SIMULATOR MODEL');
-      this.torqueChart.data.datasets[0].data = [this.simulator.leftTorque, this.simulator.leftSmoothness];
-      this.torqueChart.data.datasets[1].data = [this.simulator.rightTorque, this.simulator.rightSmoothness];
-      const cad = Math.max(40, cadence || 90);
-      const meanTorque = (Math.max(0, power) * 60) / (2 * Math.PI * cad);
-      const lf = ((leftBal || 50) / 50), rf = ((rightBal || 50) / 50);
-      const angles = [0, 30, 60, 90, 120, 150, 180, 210, 240, 270, 300, 330];
-      this.angleChart.data.datasets[0].data = angles.map(d => +(Math.max(0.05, Math.sin(((d - 180) * Math.PI) / 180)) * meanTorque * 1.6 * lf).toFixed(1));
-      this.angleChart.data.datasets[1].data = angles.map(d => +(Math.max(0.05, Math.sin((d * Math.PI) / 180)) * meanTorque * 1.6 * rf).toFixed(1));
-      if (this.activeTab === 'biomechanics') {
-        this.torqueChart.update('none');
-        this.angleChart.update('none');
-      }
-    },
-
     // ------------------------------------------------- progression dashboard --
     initProgressionCharts() {
       const ctxW = document.getElementById('progWeeklyChart')?.getContext('2d');

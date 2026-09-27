@@ -55,7 +55,6 @@ class VeloApp {
     this.lastInstantPower = 0;
     this.lastCadence = 0;
     this.lastHr = 0;
-    this.crankAngle = 0;
 
     // BLE telemetry caches
     this.blePedal = { name: 'Assioma DUO-Shi', watts: null, cadence: null, leftPct: null, rightPct: null, torque: null, lastTime: -1e9 };
@@ -83,8 +82,6 @@ class VeloApp {
     this.simulator = new VeloSimulator();
     this.analytics = new VeloAnalytics(this.activeProfile.ftp, this.activeProfile.weightKg);
     this.ble = new VeloBle((d) => this.handleBleTelemetry(d));
-    this.polarRenderer = new VeloBiomechanicsRenderer('polarPedalCanvas');
-    this.deepBiomechRenderer = new VeloBiomechanicsRenderer('deepBiomechCanvas');
     this.aiCoach = new VeloAiCoach(this);
     this.blockPlanner = typeof VeloBlockPlanner === 'function' ? new VeloBlockPlanner(this.aiCoach) : null;
     this.clock = new VeloClock(() => this.tick1Hz());
@@ -102,13 +99,12 @@ class VeloApp {
     this.pmcChart = null;
     this.mmpChart = null;
     this.ftpChart = null;
-    this.torqueChart = null;
-    this.angleChart = null;
     this.currentScrubChart = null;
     this.progWeeklyChart = null;
     this.progScatterChart = null;
-    this.pmcRange = 90;
+    this.pmcRange = 182;
     this.progWeeks = 26;
+    this.anaRange = '6m';
     this.progMetric = 'tss';
     this.coachGoal = 'ftp';
 
@@ -126,6 +122,8 @@ class VeloApp {
     if (this.bindInsightActions) this.bindInsightActions(document.getElementById('modalRideDetails'));
     if (this.initAutoBackup) this.initAutoBackup();
     if (this.initRemoteView) this.initRemoteView();
+    if (this.initHealth) this.initHealth();
+    if (this.initSettings) this.initSettings();
     this.initAnalyticsUi();
     this.updateProfileUi();
     this.audio.updateUi();
@@ -666,6 +664,7 @@ class VeloApp {
 
   // -------------------------------------------------------------- playback --
   updatePlaybackControlsUi() {
+    if (this.renderReadinessChips) this.renderReadinessChips();
     const finished = this.isWorkoutCompleted || (this.currentWorkout && this.intervalIndex >= this.currentWorkout.intervals.length);
     let s;
     if (this.isPlaying) s = ['btn btn-pause', 'PAUSE WORKOUT', '#i-pause', 'status-running', 'WORKOUT RUNNING', 'PAUSE'];
@@ -785,7 +784,6 @@ class VeloApp {
       this.telemetryChart.data.datasets.forEach(ds => { ds.data = []; });
       this.telemetryChart.update('none');
     }
-    this.resetBiomechStudioCharts();
     this.updateMmpChart();
     this.updateHudTitles();
     this.renderIntervalTrack();
@@ -954,7 +952,6 @@ class VeloApp {
     this.updateHudDisplays(power, targetPower, cadence, hr);
     this.updateTelemetryChart(this.totalElapsedSeconds, power, cadence, hr, targetPower);
     this.updatePowerSourceBadge();
-    this.updateBiomechStudioCharts(power, cadence, leftBal, rightBal);
     if (this.totalElapsedSeconds % 5 === 0 && this.activeTab === 'analytics') this.updateMmpChart();
 
     if (this.intervalSecondsRemaining <= 0) {
@@ -1604,11 +1601,6 @@ class VeloApp {
     const leftW = lBal !== null ? Math.round(power * (lBal / 100)) : null;
     this.setText('valLeftWatts', leftW !== null ? leftW + 'W' : '--');
     this.setText('valRightWatts', leftW !== null ? (power - leftW) + 'W' : '--');
-    const simLegs = this.activePowerSource === 'SIMULATOR';
-    this.setText('valLeftSmooth', simLegs ? this.simulator.leftSmoothness + '%' : '--');
-    this.setText('valRightSmooth', simLegs ? this.simulator.rightSmoothness + '%' : '--');
-    this.setText('valLeftTorque', simLegs ? this.simulator.leftTorque + '%' : '--');
-    this.setText('valRightTorque', simLegs ? this.simulator.rightTorque + '%' : '--');
 
     let tip;
     if (lBal !== null && Math.abs(lBal - 50) > 3.5) tip = `${lBal > 50 ? 'Left' : 'Right'} leg dominant (${lBal.toFixed(1)} / ${(100 - lBal).toFixed(1)}). Think "pull through" on the weaker side's upstroke.`;
@@ -2045,33 +2037,14 @@ class VeloApp {
   }
 
   // ------------------------------------------------------- render loop --
-  /** One rAF loop for crank animation, polar renderers, the playhead and the diagnostics drawer. Idles when hidden. */
+  /** One rAF loop for the playhead and the diagnostics drawer. Idles when hidden. */
   start60FpsLoop() {
-    let last = performance.now();
     let lastPanel = 0;
     const loop = (time) => {
       this.animFrameId = requestAnimationFrame(loop);
-      if (document.hidden) { last = time; return; }
-      const dt = Math.min(0.1, (time - last) / 1000);
-      last = time;
+      if (document.hidden) return;
 
-      const cad = this.isPlaying ? (this.currentCadence || 0) : 0;
-      this.crankAngle = (this.crankAngle + (cad / 60) * 360 * dt) % 360;
-      const state = {
-        crankAngle: this.crankAngle,
-        leftBalance: Number.isFinite(this.currentLeftBal) ? this.currentLeftBal : 50,
-        rightBalance: Number.isFinite(this.currentRightBal) ? this.currentRightBal : 50,
-        power: this.isPlaying ? this.getSmoothedPower(3) : 0,
-        ftp: this.activeProfile.ftp,
-        dt
-      };
-      if (this.activeTab === 'cockpit' && !this.isZenMode) {
-        this.polarRenderer.render(state);
-        if (this.isPlaying) this.drawIntervalTrack(false);
-        this.setText('polarLiveAngleBadge', `${String(Math.round(this.crankAngle) % 360).padStart(3, '0')}° CRANK`);
-      } else if (this.activeTab === 'biomechanics') {
-        this.deepBiomechRenderer.render(state);
-      }
+      if (this.activeTab === 'cockpit' && !this.isZenMode && this.isPlaying) this.drawIntervalTrack(false);
       if (time - lastPanel > 500) {
         lastPanel = time;
         if (this.$('hardwareModal')?.classList.contains('open')) this.updateHardwarePanel();
@@ -2090,10 +2063,8 @@ class VeloApp {
     this.clock.destroy();
     this._disposers.forEach(fn => { try { fn(); } catch (e) { /* ignore */ } });
     this._disposers = [];
-    [this.telemetryChart, this.pmcChart, this.mmpChart, this.ftpChart, this.driftChart, this.torqueChart, this.angleChart, this.currentScrubChart, this.progWeeklyChart, this.progScatterChart]
+    [this.telemetryChart, this.pmcChart, this.mmpChart, this.ftpChart, this.driftChart, this.currentScrubChart, this.progWeeklyChart, this.progScatterChart, this.efChart, this.recoveryChart, this.balanceChart]
       .forEach(c => { if (c) c.destroy(); });
-    this.polarRenderer.destroy();
-    this.deepBiomechRenderer.destroy();
     if (this._resizeObserver) this._resizeObserver.disconnect();
   }
 
@@ -2114,19 +2085,12 @@ class VeloApp {
       requestAnimationFrame(() => {
         this.updateMmpChart();
         this.refreshAnalytics();
-        [this.pmcChart, this.mmpChart, this.ftpChart, this.driftChart, this.progWeeklyChart, this.progScatterChart].forEach(c => c && c.resize());
-      });
-    } else if (tabKey === 'biomechanics') {
-      requestAnimationFrame(() => {
-        this.deepBiomechRenderer.resize();
-        if (this.torqueChart) this.torqueChart.resize();
-        if (this.angleChart) this.angleChart.resize();
+        [this.pmcChart, this.mmpChart, this.ftpChart, this.driftChart, this.progWeeklyChart, this.progScatterChart, this.efChart, this.recoveryChart, this.balanceChart].forEach(c => c && c.resize());
       });
     } else if (tabKey === 'cockpit') {
       requestAnimationFrame(() => {
         this.trackCache.key = '';
         this.renderIntervalTrack();
-        this.polarRenderer.resize();
         if (this.telemetryChart) this.telemetryChart.resize();
       });
     } else if (tabKey === 'workouts') {

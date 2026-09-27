@@ -159,24 +159,6 @@
         this.showToast('Request updated from the plan - press Analyze & prescribe.');
       });
 
-      // Workout architect (Workouts tab)
-      this.on(document.getElementById('btnGenerateAiWorkout'), 'click', () => this.handleAiPromptGenerate());
-      this.on(document.getElementById('inputAiPrompt'), 'keydown', (e) => { if (e.key === 'Enter') this.handleAiPromptGenerate(); });
-      document.querySelectorAll('.ai-chip').forEach(chip => this.on(chip, 'click', () => {
-        document.getElementById('inputAiPrompt').value = chip.dataset.prompt;
-        this.handleAiPromptGenerate();
-      }));
-      const closePreview = () => document.getElementById('aiWorkoutPreviewPanel')?.classList.remove('open');
-      this.on(document.getElementById('btnCloseAiPreview'), 'click', closePreview);
-      this.on(document.getElementById('btnDiscardAiPreview'), 'click', closePreview);
-      this.on(document.getElementById('btnLoadAiWorkoutToCockpit'), 'click', () => this.loadAiWorkoutConfirmed());
-      this.on(document.getElementById('btnEditAiWorkoutInTable'), 'click', () => this.editAiWorkoutConfirmed());
-      this.on(document.getElementById('btnSaveAiWorkoutPermanent'), 'click', () => {
-        if (!this.previewAiWorkout) return;
-        this.saveWorkoutPermanently(this.previewAiWorkout);
-        this.selectWorkout(this.previewAiWorkout);
-        closePreview();
-      });
       this.updateCoachEngineStatus();
       if (this.initTrainingBlockUi) this.initTrainingBlockUi();
       this.refreshCoachEngine(false);
@@ -400,60 +382,6 @@
     renderAiCoachWorkoutCanvas(workout) {
       const canvas = document.getElementById('aiCoachIntervalCanvas');
       if (canvas) this.drawMiniProfile(canvas, workout.intervals || [], { width: 600, height: 150 });
-    },
-
-    // -------------------------------------------------- workout architect --
-    handleAiPromptGenerate() {
-      const input = document.getElementById('inputAiPrompt');
-      const text = input ? input.value.trim() : '';
-      if (!text) return;
-      const generated = VeloAiWorkoutArchitect.parsePrompt(text);
-      const load = VeloAiCoach.estimateLoad(generated.intervals);
-      Object.assign(generated, { durationMin: load.durationMin, tss: load.tss, if: load.if });
-      this.previewAiWorkout = generated;
-      const panel = document.getElementById('aiWorkoutPreviewPanel');
-      panel.classList.add('open');
-      const ftp = this.activeProfile.ftp;
-      this.setText('aiPreviewFtpRef', `${ftp}W FTP`);
-      this.setText('aiPreviewTitle', generated.title);
-      const pcts = generated.intervals.map(i => i.pctFtp);
-      document.getElementById('aiPreviewMeta').innerHTML = `
-        <span class="chip chip-ghost num">${generated.durationMin} min</span>
-        <span class="chip chip-lime num">${generated.tss} TSS</span>
-        <span class="chip chip-accent num">IF ${generated.if}</span>
-        <span class="chip chip-violet num">${generated.intervals.length} steps</span>
-        <span class="chip chip-amber num">${Math.min(...pcts)}-${Math.max(...pcts)}% FTP</span>`;
-      document.getElementById('aiPreviewIntervalList').innerHTML = generated.intervals.map((iv, i) => {
-        const z = VeloMetrics.zoneForPct(iv.pctFtp);
-        return `<div class="preview-step-badge" style="--zc:${z.color}"><span class="num dim">#${i + 1}</span><b>${esc(iv.name)}</b><span class="num">${this.fmtTime(iv.duration)}</span><span class="num strong">${Math.round(ftp * iv.pctFtp / 100)}W</span><span class="zone-chip">${z.short}</span></div>`;
-      }).join('');
-      requestAnimationFrame(() => this.renderWorkoutPreviewCanvas(generated.intervals, 'aiPreviewCanvas'));
-      panel.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
-    },
-
-    renderWorkoutPreviewCanvas(intervals, canvasId) {
-      const canvas = document.getElementById(canvasId);
-      if (canvas) this.drawMiniProfile(canvas, intervals, { width: 800, height: 120 });
-    },
-
-    loadAiWorkoutConfirmed() {
-      if (!this.previewAiWorkout) return;
-      const w = this.previewAiWorkout;
-      if (!this.workoutLibrary.some(x => x.id === w.id)) this.workoutLibrary.unshift(w);
-      this.loadWorkoutObjectIntoCockpit(w);
-      document.getElementById('aiWorkoutPreviewPanel').classList.remove('open');
-      document.getElementById('inputAiPrompt').value = '';
-      this.showToast(`Loaded "${w.title}" - press START when ready.`, 'success');
-    },
-
-    editAiWorkoutConfirmed() {
-      if (!this.previewAiWorkout) return;
-      const w = this.previewAiWorkout;
-      if (!this.workoutLibrary.some(x => x.id === w.id)) this.workoutLibrary.unshift(w);
-      this.selectWorkoutById(w.id);
-      document.getElementById('aiWorkoutPreviewPanel').classList.remove('open');
-      this.showToast(`Opened "${w.title}" in the interval table.`);
-      document.getElementById('customWorkoutTableSection')?.scrollIntoView({ behavior: 'smooth' });
     }
   });
 
