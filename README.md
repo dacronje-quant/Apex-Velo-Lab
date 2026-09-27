@@ -293,8 +293,6 @@ Enable-Phone-View.bat One-time firewall/URL setup for the phone view (`remove` u
 **Helper scripts** (run by hand in PowerShell, not by the app):
 - `parse_healthfit.ps1` - builds `data/divan_cycling_history.json` from your HealthFit `.fit` exports; `create_js_data.ps1` wraps that JSON into the `.js` file the app loads.
 - `compute_mmp.ps1` - computes the all-time power curve (MMP) from the same `.fit` files.
-- `test_header.ps1 <file.fit>` - prints a FIT file's header, for debugging an import.
-- `fix_all_mojibake.ps1` - a one-off repair script from the original conversion to UTF-8. The files are already clean and it no longer parses; **do not run it**.
 
 The mixins extend `VeloApp.prototype` with `Object.assign` and load after `app.js`. The app keeps one `requestAnimationFrame` loop, which pauses while the page is hidden. `destroy()` removes every listener, chart, observer and timer.
 
