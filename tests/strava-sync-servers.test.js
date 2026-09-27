@@ -215,6 +215,20 @@ async function runAgainst(kind, pwsh, mock, appPort) {
     check(`${tag}: backups never contact Strava`, mock.log.length === logBeforeBackups);
     results.backupStatusKeys = Object.keys(st).sort().join(',');
 
+    // 4c. Who may connect: this PC and the private home network only (real client address, not a
+    // header), and pages / data files are protected from other websites (DNS rebinding) too.
+    const home = await fetch(`${base}/index.html`);
+    // fetch() drops a custom Host header, so this request goes through http.request.
+    const rebinding = await new Promise(r => { const q = http.request({ host: '127.0.0.1', port: appPort, path: '/index.html', headers: { Host: 'evil.example' } }, rs => { rs.resume(); r({ status: rs.statusCode }); }); q.on('error', () => r(null)); q.end(); });
+    check(`${tag}: pages load on localhost; another site's Host header is refused (403)`, home.status === 200 && rebinding && rebinding.status === 403, `home ${home.status}, rebinding ${rebinding && rebinding.status}`);
+    const ext = Object.values(os.networkInterfaces()).flat().find(i => i && i.family === 'IPv4' && !i.internal);
+    const isPrivate = (ip) => /^(10\.|192\.168\.|169\.254\.|172\.(1[6-9]|2\d|3[01])\.)/.test(ip);
+    if (ext && !isPrivate(ext.address)) {
+      const outside = await fetch(`http://${ext.address}:${appPort}/api/strava/status`, { headers: { Host: `localhost:${appPort}` } }).catch(() => null);
+      if (outside) check(`${tag}: a client outside the home network is refused even with Host: localhost`, outside.status === 403, `status ${outside.status} from ${ext.address}`);
+      else console.log(`SKIP: ${tag} does not listen on ${ext.address} (localhost only) - nothing outside can connect`);
+    } else console.log('SKIP: no non-private network address on this machine to test the client check from');
+
     // 5. READ ONLY: every request the sync path sent to Strava was a GET to the three allowed endpoints
     const nonGet = mock.log.filter(l => l.method !== 'GET');
     const allowed = mock.log.every(l => l.path === '/api/v3/athlete/activities' || /^\/api\/v3\/activities\/\d+(\/streams)?$/.test(l.path));

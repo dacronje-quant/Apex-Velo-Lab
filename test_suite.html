@@ -1428,6 +1428,89 @@
               detail: `FTP chart: FTP line 180 -> 195, proven only when tested:${chartOk} drift trend = steady rides only, falling:${driftOk} FTP change logged:${logOk} coach prompt insight:${promptOk} offline advice uses it:${offlineAdviceOk} | ${detail}` };
           });
 
+          // 46h. Debugging fixes: smart-recorded imports, KICKR distance, live NP, per-second rendering, delete -> backup
+          await suite('Fixes: Smart-Recorded Imports Become 1 Hz, KICKR Distance Never Jumps Back or Counts Pauses, Live NP = Post-Ride NP, Track Redrawn Only on Step Change, Delete Triggers Backup', async () => {
+            // 1. A TCX logged every 5 s with a 60 s all-out effort and a 100 s pause
+            const t0 = Date.UTC(2026, 8, 20, 6, 0, 0);
+            const pts = [];
+            const add = (sec, w) => pts.push(`<Trackpoint><Time>${new W.Date(t0 + sec * 1000).toISOString()}</Time><HeartRateBpm><Value>140</Value></HeartRateBpm><Cadence>90</Cadence><Extensions><TPX><Watts>${w}</Watts></TPX></Extensions></Trackpoint>`);
+            for (let t = 0; t <= 600; t += 5) add(t, t >= 300 && t < 360 ? 400 : 150);
+            for (let t = 700; t <= 1300; t += 5) add(t, 150);
+            const tcx = `<?xml version="1.0"?><TrainingCenterDatabase><Activities><Activity Sport="Biking"><Id>${new W.Date(t0).toISOString()}</Id><Lap><Track>${pts.join('')}</Track></Lap></Activity></Activities></TrainingCenterDatabase>`;
+            const ride = W.VeloRideImporter.parseTcx(tcx, 185, 'Rider');
+            const onePerSec = ride.samples.every((x, i) => i === 0 || x.time - ride.samples[i - 1].time === 1 || x.time - ride.samples[i - 1].time === 100);
+            const p1m = W.VeloMetrics.bestRollingAvg(ride.samples.map(x => x.power), 60);
+            const importOk = ride.samples.length === 1202 && onePerSec && p1m === 400 && ride.duration === 1300;
+
+            // 2. KICKR odometer: counts, re-syncs after a counter reset (reboot), ignores pedalling while paused
+            const savedBle = { tc: app.ble.isTrainerConnected, set: app.ble.setTrainerErgPower, start: app.ble.startTrainerWorkout, pause: app.ble.pauseTrainerWorkout, clock: app.clock.start };
+            app.ble.isTrainerConnected = () => true; app.ble.setTrainerErgPower = () => {}; app.ble.startTrainerWorkout = () => {}; app.ble.pauseTrainerWorkout = () => {}; app.clock.start = () => {};
+            const dist = [];
+            let distOk = false;
+            try {
+              app.resetWorkout(false);
+              app.togglePlayPause();
+              const feed = (m) => { app.handleBleTelemetry({ type: 'trainer', watts: 180, speed: 30, cadence: 90, distanceMeters: m }); app.tick1Hz(); dist.push(Math.round(app.totalDistanceMeters)); };
+              feed(5000); feed(5010); feed(5020);       // 0, 10, 20
+              feed(3); feed(12);                        // trainer rebooted: re-sync, then +9 -> 29
+              app.togglePlayPause();                    // pause...
+              app.handleBleTelemetry({ type: 'trainer', watts: 150, speed: 25, distanceMeters: 300 }); // ...pedalling 288 m while paused
+              app.togglePlayPause();                    // resume
+              feed(300); feed(308);                     // re-sync after the pause, then +8 -> 37
+              distOk = dist.join(',') === '0,10,20,20,29,29,37';
+            } finally {
+              app.togglePlayPause && app.isPlaying && app.togglePlayPause();
+              Object.assign(app.ble, { isTrainerConnected: savedBle.tc, setTrainerErgPower: savedBle.set, startTrainerWorkout: savedBle.start, pauseTrainerWorkout: savedBle.pause });
+              app.clock.start = savedBle.clock;
+              app.bleTrainer.lastTime = -1e9;
+              app.resetWorkout(false);
+            }
+
+            // 3. Live NP uses only full 30 s windows, so it equals the post-ride NP
+            const an = new W.VeloAnalytics(185, 75);
+            const series = Array.from({ length: 200 }, (_, i) => (i < 20 ? 400 : 150 + (i % 13) * 5));
+            series.slice(0, 29).forEach(v => an.update(v));
+            const before30 = an.normalizedPower;
+            series.slice(29).forEach(v => an.update(v));
+            const npOk = before30 === 0 && an.normalizedPower === W.VeloMetrics.normalizedPower(series);
+
+            // 4. The interval track is rebuilt only when the step changes (not every second)
+            let renders = 0, trackOk = false;
+            const origRender = app.renderIntervalTrack;
+            const savedClock2 = app.clock.start; app.clock.start = () => {};
+            const savedSet2 = app.ble.setTrainerErgPower; app.ble.setTrainerErgPower = () => {};
+            try {
+              app.resetWorkout(false);
+              app.togglePlayPause();
+              app.renderIntervalTrack = function () { renders++; return origRender.call(this); };
+              const first = app.currentWorkout.intervals[0].duration;
+              for (let i = 0; i < 10; i++) app.tick1Hz();
+              const within = renders;
+              const liveText = (D.querySelector('.upcoming-card.active .upcoming-card-dur') || {}).textContent || '';
+              app.intervalSecondsRemaining = 1; app.tick1Hz();      // step change
+              trackOk = within === 0 && renders === 1 && liveText === `${app.fmtTime(first - 10)} left`;
+            } finally {
+              app.renderIntervalTrack = origRender;
+              if (app.isPlaying) app.togglePlayPause();
+              app.clock.start = savedClock2; app.ble.setTrainerErgPower = savedSet2;
+              app.resetWorkout(false);
+            }
+
+            // 5. Deleting a ride schedules the automatic backup
+            const savedHist = app.completedWorkouts, origSched = app.scheduleAutoBackup, origConfirm = W.confirm;
+            let scheduled = 0;
+            app.scheduleAutoBackup = () => { scheduled++; };
+            W.confirm = () => true;
+            try {
+              app.completedWorkouts = [{ id: 'ride_del_test', title: 'x', date: new W.Date().toISOString(), duration: 60, tss: 1 }, ...savedHist];
+              await app.deleteCompletedRide('ride_del_test');
+            } finally { app.scheduleAutoBackup = origSched; W.confirm = origConfirm; app.completedWorkouts = savedHist; app.persistHistoryLocal(); }
+            const delOk = scheduled >= 1;
+
+            return { ok: importOk && distOk && npOk && trackOk && delOk,
+              detail: `5 s TCX -> 1 Hz (${ride.samples.length} samples, pause kept, 1-min peak ${p1m} W):${importOk} KICKR distance ${dist.join(',')}:${distOk} live NP 0 before 30 s, then = post-ride (${an.normalizedPower}):${npOk} track rebuilt only on step change:${trackOk} delete -> backup:${delOk}` };
+          });
+
           // 47. Calendar buckets rides by local date
           await suite('Calendar Buckets Rides by Local Calendar Day (No UTC Off-by-One)', () => {
             const d = new W.Date();

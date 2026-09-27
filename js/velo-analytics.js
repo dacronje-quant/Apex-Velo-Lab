@@ -37,10 +37,14 @@ class VeloAnalytics {
     this.rolling30s.push(p);
     this.rolling30Sum += p;
     if (this.rolling30s.length > 30) this.rolling30Sum -= this.rolling30s.shift();
-    const avg30 = this.rolling30Sum / this.rolling30s.length;
-    this.npSum += Math.pow(avg30, 4);
-    this.npCount++;
-    this.normalizedPower = Math.round(Math.pow(this.npSum / this.npCount, 0.25));
+    // NP counts only full 30 s windows (like VeloMetrics.normalizedPower), so the live, saved and
+    // post-ride NP agree; before 30 s there is no NP yet.
+    if (this.rolling30s.length === 30) {
+      const avg30 = this.rolling30Sum / 30;
+      this.npSum += Math.pow(avg30, 4);
+      this.npCount++;
+      this.normalizedPower = Math.round(Math.pow(this.npSum / this.npCount, 0.25));
+    }
 
     this.intensityFactor = this.ftp > 0 ? (this.normalizedPower / this.ftp) : 0;
     this.tss = this.ftp > 0

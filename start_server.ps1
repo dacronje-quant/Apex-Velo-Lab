@@ -106,6 +106,17 @@ function Send-RawJson($response, [int]$status, [string]$json) {
 # Only pages served by this server may call the API: blocks other websites and DNS rebinding.
 # Private-LAN IPv4 ranges, so a phone on the same home Wi-Fi can use the app too (never a public address).
 $lanHostRe = '^(10(\.\d{1,3}){3}|172\.(1[6-9]|2\d|3[0-1])(\.\d{1,3}){2}|192\.168(\.\d{1,3}){2}|169\.254(\.\d{1,3}){2})(:\d+)?$'
+# The real client address (not a header a client can set) must be this PC or a private home
+# network address - so even on a cafe Wi-Fi nothing outside answers. (Same as server.js.)
+function Test-AllowedClient($request) {
+    $addr = $request.RemoteEndPoint.Address
+    if ($null -eq $addr) { return $false }
+    if ($addr.IsIPv4MappedToIPv6) { $addr = $addr.MapToIPv4() }
+    if ([System.Net.IPAddress]::IsLoopback($addr)) { return $true }
+    $ip = $addr.ToString()
+    return (($ip -match '^(10\.|192\.168\.|169\.254\.|172\.(1[6-9]|2\d|3[01])\.)') -or ($ip -match '^(f[cd][0-9a-f]{2}|fe80):'))
+}
+
 function Test-LocalRequest($request) {
     $h = [string]$request.Headers['Host']
     $hostOk = ($h -match '^(localhost|127\.0\.0\.1|\[::1\])(:\d+)?$') -or ($h -match $lanHostRe)
@@ -820,7 +831,9 @@ try {
         $response = $context.Response
         try {
             $path = $request.Url.AbsolutePath
-            if ($path -eq '/api/backup') {
+            if (-not (Test-AllowedClient $request)) {
+                Send-Text $response 403 'Forbidden'
+            } elseif ($path -eq '/api/backup') {
                 Invoke-Backup $request $response
             } elseif ($path -eq '/api/live') {
                 Invoke-Live $request $response
@@ -856,6 +869,9 @@ try {
                 Send-Json $response 404 @{ error = 'Not found' }
             } elseif ($request.HttpMethod -ne 'GET' -and $request.HttpMethod -ne 'HEAD') {
                 Send-Text $response 405 'Method not allowed'
+            } elseif (-not (Test-LocalRequest $request)) {
+                # Pages and data files (your ride history) too: a website cannot read them via DNS rebinding.
+                Send-Text $response 403 'Forbidden'
             } else {
                 Send-StaticFile $request $response
             }

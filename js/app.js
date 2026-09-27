@@ -70,7 +70,7 @@ class VeloApp {
     this.powerMatchOffset = 0;   // mirror of this.erg.offset for the UI
     this.lastCommandedErgWatts = null;
     this.erg = new VeloErg();     // soft start, anti-stall, step lead and PowerMatch
-    this.trainerBaseDistance = null;
+    this.trainerOdoLast = null;      // last KICKR odometer reading (m); null = re-sync on the next one
     this.hardwareSpeedSource = 'SIMULATOR';
     this.hardwareDistanceSource = 'SIMULATOR';
     this.calibrationCountdownSec = 3;
@@ -689,6 +689,7 @@ class VeloApp {
     this.isPlaying = !this.isPlaying;
     if (this.isPlaying) {
       if (!this.sessionStartedAt) this.sessionStartedAt = Date.now();
+      this.trainerOdoLast = null; // distance ridden while paused is not counted
       this.audio.init();
       this.ble.startTrainerWorkout();
       this.ergApplyNow(true);
@@ -754,7 +755,7 @@ class VeloApp {
     this.sessionStartedAt = null;
     this.analytics.reset();
     this.simulator.reset();
-    this.trainerBaseDistance = null;
+    this.trainerOdoLast = null;      // last KICKR odometer reading (m); null = re-sync on the next one
     this.powerMatchOffset = 0;
     this.erg.reset();
     this.lastCommandedErgWatts = null;
@@ -911,17 +912,18 @@ class VeloApp {
     this.currentSpeed = speed;
     if (speed > this.maxSpeedKmh) this.maxSpeedKmh = speed;
 
-    // Distance: KICKR cumulative odometer (uint24 m, relative to the first reading), else integrate speed.
-    if (trainerLinkAlive && this.bleTrainer.distanceMeters !== null && this.bleTrainer.distanceMeters !== undefined) {
-      if (this.trainerBaseDistance === null) {
-        this.trainerBaseDistance = this.bleTrainer.distanceMeters - this.totalDistanceMeters;
-      } else if (this.bleTrainer.distanceMeters < this.trainerBaseDistance) {
-        // Odometer reset (trainer reboot / reconnect): continue from the current total.
-        this.trainerBaseDistance = this.bleTrainer.distanceMeters - this.totalDistanceMeters;
-      }
-      this.totalDistanceMeters = Math.max(0, this.bleTrainer.distanceMeters - this.trainerBaseDistance);
+    // Distance: add what the KICKR's cumulative odometer (uint24 m) moved since the last second.
+    // The first reading, a reading after a pause or a dropout, and a counter that went backwards
+    // (trainer reboot / reconnect) only re-sync - so the total never jumps back and paused
+    // pedalling is not counted. Without trainer distance, speed is integrated.
+    const odo = trainerLinkAlive && this.bleTrainer.distanceMeters !== null && this.bleTrainer.distanceMeters !== undefined ? Number(this.bleTrainer.distanceMeters) : null;
+    if (odo !== null && Number.isFinite(odo)) {
+      const step = this.trainerOdoLast === null ? null : odo - this.trainerOdoLast;
+      if (step !== null && step >= 0 && step <= 500) this.totalDistanceMeters += step;
+      this.trainerOdoLast = odo;
       this.hardwareDistanceSource = 'KICKR SHIFT';
     } else {
+      this.trainerOdoLast = null;
       this.totalDistanceMeters += speed / 3.6;
       this.hardwareDistanceSource = 'VIRTUAL';
     }
@@ -967,7 +969,10 @@ class VeloApp {
     }
     if (this._easySpinOffer && Date.now() >= this._easySpinOffer.until) this.declineEasySpin();
     else if (this._easySpinOffer) this.renderEasySpinOffer();
-    this.renderIntervalTrack();
+    // Full redraw only when the step (or workout / ERG bias) changed; otherwise just the countdown.
+    // Rebuilding the track and every queue card each second slowed long rides down.
+    if (this.intervalTrackRenderKey() !== this._trackRenderKey) this.renderIntervalTrack();
+    else this.updateIntervalCountdown();
   }
 
   // ------------------------------------------------------- easy spin --
@@ -1161,6 +1166,7 @@ class VeloApp {
       case 'reconnected':
         this.onHardwareConnected(data.device);
         this.showToast(`${this.deviceLabel(data.device)} reconnected.`, 'success');
+        if (data.device === 'trainer') this.trainerOdoLast = null;
         if (data.device === 'trainer' && this.isPlaying) {
           this.ble.startTrainerWorkout();
           this.ergApplyNow(true);
@@ -1744,8 +1750,23 @@ class VeloApp {
    * offscreen canvas; the 60 fps loop only composites it and draws the moving playhead.
    */
   renderIntervalTrack() {
+    this._trackRenderKey = this.intervalTrackRenderKey();
     this.drawIntervalTrack(true);
     this.renderUpcomingIntervals();
+    if (this.isZenMode) this.renderZenIntervalTrack();
+  }
+
+  /** What the interval track and queue depend on (besides the countdown). */
+  intervalTrackRenderKey() {
+    const iv = (this.currentWorkout && this.currentWorkout.intervals) || [];
+    return `${this.intervalIndex}|${iv.length}|${this.ergBiasMultiplier}|${this.activeProfile && this.activeProfile.ftp}|${this.isZenMode}`;
+  }
+
+  /** Once a second between steps: the live card's countdown (the rAF loop draws the playhead). */
+  updateIntervalCountdown() {
+    const el = this.$('upcomingCardsContainer')?.querySelector('.upcoming-card.active .upcoming-card-dur');
+    if (el) el.textContent = `${this.fmtTime(this.intervalSecondsRemaining)} left`;
+    if (!this.isPlaying) this.drawIntervalTrack(false);
     if (this.isZenMode) this.renderZenIntervalTrack();
   }
 

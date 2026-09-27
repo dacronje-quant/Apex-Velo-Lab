@@ -7,7 +7,9 @@
  */
 class VeloRideImporter {
   /** Builds the ride summary from 1 Hz samples. Only recorded channels contribute. */
-  static summarize(samples, riderFtp, meta) {
+  static summarize(rawSamples, riderFtp, meta) {
+    // Smart-recorded files (a point every few seconds) become 1 Hz first, so NP and peaks are right.
+    const samples = VeloMetrics.toOneHz(rawSamples);
     const powers = samples.map(s => Number(s.power) || 0);
     const hasPower = samples.some(s => Number(s.power) > 0);
     const duration = samples.length ? Math.max(samples.length, Math.round(samples[samples.length - 1].time || 0)) : 0;

@@ -72,6 +72,31 @@ class VeloMetrics {
     return Math.round(best / windowSec);
   }
 
+  /**
+   * Makes recorded samples 1 Hz: many head units log a point only every few seconds ("smart
+   * recording"). A gap of up to `maxHoldSec` holds the last reading so every sample is one second
+   * (NP, power bests and medals assume that); a longer gap is a pause and is left out. Points in
+   * the same second keep the first one. Samples must have `time` in seconds.
+   */
+  static toOneHz(samples, maxHoldSec = 10) {
+    const src = (samples || []).filter(s => s && Number.isFinite(Number(s.time)));
+    if (src.length < 2) return samples || [];
+    src.sort((a, b) => a.time - b.time);
+    const out = [];
+    for (const s of src) {
+      const prev = out[out.length - 1];
+      if (prev) {
+        const gap = Math.round(s.time - prev.time);
+        if (gap <= 0) continue;
+        for (let k = 1; gap <= maxHoldSec && k < gap; k++) {
+          out.push({ ...prev, time: prev.time + k, timestamp: Number.isFinite(prev.timestamp) ? prev.timestamp + k * 1000 : prev.timestamp });
+        }
+      }
+      out.push(s);
+    }
+    return out;
+  }
+
   /** Mean-maximal power curve for the given durations. Missing durations are null. */
   static mmpCurve(powers, durations = VeloMetrics.MMP_DURATIONS) {
     return durations.map(d => VeloMetrics.bestRollingAvg(powers, d));
