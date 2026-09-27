@@ -215,6 +215,39 @@ async function runAgainst(kind, pwsh, mock, appPort) {
     check(`${tag}: backups never contact Strava`, mock.log.length === logBeforeBackups);
     results.backupStatusKeys = Object.keys(st).sort().join(',');
 
+    // 4d. Apple Health (Health Auto Export): token-gated ingest, PC-only read / ack / token, never served
+    const hs = await fetch(`${base}/api/health/status`);
+    const h0 = await hs.json();
+    check(`${tag}: health status (PC) returns a token and the port`, hs.status === 200 && /^[0-9a-f]{48}$/.test(h0.token) && Number(h0.port) === appPort && Array.isArray(h0.urls) && Array.isArray(h0.phoneUrls) && h0.inbox === 0, JSON.stringify(h0).slice(0, 160));
+    const hae = { data: { metrics: [{ name: 'resting_heart_rate', units: 'count/min', data: [{ date: '2026-09-27 00:00:00 +0200', qty: 52 }] }, { name: 'sleep_analysis', units: 'hr', data: [{ date: '2026-09-27 00:00:00 +0200', totalSleep: 7.2 }] }] } };
+    const postHealth = (body, headers = {}, qs = '') => fetch(`${base}/api/health${qs}`, { method: 'POST', headers: { 'Content-Type': 'application/json', ...headers }, body: typeof body === 'string' ? body : JSON.stringify(body) });
+    const noTok = await postHealth(hae);
+    const badTok = await postHealth(hae, { Authorization: 'Bearer ' + 'f'.repeat(48) });
+    const okTok = await postHealth(hae, { Authorization: 'Bearer ' + h0.token });
+    const okQs = await postHealth(hae, {}, `?token=${h0.token}`);
+    const notHae = await postHealth({ hello: 1 }, { Authorization: 'Bearer ' + h0.token });
+    const badJson = await postHealth('{nope', { Authorization: 'Bearer ' + h0.token });
+    check(`${tag}: health ingest needs the token (header or ?token=) and a Health Auto Export payload`, noTok.status === 401 && badTok.status === 401 && okTok.status === 200 && okQs.status === 200 && notHae.status === 400 && badJson.status === 400,
+      `${noTok.status}/${badTok.status}/${okTok.status}/${okQs.status}/${notHae.status}/${badJson.status}`);
+    const inboxNames = fs.readdirSync(path.join(dir, 'data', 'health', 'inbox'));
+    const inbox = await (await fetch(`${base}/api/health/inbox`)).json();
+    check(`${tag}: payloads land in data/health/inbox and read back unchanged`, inboxNames.filter(n => /^hae_\d{8}_\d{6}_[0-9a-f]{6}\.json$/.test(n)).length === 2 && inbox.files.length === 2 && stable(inbox.files[0].body) === stable(hae) && inbox.remaining === 0);
+    const tokenFile = await fetch(`${base}/data/health/token.txt`);
+    const inboxFile = await fetch(`${base}/data/health/inbox/${inboxNames[0]}`);
+    const lanRead = await new Promise(r => { const q = http.request({ host: '127.0.0.1', port: appPort, path: '/api/health/status', headers: { Host: `192.168.1.50:${appPort}` } }, rs => { rs.resume(); r({ status: rs.statusCode }); }); q.on('error', () => r(null)); q.end(); });
+    const evilRead = await fetch(`${base}/api/health/inbox`, { headers: { Origin: 'https://evil.example' } });
+    check(`${tag}: the token and health data are never served, and only the app on this PC can read them`, tokenFile.status === 404 && inboxFile.status === 404 && lanRead && lanRead.status === 403 && evilRead.status === 403,
+      `file ${tokenFile.status}/${inboxFile.status} lan ${lanRead && lanRead.status} evil ${evilRead.status}`);
+    const ack = await (await fetch(`${base}/api/health/ack`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ names: inbox.files.map(f => f.name).concat(['../server.js', 'hae_x.json']) }) })).json();
+    const hAfter = await (await fetch(`${base}/api/health/status`)).json();
+    check(`${tag}: ack deletes only processed inbox files (names checked)`, ack.removed === 2 && hAfter.inbox === 0 && hAfter.received === 2 && !!hAfter.lastReceived && fs.existsSync(path.join(dir, kind === 'node' ? 'server.js' : 'start_server.ps1')));
+    const renewed = await (await fetch(`${base}/api/health/token`, { method: 'POST' })).json();
+    const oldTok = await postHealth(hae, { Authorization: 'Bearer ' + h0.token });
+    const newTok = await postHealth(hae, { Authorization: 'Bearer ' + renewed.token });
+    check(`${tag}: a new token replaces the old one`, renewed.token !== h0.token && /^[0-9a-f]{48}$/.test(renewed.token) && oldTok.status === 401 && newTok.status === 200);
+    check(`${tag}: health never contacts Strava`, mock.log.length === logBeforeBackups);
+    results.healthStatusKeys = Object.keys(hAfter).sort().join(',');
+
     // 4c. Who may connect: this PC and the private home network only (real client address, not a
     // header), and pages / data files are protected from other websites (DNS rebinding) too.
     const home = await fetch(`${base}/index.html`);
@@ -251,7 +284,7 @@ async function runAgainst(kind, pwsh, mock, appPort) {
   } else {
     const psRes = await runAgainst('ps', pwsh, mock, 18612);
     if (nodeRes && psRes) {
-      check('server.js and start_server.ps1 return identical sync data (list, details, streams) and backup status', stable(nodeRes.list.activities) === stable(psRes.list.activities) && stable(nodeRes.detail) === stable(psRes.detail) && stable(nodeRes.streams) === stable(psRes.streams) && nodeRes.backupStatusKeys === psRes.backupStatusKeys);
+      check('server.js and start_server.ps1 return identical sync data (list, details, streams), backup and health status', stable(nodeRes.list.activities) === stable(psRes.list.activities) && stable(nodeRes.detail) === stable(psRes.detail) && stable(nodeRes.streams) === stable(psRes.streams) && nodeRes.backupStatusKeys === psRes.backupStatusKeys && nodeRes.healthStatusKeys === psRes.healthStatusKeys);
     }
   }
   mock.srv.close();

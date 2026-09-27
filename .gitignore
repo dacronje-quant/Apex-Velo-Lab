@@ -13,6 +13,9 @@ data/*.fit
 
 # Automatic history backups (written by the local server after rides)
 data/backups/
+
+# Apple Health (Health Auto Export): token and incoming payloads - personal data, never committed
+data/health/
 data/*history*
 
 # Local backups / OS clutter

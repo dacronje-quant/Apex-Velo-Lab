@@ -49,9 +49,115 @@ class VeloInsight {
     };
     const ef1 = ef(win.slice(0, half)), ef2 = ef(win.slice(half));
     const pct = Math.round(((ef1 - ef2) / ef1) * 1000) / 10;
-    const level = pct < 5 ? 'good' : pct <= 8 ? 'mild' : 'high';
-    const label = level === 'good' ? 'aerobically coupled' : level === 'mild' ? 'mild drift' : 'decoupled';
-    return { status: 'ok', pct, level, label, minutes: Math.round(win.length / 60), vi: Math.round(vi * 100) / 100 };
+    const b = VeloInsight.decouplingBand(pct);
+    return { status: 'ok', pct, level: b.level, tier: b.tier, label: b.label, minutes: Math.round(win.length / 60), vi: Math.round(vi * 100) / 100 };
+  }
+
+  /**
+   * Four bands. Under 5% is the usual "aerobically coupled" line; 3.5% or less is the stricter
+   * "base consolidated" tier. level (good / mild / high) drives the colour, tier the wording.
+   */
+  static decouplingBand(pct) {
+    if (pct <= 3.5) return { level: 'good', tier: 'consolidated', label: 'base consolidated' };
+    if (pct < 5) return { level: 'good', tier: 'coupled', label: 'coupled' };
+    if (pct <= 8) return { level: 'mild', tier: 'mild', label: 'mild drift' };
+    return { level: 'high', tier: 'high', label: 'decoupled - fatigue, heat or dehydration' };
+  }
+
+  // ---------------------------------------------------------- ride analysis --
+  /** Seconds in each Coggan power zone (Z1-Z7) for 1 Hz samples. */
+  static timeInZones(samples, ftp) {
+    const z = [0, 0, 0, 0, 0, 0, 0];
+    if (!ftp) return z;
+    (samples || []).forEach(s => { z[VeloMetrics.zoneForPct(((Number(s.power) || 0) / ftp) * 100).idx - 1]++; });
+    return z;
+  }
+
+  /**
+   * Longest stretch held on target (+/-5%) without a break. Uses 3 s average power so a single
+   * noisy sample does not break a stretch; any second off target ends it. Needs a target.
+   * Returns { seconds, from, target } or null.
+   */
+  static longestOnTarget(samples) {
+    const n = (samples || []).length;
+    if (n < 10) return null;
+    let best = null, runStart = -1, tSum = 0;
+    const p = samples.map(s => Number(s.power) || 0);
+    for (let i = 0; i <= n; i++) {
+      const s = samples[i];
+      const t = s ? Number(s.target) || 0 : 0;
+      let on = false;
+      if (t > 0) {
+        const a = i >= 2 ? (p[i] + p[i - 1] + p[i - 2]) / 3 : p[i];
+        on = Math.abs(a - t) <= t * 0.05;
+      }
+      if (on) {
+        if (runStart < 0) { runStart = i; tSum = 0; }
+        tSum += t;
+      } else if (runStart >= 0) {
+        const len = i - runStart;
+        if (!best || len > best.seconds) best = { seconds: len, from: runStart, target: Math.round(tSum / len) };
+        runStart = -1;
+      }
+    }
+    return best && best.seconds >= 10 ? best : null;
+  }
+
+  /**
+   * Heart-rate recovery: how far HR falls in the 60 s after each hard effort that took HR to
+   * 85% of max or more. A hard effort is a run of at least 30 s at >= 88% FTP (by target when
+   * the ride has targets, else by 10 s power), followed by at least 60 s of easier riding.
+   * In ERG you keep pedalling during recovery, so this is HR drop under a light load - compare
+   * repeats within a ride, not across rides.
+   * Returns { efforts: [{ n, at, hrEnd, hr60, drop }], slowing, first, last } or null.
+   */
+  static hrRecovery(samples, ftp, maxHr) {
+    const n = (samples || []).length;
+    if (n < 180 || !ftp || !maxHr) return null;
+    const hr = samples.map(s => Number(s.hr) || 0);
+    if (hr.filter(v => v > 0).length < n * 0.5) return null;
+    const useTarget = samples.filter(s => Number(s.target) > 0).length > n * 0.5;
+    const pw = samples.map(s => Number(s.power) || 0);
+    const hard = new Array(n).fill(false);
+    let acc = 0;
+    for (let i = 0; i < n; i++) {
+      if (useTarget) hard[i] = (Number(samples[i].target) || 0) >= ftp * 0.88;
+      else {
+        acc += pw[i] - (i >= 10 ? pw[i - 10] : 0);
+        hard[i] = i >= 9 && acc / 10 >= ftp * 0.88;
+      }
+    }
+    const avgHr = (a, b) => { const v = hr.slice(Math.max(0, a), Math.min(n, b)).filter(x => x > 0); return v.length ? v.reduce((x, y) => x + y, 0) / v.length : 0; };
+    const efforts = [];
+    let i = 0;
+    while (i < n) {
+      if (!hard[i]) { i++; continue; }
+      let j = i;
+      while (j < n && hard[j]) j++;
+      const end = j; // first easy second
+      if (end - i >= 30 && end + 60 <= n && !hard.slice(end, end + 60).some(Boolean)) {
+        const peak = Math.max.apply(null, hr.slice(i, Math.min(n, end + 10)));
+        const hrEnd = Math.round(avgHr(end - 3, end + 2));
+        const hr60 = Math.round(avgHr(end + 58, end + 63));
+        if (peak >= maxHr * 0.85 && hrEnd > 0 && hr60 > 0) efforts.push({ n: efforts.length + 1, at: end, hrEnd, hr60, drop: hrEnd - hr60 });
+      }
+      i = end;
+    }
+    if (!efforts.length) return null;
+    const first = efforts[0].drop, last = efforts[efforts.length - 1].drop;
+    // Slowing: with 3+ repeats, the last recovery is at least 25% (and 5 bpm) smaller than the first.
+    const slowing = efforts.length >= 3 && first > 0 && last <= first * 0.75 && first - last >= 5;
+    return { efforts, slowing, first, last };
+  }
+
+  /** Average pedalling torque (N·m) while pedalling: power / crank angular speed. */
+  static avgTorque(samples) {
+    let sum = 0, cnt = 0;
+    (samples || []).forEach(s => {
+      const p = Number(s.power) || 0, c = Number(s.cadence) || 0;
+      if (p > 0 && c >= 20) { sum += (p * 60) / (2 * Math.PI * c); cnt++; }
+    });
+    return cnt >= 30 ? Math.round((sum / cnt) * 10) / 10 : null;
   }
 
   // ---------------------------------------------------------------- medals --

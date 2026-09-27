@@ -211,8 +211,15 @@ class VeloAiCoach {
     let insight = { lines: [] };
     try { if (this.app.coachInsight) insight = this.app.coachInsight(lookback, now); } catch (e) { /* insight is optional */ }
 
+    // Daily readiness from Apple Health (resting HR, HRV, sleep) - advisory, only when there is a verdict.
+    let readiness = null;
+    try {
+      const r = this.app.healthReadiness ? this.app.healthReadiness() : null;
+      if (r && ['green', 'amber', 'red'].includes(r.level)) readiness = r;
+    } catch (e) { /* optional */ }
+
     return {
-      profile, ctl, atl, tsb, insight,
+      profile, ctl, atl, tsb, insight, readiness,
       formZone: form.label, formKey: form.key, formDesc: form.desc,
       sevenDayTss, sevenDayHours, recentWorkouts, recentList, consecutiveDays,
       lookbackDays: lookback, windowRideCount: windowRides.length, listedRideCount: listedRides.length,
@@ -232,6 +239,9 @@ class VeloAiCoach {
     // A heavy leg strength day yesterday (or today) counts like a hard ride: no key session now.
     const hardRecently = (h.daysSinceHard !== null && h.daysSinceHard !== undefined && h.daysSinceHard <= 1) || !!ctx.heavyLegsRecent;
     if (ctx.tsb < -25 || (ctx.consecutiveDays >= 3 && ctx.tsb < -10)) return 'recovery';
+    // Poor recovery (Apple Health): red = recovery spin, amber = no key session today.
+    if (ctx.readiness && ctx.readiness.level === 'red') return 'recovery';
+    if (ctx.readiness && ctx.readiness.level === 'amber') return 'endurance';
     if (ctx.tsb < -12 || hardRecently) return 'endurance';
     switch (ctx.goal) {
       case 'longevity':
@@ -505,7 +515,7 @@ class VeloAiCoach {
       coachAssessment: {
         formZone: ctx.formZone,
         fitnessDiagnosis: `CTL ${ctx.ctl.toFixed(1)} / ATL ${ctx.atl.toFixed(1)} / TSB ${ctx.tsb >= 0 ? '+' : ''}${ctx.tsb.toFixed(1)} (${ctx.formZone}). ${ctx.formDesc} ${h.hoursPerWeek4w !== undefined ? `You have averaged ${h.hoursPerWeek4w} h/week over the last 4 weeks.` : ''}`,
-        fatigueStatus: `${ctx.sevenDayTss} TSS in 7 days (${ctx.sevenDayHours.toFixed(1)} h). ${ctx.consecutiveDays >= 2 ? `${ctx.consecutiveDays} riding days in a row.` : ''} ${h.daysSinceHard !== null && h.daysSinceHard !== undefined ? `Last hard ride (IF >= 0.85) ${h.daysSinceHard} day(s) ago.` : ''} ${mixText}`.replace(/\s+/g, ' ').trim(),
+        fatigueStatus: `${ctx.readiness ? `Readiness ${ctx.readiness.label.toLowerCase()} (${ctx.readiness.level})${ctx.readiness.reasons.length ? ': ' + ctx.readiness.reasons.join('; ') : ''}. ` : ''}${ctx.sevenDayTss} TSS in 7 days (${ctx.sevenDayHours.toFixed(1)} h). ${ctx.consecutiveDays >= 2 ? `${ctx.consecutiveDays} riding days in a row.` : ''} ${h.daysSinceHard !== null && h.daysSinceHard !== undefined ? `Last hard ride (IF >= 0.85) ${h.daysSinceHard} day(s) ago.` : ''} ${mixText}`.replace(/\s+/g, ' ').trim(),
         trainingAdvice: `Goal: ${goal.label} - ${goal.summary} ${why} ${this.insightAdvice(ctx, focus)} ${ctx.autoDuration ? `Auto duration: ${ctx.durationMin} min - ${{ recovery: 'short enough to aid recovery', endurance: 'a little longer than your usual ride to build durability', vo2max: 'enough work at VO2 without sacrificing quality', threshold: 'enough time at threshold for your current fitness', sweetspot: 'the time-in-zone your fitness can absorb' }[focus] || 'matched to your form'}.` : ''} ${notes}`.replace(/\s+/g, ' ').trim()
       },
       workout,
@@ -531,7 +541,8 @@ PERFORMANCE MANAGEMENT (Banister model):
 - Days since last hard ride (IF>=0.85): ${h.daysSinceHard ?? 'none on record'}; days since last ride >= 90 min: ${h.daysSinceLong ?? 'none on record'}
 - Power profile: ${h.profileType || 'n/a'}
 - Strength training: ${ctx.strength && ctx.strength.line ? ctx.strength.line : 'none recorded'}
-${ctx.insight && ctx.insight.lines.length ? `RECENT RIDE INSIGHT (computed from recorded power and heart rate - use it, e.g. ease or re-pace a session type that faded, keep aerobic work steady while drift is high, build on new bests):
+${ctx.readiness ? `DAILY READINESS (Apple Watch, vs the rider's own baselines): ${ctx.readiness.level.toUpperCase()} - ${ctx.readiness.label}.${ctx.readiness.hrv ? ` HRV 7-day ${ctx.readiness.hrv.avg7} ms (normal ${ctx.readiness.hrv.normalLow}-${ctx.readiness.hrv.normalHigh}).` : ''}${ctx.readiness.rhr ? ` Resting HR ${ctx.readiness.rhr.today} bpm (baseline ${ctx.readiness.rhr.base}).` : ''}${ctx.readiness.sleep ? ` Sleep ${ctx.readiness.sleep.last} h.` : ''}${ctx.readiness.reasons.length ? ' Flags: ' + ctx.readiness.reasons.join('; ') + '.' : ''} Amber = no key session today (endurance or shortened sets); red = Z1-Z2 recovery spin. Say so in fatigueStatus.
+` : ''}${ctx.insight && ctx.insight.lines.length ? `RECENT RIDE INSIGHT (computed from recorded power and heart rate - use it, e.g. ease or re-pace a session type that faded, keep aerobic work steady while drift is high, build on new bests):
 ${ctx.insight.lines.map(l => `- ${l}`).join('\n')}
 ` : ''}RIDES IN THE LAST ${ctx.lookbackDays} DAYS (newest first${ctx.windowRideCount > ctx.listedRideCount ? `, ${ctx.listedRideCount} most recent of ${ctx.windowRideCount}` : ''}):
 ${ctx.recentList}

@@ -88,7 +88,7 @@ const MIME = {
   '.fit': 'application/octet-stream', '.tcx': 'application/xml', '.csv': 'text/csv; charset=utf-8', '.md': 'text/markdown; charset=utf-8'
 };
 // Only app files are served: never dot-files (.env), this script, or the helper scripts.
-const BLOCKED = /(^|[\\/])\.|^server\.js$|\.(ps1|cmd|bat|sh)$|^data[\\/]backups([\\/]|$)/i;
+const BLOCKED = /(^|[\\/])\.|^server\.js$|\.(ps1|cmd|bat|sh)$|^data[\\/](backups|health)([\\/]|$)/i;
 
 function serveStatic(req, res, urlPath) {
   let rel;
@@ -636,6 +636,104 @@ async function handleBackup(req, res) {
   return sendJson(res, 200, { ok: true, name, bytes: buf.length, ...backupStatus() });
 }
 
+// ------------------------------------------------ Apple Health (Health Auto Export) --
+// The Health Auto Export iPhone app POSTs its JSON to /api/health with "Authorization: Bearer <token>".
+// Payloads are stored as-is in data/health/inbox; the app on this PC reads them (parsing lives in
+// js/velo-health.js), then acknowledges them so they are deleted. data/health is never served.
+const HEALTH_DIR = path.join(ROOT, 'data', 'health');
+const HEALTH_INBOX = path.join(HEALTH_DIR, 'inbox');
+const HEALTH_TOKEN_FILE = path.join(HEALTH_DIR, 'token.txt');
+const HEALTH_META_FILE = path.join(HEALTH_DIR, 'status.json');
+const HEALTH_MAX_BYTES = 50 * 1024 * 1024;
+const HEALTH_INBOX_KEEP = 500;
+const HEALTH_NAME_RE = /^hae_\d{8}_\d{6}_[0-9a-f]{6}\.json$/;
+
+function healthToken(renew = false) {
+  if (!renew) { try { const t = fs.readFileSync(HEALTH_TOKEN_FILE, 'utf8').trim(); if (/^[0-9a-f]{32,}$/.test(t)) return t; } catch (e) { /* none yet */ } }
+  const t = require('crypto').randomBytes(24).toString('hex');
+  fs.mkdirSync(HEALTH_DIR, { recursive: true });
+  fs.writeFileSync(HEALTH_TOKEN_FILE, t);
+  return t;
+}
+
+function healthInboxFiles() {
+  try { return fs.readdirSync(HEALTH_INBOX).filter(n => HEALTH_NAME_RE.test(n)).sort(); } catch (e) { return []; }
+}
+
+function lanAddresses() {
+  const out = [];
+  try {
+    const nets = require('os').networkInterfaces();
+    for (const name of Object.keys(nets)) for (const n of nets[name] || []) if (n.family === 'IPv4' && !n.internal && LAN_HOST_RE.test(n.address)) out.push(n.address);
+  } catch (e) { /* best effort */ }
+  return out;
+}
+
+function healthStatus() {
+  let meta = {};
+  try { meta = JSON.parse(fs.readFileSync(HEALTH_META_FILE, 'utf8')) || {}; } catch (e) { /* none yet */ }
+  const ips = lanAddresses();
+  return { token: healthToken(), port: PORT, urls: ips.map(ip => `http://${ip}:${PORT}/api/health`), phoneUrls: ips.map(ip => `http://${ip}:${PORT}/live.html`), inbox: healthInboxFiles().length, lastReceived: meta.lastReceived || null, lastBytes: meta.lastBytes || 0, received: meta.received || 0 };
+}
+
+function tokenMatches(given) {
+  const want = Buffer.from(healthToken());
+  const got = Buffer.from(String(given || ''));
+  return got.length === want.length && require('crypto').timingSafeEqual(got, want);
+}
+
+async function handleHealth(req, res, urlPath, query) {
+  if (urlPath === '/api/health' && req.method === 'POST') {
+    // From the phone: the bearer token is the gate (the address check already limits it to this PC / home Wi-Fi).
+    const auth = String(req.headers.authorization || '');
+    const given = auth.replace(/^Bearer\s+/i, '').trim() || query.get('token');
+    if (!tokenMatches(given)) return sendJson(res, 401, { error: 'Missing or wrong token - copy it from Settings > Apple Health in the app.' });
+    let buf;
+    try { buf = await readRaw(req, HEALTH_MAX_BYTES); } catch (e) { return sendJson(res, e.status || 400, { error: e.status === 413 ? 'Over 50 MB - export a shorter date range.' : e.message }); }
+    let body;
+    try { body = JSON.parse(buf.toString('utf8')); } catch (e) { return sendJson(res, 400, { error: 'Invalid JSON.' }); }
+    if (!body || typeof body !== 'object' || !(body.data || body.metrics)) return sendJson(res, 400, { error: 'Not a Health Auto Export payload (no "data").' });
+    const d = new Date();
+    const p2 = (n) => String(n).padStart(2, '0');
+    const name = `hae_${d.getFullYear()}${p2(d.getMonth() + 1)}${p2(d.getDate())}_${p2(d.getHours())}${p2(d.getMinutes())}${p2(d.getSeconds())}_${require('crypto').randomBytes(3).toString('hex')}.json`;
+    try {
+      fs.mkdirSync(HEALTH_INBOX, { recursive: true });
+      const tmp = path.join(HEALTH_INBOX, `.${name}.tmp`);
+      fs.writeFileSync(tmp, buf);
+      fs.renameSync(tmp, path.join(HEALTH_INBOX, name));
+      const files = healthInboxFiles();
+      files.slice(0, Math.max(0, files.length - HEALTH_INBOX_KEEP)).forEach(f => { try { fs.unlinkSync(path.join(HEALTH_INBOX, f)); } catch (e) { /* ignore */ } });
+      let meta = {};
+      try { meta = JSON.parse(fs.readFileSync(HEALTH_META_FILE, 'utf8')) || {}; } catch (e) { /* first */ }
+      fs.writeFileSync(HEALTH_META_FILE, JSON.stringify({ lastReceived: d.toISOString(), lastBytes: buf.length, received: (meta.received || 0) + 1 }));
+    } catch (e) {
+      return sendJson(res, 500, { error: `Could not save the data (${e.message}).` });
+    }
+    return sendJson(res, 200, { ok: true, stored: name });
+  }
+  // Everything else - the token, the stored data - only for the app on this PC.
+  if (!isPcRequest(req)) return sendJson(res, 403, { error: 'Only the app on this PC can read Apple Health data.' });
+  if (urlPath === '/api/health/status' && req.method === 'GET') return sendJson(res, 200, healthStatus());
+  if (urlPath === '/api/health/token' && req.method === 'POST') { healthToken(true); return sendJson(res, 200, healthStatus()); }
+  if (urlPath === '/api/health/inbox' && req.method === 'GET') {
+    const names = healthInboxFiles().slice(0, 20);
+    const files = [];
+    for (const n of names) {
+      try { files.push({ name: n, body: JSON.parse(fs.readFileSync(path.join(HEALTH_INBOX, n), 'utf8')) }); } catch (e) { files.push({ name: n, body: null }); }
+    }
+    return sendJson(res, 200, { files, remaining: Math.max(0, healthInboxFiles().length - names.length) });
+  }
+  if (urlPath === '/api/health/ack' && req.method === 'POST') {
+    let body;
+    try { body = JSON.parse(await readBody(req, 64 * 1024)); } catch (e) { return sendJson(res, 400, { error: 'Invalid JSON.' }); }
+    const names = Array.isArray(body && body.names) ? body.names.filter(n => HEALTH_NAME_RE.test(String(n))) : [];
+    let removed = 0;
+    for (const n of names) { try { fs.unlinkSync(path.join(HEALTH_INBOX, n)); removed++; } catch (e) { /* already gone */ } }
+    return sendJson(res, 200, { ok: true, removed });
+  }
+  return sendJson(res, req.method === 'GET' || req.method === 'POST' ? 404 : 405, { error: 'Not found' });
+}
+
 async function handleLive(req, res, urlPath) {
   if (!isLocalRequest(req)) return sendJson(res, 403, { error: 'Forbidden' });
   if (urlPath === '/api/live') {
@@ -672,6 +770,10 @@ function createServer() {
     if (!isAllowedClient(req)) return send(res, 403, 'Forbidden');
     if (urlPath === '/api/backup') {
       return handleBackup(req, res).catch((e) => { if (!res.headersSent) sendJson(res, 500, { error: e.message }); });
+    }
+    if (urlPath === '/api/health' || urlPath.startsWith('/api/health/')) {
+      const query = new URL(req.url, 'http://localhost').searchParams;
+      return handleHealth(req, res, urlPath, query).catch((e) => { if (!res.headersSent) sendJson(res, 500, { error: e.message }); });
     }
     if (urlPath === '/api/live' || urlPath === '/api/live/cmd') {
       return handleLive(req, res, urlPath).catch((e) => { if (!res.headersSent) sendJson(res, 500, { error: e.message }); });

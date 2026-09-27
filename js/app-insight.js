@@ -103,7 +103,7 @@
       const dec = VeloInsight.decoupling(record.samples);
       const sug = this.ftpSuggestionFor(record);
       const decHtml = dec.status === 'ok'
-        ? `<span class="chip decoupling decoupling-${dec.level}" title="Power per heartbeat, first vs second half of ${dec.minutes} min after the warm-up (under 5% = aerobically coupled)">Pw:HR drift ${dec.pct}% &middot; ${esc(dec.label)}</span>`
+        ? `<span class="chip decoupling decoupling-${dec.level} decoupling-${dec.tier}" title="Power per heartbeat, first vs second half of ${dec.minutes} min after the warm-up. 3.5% or less = base consolidated, under 5% = coupled, 5-8% = mild drift, over 8% = decoupled.">Pw:HR drift ${dec.pct}% &middot; ${esc(dec.label)}</span>`
         : dec.status === 'not-steady' ? '<span class="chip chip-ghost" title="Decoupling is measured on steady rides (Z2, tempo, sweet spot)">Pw:HR drift: not a steady ride - not measured</span>'
           : '';
       const ftpHtml = sug ? `

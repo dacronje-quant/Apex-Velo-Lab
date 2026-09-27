@@ -34,7 +34,7 @@
   .dev.on { background: var(--lime); }
 
   /* Swipeable screens: Focus / Session / Balance. The controls below stay put on every screen. */
-  .tabs { display: grid; grid-template-columns: repeat(3, 1fr); gap: 4px; background: var(--panel); border: 1px solid var(--line); border-radius: 12px; padding: 3px; }
+  .tabs { display: grid; grid-template-columns: repeat(4, 1fr); gap: 4px; background: var(--panel); border: 1px solid var(--line); border-radius: 12px; padding: 3px; }
   .tabs button { padding: 7px 4px; font-size: 13px; font-weight: 650; border: 0; border-radius: 9px; background: transparent; color: var(--muted); }
   .tabs button[aria-selected="true"] { background: var(--line); color: var(--text); }
   .pages { flex: 1; min-height: 0; display: flex; overflow-x: auto; overflow-y: hidden; scroll-snap-type: x mandatory;
@@ -90,6 +90,9 @@
   .verdict.good { color: var(--lime); } .verdict.warn { color: var(--amber); } .verdict.bad { color: var(--red); }
   #balTrace { height: 64px; }
   .note { color: var(--dim); font-size: 12px; line-height: 1.45; }
+  .polar-wrap { position: relative; width: 100%; height: 34vh; min-height: 200px; }
+  #pedalPolar { position: absolute; inset: 0; width: 100%; height: 100%; }
+  .model-tag { font-size: 10px; font-weight: 800; letter-spacing: .1em; color: var(--muted); border: 1px solid var(--line); border-radius: 6px; padding: 2px 6px; }
 
   /* End-of-workout offer: giant targets, replaces nothing - it sits above the controls */
   .spin-offer { background: var(--panel); border: 1px solid var(--lime); border-radius: 16px; padding: 12px; text-align: center; }
@@ -151,6 +154,7 @@
     <button role="tab" aria-selected="true" data-page="0">Focus</button>
     <button role="tab" aria-selected="false" data-page="1">Session</button>
     <button role="tab" aria-selected="false" data-page="2">Balance</button>
+    <button role="tab" aria-selected="false" data-page="3">Pedal</button>
   </nav>
 
   <main class="pages" id="pages">
@@ -226,6 +230,20 @@
 
       <div class="note" id="balNote">Balance comes from the Assioma pedals. They don't report torque effectiveness or pedal smoothness, so those aren't shown.</div>
     </section>
+
+    <!-- 4. Pedal: pedal-stroke polar view. Shape is a model; L/R split, size and speed are measured. -->
+    <section class="page" id="pagePedal" aria-label="Pedal">
+      <div class="card">
+        <div class="sub" style="margin-top:0"><span class="lbl">PEDAL STROKE</span><span class="model-tag">MODEL</span></div>
+        <div class="polar-wrap"><canvas id="pedalPolar"></canvas></div>
+        <div class="split" style="margin-top:4px">
+          <div class="side"><div class="v num" id="pedL" style="font-size:30px;font-weight:800">--</div><div class="l">LEFT %</div></div>
+          <div class="side"><div class="v num" id="pedCad" style="font-size:30px;font-weight:800">--</div><div class="l">RPM</div></div>
+          <div class="side"><div class="v num" id="pedR" style="font-size:30px;font-weight:800">--</div><div class="l">RIGHT %</div></div>
+        </div>
+      </div>
+      <div class="note">Split, size and rotation are measured (balance, power, cadence); the lobe shape is a model.</div>
+    </section>
   </main>
 
   <section class="spin-offer" id="spinOffer" hidden>
@@ -254,6 +272,7 @@
   <div class="toast" id="toast"></div>
 
 <script src="js/velo-metrics.js"></script>
+<script src="js/velo-biomech.js"></script>
 <script>
 (function () {
   'use strict';
@@ -283,7 +302,7 @@
   const pages = $('pages');
   const tabs = Array.from(document.querySelectorAll('#tabs button'));
   let page = 0;
-  try { page = Math.min(2, Math.max(0, parseInt(localStorage.getItem('apexLivePage'), 10) || 0)); } catch (e) { /* storage blocked */ }
+  try { page = Math.min(3, Math.max(0, parseInt(localStorage.getItem('apexLivePage'), 10) || 0)); } catch (e) { /* storage blocked */ }
 
   function setPage(i, smooth) {
     page = Math.min(tabs.length - 1, Math.max(0, i));
@@ -375,6 +394,7 @@
     renderFocus(s, riding, finished);
     renderSession(s);
     renderBalance(s);
+    renderPedal(s);
     drawAll(s);
   }
 
@@ -577,8 +597,29 @@
     g.stroke();
   }
 
+  // Pedal page: polar view driven by the live snapshot (crank turns at the measured cadence).
+  let polar = null, crank = 0, lastFrame = 0;
+  function drawPedal(now) {
+    const dt = lastFrame ? Math.min(0.1, (now - lastFrame) / 1000) : 0;
+    lastFrame = now;
+    if (page !== 3 || !snap) return;
+    if (!polar && window.VeloBiomechanicsRenderer) polar = new VeloBiomechanicsRenderer('pedalPolar');
+    if (!polar) return;
+    const cad = snap.cadence || 0;
+    crank = (crank + (cad / 60) * 360 * dt) % 360;
+    const L = snap.balanceLeft;
+    polar.render({ crankAngle: crank, leftBalance: L != null ? L : 50, rightBalance: L != null ? 100 - L : 50, power: snap.power || 0, ftp: snap.ftp || 0, dt });
+  }
+  function renderPedal(s) {
+    const L = s.balanceLeft;
+    $('pedL').textContent = L != null ? L.toFixed(1) : '--';
+    $('pedR').textContent = L != null ? (100 - L).toFixed(1) : '--';
+    $('pedCad').textContent = s.cadence || '--';
+  }
+
   // Glide the session playhead between the once-a-second updates while riding.
-  function glide() {
+  function glide(now) {
+    if (document.visibilityState === 'visible') drawPedal(now || performance.now());
     if (snap && snap.state === 'running' && snap.totalDuration && document.visibilityState === 'visible') {
       const ahead = Math.min(1.5, (Date.now() - snapAt) / 1000) / snap.totalDuration;
       const prog = Math.min(1, (snap.progress || 0) + ahead);
