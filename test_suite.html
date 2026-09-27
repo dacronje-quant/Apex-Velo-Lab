@@ -1385,6 +1385,41 @@
               detail: `gzip backup with samples + profiles sent:${sendOk} unchanged history skipped:${skipOk} status line:${statusOk} not scheduled in test mode:${scheduledOff} .json.gz restores the ride with samples:${restoreOk} offline assets (no external URLs ${external.length}, Chart ${W.Chart && W.Chart.version}, fonts):${offlineOk}` };
           });
 
+          // 46f2. Connected devices show live values before Start - display only, never recorded
+          await suite('Device Preview: Connected HR / Pedals Show Live in the Cockpit and Phone Snapshot Without Recording Anything', async () => {
+            const W = frame.contentWindow, D = frame.contentDocument;
+            const wasPlaying = app.isPlaying;
+            if (wasPlaying) app.togglePlayPause();
+            const saved = { hr: { ...app.bleHr }, ped: { ...app.blePedal }, tr: { ...app.bleTrainer } };
+            const before = { n: app.recordedSamples.length, el: app.totalElapsedSeconds, a: app.analytics.totalSeconds, d: app.totalDistanceMeters, buf: app.powerBuffer.length };
+            const txt = (id) => D.getElementById(id).textContent;
+            let hrOk = false, pedOk = false, snapOk = false, clearOk = false, noRecOk = false;
+            try {
+              app.bleTrainer.watts = null; app.bleTrainer.lastTime = 0;
+              app.blePedal.watts = null; app.blePedal.lastTime = 0;
+              app.handleBleTelemetry({ type: 'hr', hr: 131, contact: true });
+              app.devicePreviewTick();
+              hrOk = txt('valHeartRate') === '131' && txt('zenHeartRate') === '131' && txt('valInstantPower') === '--';
+              app.handleBleTelemetry({ type: 'pedals', watts: 205, cadence: 88, leftPct: 48 });
+              app.devicePreviewTick();
+              pedOk = txt('valInstantPower') === '205' && txt('valCadence') === '88' && txt('valLeftBalance') === '48.0%';
+              const snap = app.buildRemoteSnapshot();
+              snapOk = snap.hr === 131 && snap.power === 205 && snap.cadence === 88;
+              app.handleBleTelemetry({ type: 'hr', hr: 0, contact: false }); // strap lost skin contact
+              app.blePedal.lastTime = W.performance.now() - 10000;           // pedals went quiet
+              app.devicePreviewTick();
+              clearOk = txt('valHeartRate') === '--' && txt('valInstantPower') === '--' && app.buildRemoteSnapshot().hr === null;
+              noRecOk = app.recordedSamples.length === before.n && app.totalElapsedSeconds === before.el && app.analytics.totalSeconds === before.a &&
+                app.totalDistanceMeters === before.d && app.powerBuffer.length === before.buf;
+            } finally {
+              Object.assign(app.bleHr, saved.hr); Object.assign(app.blePedal, saved.ped); Object.assign(app.bleTrainer, saved.tr);
+              app._previewShown = false;
+              if (wasPlaying) app.togglePlayPause();
+            }
+            return { ok: hrOk && pedOk && snapOk && clearOk && noRecOk,
+              detail: `HR shown before Start:${hrOk} pedal power/cadence/balance shown:${pedOk} phone snapshot carries them:${snapOk} no contact / stale -> '--':${clearOk} nothing recorded (samples, time, analytics, distance, buffer):${noRecOk}` };
+          });
+
           // 46g. Analytics trends + coach context
           await suite('FTP History & Drift Trend Charts, FTP Change Log, and Recent-Ride Insight in the AI Coach Prompt', async () => {
             const savedHist = app.completedWorkouts, savedProf = JSON.stringify(app.activeProfile);

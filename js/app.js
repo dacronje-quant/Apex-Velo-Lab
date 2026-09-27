@@ -139,6 +139,7 @@ class VeloApp {
     this.updatePowerSourceBadge();
     this.updateHudTitles();
     this.start60FpsLoop();
+    this.initDevicePreview();
     this.initIndexedDb();
   }
 
@@ -1632,6 +1633,73 @@ class VeloApp {
     this.lastCadence = cadence;
     this.lastHr = hr;
     this.updateZenHud(displayPower, target, cadence, targetCad, hr, hrz, ts);
+  }
+
+  // ------------------------------------------------------- device preview --
+  /**
+   * Before Start, while paused and after a ride, connected devices still show their live values
+   * in the cockpit (and on the phone view). Display only: nothing is recorded, and ride totals,
+   * analytics, distance and the smoothing buffer are left untouched. The simulator is never shown.
+   */
+  initDevicePreview() {
+    const id = setInterval(() => { if (!this.isPlaying) this.devicePreviewTick(); }, 1000);
+    this._disposers.push(() => clearInterval(id));
+  }
+
+  /** Live device values (same freshness rules as the ride tick), or null when none is streaming. */
+  liveDeviceReadings() {
+    const now = performance.now();
+    const pedalAlive = (now - this.blePedal.lastTime) < 3500 && this.blePedal.watts !== null;
+    const trainerAlive = (now - this.bleTrainer.lastTime) < 3500 && this.bleTrainer.watts !== null;
+    const hrAlive = (now - this.bleHr.lastTime) < 4000 && this.bleHr.hr !== null;
+    if (!pedalAlive && !trainerAlive && !hrAlive) return null;
+    let power = null, cadence = null, leftBal = null;
+    if (pedalAlive) {
+      power = Math.max(0, Math.round(this.blePedal.watts));
+      cadence = this.blePedal.cadence !== null ? this.blePedal.cadence : (trainerAlive ? this.bleTrainer.cadence : null);
+      leftBal = this.blePedal.leftPct;
+    } else if (trainerAlive) {
+      power = Math.max(0, Math.round(this.bleTrainer.watts));
+      cadence = this.bleTrainer.cadence;
+    }
+    return { power, cadence: cadence !== null && cadence !== undefined ? Math.round(cadence) : null, hr: hrAlive ? this.bleHr.hr : null, leftBal };
+  }
+
+  devicePreviewTick() {
+    const r = this.liveDeviceReadings();
+    if (!r) {
+      // A device stopped streaming: clear what the preview showed, once.
+      if (!this._previewShown) return;
+      this._previewShown = false;
+      this.renderDevicePreview({ power: null, cadence: null, hr: null, leftBal: null });
+      return;
+    }
+    this._previewShown = true;
+    this.renderDevicePreview(r);
+  }
+
+  /** Writes live device values into the power / cadence / HR tiles (cockpit + zen) only. */
+  renderDevicePreview({ power, cadence, hr, leftBal }) {
+    const p = this.activeProfile;
+    const pw = power === null ? '--' : power;
+    ['valInstantPower', 'zenInstantPower'].forEach(id => this.setText(id, pw));
+    ['valWkg', 'zenWkg'].forEach(id => this.setText(id, power === null ? '--' : (power / p.weightKg).toFixed(2)));
+    this.setText('val1sPower', power === null ? '--' : power + 'W');
+    ['valCadence', 'zenCadence'].forEach(id => this.setText(id, cadence === null ? '--' : cadence));
+    const hrz = hr ? VeloMetrics.hrZone(hr, p.maxHr) : null;
+    this.setText('valHeartRate', hr || '--');
+    this.setText('valHrZone', hrz ? `${hrz.label} - ${hrz.pct}%` : '--');
+    this.setText('zenHeartRate', hr || '--');
+    this.setText('zenHrZone', hrz ? `${hrz.label} - ${hrz.pct}% of max` : '--');
+    const lBal = Number.isFinite(leftBal) ? leftBal : null;
+    this.setText('valLeftBalance', lBal !== null ? lBal.toFixed(1) + '%' : '--');
+    this.setText('valRightBalance', lBal !== null ? (100 - lBal).toFixed(1) + '%' : '--');
+    // The phone view reads these.
+    this.lastInstantPower = power || 0;
+    this.lastCadence = cadence || 0;
+    this.lastHr = hr || 0;
+    this.currentLeftBal = lBal;
+    this.currentRightBal = lBal !== null ? 100 - lBal : null;
   }
 
   // ------------------------------------------------------------------ Zen --
