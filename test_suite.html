@@ -910,6 +910,55 @@
             return { ok: recovered && manualOk && battery && battery.level === 88, detail: `connect attempts:${connectCalls} states:${states.join('>')} reconnected:${reconnected} battery:${battery && battery.level}% manual-no-retry:${manualOk}` };
           });
 
+          // 37b. Remembered device after a Chrome restart: listen for it before connecting
+          await suite('BLE Remembered Device: Waits For Advertisement Before Connect, Fails Fast When Asleep', async () => {
+            const saved = { scale: W.VeloBle.DELAY_SCALE, wait: W.VeloBle.ADVERT_WAIT_MS };
+            W.VeloBle.DELAY_SCALE = 0;
+            W.VeloBle.ADVERT_WAIT_MS = 60;
+            const char = { startNotifications: async () => {}, addEventListener: () => {}, removeEventListener: () => {}, readValue: async () => new W.DataView(new Uint8Array([77]).buffer) };
+            const server = { getPrimaryService: async () => ({ getCharacteristic: async () => char }) };
+            const makeDevice = (advertises) => {
+              const ls = {};
+              const d = {
+                name: 'Fake strap', heard: false, watchCalls: 0, connectCalls: 0,
+                addEventListener: (ev, fn) => { (ls[ev] = ls[ev] || []).push(fn); },
+                removeEventListener: (ev, fn) => { ls[ev] = (ls[ev] || []).filter((f) => f !== fn); },
+                watchAdvertisements: async () => { d.watchCalls++; if (advertises) setTimeout(() => { d.heard = true; (ls.advertisementreceived || []).forEach((f) => f({ rssi: -50 })); }, 10); },
+                gatt: {
+                  connected: false,
+                  connect: async () => { d.connectCalls++; if (!d.heard) throw new Error('Bluetooth Device is no longer in range.'); d.gatt.connected = true; return server; },
+                  disconnect: () => { d.gatt.connected = false; }
+                }
+              };
+              return d;
+            };
+            // Awake: listens once, then a single successful connect
+            const ble = new W.VeloBle(() => {});
+            const awake = makeDevice(true);
+            ble._adopt('hr', awake);
+            const ok = await ble._connect('hr', (sv) => ble._setupHr(sv));
+            const awakeOk = ok === true && awake.watchCalls === 1 && awake.connectCalls === 1 && ble.slots.hr.heardAt > 0;
+            ble.disconnectHr();
+            // Asleep: no connect attempts at all, one clear error, no 3x repeated wait
+            const ble2 = new W.VeloBle(() => {});
+            const asleep = makeDevice(false);
+            ble2._adopt('hr', asleep);
+            const t0 = performance.now();
+            const ok2 = await ble2._connect('hr', (sv) => ble2._setupHr(sv));
+            const took = performance.now() - t0;
+            const asleepOk = ok2 === false && asleep.connectCalls === 0 && asleep.watchCalls === 1 && /wake it up/i.test(ble2.slots.hr.lastError.message) && took < 500;
+            // Device picked in the chooser this session: no wait
+            const ble3 = new W.VeloBle(() => {});
+            const fresh = makeDevice(false); fresh.heard = true;
+            ble3._adopt('hr', fresh); ble3.slots.hr.heardAt = Date.now();
+            const ok3 = await ble3._connect('hr', (sv) => ble3._setupHr(sv));
+            const freshOk = ok3 === true && fresh.watchCalls === 0;
+            ble3.disconnectHr();
+            W.VeloBle.DELAY_SCALE = saved.scale;
+            W.VeloBle.ADVERT_WAIT_MS = saved.wait;
+            return { ok: awakeOk && asleepOk && freshOk, detail: `awake: watch ${awake.watchCalls} connect ${awake.connectCalls} | asleep: connect ${asleep.connectCalls}, ${Math.round(took)} ms | chooser: watch ${fresh.watchCalls}` };
+          });
+
           // 38. Stale crank data -> cadence 0; 39. serialized GATT writes
           await suite('CPS Cadence Drops to 0 When Pedalling Stops & GATT Writes Are Serialized', async () => {
             const ble = new W.VeloBle(() => {});

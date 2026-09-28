@@ -39,6 +39,10 @@
       this._remoteCmdUntil = 0;
       this._remoteCmdSeen = 0; // id of the last phone command applied (confirmed to the server in each publish)
       if (this.ble && this.ble.refreshPermitted) this.ble.refreshPermitted().then(() => this.publishSoon()); // which devices the phone can reconnect
+      if (navigator.bluetooth && !VeloBle.remembersDevices()) {
+        console.warn('[Apex] Chrome forgets Bluetooth devices when it closes. Start the app with Launch-Apex-Velo.bat, or enable chrome://flags/#enable-web-bluetooth-new-permissions-backend');
+        setTimeout(() => this.showToast('Chrome will forget your sensors when it closes. Close all Chrome windows and start with Launch-Apex-Velo.bat, or enable the flag in chrome://flags (see README).', 'warning'), 2500);
+      }
       // Heartbeat from a tiny Worker: Chrome throttles main-thread timers in a minimised window
       // to once a minute, which would freeze the phone view mid-ride. Normal updates are pushed
       // by the ride tick itself (see publishSoon); this only covers idle moments.
@@ -210,6 +214,7 @@
       const cv = this.calibrationView;
       return {
         bluetooth: typeof navigator !== 'undefined' && !!navigator.bluetooth,
+        remembers: VeloBle.remembersDevices(), // false: Chrome forgets paired sensors when it closes
         list,
         pairRequest: pr ? pr.kind : null,
         calibration: {

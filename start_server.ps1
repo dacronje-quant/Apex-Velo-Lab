@@ -1043,8 +1043,22 @@ Write-Host "  Press Ctrl+C to stop the server when finished riding." -Foreground
 Write-Host "==========================================================" -ForegroundColor Cyan
 
 if (-not $env:APEX_NO_BROWSER) {
-    $chromePath = "C:\Program Files\Google\Chrome\Application\chrome.exe"
-    if (Test-Path $chromePath) { Start-Process $chromePath -ArgumentList $url } else { Start-Process $url }
+    # Persistent Web Bluetooth permissions: Chrome then remembers the trainer, pedals and HR strap
+    # after it closes, so the phone can reconnect them without a click on the PC. The switch only
+    # applies when Chrome is not already running - enabling
+    # chrome://flags/#enable-web-bluetooth-new-permissions-backend once makes it permanent.
+    $chromePath = @(
+        "$env:ProgramFiles\Google\Chrome\Application\chrome.exe",
+        "${env:ProgramFiles(x86)}\Google\Chrome\Application\chrome.exe",
+        "$env:LOCALAPPDATA\Google\Chrome\Application\chrome.exe"
+    ) | Where-Object { $_ -and (Test-Path $_) } | Select-Object -First 1
+    if ($chromePath) {
+        if (Get-Process chrome -ErrorAction SilentlyContinue) {
+            Write-Host "  Note: Chrome was already open. If it forgets your sensors after closing, enable" -ForegroundColor DarkYellow
+            Write-Host "        chrome://flags/#enable-web-bluetooth-new-permissions-backend once (see README)." -ForegroundColor DarkYellow
+        }
+        Start-Process $chromePath -ArgumentList @('--enable-features=WebBluetoothNewPermissionsBackend', $url)
+    } else { Start-Process $url }
 }
 
 try {

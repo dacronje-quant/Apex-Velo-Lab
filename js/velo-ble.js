@@ -45,6 +45,10 @@ class VeloBle {
   static RECONNECT_MAX_ATTEMPTS = 8;
   static FIRST_CONNECT_ATTEMPTS = 3;
   static CONNECT_TIMEOUT_MS = 15000;
+  static ADVERT_WAIT_MS = 20000;
+  // Continuous advertisement watching for RSSI. Off: with Chrome's persistent-permissions flag it
+  // really scans, and a scan running next to three live links makes Windows BLE drop packets.
+  static WATCH_RSSI = false; // how long a remembered device may take to be heard (wake-up) before a connect
   static RECONNECT_BASE_MS = 1000;
   static RECONNECT_CAP_MS = 30000;
 
@@ -103,7 +107,8 @@ class VeloBle {
       manualDisconnect: false, inRetry: false, attempt: 0, retryTimer: null, nextRetryAt: 0,
       battery: null, rssi: null, lastPacket: 0, connectedSince: 0,
       pktWindowStart: 0, pktCount: 0, packetRate: 0, writeChain: Promise.resolve(), onGattDisconnected: null,
-      connecting: false, lastError: null
+      connecting: false, lastError: null,
+      heardAt: 0, outOfRange: false // Chrome has seen the device in a scan this session (see waitForAdvertisement)
     };
   }
 
@@ -197,6 +202,7 @@ class VeloBle {
     const opts = acceptAll ? { acceptAllDevices: true, optionalServices } : { filters, optionalServices };
     const device = await navigator.bluetooth.requestDevice(opts);
     this._adopt(kind, device);
+    this.slots[kind].heardAt = Date.now(); // the chooser has just seen it
     return device;
   }
 
@@ -208,6 +214,8 @@ class VeloBle {
     }
     if (slot.device !== device) {
       slot.device = device;
+      slot.heardAt = 0;
+      slot.outOfRange = false;
       slot.onGattDisconnected = () => this._handleLinkLoss(kind);
       device.addEventListener('gattserverdisconnected', slot.onGattDisconnected);
     }
@@ -255,6 +263,15 @@ class VeloBle {
     return found;
   }
 
+  /**
+   * True when Chrome keeps Bluetooth permissions after it closes (getDevices() exists). Without
+   * Chrome's persistent-permissions feature every restart forgets the devices, so each one needs
+   * the chooser again. The launcher turns the feature on; chrome://flags makes it permanent.
+   */
+  static remembersDevices() {
+    return typeof navigator !== 'undefined' && !!navigator.bluetooth && typeof navigator.bluetooth.getDevices === 'function';
+  }
+
   /** True when `reconnect(kind)` can connect without the chooser. */
   canReconnect(kind) {
     return !!(this.slots[kind].device || (this.permitted && this.permitted[kind]));
@@ -293,6 +310,43 @@ class VeloBle {
   }
 
   /**
+   * Waits until Chrome hears `device` advertising. After Chrome restarts, a device from
+   * getDevices() still has permission, but gatt.connect() fails at once with "Bluetooth Device is
+   * no longer in range" until Chrome has seen it in a scan in this session. Watching for one
+   * advertisement is that scan. Resolves true when heard, false after timeoutMs (asleep / off /
+   * connected to another app). Devices without watchAdvertisements resolve true (nothing to wait for).
+   */
+  static waitForAdvertisement(device, timeoutMs = VeloBle.ADVERT_WAIT_MS) {
+    if (!device || typeof device.watchAdvertisements !== 'function') return Promise.resolve(true);
+    return new Promise((resolve) => {
+      const ctl = typeof AbortController !== 'undefined' ? new AbortController() : null;
+      const ownWatch = !device.watchingAdvertisements; // an RSSI watch may already be running
+      let settled = false;
+      let timer = null;
+      const finish = (heard) => {
+        if (settled) return;
+        settled = true;
+        clearTimeout(timer);
+        device.removeEventListener('advertisementreceived', onAdvert);
+        if (ownWatch && ctl) { try { ctl.abort(); } catch (e) { /* ignore */ } }
+        resolve(heard);
+      };
+      const onAdvert = () => finish(true);
+      timer = setTimeout(() => finish(false), timeoutMs);
+      device.addEventListener('advertisementreceived', onAdvert);
+      if (ownWatch) {
+        device.watchAdvertisements(ctl ? { signal: ctl.signal } : undefined)
+          .catch(() => finish(true)); // cannot watch: just try the connect as before
+      }
+    });
+  }
+
+  /** True when the next connect must first wait to hear the device (see waitForAdvertisement). */
+  static needsAdvertisement(slot) {
+    return !!(slot.device && typeof slot.device.watchAdvertisements === 'function' && (!slot.heardAt || slot.outOfRange));
+  }
+
+  /**
    * Connects and runs the device setup. A first (user-initiated) connection is tried up to
    * FIRST_CONNECT_ATTEMPTS times, because Windows often rejects the very first GATT connection
    * to a strap or power meter ("Connection attempt failed") and succeeds a moment later.
@@ -307,6 +361,18 @@ class VeloBle {
       for (let attempt = 1; attempt <= attempts; attempt++) {
         if (slot.manualDisconnect && attempt > 1) break; // user cancelled while we were retrying
         try {
+          if (VeloBle.needsAdvertisement(slot)) {
+            // Remembered device after a Chrome restart (or one that dropped out of range): wait
+            // until Chrome hears it, otherwise gatt.connect() fails with "no longer in range".
+            const heard = await VeloBle.waitForAdvertisement(slot.device, isRetry ? 8000 : VeloBle.ADVERT_WAIT_MS);
+            if (slot.manualDisconnect) break;
+            if (!heard) {
+              throw Object.assign(new Error('Not found - wake it up (pedal, or wet and put on the strap) and make sure no other app is connected to it.'), { name: 'NotFoundError', noRetry: true });
+            }
+            slot.heardAt = Date.now();
+            slot.outOfRange = false;
+            await VeloBle.delay(300); // let the scan stop before connecting (Windows)
+          }
           const server = await VeloBle.connectWithTimeout(slot.device, VeloBle.CONNECT_TIMEOUT_MS);
           this._teardown(kind);
           // Wait for Windows BLE connection parameter update & MTU negotiation to settle
@@ -321,6 +387,8 @@ class VeloBle {
             return false;
           }
           slot.connectedSince = performance.now();
+          slot.heardAt = Date.now();
+          slot.outOfRange = false;
           slot.attempt = 0;
           slot.nextRetryAt = 0;
           slot.lastError = null;
@@ -331,9 +399,11 @@ class VeloBle {
           return true;
         } catch (err) {
           slot.lastError = err;
+          if (/no longer in range/i.test((err && err.message) || '')) slot.outOfRange = true; // next try listens first
           console.warn(`[VeloBle] ${kind} connect attempt ${attempt}/${attempts} failed:`, err);
           this._teardown(kind);
           try { if (slot.device && slot.device.gatt.connected) slot.device.gatt.disconnect(); } catch (e) { /* ignore */ }
+          if (err && err.noRetry) break; // not heard at all - more tries would only repeat the wait
           if (attempt < attempts) await VeloBle.delay(700 * attempt);
         }
       }
@@ -443,12 +513,14 @@ class VeloBle {
   _watchRssi(kind) {
     const slot = this.slots[kind];
     const device = slot.device;
-    if (!device || typeof device.watchAdvertisements !== 'function' || slot.rssiDevice === device) return;
-    slot.rssiDevice = device;
-    device.addEventListener('advertisementreceived', (e) => {
-      if (typeof e.rssi === 'number') slot.rssi = e.rssi;
-    });
-    device.watchAdvertisements().catch(() => { /* not permitted - leave RSSI unavailable */ });
+    if (!VeloBle.WATCH_RSSI || !device || typeof device.watchAdvertisements !== 'function') return;
+    if (slot.rssiDevice !== device) {
+      slot.rssiDevice = device;
+      device.addEventListener('advertisementreceived', (e) => {
+        if (typeof e.rssi === 'number') slot.rssi = e.rssi;
+      });
+    }
+    if (!device.watchingAdvertisements) device.watchAdvertisements().catch(() => { /* not permitted - leave RSSI unavailable */ });
   }
 
   // ---------------------------------------------------------------- trainer --

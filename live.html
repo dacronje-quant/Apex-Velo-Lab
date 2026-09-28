@@ -750,6 +750,7 @@
       else if (st === 'failed') { line = `Could not reconnect. ${DEV[kind].hint}`; lineCls = 'bad'; }
       else if (st === 'pairing') { line = '<b>Look at your PC</b> and click <b>Pair now</b>, then pick the device in the list.'; }
       else if (base.known) line = base.error ? `Last try failed. ${DEV[kind].hint}` : 'Paired - tap Connect.';
+      else if (hw && hw.remembers === false) { line = 'Chrome on the PC forgot this device when it closed. Pair once on the PC - to stop this, start the app with Launch-Apex-Velo.bat (see README).'; lineCls = 'warn'; }
       else line = 'Not paired on this PC yet. The first time takes one click on the PC.';
       c.line.innerHTML = line;
       c.line.className = 'dline ' + lineCls;
