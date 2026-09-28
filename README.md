@@ -156,8 +156,9 @@ The PC keeps the Bluetooth sensors and runs the ride; your phone becomes a live 
 2. Start `Launch-Apex-Velo.bat` as usual and open the app on the PC. The console window prints the phone address, e.g. `http://192.168.1.23:8080/live.html`.
 3. On the iPhone (same Wi-Fi, not mobile data) open that address in Safari, then **Share > Add to Home Screen** for a full-screen "Apex Live" icon.
 
-The phone has four screens; swipe sideways or tap the tabs, and it remembers the last one:
+The phone has five screens; swipe sideways or tap the tabs, and it remembers the last one:
 
+- **Ride** (TrainerRoad-style) - six big tiles (target watts, power with +/- vs target, interval time left, heart rate, cadence, workout time left) over a graph of the **whole workout**: every step as a blue block at its target watts (ridden part brighter, current step outlined), with your power (yellow), heart rate (red) and cadence (green) traced over it and a playhead. Turn the phone sideways on the bars for a one-row layout: tiles in a row, a bigger graph and the controls in a single row.
 - **Focus** - the current step and countdown, power against target, a 2-minute power trace, heart rate and cadence.
 - **Session** - % complete and time left, the whole workout as zone-coloured blocks with a gliding playhead, avg power, heart rate, cadence and distance.
 - **Balance** - live L/R split from the pedals, a 2-minute balance trace with its average, cadence and power source.
@@ -284,7 +285,7 @@ js/
   app-backup.js       Automatic gzipped history backups to the local server, status line, Back up now (mixin)
 test_suite.html       In-browser test suite
 tests/strava-sync-servers.test.js  Runs server.js and start_server.ps1 against a mock Strava
-live.html             Phone view (four screens, remote controls)
+live.html             Phone view (five screens, remote controls)
 Enable-Phone-View.bat One-time firewall/URL setup for the phone view (`remove` undoes it)
 ```
 
