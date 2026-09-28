@@ -328,7 +328,8 @@ function Invoke-Health($request, $response, [string]$path) {
 # requests are just parked responses, so this single-threaded loop never blocks on them.
 # Every command has an id and stays queued until the PC confirms it (cmdAck in its next
 # publish), so a command is never lost on a dropped connection and never applied twice.
-$liveCmdsAllowed = @('toggle', 'skip', 'bias-up', 'bias-down', 'bias-reset', 'watts-up', 'watts-down', 'stand', 'spin-more', 'spin-finish')
+$liveCmdsAllowed = @('toggle', 'skip', 'bias-up', 'bias-down', 'bias-reset', 'watts-up', 'watts-down', 'stand', 'spin-more', 'spin-finish',
+    'connect-trainer', 'connect-pedals', 'connect-hr', 'disconnect-trainer', 'disconnect-pedals', 'disconnect-hr', 'connect-all', 'pair-cancel', 'calibrate-pedals')
 $liveHoldMs = 2500
 $liveCmdHoldMs = 20000
 $liveMaxWaiters = 8
