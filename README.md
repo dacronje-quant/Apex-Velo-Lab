@@ -175,6 +175,8 @@ A thin zone-coloured bar of the whole workout sits above the controls on every s
 
 **No visible lag.** The PC pushes every ride second to the phone the moment it happens, and the phone keeps a request open that the server answers as soon as the new data arrives (long-poll), so the phone shows each update about 10-20 ms after the PC. Taps on the phone reach the PC just as fast: the PC keeps its own request open for commands, and each command is confirmed by the PC so it is never lost or applied twice.
 
+**Instant taps.** A tap on the phone shows its result straight away (and buzzes) - +/-5 W, Start/Pause and Stand don't wait for the PC. The PC applies the command within a few tens of ms and its confirmed state replaces the prediction exactly when it arrives (each command has an id the PC acknowledges), so rapid taps add up correctly and nothing flickers. If the PC doesn't confirm within 4 s, the screen falls back to the real state. After the phone wakes or Wi-Fi comes back, it reconnects at once.
+
 **Screen stays on.** Over plain http on your home Wi-Fi, iPhone Safari has no Wake Lock, so the phone view plays a tiny silent, invisible looping video - the technique the NoSleep.js library uses - which keeps the screen on. Browsers only allow it after a tap, so the page asks you to tap anywhere once. If your phone still dims, set Settings > Display & Brightness > Auto-Lock to Never while riding.
 
 ## Security & privacy

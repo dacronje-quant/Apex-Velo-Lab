@@ -817,9 +817,10 @@ async function handleLive(req, res, urlPath) {
     const cmd = body && body.cmd;
     if (!LIVE_CMDS.has(cmd)) return sendJson(res, 400, { error: 'Unknown command' });
     if (!live.at || Date.now() - live.at > 10000) return sendJson(res, 409, { error: 'The app on the PC is not open.' });
-    if (live.cmds.length < 20) live.cmds.push({ id: ++live.cmdId, cmd, at: Date.now() });
+    let id = null;
+    if (live.cmds.length < 20) { id = ++live.cmdId; live.cmds.push({ id, cmd, at: Date.now() }); }
     deliverLiveCmds();
-    return sendJson(res, 200, { ok: true });
+    return sendJson(res, 200, { ok: true, id }); // the phone shows the result at once and knows when the PC has applied it (cmdAck)
   }
   return sendJson(res, 404, { error: 'Not found' });
 }
