@@ -1270,7 +1270,8 @@ class VeloApp {
     } else {
       const err = this.ble.slots && this.ble.slots[kind] ? this.ble.slots[kind].lastError : null;
       const why = err && err.message ? ` (${err.message})` : '';
-      this.showToast(`${this.deviceLabel(kind)} found but the connection failed after 3 tries${why}. ${this.deviceWakeHint(kind)}`, 'warning');
+      const what = err && err.name === 'NotFoundError' ? 'not found nearby' : 'found but the connection failed after 3 tries';
+      this.showToast(`${this.deviceLabel(kind)} ${what}${why}. ${this.deviceWakeHint(kind)}`, 'warning');
     }
   }
 

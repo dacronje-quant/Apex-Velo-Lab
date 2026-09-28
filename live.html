@@ -832,7 +832,7 @@
       else if (st === 'reconnecting') { line = `Link lost - retry <b>${Math.min((base.attempt || 0) + 1, base.maxAttempts || 8)}/${base.maxAttempts || 8}</b>${base.retryInSec ? ` in ${Math.ceil(base.retryInSec)} s` : ''}. Tap Retry now to skip the wait.`; lineCls = 'warn'; }
       else if (st === 'failed') { line = `Could not reconnect. ${DEV[kind].hint}`; lineCls = 'bad'; }
       else if (st === 'pairing') { line = '<b>Look at your PC</b> and click <b>Pair now</b>, then pick the device in the list.'; }
-      else if (base.known) line = base.error ? `Last try failed. ${DEV[kind].hint}` : 'Paired - tap Connect.';
+      else if (base.known) line = base.error ? `${base.notFound ? 'Not found nearby.' : 'Last try failed.'} ${DEV[kind].hint}` : 'Paired - tap Connect.';
       else line = 'Not paired on this PC yet. The first time takes one click on the PC.';
       c.line.innerHTML = line;
       c.line.className = 'dline ' + lineCls;
