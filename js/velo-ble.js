@@ -94,6 +94,7 @@ class VeloBle {
     this.lastCrankTime = null;
     this.lastCrankChangeMs = 0;
     this.lastCadence = null;
+    this.permitted = {}; // devices Chrome still has permission for (refreshPermitted), by kind
   }
 
   _newSlot(defaultName) {
@@ -195,18 +196,88 @@ class VeloBle {
   async _request(kind, filters, optionalServices, acceptAll = false) {
     const opts = acceptAll ? { acceptAllDevices: true, optionalServices } : { filters, optionalServices };
     const device = await navigator.bluetooth.requestDevice(opts);
+    this._adopt(kind, device);
+    return device;
+  }
+
+  /** Makes `device` the one this slot drives (from the chooser, or a reconnect without it). */
+  _adopt(kind, device) {
     const slot = this.slots[kind];
     if (slot.device && slot.device !== device && slot.onGattDisconnected) {
       slot.device.removeEventListener('gattserverdisconnected', slot.onGattDisconnected);
     }
-    slot.device = device;
+    if (slot.device !== device) {
+      slot.device = device;
+      slot.onGattDisconnected = () => this._handleLinkLoss(kind);
+      device.addEventListener('gattserverdisconnected', slot.onGattDisconnected);
+    }
     slot.name = device.name || slot.name;
     slot.battery = null;
     slot.rssi = null;
-    slot.onGattDisconnected = () => this._handleLinkLoss(kind);
-    device.addEventListener('gattserverdisconnected', slot.onGattDisconnected);
     slot.lastError = null;
-    return device;
+  }
+
+  // ------------------------------------------------ reconnect without chooser --
+  // requestDevice() needs a click on the PC (browser security), so the phone view cannot open
+  // the chooser. It can reconnect a device that was already chosen: the BluetoothDevice kept from
+  // this session, or - after a reload - one Chrome still has permission for (getDevices()),
+  // matched by the id remembered at its last connection.
+  static KNOWN_KEY = 'apex_ble_known_v1';
+
+  _knownIds() {
+    try { return JSON.parse(localStorage.getItem(VeloBle.KNOWN_KEY) || '{}') || {}; } catch (e) { return {}; }
+  }
+
+  _remember(kind, device) {
+    if (!device || !device.id) return;
+    const known = this._knownIds();
+    known[kind] = { id: device.id, name: device.name || null };
+    try { localStorage.setItem(VeloBle.KNOWN_KEY, JSON.stringify(known)); } catch (e) { /* storage blocked */ }
+    this.permitted = { ...(this.permitted || {}), [kind]: device };
+  }
+
+  /** Looks up the devices Chrome still has permission for; resolves to { kind: BluetoothDevice }. */
+  async refreshPermitted() {
+    const found = {};
+    const bt = typeof navigator !== 'undefined' ? navigator.bluetooth : null;
+    if (bt && typeof bt.getDevices === 'function') {
+      try {
+        const known = this._knownIds();
+        const devices = await bt.getDevices();
+        Object.keys(this.slots).forEach((kind) => {
+          const k = known[kind];
+          const d = k && devices.find((x) => x.id === k.id);
+          if (d) found[kind] = d;
+        });
+      } catch (e) { /* permissions backend unavailable - only this session's devices can reconnect */ }
+    }
+    this.permitted = found;
+    return found;
+  }
+
+  /** True when `reconnect(kind)` can connect without the chooser. */
+  canReconnect(kind) {
+    return !!(this.slots[kind].device || (this.permitted && this.permitted[kind]));
+  }
+
+  /**
+   * Connects the already-chosen device for `kind` without the chooser. Resolves to true / false
+   * (connected / failed after the usual 3 tries), or null when no known device exists and it has
+   * to be paired once on the PC.
+   */
+  async reconnect(kind) {
+    const slot = this.slots[kind];
+    if (slot.state === 'connecting' || slot.connecting) return false;
+    if (slot.device && slot.device.gatt && slot.device.gatt.connected && slot.state === 'connected') return true;
+    let device = slot.device || (this.permitted && this.permitted[kind]);
+    if (!device) device = (await this.refreshPermitted())[kind];
+    if (!device) return null;
+    clearTimeout(slot.retryTimer);
+    slot.retryTimer = null;
+    slot.attempt = 0;
+    slot.nextRetryAt = 0;
+    this._adopt(kind, device);
+    return this._connect(kind, this._setupFor(kind));
   }
 
   /** gatt.connect() can hang on Windows when the device went out of range; give up after timeoutMs. */
@@ -254,6 +325,7 @@ class VeloBle {
           slot.nextRetryAt = 0;
           slot.lastError = null;
           slot.connecting = false;
+          this._remember(kind, slot.device);
           this._setState(kind, 'connected');
           this._watchRssi(kind);
           return true;

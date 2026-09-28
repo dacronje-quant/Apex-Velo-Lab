@@ -10,12 +10,20 @@
  *
  * Only the copy of the app opened on the PC itself (localhost) publishes, so opening the full
  * app on another device can never overwrite the live ride.
+ *
+ * Devices from the phone: the snapshot carries each sensor's link state, battery and live reading
+ * (hw), and the phone can connect / disconnect / zero-offset them. Bluetooth itself stays on the
+ * PC. A device chosen before reconnects without the browser's chooser; a brand-new one needs a
+ * single click on the PC (browsers only open the chooser after a real click), so the phone asks
+ * for it and the PC shows a "Pair now" banner.
  */
 (function () {
   const HEARTBEAT_MS = 1000; // fallback publish when no tick has published recently
   const BACKOFF_MS = 5000;
   const TRACE_LEN = 120; // seconds of power trace shown on the phone
   const PHONE_POWER_SEC = 5; // the phone's big power number is a 5 s average
+  const PAIR_REQUEST_MS = 120000; // a "pair on the PC" request from the phone waits this long
+  const KINDS = ['trainer', 'pedals', 'hr'];
 
   Object.assign(VeloApp.prototype, {
     initRemoteView() {
@@ -30,6 +38,7 @@
       this._remoteLastAt = 0;
       this._remoteCmdUntil = 0;
       this._remoteCmdSeen = 0; // id of the last phone command applied (confirmed to the server in each publish)
+      if (this.ble && this.ble.refreshPermitted) this.ble.refreshPermitted().then(() => this.publishSoon()); // which devices the phone can reconnect
       // Heartbeat from a tiny Worker: Chrome throttles main-thread timers in a minimised window
       // to once a minute, which would freeze the phone view mid-ride. Normal updates are pushed
       // by the ride tick itself (see publishSoon); this only covers idle moments.
@@ -161,7 +170,138 @@
           hr: !!(this.ble && this.ble.isHrConnected()),
         },
         trace: this.remoteTrace.slice(),
+        hw: this.buildRemoteHardware(),
       };
+    },
+
+    /** Per-device link state for the phone's Devices screen. */
+    buildRemoteHardware() {
+      if (!this.ble || !this.ble.getDiagnostics) return null;
+      const now = performance.now();
+      const round1 = (v) => Math.round(v * 10) / 10;
+      const src = { trainer: this.bleTrainer, pedals: this.blePedal, hr: this.bleHr };
+      const list = KINDS.map((kind) => {
+        const d = this.ble.getDiagnostics(kind);
+        const s = src[kind] || {};
+        const fresh = !!s.lastTime && now - s.lastTime < 3500;
+        const reading = !fresh ? null
+          : kind === 'hr' ? { hr: s.hr != null ? s.hr : null, contact: s.contact != null ? s.contact : null }
+          : kind === 'pedals' ? { watts: s.watts, cadence: s.cadence, left: s.leftPct != null ? s.leftPct : null }
+          : { watts: s.watts, cadence: s.cadence, speed: s.speed != null ? round1(s.speed) : null };
+        const slot = this.ble.slots && this.ble.slots[kind];
+        return {
+          kind,
+          label: this.deviceLabel(kind),
+          name: d.name,
+          state: d.state,
+          known: !!(this.ble.canReconnect && this.ble.canReconnect(kind)),
+          battery: this.bleBattery ? this.bleBattery[kind] : null,
+          attempt: d.attempt,
+          maxAttempts: VeloBle.RECONNECT_MAX_ATTEMPTS,
+          retryInSec: d.nextRetryMs ? round1(d.nextRetryMs / 1000) : 0,
+          connectedSec: Math.round((d.connectedForMs || 0) / 1000),
+          packetRate: round1(d.packetRate || 0),
+          lastPacketMs: d.lastPacketAgeMs == null ? null : Math.round(d.lastPacketAgeMs),
+          reading,
+          error: slot && slot.lastError && slot.lastError.message ? String(slot.lastError.message).slice(0, 140) : null,
+        };
+      });
+      const pr = this._pairRequest && Date.now() < this._pairRequest.until ? this._pairRequest : null;
+      const cv = this.calibrationView;
+      return {
+        bluetooth: typeof navigator !== 'undefined' && !!navigator.bluetooth,
+        list,
+        pairRequest: pr ? pr.kind : null,
+        calibration: {
+          phase: this.calibration ? this.calibration.phase : 'idle',
+          // the last result stays on the phone for a minute
+          view: cv && (cv.phase === 'countdown' || cv.phase === 'sending' || Date.now() - cv.at < 60000) ? { phase: cv.phase, title: cv.title, status: cv.status, count: cv.count } : null,
+        },
+      };
+    },
+
+    /** Connect from the phone: reconnects a known device, or asks for one click on the PC. */
+    async remoteConnectDevice(kind) {
+      if (!this.ble || typeof navigator === 'undefined' || !navigator.bluetooth) {
+        this.showToast('Web Bluetooth is not available in this browser.', 'error');
+        return false;
+      }
+      const slot = this.ble.slots[kind];
+      const state = this.ble.getState(kind);
+      if (state === 'connected' || state === 'connecting' || (slot && slot.connecting)) return true;
+      this.updateDeviceBadge(kind, 'connecting');
+      this.publishSoon();
+      let ok;
+      try { ok = await this.ble.reconnect(kind); } catch (e) { ok = false; }
+      if (ok === null) {
+        this.updateDeviceBadge(kind, 'disconnected');
+        this.requestPairOnPc(kind);
+        return null;
+      }
+      this.onConnectResult(kind, ok);
+      if (ok && this._pairRequest && this._pairRequest.kind === kind) this.clearPairRequest();
+      this.updatePowerSourceBadge();
+      this.publishSoon();
+      return ok;
+    },
+
+    /** One tap before a ride: every known device that is not connected, one after another (Windows BLE dislikes parallel connects). New ones keep their own Pair button. */
+    async remoteConnectAll() {
+      if (this._remoteConnectingAll) return;
+      this._remoteConnectingAll = true;
+      try {
+        const known = KINDS.filter((k) => this.ble && this.ble.getState(k) !== 'connected' && this.ble.canReconnect(k));
+        for (const k of known) await this.remoteConnectDevice(k);
+      } finally {
+        this._remoteConnectingAll = false;
+      }
+    },
+
+    /**
+     * The phone asked for a device that has never been chosen on this PC. The browser only opens
+     * its Bluetooth chooser after a click here, so show a banner with one big "Pair now" button.
+     */
+    requestPairOnPc(kind) {
+      this._pairRequest = { kind, until: Date.now() + PAIR_REQUEST_MS };
+      clearTimeout(this._pairTimer);
+      this._pairTimer = setTimeout(() => this.clearPairRequest(), PAIR_REQUEST_MS);
+      let el = document.getElementById('pairBanner');
+      if (!el) {
+        el = document.createElement('div');
+        el.id = 'pairBanner';
+        el.className = 'pair-banner';
+        el.setAttribute('role', 'alertdialog');
+        el.setAttribute('aria-labelledby', 'pairBannerTitle');
+        el.innerHTML = `
+          <div class="pair-banner-icon"><svg class="ic ic-lg"><use href="#i-bluetooth"/></svg></div>
+          <div class="pair-banner-text">
+            <b id="pairBannerTitle"></b>
+            <span>Browsers only open the Bluetooth list after a click on this PC. One click, once - after that the phone can connect it by itself.</span>
+          </div>
+          <button type="button" class="btn btn-primary" data-act="pair">Pair now</button>
+          <button type="button" class="btn btn-ghost" data-act="dismiss" aria-label="Not now"><svg class="ic"><use href="#i-x"/></svg></button>`;
+        el.addEventListener('click', (e) => {
+          const b = e.target.closest('button');
+          if (!b) return;
+          const k = this._pairRequest ? this._pairRequest.kind : null;
+          this.clearPairRequest();
+          if (b.dataset.act === 'pair' && k) this.connectDevice(k); // this click opens the chooser
+        });
+        document.body.appendChild(el);
+      }
+      el.querySelector('#pairBannerTitle').textContent = `Your phone wants to connect the ${this.deviceLabel(kind)}`;
+      el.classList.add('show');
+      try { el.querySelector('[data-act="pair"]').focus({ preventScroll: true }); } catch (e) { /* ignore */ }
+      try { this.audio.playTone(740, 0.1, 'sine', 0.12); setTimeout(() => this.audio.playTone(988, 0.16, 'sine', 0.12), 120); } catch (e) { /* audio optional */ }
+      this.publishSoon();
+    },
+
+    clearPairRequest() {
+      this._pairRequest = null;
+      clearTimeout(this._pairTimer);
+      const el = document.getElementById('pairBanner');
+      if (el) el.classList.remove('show');
+      this.publishSoon();
     },
 
     async publishRemoteSnapshot() {
@@ -188,6 +328,17 @@
     },
 
     applyRemoteCommand(cmd) {
+      const dev = /^(connect|disconnect)-(trainer|pedals|hr)$/.exec(cmd || '');
+      if (dev) {
+        const kind = dev[2];
+        if (dev[1] === 'connect') { this.remoteConnectDevice(kind); return; }
+        if (this.ble && this.ble.getState(kind) !== 'disconnected') {
+          this.disconnectDeviceKind(kind);
+          this.showToast(`${this.deviceLabel(kind)} disconnected from phone`, 'info');
+        }
+        this.publishSoon();
+        return;
+      }
       const ivs = (this.currentWorkout && this.currentWorkout.intervals) || [];
       const finished = this.isWorkoutCompleted || this.intervalIndex >= ivs.length;
       switch (cmd) {
@@ -210,6 +361,12 @@
         case 'stand':
           if (!this.isPlaying) return;
           this.toggleStand();
+          break;
+        case 'connect-all': this.remoteConnectAll(); return;
+        case 'pair-cancel': this.clearPairRequest(); return;
+        case 'calibrate-pedals':
+          if (this.isPlaying) return; // zero-offset needs the cranks still and unloaded
+          this.calibrateAssiomaPedals();
           break;
         case 'bias-reset':
           this.ergBiasMultiplier = 1.0; this.updateBiasUi(); this.updateHudTitles();
