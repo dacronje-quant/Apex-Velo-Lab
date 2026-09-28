@@ -1181,6 +1181,7 @@ class VeloApp {
         break;
     }
     this.updatePowerSourceBadge();
+    if (this.publishSoon) this.publishSoon(); // link state / battery changes reach the phone at once
   }
 
   deviceLabel(kind) {
@@ -1236,19 +1237,7 @@ class VeloApp {
     this.bleBattery[kind] = null;
     try {
       const ok = kind === 'trainer' ? await this.ble.connectTrainer(options) : kind === 'pedals' ? await this.ble.connectPedals(options) : await this.ble.connectHr(options);
-      this.updateDeviceBadge(kind, ok ? 'connected' : 'disconnected');
-      if (ok) {
-        this.onHardwareConnected(kind);
-        this.showToast(`${this.deviceLabel(kind)} connected.`, 'success');
-        if (kind === 'trainer' && this.isPlaying) {
-          this.ble.startTrainerWorkout();
-          this.ergApplyNow(true);
-        }
-      } else {
-        const err = this.ble.slots && this.ble.slots[kind] ? this.ble.slots[kind].lastError : null;
-        const why = err && err.message ? ` (${err.message})` : '';
-        this.showToast(`${this.deviceLabel(kind)} found but the connection failed after 3 tries${why}. ${this.deviceWakeHint(kind)}`, 'warning');
-      }
+      this.onConnectResult(kind, ok);
     } catch (err) {
       this.updateDeviceBadge(kind, 'disconnected');
       const msg = String((err && err.message) || err || '');
@@ -1266,6 +1255,23 @@ class VeloApp {
       }
     }
     this.updatePowerSourceBadge();
+  }
+
+  /** Badge, toast and ERG hand-over after a connect attempt (from the chooser or a reconnect). */
+  onConnectResult(kind, ok) {
+    this.updateDeviceBadge(kind, ok ? 'connected' : 'disconnected');
+    if (ok) {
+      this.onHardwareConnected(kind);
+      this.showToast(`${this.deviceLabel(kind)} connected.`, 'success');
+      if (kind === 'trainer' && this.isPlaying) {
+        this.ble.startTrainerWorkout();
+        this.ergApplyNow(true);
+      }
+    } else {
+      const err = this.ble.slots && this.ble.slots[kind] ? this.ble.slots[kind].lastError : null;
+      const why = err && err.message ? ` (${err.message})` : '';
+      this.showToast(`${this.deviceLabel(kind)} found but the connection failed after 3 tries${why}. ${this.deviceWakeHint(kind)}`, 'warning');
+    }
   }
 
   disconnectDeviceKind(kind, silent = false) {
@@ -1419,6 +1425,8 @@ class VeloApp {
 
   // -------------------------------------------------- pedal calibration --
   setCalibrationUi(phase, title, status, progress = null, count = null) {
+    this.calibrationView = { phase, title: title || '', status: status || '', count: count === null || count === '' ? null : count, at: Date.now() };
+    if (this.publishSoon) this.publishSoon();
     const panel = this.$('calibPanel');
     if (panel) panel.dataset.phase = phase;
     if (title) this.setText('calibTitle', title);
