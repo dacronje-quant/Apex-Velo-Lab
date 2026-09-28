@@ -81,7 +81,7 @@
       const parsed = VeloHealth.parsePayload(body);
       const { store, added } = VeloHealth.merge(this.healthStore, parsed);
       this.healthStore = store;
-      return { added, ignored: parsed.ignored, found: parsed.rhr.length + parsed.hrv.length + parsed.sleep.length };
+      return { added, ignored: parsed.ignored, found: parsed.rhr.length + parsed.hrv.length + parsed.hr.length + parsed.sleep.length };
     },
 
     /** Collects the payloads waiting on the server, stores them, then lets the server delete them. */

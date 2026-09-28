@@ -4,7 +4,7 @@
  * Source: the Health Auto Export iPhone app, which POSTs JSON to the local server (/api/health).
  * The server stores payloads untouched; this module turns them into one record per day:
  *
- *   parsePayload(json)  -> readings found in one payload (resting HR, HRV samples, sleep)
+ *   parsePayload(json)  -> readings found in one payload (heart rate, resting HR, HRV samples, sleep)
  *   merge(store, parsed)-> folds them into the stored days. Every reading is keyed by its own
  *                          timestamp (sleep by stage + start + end), so the same data sent twice,
  *                          or overlapping hourly exports, never counts twice.
@@ -13,7 +13,10 @@
  *   dayFlags(days, day) -> per-metric colour for the calendar (ok / warn / bad vs your normal)
  *
  * Days are the phone's local calendar dates as Health Auto Export writes them. Sleep belongs to the
- * morning you wake up. HRV is Apple's SDNN in ms (the watch does not record rMSSD).
+ * morning you wake up, and so do heart rate and HRV readings taken from 18:00 on.
+ * Resting HR is the 5th percentile of heart rate while asleep (Apple's daily value when a night has
+ * too few readings); HRV is the average of the readings taken asleep (all of that night's otherwise).
+ * HRV is Apple's SDNN in ms (the watch does not record rMSSD).
  * Pure functions, no DOM: used by the app and by the Node tests.
  */
 (function (root) {
@@ -60,7 +63,24 @@
     return /^min/i.test(units || '') ? n / 60 : /^s(ec)?$/i.test(units || '') ? n / 3600 : n;
   };
 
+  /** Wall-clock minutes of a timestamp (the phone's local time; the offset is ignored so nights compare simply). */
+  function wallMin(v) {
+    const m = /^(\d{4})-(\d{2})-(\d{2})[ T](\d{2}):(\d{2})/.exec(String(v || '').trim());
+    return m ? Date.UTC(+m[1], m[2] - 1, +m[3], +m[4], +m[5]) / 60000 : null;
+  }
+
+  // Resting HR is the night's floor: the 5th percentile of heart rate while asleep. One bad low
+  // optical reading cannot set it (the minimum could), and REM / restless spells do not lift it
+  // (the average would). Needs this many readings in the night, else Apple's daily value is used.
+  const MIN_SLEEP_HR = 20;
+  function percentile(a, p) {
+    const s = a.slice().sort((x, y) => x - y);
+    const i = (s.length - 1) * p, lo = Math.floor(i);
+    return s[lo] + (s[Math.min(lo + 1, s.length - 1)] - s[lo]) * (i - lo);
+  }
+
   const METRIC = {
+    heart_rate: 'hr',
     resting_heart_rate: 'rhr',
     heart_rate_variability: 'hrv',
     heart_rate_variability_sdnn: 'hrv',
@@ -72,7 +92,7 @@
    * Unknown metrics are listed in `ignored`, never guessed at.
    */
   function parsePayload(json) {
-    const out = { rhr: [], hrv: [], sleep: [], ignored: [] };
+    const out = { rhr: [], hrv: [], hr: [], sleep: [], ignored: [] };
     const metrics = (json && json.data && Array.isArray(json.data.metrics) ? json.data.metrics : null) ||
       (json && Array.isArray(json.metrics) ? json.metrics : null) || [];
     for (const m of metrics) {
@@ -80,14 +100,17 @@
       const kind = METRIC[name];
       const rows = Array.isArray(m && m.data) ? m.data : [];
       if (!kind) { if (name && out.ignored.indexOf(name) < 0) out.ignored.push(name); continue; }
-      if (kind === 'rhr' || kind === 'hrv') {
+      if (kind === 'rhr' || kind === 'hrv' || kind === 'hr') {
         for (const r of rows) {
           const st = stamp(r.date || r.startDate);
           const v = num(r.qty !== undefined ? r.qty : (r.Avg !== undefined ? r.Avg : r.avg));
           if (!st || v === null) continue;
           if (kind === 'rhr' && (v < 25 || v > 130)) continue;   // not a resting heart rate
           if (kind === 'hrv' && (v <= 0 || v > 300)) continue;   // not a plausible SDNN
-          out[kind].push({ day: st.day, key: st.key, v });
+          if (kind === 'hr' && (v < 25 || v > 230)) continue;    // not a heart rate
+          // Heart rate is only needed overnight: 18:00-12:00, filed (like HRV) under the morning you wake up.
+          if (kind === 'hr' && st.hour >= 12 && st.hour < 18) continue;
+          out[kind].push({ day: kind === 'rhr' ? st.day : nightOf(st), key: st.key, v });
         }
       } else {
         for (const r of rows) {
@@ -108,7 +131,9 @@
             const staged = [core, deep, rem].some(x => x !== null) ? (core || 0) + (deep || 0) + (rem || 0) : null;
             const total = part('totalSleep') !== null ? part('totalSleep') : part('asleep') !== null && part('asleep') > 0 ? part('asleep') : staged;
             if (total === null || total <= 0 || total > 20) continue;
-            out.sleep.push({ day, key: `night|${day}|${r.source || r.sleepSource || ''}`, night: { total, deep, rem, core, awake: part('awake'), inBed: part('inBed') } });
+            const endKey = r.sleepEnd || r.inBedEnd || null;
+            const startKey = r.sleepStart || r.inBedStart || null;
+            out.sleep.push({ day, key: `night|${day}|${r.source || r.sleepSource || ''}`, night: { total, deep, rem, core, awake: part('awake'), inBed: part('inBed'), start: startKey, end: endKey } });
           }
         }
       }
@@ -129,6 +154,7 @@
     };
     for (const r of parsed.rhr || []) { const d = dayRec(r.day); d.rhr = d.rhr || {}; put(d.rhr, r.key, r.v); }
     for (const r of parsed.hrv || []) { const d = dayRec(r.day); d.hrv = d.hrv || {}; put(d.hrv, r.key, r.v); }
+    for (const r of parsed.hr || []) { const d = dayRec(r.day); d.hr = d.hr || {}; put(d.hr, r.key, r.v); }
     for (const r of parsed.sleep || []) {
       const d = dayRec(r.day);
       d.sleep = d.sleep || {};
@@ -142,12 +168,23 @@
     const out = { day, rhr: null, hrv: null, sleepH: null, deepH: null, remH: null, coreH: null, awakeH: null };
     if (!rec) return out;
     if (rec.summary) return Object.assign(out, rec.summary, { day });
-    const rhr = rec.rhr ? Object.values(rec.rhr).filter(Number.isFinite) : [];
-    // Apple writes one resting HR per day; if an export holds a few, the lowest is the resting one.
-    if (rhr.length) out.rhr = Math.round(Math.min.apply(null, rhr));
-    const hrv = rec.hrv ? Object.values(rec.hrv).filter(Number.isFinite) : [];
-    if (hrv.length) out.hrv = Math.round(mean(hrv));
     const items = rec.sleep ? Object.values(rec.sleep) : [];
+    const windows = sleepWindows(rec.sleep);
+    const asleep = (key) => { const t = wallMin(key); return t !== null && windows.some(w => t >= w[0] && t <= w[1]); };
+    const during = (bucket) => Object.entries(bucket || {}).filter(([k, v]) => Number.isFinite(v) && asleep(k)).map(([, v]) => v);
+
+    // Resting HR: the floor of the night's heart rate; Apple's daily resting HR when the night has too few readings.
+    const sleepHr = during(rec.hr);
+    const rhr = rec.rhr ? Object.values(rec.rhr).filter(Number.isFinite) : [];
+    if (sleepHr.length >= MIN_SLEEP_HR) { out.rhr = Math.round(percentile(sleepHr, 0.05)); out.rhrSrc = 'sleep'; }
+    // Apple writes one resting HR per day; if an export holds a few, the lowest is the resting one.
+    else if (rhr.length) { out.rhr = Math.round(Math.min.apply(null, rhr)); out.rhrSrc = 'apple'; }
+
+    // HRV: the average of the readings taken asleep; every reading filed to that night when none were.
+    const sleepHrv = during(rec.hrv);
+    const hrv = sleepHrv.length ? sleepHrv : (rec.hrv ? Object.values(rec.hrv).filter(Number.isFinite) : []);
+    if (hrv.length) { out.hrv = Math.round(mean(hrv)); out.hrvSrc = sleepHrv.length ? 'sleep' : 'day'; }
+
     const nights = items.filter(x => x.night).map(x => x.night);
     if (nights.length) {
       // Several sources for the same night (watch + phone): keep the longest, never add them up.
@@ -172,6 +209,28 @@
       }
     }
     return out;
+  }
+
+  /**
+   * The night's asleep periods as [startMin, endMin] wall-clock minutes: the stage segments
+   * (core / deep / REM / asleep; in-bed only when nothing else), else the per-night start-end.
+   */
+  function sleepWindows(bucket) {
+    const segs = [], inBed = [], nights = [];
+    for (const [k, x] of Object.entries(bucket || {})) {
+      if (x && x.seg) {
+        const p = k.split('|');   // seg|stage|start|end
+        const a = wallMin(p[2]), b = wallMin(p[3]);
+        if (b === null) continue;
+        const w = [a !== null ? a : b - x.seg.h * 60, b];
+        if (x.seg.stage === 'inbed') inBed.push(w); else if (x.seg.stage !== 'awake') segs.push(w);
+      } else if (x && x.night && x.night.end) {
+        const b = wallMin(x.night.end), a = wallMin(x.night.start);
+        const len = x.night.inBed || (x.night.total || 0) + (x.night.awake || 0);
+        if (b !== null) nights.push([a !== null ? a : b - len * 60, b]);
+      }
+    }
+    return segs.length ? segs : inBed.length ? inBed : nights;
   }
 
   /** Every stored day with at least one value, oldest first. */
