@@ -1409,3 +1409,25 @@ details.menu > summary::-webkit-details-marker { display: none; }
 .calendar-recovery-rollup .rd.good { color: var(--lime); }
 .calendar-recovery-rollup .rd.bad { color: var(--amber); }
 .calendar-recovery-rollup .rd.flat { color: var(--text-3); }
+
+/* ---- "Pair now" banner: the phone asked for a device that needs one click on the PC ---- */
+.pair-banner {
+  position: fixed; left: 50%; top: 18px; z-index: 3000; width: min(620px, calc(100vw - 32px));
+  display: flex; align-items: center; gap: 14px; padding: 14px 14px 14px 16px;
+  background: var(--bg-2); border: 1px solid var(--line-glow); border-radius: var(--radius-lg);
+  box-shadow: 0 18px 48px -12px rgba(0, 0, 0, 0.75), 0 0 0 4px var(--cyan-soft);
+  transform: translate(-50%, -140%); opacity: 0; pointer-events: none;
+  transition: transform .35s var(--ease), opacity .25s;
+}
+.pair-banner.show { transform: translate(-50%, 0); opacity: 1; pointer-events: auto; }
+.pair-banner-icon {
+  flex: none; width: 46px; height: 46px; border-radius: 50%; display: grid; place-items: center;
+  color: var(--cyan); background: var(--cyan-soft); animation: pairPulse 1.6s ease-out infinite;
+}
+.pair-banner-text { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 3px; }
+.pair-banner-text b { color: var(--text-1); font-size: 14px; }
+.pair-banner-text span { color: var(--text-2); font-size: 12px; line-height: 1.4; }
+.pair-banner .btn-primary { height: 40px; padding: 0 18px; font-size: 14px; }
+@keyframes pairPulse { 0% { box-shadow: 0 0 0 0 rgba(34, 211, 238, 0.45); } 100% { box-shadow: 0 0 0 14px rgba(34, 211, 238, 0); } }
+@media (max-width: 560px) { .pair-banner { flex-wrap: wrap; } .pair-banner-text { flex-basis: calc(100% - 60px); } .pair-banner .btn-primary { flex: 1; } }
+@media (prefers-reduced-motion: reduce) { .pair-banner, .pair-banner-icon { transition: none; animation: none; } }

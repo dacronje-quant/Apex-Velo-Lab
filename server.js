@@ -565,11 +565,42 @@ async function handleStrava(req, res, urlPath, query) {
 }
 
 // -------------------------------------------------------------- phone view --
-// The PC app publishes a small live snapshot about once a second; the phone page
-// (live.html) reads it and queues simple commands, which the PC app picks up on
-// its next publish. Nothing is stored on disk.
-const LIVE_CMDS = new Set(['toggle', 'skip', 'bias-up', 'bias-down', 'bias-reset', 'watts-up', 'watts-down', 'stand', 'spin-more', 'spin-finish']);
-const live = { snapshot: null, at: 0, cmds: [] };
+// The PC app publishes a small live snapshot right after every ride tick; the phone page
+// (live.html) reads it and queues simple commands. Nothing is stored on disk.
+// Low latency without polling: the phone asks GET /api/live?after=<seq> and the request is
+// held until the next snapshot arrives (long-poll, at most LIVE_HOLD_MS), and the PC app holds
+// GET /api/live/cmds open so a tapped command reaches it at once instead of on its next publish.
+// Every command has an id and stays queued until the PC confirms it (cmdAck in its next
+// publish), so a command is never lost on a dropped connection and never applied twice.
+const LIVE_CMDS = new Set(['toggle', 'skip', 'bias-up', 'bias-down', 'bias-reset', 'watts-up', 'watts-down', 'stand', 'spin-more', 'spin-finish',
+  'connect-trainer', 'connect-pedals', 'connect-hr', 'disconnect-trainer', 'disconnect-pedals', 'disconnect-hr', 'connect-all', 'pair-cancel', 'calibrate-pedals']);
+const LIVE_HOLD_MS = 2500;
+const LIVE_CMD_HOLD_MS = 20000;
+const LIVE_MAX_WAITERS = 8;
+const LIVE_CMD_TTL_MS = 10000;
+const live = { snapshot: null, at: 0, seq: 0, cmds: [], cmdId: Date.now(), waiters: [], cmdWaiter: null }; // ids keep rising across restarts
+
+function liveState() {
+  return { snapshot: live.snapshot, ageMs: live.at ? Date.now() - live.at : null, pending: live.cmds.length, seq: live.seq };
+}
+function releaseLiveWaiters() {
+  const ws = live.waiters; live.waiters = [];
+  const state = liveState();
+  for (const w of ws) { clearTimeout(w.timer); if (!w.res.writableEnded) sendJson(w.res, 200, state); }
+}
+function pendingLiveCmds(after) {
+  const now = Date.now();
+  live.cmds = live.cmds.filter(c => now - c.at < LIVE_CMD_TTL_MS);
+  return live.cmds.filter(c => c.id > after);
+}
+function deliverLiveCmds() {
+  const w = live.cmdWaiter;
+  if (!w) return;
+  const cmds = pendingLiveCmds(w.after);
+  if (!cmds.length) return;
+  live.cmdWaiter = null; clearTimeout(w.timer);
+  if (!w.res.writableEnded && !w.res.destroyed) sendJson(w.res, 200, { cmds }); // unconfirmed ones also ride on the next publish reply
+}
 
 // ------------------------------------------------ automatic backups (this PC only) --
 // The app posts its history backup (the same JSON as "Backup JSON", gzipped in the browser) after
@@ -738,17 +769,46 @@ async function handleLive(req, res, urlPath) {
   if (!isLocalRequest(req)) return sendJson(res, 403, { error: 'Forbidden' });
   if (urlPath === '/api/live') {
     if (req.method === 'GET') {
-      return sendJson(res, 200, { snapshot: live.snapshot, ageMs: live.at ? Date.now() - live.at : null, pending: live.cmds.length });
+      const after = new URL(req.url, 'http://localhost').searchParams.get('after');
+      // Nothing newer than what the phone already has: hold the request until the next snapshot.
+      if (after !== null && Number(after) === live.seq) {
+        if (live.waiters.length >= LIVE_MAX_WAITERS) { const old = live.waiters.shift(); clearTimeout(old.timer); if (!old.res.writableEnded) sendJson(old.res, 200, liveState()); }
+        const w = { res, timer: null };
+        w.timer = setTimeout(() => { live.waiters = live.waiters.filter(x => x !== w); if (!res.writableEnded) sendJson(res, 200, liveState()); }, LIVE_HOLD_MS);
+        live.waiters.push(w);
+        req.on('close', () => { clearTimeout(w.timer); live.waiters = live.waiters.filter(x => x !== w); });
+        return;
+      }
+      return sendJson(res, 200, liveState());
     }
     if (req.method === 'POST') {
       let body;
       try { body = JSON.parse(await readBody(req, 64 * 1024)); } catch (e) { return sendJson(res, e.status || 400, { error: e.status ? e.message : 'Invalid JSON.' }); }
       live.snapshot = body && typeof body === 'object' ? body : null;
       live.at = Date.now();
-      const cmds = live.cmds; live.cmds = [];
-      return sendJson(res, 200, { cmds });
+      live.seq++;
+      const ack = body && Number.isFinite(body.cmdAck) ? body.cmdAck : null;
+      if (ack !== null) live.cmds = live.cmds.filter(c => c.id > ack);
+      const cmds = ack !== null ? pendingLiveCmds(ack) : live.cmds.splice(0); // no ack: an older app, hand over once
+      sendJson(res, 200, { cmds });
+      releaseLiveWaiters();
+      return;
     }
     return sendJson(res, 405, { error: 'Method not allowed' });
+  }
+  if (urlPath === '/api/live/cmds') {
+    // Only the app on this PC collects commands.
+    if (!isPcRequest(req)) return sendJson(res, 403, { error: 'Forbidden' });
+    if (req.method !== 'GET') return sendJson(res, 405, { error: 'Method not allowed' });
+    const after = Number(new URL(req.url, 'http://localhost').searchParams.get('after')) || 0;
+    const ready = pendingLiveCmds(after);
+    if (ready.length) return sendJson(res, 200, { cmds: ready });
+    if (live.cmdWaiter) { const old = live.cmdWaiter; clearTimeout(old.timer); if (!old.res.writableEnded) sendJson(old.res, 200, { cmds: [] }); }
+    const w = { res, after, timer: null };
+    w.timer = setTimeout(() => { if (live.cmdWaiter === w) live.cmdWaiter = null; if (!res.writableEnded) sendJson(res, 200, { cmds: [] }); }, LIVE_CMD_HOLD_MS);
+    live.cmdWaiter = w;
+    req.on('close', () => { clearTimeout(w.timer); if (live.cmdWaiter === w) live.cmdWaiter = null; });
+    return;
   }
   if (urlPath === '/api/live/cmd') {
     if (req.method !== 'POST') return sendJson(res, 405, { error: 'Method not allowed' });
@@ -757,7 +817,8 @@ async function handleLive(req, res, urlPath) {
     const cmd = body && body.cmd;
     if (!LIVE_CMDS.has(cmd)) return sendJson(res, 400, { error: 'Unknown command' });
     if (!live.at || Date.now() - live.at > 10000) return sendJson(res, 409, { error: 'The app on the PC is not open.' });
-    if (live.cmds.length < 20) live.cmds.push({ cmd, at: Date.now() });
+    if (live.cmds.length < 20) live.cmds.push({ id: ++live.cmdId, cmd, at: Date.now() });
+    deliverLiveCmds();
     return sendJson(res, 200, { ok: true });
   }
   return sendJson(res, 404, { error: 'Not found' });
@@ -775,7 +836,7 @@ function createServer() {
       const query = new URL(req.url, 'http://localhost').searchParams;
       return handleHealth(req, res, urlPath, query).catch((e) => { if (!res.headersSent) sendJson(res, 500, { error: e.message }); });
     }
-    if (urlPath === '/api/live' || urlPath === '/api/live/cmd') {
+    if (urlPath === '/api/live' || urlPath === '/api/live/cmd' || urlPath === '/api/live/cmds') {
       return handleLive(req, res, urlPath).catch((e) => { if (!res.headersSent) sendJson(res, 500, { error: e.message }); });
     }
     if (urlPath === '/api/coach/status') {

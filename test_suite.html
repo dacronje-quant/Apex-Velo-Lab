@@ -1800,6 +1800,64 @@
               detail: `HR parse:${parseOk} avgPower incl. zeros:${avgOk} retry (2 fails then ok, 3 calls):${retryOk} 3 fails -> disconnected + reason:${failOk} sources after dropout:${srcs.join(',')}` };
           });
 
+          // 49b. Phone Devices screen: reconnect without the chooser, pair request, remote commands
+          await suite('Phone Devices: Reconnect Known Sensors Without the Chooser, Pair-on-PC Request, Remote Connect/Disconnect', async () => {
+            const saved = { scale: W.VeloBle.DELAY_SCALE, ble: app.ble, publish: app.publishSoon };
+            W.VeloBle.DELAY_SCALE = 0;
+            const mk = (id) => {
+              const char = { properties: {}, startNotifications: async () => {}, addEventListener: () => {}, removeEventListener: () => {}, readValue: async () => new W.DataView(new Uint8Array([77]).buffer) };
+              const server = { getPrimaryService: async () => ({ getCharacteristic: async () => char }) };
+              const d = { id, name: 'Polar H10 PHONE', calls: 0, addEventListener: () => {}, removeEventListener: () => {},
+                gatt: { connected: false, connect: async () => { d.calls++; d.gatt.connected = true; return server; }, disconnect: () => { d.gatt.connected = false; } } };
+              return d;
+            };
+            const permittedDevice = mk('dev-h10');
+            let chooserCalls = 0;
+            Object.defineProperty(W.navigator, 'bluetooth', { configurable: true, value: {
+              getDevices: async () => [mk('other'), permittedDevice],
+              requestDevice: async () => { chooserCalls++; throw Object.assign(new Error('cancelled'), { name: 'NotFoundError' }); },
+            } });
+            let banner = false, pairOk = false, cancelOk = false, reconnectOk = false, snapOk = false, discOk = false, unknownNull = false;
+            try {
+              W.localStorage.removeItem(W.VeloBle.KNOWN_KEY);
+              // Never connected on this PC: nothing to reconnect -> the PC is asked for one click.
+              const ble0 = new W.VeloBle(() => {});
+              unknownNull = (await ble0.reconnect('hr')) === null && chooserCalls === 0;
+
+              app.ble = new W.VeloBle((d) => app.handleBleTelemetry(d));
+              app.publishSoon = () => {};
+              app.applyRemoteCommand('connect-hr');
+              await new Promise((r) => setTimeout(r, 30));
+              const bEl = W.document.getElementById('pairBanner');
+              banner = !!(bEl && bEl.classList.contains('show') && /Heart-rate strap/.test(bEl.textContent));
+              pairOk = banner && app.buildRemoteHardware().pairRequest === 'hr' && chooserCalls === 0;
+              app.applyRemoteCommand('pair-cancel');
+              cancelOk = !bEl.classList.contains('show') && app.buildRemoteHardware().pairRequest === null;
+
+              // Chosen once before (id remembered) and still permitted by Chrome -> connects from the phone, no chooser.
+              W.localStorage.setItem(W.VeloBle.KNOWN_KEY, JSON.stringify({ hr: { id: 'dev-h10', name: 'Polar H10 PHONE' } }));
+              await app.ble.refreshPermitted();
+              const knownBefore = app.buildRemoteHardware().list.find((x) => x.kind === 'hr').known;
+              app.applyRemoteCommand('connect-hr');
+              for (let i = 0; i < 50 && app.ble.getState('hr') !== 'connected'; i++) await new Promise((r) => setTimeout(r, 10));
+              reconnectOk = knownBefore && app.ble.isHrConnected() && permittedDevice.calls === 1 && chooserCalls === 0;
+              const hrRow = app.buildRemoteHardware().list.find((x) => x.kind === 'hr');
+              snapOk = hrRow.state === 'connected' && hrRow.battery === 77 && hrRow.name === 'Polar H10 PHONE' && app.buildRemoteSnapshot().hw.list.length === 3;
+              app.applyRemoteCommand('disconnect-hr');
+              discOk = app.ble.getState('hr') === 'disconnected' && !permittedDevice.gatt.connected && app.ble.canReconnect('hr');
+            } finally {
+              if (app.ble !== saved.ble) { try { app.ble.disconnectHr(); } catch (e) { /* ignore */ } }
+              app.ble = saved.ble; app.publishSoon = saved.publish;
+              delete W.navigator.bluetooth; // own property only: the real one lives on the prototype
+              W.localStorage.removeItem(W.VeloBle.KNOWN_KEY);
+              W.VeloBle.DELAY_SCALE = saved.scale;
+              app.clearPairRequest();
+              app.updateDeviceBadge('hr', 'disconnected');
+            }
+            return { ok: unknownNull && pairOk && cancelOk && reconnectOk && snapOk && discOk,
+              detail: `unknown -> null, no chooser:${unknownNull} pair banner + hw.pairRequest:${pairOk} pair-cancel:${cancelOk} reconnect via getDevices, no chooser:${reconnectOk} hw snapshot:${snapOk} disconnect from phone (still reconnectable):${discOk}` };
+          });
+
           // 50a. Auto duration: the coach picks the length per focus
           await suite('AI Coach: Auto Duration Picks an Optimal Length per Session Type', async () => {
             const c = app.aiCoach;
