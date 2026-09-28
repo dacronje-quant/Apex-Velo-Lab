@@ -1858,6 +1858,103 @@
               detail: `unknown -> null, no chooser:${unknownNull} pair banner + hw.pairRequest:${pairOk} pair-cancel:${cancelOk} reconnect via getDevices, no chooser:${reconnectOk} hw snapshot:${snapOk} disconnect from phone (still reconnectable):${discOk}` };
           });
 
+          // 49c. Chrome forgets a sensor it has not seen in a Bluetooth scan for a few minutes (and every
+          // sensor after a restart): connect() then fails at once with "no longer in range".
+          await suite('Phone Devices: A Sensor Chrome Has Forgotten Is Found by a Short Scan, Then Connects', async () => {
+            const saved = { scale: W.VeloBle.DELAY_SCALE, scan: W.VeloBle.SCAN_TIMEOUT_MS, ble: app.ble, publish: app.publishSoon, toast: app.showToast, sim: app.simulator.enabled };
+            W.VeloBle.DELAY_SCALE = 0;
+            W.VeloBle.SCAN_TIMEOUT_MS = 80;
+            // Like Chrome: connect() is refused until an advertisement has been seen; watchAdvertisements()
+            // on a device that is already "watching" does nothing (even when Chrome dropped that watch when
+            // the window lost focus), and aborting any signal passed to it ends the watch.
+            const mk = (id, opts = {}) => {
+              const char = { properties: {}, startNotifications: async () => {}, addEventListener: () => {}, removeEventListener: () => {}, readValue: async () => new W.DataView(new Uint8Array([64]).buffer) };
+              const server = { getPrimaryService: async () => ({ getCharacteristic: async () => char }) };
+              const ls = {};
+              const d = { id, name: id.toUpperCase(), calls: 0, scans: 0, seen: false, silent: !!opts.silent, watching: !!opts.deadWatch, live: false, scanningAtConnect: [],
+                get watchingAdvertisements() { return d.watching; },
+                addEventListener: (ev, fn) => { (ls[ev] = ls[ev] || []).push(fn); },
+                removeEventListener: (ev, fn) => { ls[ev] = (ls[ev] || []).filter((f) => f !== fn); },
+                watchAdvertisements: (o = {}) => {
+                  if (o.signal) o.signal.addEventListener('abort', () => { d.watching = false; d.live = false; });
+                  if (d.watching) return Promise.resolve();
+                  d.watching = true; d.live = true; d.scans++;
+                  if (!d.silent) setTimeout(() => { if (d.live) { d.seen = true; (ls.advertisementreceived || []).slice().forEach((fn) => fn({ device: d, rssi: -58 })); } }, 5);
+                  return Promise.resolve();
+                },
+                gatt: { connected: false,
+                  connect: async () => { d.calls++; d.scanningAtConnect.push(d.live); if (!d.seen) throw Object.assign(new Error('Bluetooth Device is no longer in range.'), { name: 'NetworkError' }); d.gatt.connected = true; return server; },
+                  disconnect: () => { d.gatt.connected = false; } } };
+              if (opts.noScan) delete d.watchAdvertisements;
+              return d;
+            };
+            const hr = mk('whoop-test', { deadWatch: true });
+            const pedals = mk('assioma-test');
+            let chooserCalls = 0;
+            Object.defineProperty(W.navigator, 'bluetooth', { configurable: true, value: {
+              getDevices: async () => [hr, pedals],
+              requestDevice: async () => { chooserCalls++; throw Object.assign(new Error('cancelled'), { name: 'NotFoundError' }); },
+            } });
+            const waitFor = async (fn, ms = 2000) => { const t0 = Date.now(); while (!fn() && Date.now() - t0 < ms) await sleep(10); return fn(); };
+            const toasts = [];
+            let allOk = false, rowOk = false, silentOk = false, stopOk = false, pairOk = false, stopMs = null;
+            try {
+              W.localStorage.setItem(W.VeloBle.KNOWN_KEY, JSON.stringify({ hr: { id: 'whoop-test' }, pedals: { id: 'assioma-test' } }));
+              app.ble = new W.VeloBle((e) => app.handleBleTelemetry(e));
+              app.publishSoon = () => {};
+              app.showToast = (m) => { toasts.push(String(m)); };
+              await app.ble.refreshPermitted();
+
+              // "Connect all" from the phone: each forgotten sensor is scanned for (the strap's dead watch is
+              // cleared first), the scan stops, then it connects - no chooser.
+              app.applyRemoteCommand('connect-all');
+              await waitFor(() => app.ble.isHrConnected() && app.ble.isPedalsConnected());
+              allOk = app.ble.isHrConnected() && app.ble.isPedalsConnected() && chooserCalls === 0
+                && [hr, pedals].every((d) => d.calls === 2 && d.scanningAtConnect[1] === false) && app.ble.slots.hr.rssi === -58;
+              const row = app.buildRemoteHardware().list.find((x) => x.kind === 'pedals');
+              rowOk = row.state === 'connected' && row.error === null && row.notFound === false;
+
+              // A sensor that stays silent (asleep, off): one short scan, then "not found" - no pointless retries.
+              app.disconnectDeviceKind('pedals', true);
+              pedals.seen = false; pedals.silent = true; pedals.calls = 0; pedals.scans = 0;
+              app.applyRemoteCommand('connect-pedals');
+              await waitFor(() => !app.ble.slots.pedals.connecting && app.ble.getState('pedals') === 'disconnected');
+              const silentRow = app.buildRemoteHardware().list.find((x) => x.kind === 'pedals');
+              silentOk = pedals.calls === 1 && pedals.scans === 1 && !pedals.live && silentRow.known && silentRow.notFound && /scan/.test(silentRow.error)
+                && toasts.some((m) => /Assioma pedals not found nearby/.test(m));
+
+              // Stopped from the phone while it is still scanning: the scan ends at once and nothing connects later.
+              W.VeloBle.SCAN_TIMEOUT_MS = 5000;
+              pedals.calls = 0;
+              const t0 = Date.now();
+              const pending = app.ble.reconnect('pedals');
+              await waitFor(() => pedals.live);
+              app.applyRemoteCommand('disconnect-pedals');
+              const res = await pending;
+              stopMs = Date.now() - t0;
+              await sleep(30);
+              stopOk = res === false && stopMs < 1000 && !pedals.live && pedals.calls === 1 && app.ble.getState('pedals') === 'disconnected';
+
+              // A browser that cannot scan: the phone asks for one click on the PC instead of failing.
+              app.disconnectDeviceKind('hr', true);
+              const noScan = mk('noscan-test', { noScan: true });
+              app.ble._adopt('hr', noScan);
+              app.applyRemoteCommand('connect-hr');
+              await waitFor(() => app.buildRemoteHardware().pairRequest === 'hr');
+              pairOk = app.buildRemoteHardware().pairRequest === 'hr' && noScan.calls === 1 && chooserCalls === 0;
+            } finally {
+              try { app.ble.disconnectHr(); app.ble.disconnectPedals(); } catch (e) { /* ignore */ }
+              app.ble = saved.ble; app.publishSoon = saved.publish; app.showToast = saved.toast; app.simulator.enabled = saved.sim;
+              delete W.navigator.bluetooth; // own property only: the real one lives on the prototype
+              W.localStorage.removeItem(W.VeloBle.KNOWN_KEY);
+              W.VeloBle.DELAY_SCALE = saved.scale; W.VeloBle.SCAN_TIMEOUT_MS = saved.scan;
+              app.clearPairRequest();
+              app.updateDeviceBadge('hr', 'disconnected'); app.updateDeviceBadge('pedals', 'disconnected');
+            }
+            return { ok: allOk && rowOk && silentOk && stopOk && pairOk,
+              detail: `connect all: scan (dead watch cleared) -> scan stopped -> connected, no chooser:${allOk} hw row:${rowOk} silent sensor: 1 scan, no retries, "not found nearby":${silentOk} stop mid-scan (${stopMs} ms):${stopOk} cannot scan -> Pair now on PC:${pairOk}` };
+          });
+
           // 50a. Auto duration: the coach picks the length per focus
           await suite('AI Coach: Auto Duration Picks an Optimal Length per Session Type', async () => {
             const c = app.aiCoach;
