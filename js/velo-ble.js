@@ -8,7 +8,8 @@
  * Every device runs a small connection state machine:
  *     disconnected -> connecting -> connected -> (link lost) -> reconnecting -> connected | failed
  * An unexpected GATT drop triggers an exponential-backoff reconnect (1 s, 2 s, 4 s ... capped at 30 s).
- * A user-initiated disconnect never auto-reconnects.
+ * A user-initiated disconnect never auto-reconnects. A reconnect without the chooser first scans for
+ * the device when Chrome has forgotten it ("no longer in range" - see _gattConnect).
  *
  * All GATT writes go through a per-device promise queue so overlapping writes never raise
  * "GATT operation already in progress".
@@ -45,6 +46,7 @@ class VeloBle {
   static RECONNECT_MAX_ATTEMPTS = 8;
   static FIRST_CONNECT_ATTEMPTS = 3;
   static CONNECT_TIMEOUT_MS = 15000;
+  static SCAN_TIMEOUT_MS = 12000; // how long a reconnect waits for a forgotten device to advertise
   static RECONNECT_BASE_MS = 1000;
   static RECONNECT_CAP_MS = 30000;
 
@@ -103,7 +105,7 @@ class VeloBle {
       manualDisconnect: false, inRetry: false, attempt: 0, retryTimer: null, nextRetryAt: 0,
       battery: null, rssi: null, lastPacket: 0, connectedSince: 0,
       pktWindowStart: 0, pktCount: 0, packetRate: 0, writeChain: Promise.resolve(), onGattDisconnected: null,
-      connecting: false, lastError: null
+      connecting: false, lastError: null, stopScan: null
     };
   }
 
@@ -293,9 +295,83 @@ class VeloBle {
   }
 
   /**
+   * Chrome's answer when it has no record of the device, however close it is: it forgets a device
+   * it has not seen in a Bluetooth scan for a few minutes, and every device when it restarts.
+   */
+  static isForgotten(err) {
+    return !!err && /no longer in range/i.test(String(err.message || ''));
+  }
+
+  /**
+   * gatt.connect(), with a short scan first when Chrome has forgotten the device. The chooser on
+   * the PC scans, which is why connecting there always worked; a connect from the phone (or an
+   * auto-reconnect) has no chooser, so it watches the device's advertisements until Chrome has
+   * seen it again - that puts it back on Chrome's list - and then connects.
+   */
+  async _gattConnect(kind) {
+    const slot = this.slots[kind];
+    try {
+      return await VeloBle.connectWithTimeout(slot.device, VeloBle.CONNECT_TIMEOUT_MS);
+    } catch (err) {
+      if (!VeloBle.isForgotten(err) || slot.manualDisconnect) throw err;
+      const seen = await this._scanFor(kind, VeloBle.SCAN_TIMEOUT_MS);
+      if (slot.manualDisconnect) throw err; // stopped by the user while scanning
+      if (!seen) {
+        const msg = seen === null
+          ? 'Chrome has lost track of it and cannot scan for it here - pick it once on the PC'
+          : `no signal from it in a ${Math.round(VeloBle.SCAN_TIMEOUT_MS / 1000)} s Bluetooth scan`;
+        throw Object.assign(new Error(msg), { name: 'NotFoundError', needsChooser: seen === null });
+      }
+    }
+    return VeloBle.connectWithTimeout(slot.device, VeloBle.CONNECT_TIMEOUT_MS);
+  }
+
+  /**
+   * Watches the device's advertisements until one arrives. Resolves true once Chrome has seen it,
+   * false when timeoutMs passes (asleep, off or out of range) or the user disconnects, and null
+   * when this browser cannot watch advertisements.
+   */
+  _scanFor(kind, timeoutMs) {
+    const slot = this.slots[kind];
+    const device = slot.device;
+    if (!device || typeof device.watchAdvertisements !== 'function' || typeof AbortController !== 'function') return Promise.resolve(null);
+    // Chrome silently drops a watch when its window loses focus or is minimised, yet the page still
+    // counts it as running, and watchAdvertisements() on a running watch does nothing. So end any
+    // earlier watch (the RSSI one) first: aborting a signal passed to watchAdvertisements() resets it.
+    if (device.watchingAdvertisements) {
+      const old = new AbortController();
+      device.watchAdvertisements({ signal: old.signal }).catch(() => { /* aborted just below */ });
+      old.abort();
+    }
+    return new Promise((resolve) => {
+      const ctl = new AbortController();
+      let done = false;
+      const finish = (seen) => {
+        if (done) return;
+        done = true;
+        clearTimeout(timer);
+        device.removeEventListener('advertisementreceived', onAdvert);
+        if (slot.stopScan === stop) slot.stopScan = null;
+        ctl.abort(); // stop scanning before connecting
+        resolve(seen);
+      };
+      const onAdvert = (e) => {
+        if (typeof e.rssi === 'number') slot.rssi = e.rssi;
+        finish(true);
+      };
+      const stop = () => finish(false);
+      const timer = setTimeout(stop, timeoutMs);
+      slot.stopScan = stop;
+      device.addEventListener('advertisementreceived', onAdvert);
+      device.watchAdvertisements({ signal: ctl.signal }).catch(() => finish(null)); // cannot scan here
+    });
+  }
+
+  /**
    * Connects and runs the device setup. A first (user-initiated) connection is tried up to
    * FIRST_CONNECT_ATTEMPTS times, because Windows often rejects the very first GATT connection
    * to a strap or power meter ("Connection attempt failed") and succeeds a moment later.
+   * A device that a scan could not find is not tried again: it is not advertising.
    */
   async _connect(kind, setupFn, isRetry = false) {
     const slot = this.slots[kind];
@@ -307,7 +383,7 @@ class VeloBle {
       for (let attempt = 1; attempt <= attempts; attempt++) {
         if (slot.manualDisconnect && attempt > 1) break; // user cancelled while we were retrying
         try {
-          const server = await VeloBle.connectWithTimeout(slot.device, VeloBle.CONNECT_TIMEOUT_MS);
+          const server = await this._gattConnect(kind);
           this._teardown(kind);
           // Wait for Windows BLE connection parameter update & MTU negotiation to settle
           await VeloBle.delay(600);
@@ -334,6 +410,7 @@ class VeloBle {
           console.warn(`[VeloBle] ${kind} connect attempt ${attempt}/${attempts} failed:`, err);
           this._teardown(kind);
           try { if (slot.device && slot.device.gatt.connected) slot.device.gatt.disconnect(); } catch (e) { /* ignore */ }
+          if (err && err.name === 'NotFoundError') break; // not advertising: another try cannot reach it
           if (attempt < attempts) await VeloBle.delay(700 * attempt);
         }
       }
@@ -400,6 +477,7 @@ class VeloBle {
     slot.manualDisconnect = true;
     clearTimeout(slot.retryTimer);
     slot.retryTimer = null;
+    if (slot.stopScan) slot.stopScan();
     slot.attempt = 0;
     slot.nextRetryAt = 0;
     const wasActive = slot.state !== 'disconnected';
@@ -443,11 +521,14 @@ class VeloBle {
   _watchRssi(kind) {
     const slot = this.slots[kind];
     const device = slot.device;
-    if (!device || typeof device.watchAdvertisements !== 'function' || slot.rssiDevice === device) return;
-    slot.rssiDevice = device;
-    device.addEventListener('advertisementreceived', (e) => {
-      if (typeof e.rssi === 'number') slot.rssi = e.rssi;
-    });
+    if (!device || typeof device.watchAdvertisements !== 'function') return;
+    if (slot.rssiDevice !== device) {
+      slot.rssiDevice = device;
+      device.addEventListener('advertisementreceived', (e) => {
+        if (typeof e.rssi === 'number') slot.rssi = e.rssi;
+      });
+    }
+    // Started on every connection: a scan for a forgotten device (_scanFor) ends the previous one.
     device.watchAdvertisements().catch(() => { /* not permitted - leave RSSI unavailable */ });
   }
 
