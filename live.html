@@ -470,7 +470,7 @@
   async function pollLoop(gen) {
     while (gen === pollGen) {
       const ctl = new AbortController(); pollCtl = ctl;
-      const guard = setTimeout(() => ctl.abort(), 6000); // a dropped Wi-Fi connection never hangs the view
+      const guard = setTimeout(() => ctl.abort(), 4000); // server holds 2.5 s max, so a dropped Wi-Fi connection is noticed within 4 s
       try {
         const r = await fetch('api/live' + (seq != null ? '?after=' + seq : ''), { cache: 'no-store', signal: ctl.signal });
         if (!r.ok) throw new Error(String(r.status));
@@ -552,6 +552,40 @@
     renderBalance(s);
     renderPedal(s);
     drawAll(s);
+    applyOptimistic(s);
+  }
+
+  // ---- Instant feedback ------------------------------------------------------------------
+  // A tapped command shows its result straight away (and buzzes), before the PC confirms it.
+  // Each command gets an id from the server; the PC reports the last id it applied (cmdAck) in
+  // every snapshot, so the prediction is dropped exactly when the real state arrives - no flicker,
+  // no double counting. If the PC never applies it (error, 4 s timeout) the screen falls back.
+  let pending = [];
+  const PREDICT = new Set(['watts-up', 'watts-down', 'toggle', 'stand']);
+  function livePending(s) {
+    const now = Date.now(), ack = s && typeof s.cmdAck === 'number' ? s.cmdAck : null;
+    pending = pending.filter((p) => now < p.until && !(ack !== null && ack >= (p.id != null ? p.id : p.guessId)));
+    return pending;
+  }
+  function applyOptimistic(s) {
+    if (!s) return;
+    const ps = livePending(s);
+    if (!ps.length) return;
+    const dWatts = ps.reduce((a, p) => a + (p.cmd === 'watts-up' ? 5 : p.cmd === 'watts-down' ? -5 : 0), 0);
+    if (dWatts && s.target > 0) {
+      const base = s.baseTarget > 0 ? s.target - s.baseTarget : 0;
+      const dW = base + dWatts;
+      $('bias').textContent = dW === 0 ? '\u00b10 W' : `${dW > 0 ? '+' : '\u2212'}${Math.abs(dW)} W`;
+      $('trTarget').textContent = s.target + dWatts;
+    }
+    if (ps.some((p) => p.cmd === 'toggle') && s.state !== 'finished') {
+      const willRide = s.state !== 'running';
+      $('btnToggle').textContent = willRide ? 'PAUSE' : 'RESUME';
+      $('btnToggle').classList.toggle('pause', willRide);
+      $('state').textContent = willRide ? 'RIDING' : 'PAUSED';
+      $('state').className = 'pill ' + (willRide ? 'running' : 'paused');
+    }
+    if (ps.some((p) => p.cmd === 'stand')) $('btnStand').textContent = s.standLeft > 0 ? 'Stand 30s' : 'Stand 30s \u2713';
   }
 
   function renderFocus(s, riding, finished) {
@@ -1105,18 +1139,30 @@
 
   // ---- Commands --------------------------------------------------------------------------
   async function send(cmd, label) {
-    if (sending) return;
-    sending = true; render(snap);
+    const predict = PREDICT.has(cmd) && snap;
+    // +/-5 W and the other predicted taps never wait for each other: tap twice, get +10 W at once.
+    if (sending && !predict) return;
+    let entry = null;
+    if (predict) {
+      const ack = typeof snap.cmdAck === 'number' ? snap.cmdAck : 0;
+      entry = { cmd, id: null, guessId: ack + livePending(snap).length + 1, until: Date.now() + 4000 };
+      pending.push(entry);
+      applyOptimistic(snap);
+    } else {
+      sending = true; render(snap);
+    }
+    if (navigator.vibrate) navigator.vibrate(15);
+    if (label) toast(label);
     try {
       const r = await fetch('api/live/cmd', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ cmd }) });
       const d = await r.json().catch(() => ({}));
       if (!r.ok) throw new Error(d.error || ('Error ' + r.status));
-      if (label) toast(label);
-      if (navigator.vibrate) navigator.vibrate(15);
+      if (entry && typeof d.id === 'number') entry.id = d.id;
     } catch (e) {
+      if (entry) pending = pending.filter((p) => p !== entry);
       toast(e.message || 'Could not reach the PC');
     } finally {
-      sending = false;
+      if (!entry) sending = false;
       render(snap); // the PC republishes at once after a command; the long-poll brings it in
     }
   }
@@ -1164,6 +1210,9 @@
   }
   window.__apexKeepAwake = () => ({ secure: window.isSecureContext, lock: !!(wakeSentinel && !wakeSentinel.released), video: !!(awakeVideo && !awakeVideo.paused) });
   document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') { keepAwake(); restartPoll(); } });
+  // Back from the app switcher / Wi-Fi back: reconnect at once instead of waiting for a stale request.
+  window.addEventListener('pageshow', (e) => { if (e.persisted) restartPoll(); });
+  window.addEventListener('online', () => restartPoll());
   document.addEventListener('click', keepAwake);
   document.addEventListener('touchend', keepAwake, { passive: true });
   if (!window.isSecureContext) setTimeout(() => toast('Tap anywhere once to keep the screen on'), 1500);
