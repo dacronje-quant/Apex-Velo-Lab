@@ -572,7 +572,8 @@ async function handleStrava(req, res, urlPath, query) {
 // GET /api/live/cmds open so a tapped command reaches it at once instead of on its next publish.
 // Every command has an id and stays queued until the PC confirms it (cmdAck in its next
 // publish), so a command is never lost on a dropped connection and never applied twice.
-const LIVE_CMDS = new Set(['toggle', 'skip', 'bias-up', 'bias-down', 'bias-reset', 'watts-up', 'watts-down', 'stand', 'spin-more', 'spin-finish']);
+const LIVE_CMDS = new Set(['toggle', 'skip', 'bias-up', 'bias-down', 'bias-reset', 'watts-up', 'watts-down', 'stand', 'spin-more', 'spin-finish',
+  'connect-trainer', 'connect-pedals', 'connect-hr', 'disconnect-trainer', 'disconnect-pedals', 'disconnect-hr', 'connect-all', 'pair-cancel', 'calibrate-pedals']);
 const LIVE_HOLD_MS = 2500;
 const LIVE_CMD_HOLD_MS = 20000;
 const LIVE_MAX_WAITERS = 8;
