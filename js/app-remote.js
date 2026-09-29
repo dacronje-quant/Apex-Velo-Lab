@@ -13,9 +13,9 @@
  *
  * Devices from the phone: the snapshot carries each sensor's link state, battery and live reading
  * (hw), and the phone can connect / disconnect / zero-offset them. Bluetooth itself stays on the
- * PC. A device chosen before reconnects without the browser's chooser; a brand-new one needs a
- * single click on the PC (browsers only open the chooser after a real click), so the phone asks
- * for it and the PC shows a "Pair now" banner.
+ * PC. A device chosen before reconnects without the browser's chooser (after a short scan when
+ * Chrome has forgotten it); a brand-new one needs a single click on the PC (browsers only open the
+ * chooser after a real click), so the phone asks for it and the PC shows a "Pair now" banner.
  */
 (function () {
   const HEARTBEAT_MS = 1000; // fallback publish when no tick has published recently
@@ -55,6 +55,40 @@
         this.remoteTimer = setInterval(beat, HEARTBEAT_MS);
       }
       this.remoteCmdLoop();
+    },
+
+    /**
+     * The ride so far for the phone's full-workout graph: power / HR / cadence averaged over bins
+     * sized so a whole workout is about 360 points (5-10 KB). Finished bins are cached; only the
+     * last, partial bin is recomputed each second. Gaps stay null (never filled).
+     */
+    remoteRideHist(totalDur) {
+      const rs = this.recordedSamples || [];
+      const bin = Math.max(2, Math.ceil(Math.max(totalDur || 0, rs.length) / 360));
+      let hh = this._remoteHist;
+      if (!hh || hh.bin !== bin || rs.length < hh.n) hh = this._remoteHist = { bin, n: 0, p: [], h: [], c: [] };
+      const avg = (from, to, key, positiveOnly) => {
+        let sum = 0, cnt = 0;
+        for (let i = from; i < to; i++) {
+          const v = Number(rs[i] && rs[i][key]);
+          if (Number.isFinite(v) && (!positiveOnly || v > 0)) { sum += v; cnt++; }
+        }
+        return cnt ? Math.round(sum / cnt) : null;
+      };
+      while (hh.n + bin <= rs.length) {
+        hh.p.push(avg(hh.n, hh.n + bin, 'power', false));
+        hh.h.push(avg(hh.n, hh.n + bin, 'hr', true));
+        hh.c.push(avg(hh.n, hh.n + bin, 'cadence', true));
+        hh.n += bin;
+      }
+      const tail = hh.n < rs.length;
+      return {
+        bin,
+        p: tail ? hh.p.concat(avg(hh.n, rs.length, 'power', false)) : hh.p.slice(),
+        h: tail ? hh.h.concat(avg(hh.n, rs.length, 'hr', true)) : hh.h.slice(),
+        c: tail ? hh.c.concat(avg(hh.n, rs.length, 'cadence', true)) : hh.c.slice(),
+        seconds: rs.length
+      };
     },
 
     stopRemoteView() {
@@ -170,6 +204,7 @@
           hr: !!(this.ble && this.ble.isHrConnected()),
         },
         trace: this.remoteTrace.slice(),
+        hist: this.remoteRideHist(totalDur),
         hw: this.buildRemoteHardware(),
       };
     },
@@ -204,6 +239,7 @@
           lastPacketMs: d.lastPacketAgeMs == null ? null : Math.round(d.lastPacketAgeMs),
           reading,
           error: slot && slot.lastError && slot.lastError.message ? String(slot.lastError.message).slice(0, 140) : null,
+          notFound: !!(slot && slot.lastError && slot.lastError.name === 'NotFoundError'), // the last try's scan never saw it
         };
       });
       const pr = this._pairRequest && Date.now() < this._pairRequest.until ? this._pairRequest : null;
@@ -233,7 +269,8 @@
       this.publishSoon();
       let ok;
       try { ok = await this.ble.reconnect(kind); } catch (e) { ok = false; }
-      if (ok === null) {
+      // No known device - or Chrome forgot it and this browser cannot scan for it: one click on the PC.
+      if (ok === null || (ok === false && slot && slot.lastError && slot.lastError.needsChooser)) {
         this.updateDeviceBadge(kind, 'disconnected');
         this.requestPairOnPc(kind);
         return null;

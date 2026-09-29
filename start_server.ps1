@@ -452,9 +452,10 @@ function Invoke-LiveCmd($request, $response) {
     $cmd = [string]$b.cmd
     if ($liveCmdsAllowed -notcontains $cmd) { return Send-Json $response 400 @{ error = 'Unknown command' } }
     if (-not $script:liveAt -or ((Get-Date) - $script:liveAt).TotalSeconds -gt 10) { return Send-Json $response 409 @{ error = 'The app on the PC is not open.' } }
-    if ($script:liveCmds.Count -lt 20) { $script:liveCmdId++; [void]$script:liveCmds.Add(@{ Id = $script:liveCmdId; Cmd = $cmd; At = (Get-Date) }) }
-    Send-Json $response 200 @{ ok = $true }
-    Send-LiveCmdWaiter
+    $newId = $null
+    if ($script:liveCmds.Count -lt 20) { $script:liveCmdId++; $newId = $script:liveCmdId; [void]$script:liveCmds.Add(@{ Id = $script:liveCmdId; Cmd = $cmd; At = (Get-Date) }) }
+    Send-LiveCmdWaiter   # wake the PC's open request first, then answer the phone
+    Send-Json $response 200 ([ordered]@{ ok = $true; id = $newId })   # the phone shows the result at once and knows when the PC has applied it (cmdAck)
 }
 
 function Get-StatusObject {
