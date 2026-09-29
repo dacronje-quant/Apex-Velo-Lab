@@ -31,7 +31,7 @@ function night() {
   ]);
 }
 
-check('resting HR is the 5th percentile of heart rate while asleep, not Apple\'s daily value', () => {
+check('resting HR is the 10th percentile of heart rate while asleep, not Apple\'s daily value', () => {
   const { store } = H.merge(H.emptyStore(), H.parsePayload(night()));
   const r = dayOf(store, '2026-09-28');
   assert.strictEqual(r.rhrSrc, 'sleep');
