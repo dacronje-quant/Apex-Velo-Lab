@@ -36,8 +36,8 @@
   .dev.bad { background: var(--red); }
   @keyframes blink { 50% { opacity: .35; } }
 
-  /* Swipeable screens: Focus / Session / Balance. The controls below stay put on every screen. */
-  .tabs { display: grid; grid-template-columns: repeat(5, 1fr); gap: 4px; background: var(--panel); border: 1px solid var(--line); border-radius: 12px; padding: 3px; }
+  /* Swipeable screens: Ride / Focus / Session / Balance / Pedal / Devices. The controls below stay put on every screen. */
+  .tabs { display: grid; grid-template-columns: repeat(6, 1fr); gap: 3px; background: var(--panel); border: 1px solid var(--line); border-radius: 12px; padding: 3px; }
   .tabs button { padding: 7px 2px; font-size: 12px; font-weight: 650; border: 0; border-radius: 9px; background: transparent; color: var(--muted); }
   .tabs button[aria-selected="true"] { background: var(--line); color: var(--text); }
   .tabs button { position: relative; }
@@ -98,6 +98,24 @@
   .polar-wrap { position: relative; width: 100%; height: 34vh; min-height: 200px; }
   #pedalPolar { position: absolute; inset: 0; width: 100%; height: 100%; }
   .model-tag { font-size: 10px; font-weight: 800; letter-spacing: .1em; color: var(--muted); border: 1px solid var(--line); border-radius: 6px; padding: 2px 6px; }
+
+  /* Ride screen: big-number tiles over the whole-workout graph (TrainerRoad-style layout) */
+  .tr-page { gap: 6px; }
+  .tr-tiles { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; }
+  .tr-tile { background: var(--panel); border: 1px solid var(--line); border-radius: 12px; padding: 8px 4px 6px; text-align: center; min-width: 0; }
+  .tr-tile .tv { font-size: 34px; font-weight: 800; line-height: 1; letter-spacing: -.02em; white-space: nowrap; }
+  .tr-tile .tv small { font-size: 14px; font-weight: 600; color: var(--muted); margin-left: 1px; }
+  .tr-tile .tl { color: var(--muted); font-size: 10.5px; font-weight: 700; letter-spacing: .08em; margin-top: 4px; }
+  .tr-tile .ts { font-size: 12px; font-weight: 650; margin-top: 2px; min-height: 15px; color: var(--dim); }
+  .tr-tile.pw .tv { color: #facc15; }
+  .tr-tile.hr .tv { color: #fb7185; }
+  .tr-tile .ts.on { color: var(--lime); } .tr-tile .ts.close { color: var(--amber); } .tr-tile .ts.off { color: var(--red); }
+  .tr-graph { position: relative; flex: 1; min-height: 170px; background: #05070b; border: 1px solid var(--line); border-radius: 12px; overflow: hidden; }
+  #trGraph { position: absolute; inset: 0; width: 100%; height: 100%; margin: 0; }
+  .tr-legend { display: flex; gap: 12px; justify-content: center; font-size: 11px; color: var(--muted); }
+  .tr-legend i { display: inline-block; width: 12px; height: 3px; border-radius: 2px; vertical-align: middle; margin-right: 4px; }
+  .tr-next { font-size: 14px; color: var(--muted); text-align: center; min-height: 18px; }
+  .tr-next b { color: var(--text); }
 
   /* Devices screen: the PC's Bluetooth sensors, driven from the phone */
   .hub { display: flex; align-items: center; gap: 12px; }
@@ -204,6 +222,20 @@
   .toast { position: fixed; left: 50%; bottom: calc(20px + env(safe-area-inset-bottom)); transform: translateX(-50%);
     background: #1f2937; color: var(--text); padding: 10px 16px; border-radius: 12px; font-size: 14px; opacity: 0; transition: opacity .25s; pointer-events: none; z-index: 6; }
   .toast.show { opacity: 1; }
+  /* Phone on its side (bike mount): one row of controls, slim header, tiles in one row */
+  @media (orientation: landscape) and (max-height: 560px) {
+    .tr-tiles { grid-template-columns: repeat(6, 1fr); gap: 5px; }
+    .tr-tile { padding: 4px 2px 3px; border-radius: 10px; }
+    .tr-tile .tv { font-size: 26px; }
+    .tr-tile .tl { font-size: 9.5px; margin-top: 2px; }
+    .tr-tile .ts { font-size: 11px; min-height: 13px; }
+    .tr-graph { min-height: 90px; }
+    .tr-legend, .tr-next { display: none; }
+    .tabs button { padding: 3px 4px; font-size: 12px; }
+    .controls { grid-template-columns: 1.6fr 1fr 1fr 1fr 1fr 1fr; gap: 6px; }
+    .controls button, .controls button.primary { min-height: 46px; font-size: 17px; grid-column: auto !important; }
+    #zoneBar { height: 14px; }
+  }
 </style>
 </head>
 <body>
@@ -216,14 +248,30 @@
   </header>
 
   <nav class="tabs" role="tablist" id="tabs">
-    <button role="tab" aria-selected="true" data-page="0">Focus</button>
-    <button role="tab" aria-selected="false" data-page="1">Session</button>
-    <button role="tab" aria-selected="false" data-page="2">Balance</button>
-    <button role="tab" aria-selected="false" data-page="3">Pedal</button>
-    <button role="tab" aria-selected="false" data-page="4" id="tabDevices">Devices</button>
+    <button role="tab" aria-selected="true" data-page="0">Ride</button>
+    <button role="tab" aria-selected="false" data-page="1">Focus</button>
+    <button role="tab" aria-selected="false" data-page="2">Session</button>
+    <button role="tab" aria-selected="false" data-page="3">Balance</button>
+    <button role="tab" aria-selected="false" data-page="4">Pedal</button>
+    <button role="tab" aria-selected="false" data-page="5" id="tabDevices">Devices</button>
   </nav>
 
   <main class="pages" id="pages">
+    <!-- 0. Ride: big numbers over the whole workout with your power, HR and cadence traced on it -->
+    <section class="page tr-page" id="pageRide" aria-label="Ride">
+      <div class="tr-tiles">
+        <div class="tr-tile"><div class="tv num" id="trTarget">--</div><div class="tl">TARGET W</div><div class="ts num" id="trTargetSub">&nbsp;</div></div>
+        <div class="tr-tile pw"><div class="tv num" id="trPower">--</div><div class="tl">POWER</div><div class="ts num" id="trPowerSub">&nbsp;</div></div>
+        <div class="tr-tile"><div class="tv num" id="trIntLeft">--:--</div><div class="tl">INTERVAL</div><div class="ts num" id="trIntSub">&nbsp;</div></div>
+        <div class="tr-tile hr"><div class="tv num" id="trHr">--</div><div class="tl">HEART RATE</div><div class="ts" id="trHrSub">&nbsp;</div></div>
+        <div class="tr-tile"><div class="tv num" id="trCad">--</div><div class="tl">CADENCE</div><div class="ts num" id="trCadSub">&nbsp;</div></div>
+        <div class="tr-tile"><div class="tv num" id="trLeft">--:--</div><div class="tl">TIME LEFT</div><div class="ts num" id="trElapsed">&nbsp;</div></div>
+      </div>
+      <div class="tr-graph"><canvas id="trGraph"></canvas></div>
+      <div class="tr-legend"><span><i style="background:#2d7ff9"></i>Workout</span><span><i style="background:#facc15"></i>Power</span><span><i style="background:#fb7185"></i>Heart rate</span><span><i style="background:#34d399"></i>Cadence</span></div>
+      <div class="tr-next" id="trNext">&nbsp;</div>
+    </section>
+
     <!-- 1. Focus: the current step and target power -->
     <section class="page" id="pageFocus" aria-label="Focus">
       <div class="card">
@@ -384,7 +432,7 @@
   const pages = $('pages');
   const tabs = Array.from(document.querySelectorAll('#tabs button'));
   let page = 0;
-  try { page = Math.min(4, Math.max(0, parseInt(localStorage.getItem('apexLivePage'), 10) || 0)); } catch (e) { /* storage blocked */ }
+  try { page = Math.min(5, Math.max(0, parseInt(localStorage.getItem('apexLivePage3'), 10) || 0)); } catch (e) { /* storage blocked */ }
 
   function setPage(i, smooth) {
     page = Math.min(tabs.length - 1, Math.max(0, i));
@@ -393,8 +441,8 @@
   }
   function markTab() {
     tabs.forEach((b, i) => b.setAttribute('aria-selected', String(i === page)));
-    document.body.classList.toggle('devpage', page === 4);
-    try { localStorage.setItem('apexLivePage', String(page)); } catch (e) { /* storage blocked */ }
+    document.body.classList.toggle('devpage', page === 5);
+    try { localStorage.setItem('apexLivePage3', String(page)); } catch (e) { /* storage blocked */ }
     if (snap) drawAll(snap);
   }
   tabs.forEach((b) => b.addEventListener('click', () => setPage(Number(b.dataset.page), true)));
@@ -422,7 +470,7 @@
   async function pollLoop(gen) {
     while (gen === pollGen) {
       const ctl = new AbortController(); pollCtl = ctl;
-      const guard = setTimeout(() => ctl.abort(), 6000); // a dropped Wi-Fi connection never hangs the view
+      const guard = setTimeout(() => ctl.abort(), 4000); // server holds 2.5 s max, so a dropped Wi-Fi connection is noticed within 4 s
       try {
         const r = await fetch('api/live' + (seq != null ? '?after=' + seq : ''), { cache: 'no-store', signal: ctl.signal });
         if (!r.ok) throw new Error(String(r.status));
@@ -498,11 +546,46 @@
     const dW = s.baseTarget > 0 && s.target > 0 ? s.target - s.baseTarget : null;
     $('bias').textContent = dW === null ? `${s.bias || 100}%` : dW === 0 ? '\u00b10 W' : `${dW > 0 ? '+' : '\u2212'}${Math.abs(dW)} W`;
     $('btnReset').classList.toggle('biased', (s.bias || 100) !== 100);
+    renderRide(s, riding);
     renderFocus(s, riding, finished);
     renderSession(s);
     renderBalance(s);
     renderPedal(s);
     drawAll(s);
+    applyOptimistic(s);
+  }
+
+  // ---- Instant feedback ------------------------------------------------------------------
+  // A tapped command shows its result straight away (and buzzes), before the PC confirms it.
+  // Each command gets an id from the server; the PC reports the last id it applied (cmdAck) in
+  // every snapshot, so the prediction is dropped exactly when the real state arrives - no flicker,
+  // no double counting. If the PC never applies it (error, 4 s timeout) the screen falls back.
+  let pending = [];
+  const PREDICT = new Set(['watts-up', 'watts-down', 'toggle', 'stand']);
+  function livePending(s) {
+    const now = Date.now(), ack = s && typeof s.cmdAck === 'number' ? s.cmdAck : null;
+    pending = pending.filter((p) => now < p.until && !(ack !== null && ack >= (p.id != null ? p.id : p.guessId)));
+    return pending;
+  }
+  function applyOptimistic(s) {
+    if (!s) return;
+    const ps = livePending(s);
+    if (!ps.length) return;
+    const dWatts = ps.reduce((a, p) => a + (p.cmd === 'watts-up' ? 5 : p.cmd === 'watts-down' ? -5 : 0), 0);
+    if (dWatts && s.target > 0) {
+      const base = s.baseTarget > 0 ? s.target - s.baseTarget : 0;
+      const dW = base + dWatts;
+      $('bias').textContent = dW === 0 ? '\u00b10 W' : `${dW > 0 ? '+' : '\u2212'}${Math.abs(dW)} W`;
+      $('trTarget').textContent = s.target + dWatts;
+    }
+    if (ps.some((p) => p.cmd === 'toggle') && s.state !== 'finished') {
+      const willRide = s.state !== 'running';
+      $('btnToggle').textContent = willRide ? 'PAUSE' : 'RESUME';
+      $('btnToggle').classList.toggle('pause', willRide);
+      $('state').textContent = willRide ? 'RIDING' : 'PAUSED';
+      $('state').className = 'pill ' + (willRide ? 'running' : 'paused');
+    }
+    if (ps.some((p) => p.cmd === 'stand')) $('btnStand').textContent = s.standLeft > 0 ? 'Stand 30s' : 'Stand 30s \u2713';
   }
 
   function renderFocus(s, riding, finished) {
@@ -749,7 +832,7 @@
       else if (st === 'reconnecting') { line = `Link lost - retry <b>${Math.min((base.attempt || 0) + 1, base.maxAttempts || 8)}/${base.maxAttempts || 8}</b>${base.retryInSec ? ` in ${Math.ceil(base.retryInSec)} s` : ''}. Tap Retry now to skip the wait.`; lineCls = 'warn'; }
       else if (st === 'failed') { line = `Could not reconnect. ${DEV[kind].hint}`; lineCls = 'bad'; }
       else if (st === 'pairing') { line = '<b>Look at your PC</b> and click <b>Pair now</b>, then pick the device in the list.'; }
-      else if (base.known) line = base.error ? `Last try failed. ${DEV[kind].hint}` : 'Paired - tap Connect.';
+      else if (base.known) line = base.error ? `${base.notFound ? 'Not found nearby.' : 'Last try failed.'} ${DEV[kind].hint}` : 'Paired - tap Connect.';
       else line = 'Not paired on this PC yet. The first time takes one click on the PC.';
       c.line.innerHTML = line;
       c.line.className = 'dline ' + lineCls;
@@ -789,7 +872,7 @@
     all.hidden = offline || !hw || !hw.bluetooth || knownOff.length === 0;
     all.disabled = sending;
     all.textContent = knownOff.length > 1 ? 'Connect all' : 'Connect';
-    $('tabDevices').classList.toggle('alert', attention && page !== 4);
+    $('tabDevices').classList.toggle('alert', attention && page !== 5);
 
     // A link that drops or comes back gets a toast (and a buzz) on whichever screen is open.
     if (prevDevState && hw) {
@@ -826,9 +909,92 @@
 
   function drawAll(s) {
     drawZoneBar(s, s.progress || 0);
-    if (page === 0) drawTrace(s);
-    if (page === 1) drawRibbon(s, s.progress || 0);
-    if (page === 2) drawBalance();
+    if (page === 0) drawRideGraph(s, s.progress || 0);
+    if (page === 1) drawTrace(s);
+    if (page === 2) drawRibbon(s, s.progress || 0);
+    if (page === 3) drawBalance();
+  }
+
+  /**
+   * Ride graph: every step as a blue block at its target watts (ridden part brighter, the
+   * current step outlined), your power (yellow), heart rate (red, own scale) and cadence
+   * (green, own scale) traced over it, and the playhead at `progress`.
+   */
+  function drawRideGraph(s, progress) {
+    const cv = ctx2d($('trGraph')); if (!cv) return;
+    const { g, w, h } = cv;
+    const prof = (s.profile || []).filter((p) => p[0] > 0);
+    const total = prof.reduce((a, p) => a + p[0], 0);
+    if (!total) return;
+    const ftp = s.ftp || 200, bias = (s.bias || 100) / 100;
+    const hist = s.hist || { p: [], h: [], c: [], bin: 1 };
+    const pw = hist.p.filter((v) => v != null);
+    const top = 8, bottom = h - 4;
+    const maxW = Math.max(ftp * 1.2, ...prof.map((p) => ftp * p[1] / 100 * bias), ...pw) * 1.08;
+    const yW = (v) => bottom - (v / maxW) * (bottom - top);
+    const px = Math.min(1, Math.max(0, progress)) * w;
+    // Grid: FTP line + 100 W steps
+    g.lineWidth = 1;
+    for (let v = 100; v < maxW; v += 100) { g.strokeStyle = 'rgba(148,163,184,.08)'; g.beginPath(); g.moveTo(0, yW(v)); g.lineTo(w, yW(v)); g.stroke(); }
+    // Steps
+    let x = 0;
+    prof.forEach(([dur, pct], i) => {
+      const bw = (dur / total) * w, yT = yW(ftp * pct / 100 * bias);
+      g.fillStyle = 'rgba(45,127,249,.28)';
+      g.fillRect(x, yT, Math.max(1, bw - 1), bottom - yT);
+      if (px > x) { g.fillStyle = 'rgba(45,127,249,.72)'; g.fillRect(x, yT, Math.max(0, Math.min(bw - 1, px - x)), bottom - yT); }
+      if (s.step && i === s.step.index - 1) { g.strokeStyle = 'rgba(238,242,247,.85)'; g.lineWidth = 1.5; g.strokeRect(x + .75, yT + .75, Math.max(1, bw - 2.5), bottom - yT - 1.5); }
+      x += bw;
+    });
+    g.strokeStyle = 'rgba(238,242,247,.35)'; g.setLineDash([3, 4]); g.lineWidth = 1;
+    g.beginPath(); g.moveTo(0, yW(ftp)); g.lineTo(w, yW(ftp)); g.stroke(); g.setLineDash([]);
+    g.fillStyle = 'rgba(238,242,247,.5)'; g.font = '10px system-ui'; g.fillText('FTP', 4, yW(ftp) - 3);
+    // Traces: one point per history bin, placed by ride seconds; gaps stay gaps
+    const line = (arr, yOf, color, width) => {
+      g.beginPath(); let pen = false;
+      arr.forEach((v, i) => {
+        if (v == null) { pen = false; return; }
+        const xx = Math.min(w, ((i + 0.5) * hist.bin / total) * w), yy = yOf(v);
+        pen ? g.lineTo(xx, yy) : g.moveTo(xx, yy); pen = true;
+      });
+      g.strokeStyle = color; g.lineWidth = width; g.lineJoin = 'round'; g.stroke();
+    };
+    const hrs = hist.h.filter((v) => v != null);
+    const hrLo = 50, hrHi = Math.max(190, ...hrs) + 5;
+    line(hist.c, (v) => bottom - (v / 150) * (bottom - top), 'rgba(52,211,153,.55)', 1);
+    line(hist.h, (v) => bottom - ((v - hrLo) / (hrHi - hrLo)) * (bottom - top), '#fb7185', 1.5);
+    line(hist.p, yW, '#facc15', 1.6);
+    // Playhead
+    g.fillStyle = '#eef2f7'; g.fillRect(Math.round(px) - 1, 0, 2, h);
+  }
+
+  function renderRide(s, riding) {
+    const set = (id, v) => { const e = $(id); if (e) e.textContent = v; };
+    const stepLeft = s.step ? s.step.remaining : null;
+    const totalLeft = s.totalDuration ? Math.max(0, Math.round(s.totalDuration * (1 - (s.progress || 0)))) : null;
+    set('trTarget', s.target > 0 ? s.target : '--');
+    set('trTargetSub', s.targetPct ? `${s.targetPct}% FTP` : ' ');
+    set('trPower', s.power != null && (s.power > 0 || riding) ? s.power : '--');
+    const ps = $('trPowerSub');
+    if (ps) {
+      if (riding && s.target > 0 && s.power > 0) {
+        const d = s.power - s.target, pct = Math.abs(d) / s.target * 100;
+        ps.textContent = `${d >= 0 ? '+' : ''}${d} W`;
+        ps.className = 'ts num ' + (pct <= 5 ? 'on' : pct <= 10 ? 'close' : 'off');
+      } else { ps.textContent = ' '; ps.className = 'ts num'; }
+    }
+    set('trIntLeft', stepLeft != null ? fmt(stepLeft) : '--:--');
+    set('trIntSub', s.step ? `${s.step.index}/${s.step.count} ${s.step.name || ''}` : ' ');
+    set('trHr', s.hr || '--');
+    set('trHrSub', s.hrZone || ' ');
+    set('trCad', s.cadence || '--');
+    set('trCadSub', s.targetCadence ? `target ${s.targetCadence}` : ' ');
+    set('trLeft', totalLeft != null ? fmt(totalLeft) : '--:--');
+    set('trElapsed', `${fmt(s.elapsed || 0)} ridden`);
+    const nx = $('trNext');
+    if (nx) nx.innerHTML = s.next && stepLeft != null
+      ? `Next in <b class="num">${fmt(stepLeft)}</b>: <b>${esc(s.next.name)}</b> &middot; <span class="num">${fmt(s.next.duration)} @ ${s.next.watts} W</span>`
+      : (s.step ? 'Final step &mdash; bring it home.' : '&nbsp;');
   }
 
   function drawTrace(s) {
@@ -943,7 +1109,7 @@
   function drawPedal(now) {
     const dt = lastFrame ? Math.min(0.1, (now - lastFrame) / 1000) : 0;
     lastFrame = now;
-    if (page !== 3 || !snap) return;
+    if (page !== 4 || !snap) return;
     if (!polar && window.VeloBiomechanicsRenderer) polar = new VeloBiomechanicsRenderer('pedalPolar');
     if (!polar) return;
     const cad = snap.cadence || 0;
@@ -965,25 +1131,38 @@
       const ahead = Math.min(1.5, (Date.now() - snapAt) / 1000) / snap.totalDuration;
       const prog = Math.min(1, (snap.progress || 0) + ahead);
       drawZoneBar(snap, prog);
-      if (page === 1) drawRibbon(snap, prog);
+      if (page === 0) drawRideGraph(snap, prog);
+      if (page === 2) drawRibbon(snap, prog);
     }
     requestAnimationFrame(glide);
   }
 
   // ---- Commands --------------------------------------------------------------------------
   async function send(cmd, label) {
-    if (sending) return;
-    sending = true; render(snap);
+    const predict = PREDICT.has(cmd) && snap;
+    // +/-5 W and the other predicted taps never wait for each other: tap twice, get +10 W at once.
+    if (sending && !predict) return;
+    let entry = null;
+    if (predict) {
+      const ack = typeof snap.cmdAck === 'number' ? snap.cmdAck : 0;
+      entry = { cmd, id: null, guessId: ack + livePending(snap).length + 1, until: Date.now() + 4000 };
+      pending.push(entry);
+      applyOptimistic(snap);
+    } else {
+      sending = true; render(snap);
+    }
+    if (navigator.vibrate) navigator.vibrate(15);
+    if (label) toast(label);
     try {
       const r = await fetch('api/live/cmd', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ cmd }) });
       const d = await r.json().catch(() => ({}));
       if (!r.ok) throw new Error(d.error || ('Error ' + r.status));
-      if (label) toast(label);
-      if (navigator.vibrate) navigator.vibrate(15);
+      if (entry && typeof d.id === 'number') entry.id = d.id;
     } catch (e) {
+      if (entry) pending = pending.filter((p) => p !== entry);
       toast(e.message || 'Could not reach the PC');
     } finally {
-      sending = false;
+      if (!entry) sending = false;
       render(snap); // the PC republishes at once after a command; the long-poll brings it in
     }
   }
@@ -992,7 +1171,7 @@
     (snap && snap.hw && snap.hw.list || []).forEach((d) => { if (d.state !== 'connected' && d.known) pendingConnect[d.kind] = Date.now() + 5000; });
     send('connect-all', 'Connecting your sensors...');
   });
-  $('devDots').addEventListener('click', () => setPage(4, true));
+  $('devDots').addEventListener('click', () => setPage(5, true));
   $('btnToggle').addEventListener('click', () => send('toggle', snap && snap.state === 'running' ? 'Pausing...' : 'Starting...'));
   $('btnUp').addEventListener('click', () => send('watts-up'));
   $('btnDown').addEventListener('click', () => send('watts-down'));
@@ -1031,6 +1210,9 @@
   }
   window.__apexKeepAwake = () => ({ secure: window.isSecureContext, lock: !!(wakeSentinel && !wakeSentinel.released), video: !!(awakeVideo && !awakeVideo.paused) });
   document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') { keepAwake(); restartPoll(); } });
+  // Back from the app switcher / Wi-Fi back: reconnect at once instead of waiting for a stale request.
+  window.addEventListener('pageshow', (e) => { if (e.persisted) restartPoll(); });
+  window.addEventListener('online', () => restartPoll());
   document.addEventListener('click', keepAwake);
   document.addEventListener('touchend', keepAwake, { passive: true });
   if (!window.isSecureContext) setTimeout(() => toast('Tap anywhere once to keep the screen on'), 1500);
