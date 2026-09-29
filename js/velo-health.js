@@ -14,7 +14,7 @@
  *
  * Days are the phone's local calendar dates as Health Auto Export writes them. Sleep belongs to the
  * morning you wake up, and so do heart rate and HRV readings taken from 18:00 on.
- * Resting HR is the 5th percentile of heart rate while asleep (Apple's daily value when a night has
+ * Resting HR is the 10th percentile of heart rate while asleep (Apple's daily value when a night has
  * too few readings); HRV is the average of the readings taken asleep (all of that night's otherwise).
  * HRV is Apple's SDNN in ms (the watch does not record rMSSD).
  * Pure functions, no DOM: used by the app and by the Node tests.
@@ -69,7 +69,7 @@
     return m ? Date.UTC(+m[1], m[2] - 1, +m[3], +m[4], +m[5]) / 60000 : null;
   }
 
-  // Resting HR is the night's floor: the 5th percentile of heart rate while asleep. One bad low
+  // Resting HR is the night's floor: the 10th percentile of heart rate while asleep. One bad low
   // optical reading cannot set it (the minimum could), and REM / restless spells do not lift it
   // (the average would). Needs this many readings in the night, else Apple's daily value is used.
   const MIN_SLEEP_HR = 20;
@@ -176,7 +176,7 @@
     // Resting HR: the floor of the night's heart rate; Apple's daily resting HR when the night has too few readings.
     const sleepHr = during(rec.hr);
     const rhr = rec.rhr ? Object.values(rec.rhr).filter(Number.isFinite) : [];
-    if (sleepHr.length >= MIN_SLEEP_HR) { out.rhr = Math.round(percentile(sleepHr, 0.05)); out.rhrSrc = 'sleep'; }
+    if (sleepHr.length >= MIN_SLEEP_HR) { out.rhr = Math.round(percentile(sleepHr, 0.10)); out.rhrSrc = 'sleep'; }
     // Apple writes one resting HR per day; if an export holds a few, the lowest is the resting one.
     else if (rhr.length) { out.rhr = Math.round(Math.min.apply(null, rhr)); out.rhrSrc = 'apple'; }
 
