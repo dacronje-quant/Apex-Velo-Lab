@@ -21,7 +21,7 @@ The in-app guide also covers pacing variation, power curves, zones, heart rate, 
 
 ## Weekly time chosen from history
 
-Leave the weekly-hours field blank to select automatic planning. The AI proposes each week's allowance, and the local planner limits it using recent riding, recovery and available days. The built-in engine uses the same limits if AI fails or is offline. Recovery weeks are shorter, large jumps are constrained, and re-planning preserves automatic mode. Entering hours keeps the original manual plan behavior. This is a practical estimate of suitable time, not proof of an optimal training dose.
+Leave the weekly-hours field blank to have the connected AI choose each week's allowance. The local planner limits the AI's choice using recent riding, recovery and available days. There is no separate automatic-planning option or local substitute for this choice. If AI fails, is offline or omits weekly hours, the app keeps the existing plan and asks you to enter hours or try again. Recovery weeks are shorter, large jumps are constrained, and re-planning remembers that you delegated hours to AI. Entering hours keeps the original manual plan behavior. This is a practical estimate of suitable time, not proof of an optimal training dose.
 
 ## Outdoor distance investigation
 
@@ -31,4 +31,4 @@ Suggested next change: retain original ride measurements, store missing distance
 
 ## Verification
 
-Automated checks cover blank/manual hours, recent volume and fatigue, bounded AI choices, offline fallback, reload/re-plan behavior, selected days and spacing, plus unchanged manual schedules and targets. Existing Bluetooth and ride-metric checks were also run. Live external AI responses were not requested; provider responses are variable, so the writing policy is an instruction rather than a guarantee of exact wording.
+Automated checks cover blank/entered hours, recent volume and fatigue, bounded AI choices, failures preserving an existing plan, reload/re-plan behavior, selected days and spacing, plus unchanged entered-hours schedules and targets. Existing Bluetooth and ride-metric checks were also run. Live external AI responses were not requested; provider responses are variable, so the writing policy is an instruction rather than a guarantee of exact wording.
