@@ -32,24 +32,26 @@ function planner(ctx = context()) {
 }
 const plain = value => JSON.parse(JSON.stringify(value));
 
-test('blank hours selects automatic time; entered and legacy hours stay manual', () => {
-  for (const hours of [null, '', '  ']) assert.equal(P.normaliseOptions({ ...options, hoursPerWeek: hours }).hoursMode, 'auto');
+test('blank hours asks AI to choose; entered and legacy hours stay manual', () => {
+  for (const hours of [null, '', '  ']) assert.equal(P.normaliseOptions({ ...options, hoursPerWeek: hours }).aiChoosesHours, true);
   assert.equal(P.normaliseOptions({ ...options, hoursPerWeek: 7 }).hoursPerWeek, 7);
   assert.equal(P.normaliseOptions({ ...options, hoursPerWeek: undefined }).hoursPerWeek, 6);
 });
 
-test('automatic starting time responds to recent volume, a break, fatigue and little history', () => {
-  const normal = P.automaticVolume(context(), options.days).baselineHours;
+test('AI time bounds respond to recent volume, a break, fatigue and little history', () => {
+  const normal = P.historyTimeBounds(context(), options.days).baselineHours;
   assert.equal(normal, 5);
-  assert(P.automaticVolume(context({ tsb: -30 }), options.days).baselineHours < normal);
-  assert(P.automaticVolume(context({ readiness: { level: 'amber' } }), options.days).baselineHours < normal);
-  assert(P.automaticVolume(context({ history: { rides28: 12, hoursPerWeek4w: 5, hours7: 0 } }), options.days).baselineHours < normal);
-  assert.equal(P.automaticVolume(context({ history: {} }), options.days).baselineHours, 2);
+  assert(P.historyTimeBounds(context({ tsb: -30 }), options.days).baselineHours < normal);
+  assert(P.historyTimeBounds(context({ readiness: { level: 'amber' } }), options.days).baselineHours < normal);
+  assert(P.historyTimeBounds(context({ history: { rides28: 12, hoursPerWeek4w: 5, hours7: 0 } }), options.days).baselineHours < normal);
+  assert.equal(P.historyTimeBounds(context({ history: {} }), options.days).baselineHours, 2);
 });
 
-test('automatic fallback respects exact time budgets, selected days and hard-day spacing', async () => {
-  const { block } = await planner().create(options, { useAi: false });
-  assert.equal(block.options.hoursMode, 'auto');
+test('AI-chosen time respects exact budgets, selected days and hard-day spacing', async () => {
+  const p = planner(); p.coach.isLive = true;
+  p.requestDesign = async () => ({ provider: 'mock', design: { weeks: Array.from({ length: 8 }, (_, i) => ({ week: i + 1, recommendedHours: 5 })) } });
+  const { block } = await p.create(options);
+  assert.equal(block.options.aiChoosesHours, true);
   const hardDates = [];
   let previous = block.options.hoursPerWeek;
   for (const w of block.weeks) {
@@ -80,27 +82,38 @@ test('AI chooses weekly time but cannot prescribe unlimited hours or bypass reco
     })) }, provider: 'mock' };
   };
   const { block } = await p.create(options);
-  assert(sent.includes('AUTOMATIC WEEKLY TIME'));
+  assert(sent.includes('AI-CHOSEN WEEKLY TIME'));
   assert(sent.includes('"recommendedHours"'));
   assert.equal(block.weeks[0].hoursBudget, 4);
   for (const w of block.weeks) {
     assert(w.plannedMin <= w.hoursBudget * 60 + 0.001);
-    assert(w.hoursBudget <= block.options.autoVolume.ceilingHours);
+    assert(w.hoursBudget <= block.options.timeBounds.ceilingHours);
   }
 });
 
-test('AI failure still makes an automatic plan; reload and replan preserve automatic mode', async () => {
+test('blank hours never falls back to a local time choice or replaces an existing block on failure', async () => {
   const p = planner();
+  p.block = { id: 'existing', weeks: [] };
+  await assert.rejects(p.create(options), /AI coach is unavailable/);
+  assert.equal(p.block.id, 'existing');
   p.coach.isLive = true;
   p.requestDesign = async () => { throw new Error('test outage'); };
-  const result = await p.create({ ...options, startDate: P.today() });
-  assert(result.apiError);
-  assert.equal(result.block.options.hoursMode, 'auto');
+  await assert.rejects(p.create(options), /AI could not choose/);
+  assert.equal(p.block.id, 'existing');
+  p.requestDesign = async () => ({ provider: 'mock', design: { weeks: [{ recommendedHours: 4 }] } });
+  await assert.rejects(p.create(options), /every week/);
+  assert.equal(p.block.id, 'existing');
+});
+
+test('reload and replan keep the hours field delegated to AI', async () => {
+  const p = planner(); p.coach.isLive = true;
+  p.requestDesign = async opts => ({ provider: 'mock', design: { weeks: Array.from({ length: opts.weeks }, (_, i) => ({ week: i + 1, recommendedHours: 4 })) } });
+  await p.create({ ...options, startDate: P.today() });
   const reloaded = new P(p.coach);
-  assert.equal(reloaded.block.options.hoursMode, 'auto');
-  const replanned = await reloaded.replanFromToday({ useAi: false });
-  assert.equal(replanned.block.options.hoursMode, 'auto');
-  assert(replanned.block.weeks.length > 0);
+  assert.equal(reloaded.block.options.aiChoosesHours, true);
+  reloaded.requestDesign = p.requestDesign;
+  const replanned = await reloaded.replanFromToday();
+  assert.equal(replanned.block.options.aiChoosesHours, true);
 });
 
 test('manual plans retain the original session schedule and workout targets', () => {
