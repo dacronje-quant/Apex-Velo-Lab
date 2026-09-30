@@ -2,17 +2,15 @@ const { test } = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const vm = require('node:vm');
-const { execFileSync } = require('node:child_process');
+const { createHash } = require('node:crypto');
 
-function load(oldPlanner = false) {
+function load() {
   const values = new Map();
   const ctx = vm.createContext({ window: {}, localStorage: {
     getItem: k => values.get(k) || null, setItem: (k, v) => values.set(k, v), removeItem: k => values.delete(k)
   } });
   for (const file of ['velo-metrics', 'velo-ai-coach', 'velo-block-planner', 'velo-insight']) {
-    const src = oldPlanner && file === 'velo-block-planner'
-      ? execFileSync('git', ['show', 'HEAD:js/velo-block-planner.js'], { encoding: 'utf8' })
-      : fs.readFileSync(`js/${file}.js`, 'utf8');
+    const src = fs.readFileSync(`js/${file}.js`, 'utf8');
     vm.runInContext(src, ctx);
   }
   return { P: ctx.window.VeloBlockPlanner, C: ctx.window.VeloAiCoach, I: ctx.window.VeloInsight };
@@ -30,7 +28,6 @@ const options = { goal: 'ftp', weeks: 8, hoursPerWeek: null, days: [0, 2, 4, 6],
 function planner(ctx = context()) {
   return new P({ isLive: false, getPhysiologicalContext: () => ctx, detectEngine: async () => {} });
 }
-const plain = value => JSON.parse(JSON.stringify(value));
 
 test('blank hours asks AI to choose; entered and legacy hours stay manual', () => {
   for (const hours of [null, '', '  ']) assert.equal(P.normaliseOptions({ ...options, hoursPerWeek: hours }).aiChoosesHours, true);
@@ -117,14 +114,19 @@ test('reload and replan keep the hours field delegated to AI', async () => {
 });
 
 test('manual plans retain the original session schedule and workout targets', () => {
-  const old = load(true).P;
+  // Fixed snapshots from main before the AI-hours change (aad9e5d).
+  // Comparing against HEAD would silently stop checking the old behavior after a commit.
+  const original = {
+    2: '59232d2cfdfafe8fea5cadf4fb7b652a36444d3a2465194d1124679985c06421',
+    6: 'ff569c8f9f5e5b74e29b626b1df88f60464f101c2c09271158f2b3e8997489e7',
+    12: '369a2065d2dbefb716de0b19f67002d0b8e8ea455056bcd5915ba0b041270510'
+  };
   const ctx = context();
   for (const hoursPerWeek of [2, 6, 12]) {
     const opts = { ...options, hoursPerWeek };
-    const original = old.assemble(old.normaliseOptions(opts), ctx);
     const current = P.assemble(P.normaliseOptions(opts), ctx);
-    assert.deepEqual(plain(current.weeks.map(w => w.sessions)), plain(original.weeks.map(w => w.sessions)));
-    assert.deepEqual(plain(current.stats), plain(original.stats));
+    const snapshot = { sessions: current.weeks.map(w => w.sessions), stats: current.stats };
+    assert.equal(createHash('sha256').update(JSON.stringify(snapshot)).digest('hex'), original[hoursPerWeek]);
   }
 });
 

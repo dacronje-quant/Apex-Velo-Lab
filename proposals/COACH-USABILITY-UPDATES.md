@@ -32,3 +32,5 @@ Suggested next change: retain original ride measurements, store missing distance
 ## Verification
 
 Automated checks cover blank/entered hours, recent volume and fatigue, bounded AI choices, failures preserving an existing plan, reload/re-plan behavior, selected days and spacing, plus unchanged entered-hours schedules and targets. Existing Bluetooth and ride-metric checks were also run. Live external AI responses were not requested; provider responses are variable, so the writing policy is an instruction rather than a guarantee of exact wording.
+
+Final verification: all 106 browser checks and 58 Node test entries passed. Both Node and PowerShell server integration suites passed. Their external-address client check was skipped because this machine has no suitable non-private address. Physical Bluetooth devices and live AI responses remain untested. The blank-hours screen was checked with AI unavailable: it reports the issue and keeps the setup open without saving a replacement plan.
