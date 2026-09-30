@@ -375,7 +375,7 @@
 
       // Peaks from samples (or '--' when the ride has no 1 Hz stream)
       const powers = hasSamples ? samples.map(s => s.power || 0) : [];
-      const peak = (sec) => (hasSamples ? VeloMetrics.bestRollingAvg(powers, sec) : null);
+      const peak = (sec) => (hasSamples ? VeloMetrics.bestRollingAvg(VeloMetrics.toOneHz(samples), sec) : null);
       const p5s = hasSamples ? peak(5) : (pos(record.maxWatts) ? null : null);
       const p1m = peak(60), p5m = peak(300), p20m = peak(1200);
       const prs = this.getAllTimeMmpBests();

@@ -78,7 +78,12 @@ const MAX_BODY_BYTES = 256 * 1024;
 
 const SYSTEM_PROMPT = 'You are an elite cycling coach and exercise physiologist. You prescribe structured indoor ERG sessions ' +
   'from the rider\'s real training data. Be specific and evidence-based, never invent data that is not in the request, ' +
-  'and reply with exactly the JSON object requested - no prose before or after it.';
+  'and use the requested response format (JSON when requested, otherwise plain text or markdown). ' +
+  'Explain things to a beginner in short, everyday sentences. Lead with what to do and why it helps. ' +
+  'Avoid sports-science jargon and acronyms in advice: say fitness base, recent training strain, and freshness instead of CTL, ATL, and TSB. ' +
+  'If a technical term is essential, explain it immediately in plain words. Use numbers only when needed to act, such as ride duration or a power target; ' +
+  'do not repeat training scores, percentages, or tables of statistics in prose. Keep numeric workout fields and schema keys exact. ' +
+  'Treat calculated scores as estimates, not proof of illness, overtraining, or full recovery. Be respectful and concise.';
 
 // ------------------------------------------------------------------ static --
 const MIME = {
@@ -573,7 +578,8 @@ async function handleStrava(req, res, urlPath, query) {
 // Every command has an id and stays queued until the PC confirms it (cmdAck in its next
 // publish), so a command is never lost on a dropped connection and never applied twice.
 const LIVE_CMDS = new Set(['toggle', 'skip', 'bias-up', 'bias-down', 'bias-reset', 'watts-up', 'watts-down', 'stand', 'spin-more', 'spin-finish',
-  'connect-trainer', 'connect-pedals', 'connect-hr', 'disconnect-trainer', 'disconnect-pedals', 'disconnect-hr', 'connect-all', 'pair-cancel', 'calibrate-pedals']);
+  'connect-trainer', 'connect-pedals', 'connect-hr', 'connect-fan', 'disconnect-trainer', 'disconnect-pedals', 'disconnect-hr', 'disconnect-fan', 'connect-all', 'connect-stop', 'pair-cancel', 'calibrate-pedals',
+  'fan-0', 'fan-25', 'fan-50', 'fan-75', 'fan-100', 'fan-mode-manual', 'fan-mode-hr', 'fan-mode-power']);
 const LIVE_HOLD_MS = 2500;
 const LIVE_CMD_HOLD_MS = 20000;
 const LIVE_MAX_WAITERS = 8;

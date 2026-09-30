@@ -11,6 +11,7 @@
     initSettings() {
       const on = (id, fn) => this.on(document.getElementById(id), 'click', fn);
       on('btnOpenSettings', () => this.openSettings());
+      document.querySelectorAll('[data-training-guide]').forEach(b => this.on(b, 'click', () => this.openSettings('guide')));
       on('btnCloseSettings', () => this.closeModal('settingsModal'));
       on('btnSettingsEditRider', () => { this.closeModal('settingsModal'); this.openModal('profileManagerModal'); });
       document.querySelectorAll('#settingsNav [data-sec]').forEach(b => this.on(b, 'click', () => this.showSettingsSection(b.dataset.sec)));

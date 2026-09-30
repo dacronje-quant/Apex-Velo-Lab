@@ -23,7 +23,7 @@
       const set = (id, v) => { const el = document.getElementById(id); if (el) el.value = String(v); };
       set('selectBlockGoal', o.goal);
       set('selectBlockWeeks', o.weeks);
-      set('inputBlockHours', o.hoursPerWeek);
+      set('inputBlockHours', o.hoursPerWeek === null || o.aiChoosesHours ? '' : o.hoursPerWeek);
       set('selectBlockLongDay', o.longDay === null || o.longDay === undefined ? '' : o.longDay);
       set('inputBlockStart', P().today());
       if (days) {
@@ -72,7 +72,7 @@
         goal: val('selectBlockGoal') || 'ftp',
         weeks: parseInt(val('selectBlockWeeks') || '8', 10),
         startDate: val('inputBlockStart') || P().today(),
-        hoursPerWeek: parseFloat(val('inputBlockHours') || '6'),
+        hoursPerWeek: String(val('inputBlockHours') || '').trim() === '' ? null : parseFloat(val('inputBlockHours')),
         longDay: val('selectBlockLongDay') === '' ? null : Number(val('selectBlockLongDay')),
         days,
         notes: (document.getElementById('inputAiCoachNotes') || {}).value || ''
@@ -103,6 +103,9 @@
     async buildTrainingBlock() {
       const opts = this.readBlockOptions();
       if (opts.days.length < 2) { this.showToast('Pick at least two days you can ride.', 'warning'); return; }
+      if (opts.hoursPerWeek !== null && (!Number.isFinite(opts.hoursPerWeek) || opts.hoursPerWeek < 2 || opts.hoursPerWeek > 25)) {
+        this.showToast('Enter weekly hours between 2 and 25, or leave it blank for the coach to choose.', 'warning'); return;
+      }
       try { localStorage.setItem(OPTIONS_KEY, JSON.stringify({ goal: opts.goal, weeks: opts.weeks, hoursPerWeek: opts.hoursPerWeek, longDay: opts.longDay, days: opts.days })); } catch (e) { /* ignore */ }
       const c = this.aiCoach;
       const label = c.isLive ? `Planning with ${VeloAiCoach.labelFor(c.model)}` : 'Planning';
@@ -185,7 +188,7 @@
       const today = P().today();
       this.setText('blockTitle', `${goal.label} block`);
       const by = b.source === 'offline_heuristic' ? 'Built-in periodisation engine' : `Designed with ${b.modelLabel || VeloAiCoach.labelFor(b.model)}`;
-      this.setText('blockSubtitle', `${fmtDay(b.startDate, { month: 'short', day: 'numeric' })} - ${fmtDay(b.endDate, { month: 'short', day: 'numeric', year: 'numeric' })} - ${b.options.hoursPerWeek} h/week - CTL ${b.stats.startCtl} -> ~${b.stats.endCtl} - ${by}`);
+      this.setText('blockSubtitle', `${fmtDay(b.startDate, { month: 'short', day: 'numeric' })} - ${fmtDay(b.endDate, { month: 'short', day: 'numeric', year: 'numeric' })} - ${b.options.aiChoosesHours ? 'Weekly hours chosen from your training' : `Up to ${b.options.hoursPerWeek} h/week`} - ${by}`);
       const sumEl = document.getElementById('blockSummary');
       if (sumEl) {
         sumEl.innerHTML = esc(b.summary || '') + (b.thinking
@@ -218,7 +221,7 @@
             <span class="bw-bars"><span class="bw-plan" style="height:${((w.plannedTss || 0) / maxT) * 100}%"></span><span class="bw-done" style="height:${((w.doneTss || 0) / maxT) * 100}%"></span></span>
             <b class="num">W${w.index}</b>
             <small>${esc(tag)}</small>
-            <small class="num">${w.plannedTss} TSS</small>
+            <small class="num">${b.options.aiChoosesHours ? `${Math.round(w.plannedMin / 6) / 10} h` : `${w.plannedTss} TSS`}</small>
           </div>`;
         }).join('');
       }
@@ -235,8 +238,8 @@
       if (cur) {
         const tag = cur.type === 'recovery' ? 'recovery week' : cur.type === 'test' ? 'recovery + test week' : `load week ${cur.stage}`;
         this.setText('blockWeekLabel', `Week ${cur.index} - ${cur.phase} (${tag})`);
-        this.setText('blockWeekTss', `${cur.doneTss || 0} / ${cur.plannedTss} TSS`);
-        this.setText('blockWeekNotes', cur.notes || (cur.cappedByHours ? 'This week is limited by the hours you have: the key sessions keep priority.' : ''));
+        this.setText('blockWeekTss', b.options.aiChoosesHours ? `${Math.round(cur.plannedMin / 6) / 10} h planned` : `${cur.doneTss || 0} / ${cur.plannedTss} TSS`);
+        this.setText('blockWeekNotes', cur.notes || (cur.cappedByHours ? (b.options.aiChoosesHours ? 'Ride time is kept within the allowance based on your recent training.' : 'This week is limited by the hours you have: the key sessions keep priority.') : ''));
         if (listEl) listEl.innerHTML = cur.sessions.length ? cur.sessions.map(s => this.blockSessionRow(s, today)).join('') : '<div class="empty-state">No sessions this week.</div>';
       }
       const next = b.weeks.find(w => cur && w.index === cur.index + 1);

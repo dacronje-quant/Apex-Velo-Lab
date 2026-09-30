@@ -301,14 +301,15 @@ class VeloStravaSync {
       const pw = rec.np || rec.avgWatts || 0;
       let ifv, method;
       if (samples && typeof VeloMetrics !== 'undefined') {
-        rec.samples = samples;
-        const powers = samples.map(s => s.power || 0);
-        const np = VeloMetrics.normalizedPower(powers) || rec.avgWatts || 0;
+        rec.samples = VeloMetrics.toOneHz(samples);
+        const powers = rec.samples.map(s => s.power || 0);
+        rec.avgWatts = VeloMetrics.avgPower(powers);
+        const np = VeloMetrics.normalizedPower(rec.samples) || rec.avgWatts || 0;
         rec.np = Math.round(np);
-        rec.maxWatts = Math.max(...powers);
+        rec.maxWatts = VeloMetrics.stats(powers).max;
         ifv = np / ftp; method = 'power-stream';
         rec.if = (Math.round(ifv * 100) / 100).toFixed(2);
-        rec.tss = Math.round((samples.length / 3600) * ifv * ifv * 100);
+        rec.tss = Math.round((rec.samples.length / 3600) * ifv * ifv * 100);
         rec.tssMethod = method;
         rec.tssEstimated = false;
         return rec;

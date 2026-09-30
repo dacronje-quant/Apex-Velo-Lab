@@ -235,8 +235,10 @@ async function runAgainst(kind, pwsh, mock, appPort) {
     const tokenFile = await fetch(`${base}/data/health/token.txt`);
     const inboxFile = await fetch(`${base}/data/health/inbox/${inboxNames[0]}`);
     const lanRead = await new Promise(r => { const q = http.request({ host: '127.0.0.1', port: appPort, path: '/api/health/status', headers: { Host: `192.168.1.50:${appPort}` } }, rs => { rs.resume(); r({ status: rs.statusCode }); }); q.on('error', () => r(null)); q.end(); });
+    // HTTP.sys may reject unmatched Host prefixes with 400 before PowerShell sees the request.
+    const hostRejected = status => status === 403 || (kind === 'ps' && status === 400);
     const evilRead = await fetch(`${base}/api/health/inbox`, { headers: { Origin: 'https://evil.example' } });
-    check(`${tag}: the token and health data are never served, and only the app on this PC can read them`, tokenFile.status === 404 && inboxFile.status === 404 && lanRead && lanRead.status === 403 && evilRead.status === 403,
+    check(`${tag}: the token and health data are never served, and only the app on this PC can read them`, tokenFile.status === 404 && inboxFile.status === 404 && lanRead && hostRejected(lanRead.status) && evilRead.status === 403,
       `file ${tokenFile.status}/${inboxFile.status} lan ${lanRead && lanRead.status} evil ${evilRead.status}`);
     const ack = await (await fetch(`${base}/api/health/ack`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ names: inbox.files.map(f => f.name).concat(['../server.js', 'hae_x.json']) }) })).json();
     const hAfter = await (await fetch(`${base}/api/health/status`)).json();
@@ -253,7 +255,7 @@ async function runAgainst(kind, pwsh, mock, appPort) {
     const home = await fetch(`${base}/index.html`);
     // fetch() drops a custom Host header, so this request goes through http.request.
     const rebinding = await new Promise(r => { const q = http.request({ host: '127.0.0.1', port: appPort, path: '/index.html', headers: { Host: 'evil.example' } }, rs => { rs.resume(); r({ status: rs.statusCode }); }); q.on('error', () => r(null)); q.end(); });
-    check(`${tag}: pages load on localhost; another site's Host header is refused (403)`, home.status === 200 && rebinding && rebinding.status === 403, `home ${home.status}, rebinding ${rebinding && rebinding.status}`);
+    check(`${tag}: pages load on localhost; another site's Host header is refused`, home.status === 200 && rebinding && hostRejected(rebinding.status), `home ${home.status}, rebinding ${rebinding && rebinding.status}`);
     const ext = Object.values(os.networkInterfaces()).flat().find(i => i && i.family === 'IPv4' && !i.internal);
     const isPrivate = (ip) => /^(10\.|192\.168\.|169\.254\.|172\.(1[6-9]|2\d|3[01])\.)/.test(ip);
     if (ext && !isPrivate(ext.address)) {
@@ -261,6 +263,19 @@ async function runAgainst(kind, pwsh, mock, appPort) {
       if (outside) check(`${tag}: a client outside the home network is refused even with Host: localhost`, outside.status === 403, `status ${outside.status} from ${ext.address}`);
       else console.log(`SKIP: ${tag} does not listen on ${ext.address} (localhost only) - nothing outside can connect`);
     } else console.log('SKIP: no non-private network address on this machine to test the client check from');
+
+    // Bluetooth phone commands use the same bounded allowlist on both servers.
+    const postLive = (route, body) => fetch(`${base}/api/live${route}`, { method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(body) });
+    await postLive('', {v:1,state:'ready',cmdAck:0});
+    const fanCommands = ['connect-fan','disconnect-fan','connect-stop','fan-0','fan-25','fan-50','fan-75','fan-100','fan-mode-manual','fan-mode-hr','fan-mode-power'];
+    const commandCodes = [];
+    for (const cmd of fanCommands) commandCodes.push((await postLive('/cmd',{cmd})).status);
+    check(`${tag}: accepts Bluetooth and fan phone commands`, commandCodes.every(x=>x===200), commandCodes.join('/'));
+    const invalidFan = await postLive('/cmd',{cmd:'fan-999'});
+    check(`${tag}: rejects unsupported fan commands`, invalidFan.status===400);
+    const delivered = await (await fetch(`${base}/api/live/cmds?after=0`)).json();
+    check(`${tag}: delivers fan commands in order without losing them`, JSON.stringify((delivered.cmds||[]).map(c=>c.cmd))===JSON.stringify(fanCommands));
+    await postLive('', {v:1,state:'ready',cmdAck:delivered.cmds?.at(-1)?.id});
 
     // 5. READ ONLY: every request the sync path sent to Strava was a GET to the three allowed endpoints
     const nonGet = mock.log.filter(l => l.method !== 'GET');

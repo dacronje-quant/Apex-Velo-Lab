@@ -23,8 +23,17 @@ class VeloAnalytics {
     this.mmpDurations = VeloMetrics.MMP_DURATIONS.slice();
     this.mmpCurrentBests = {};
     this.mmpRunningSums = {};
+    this._hasMmpWindow = {};
     this.mmpDurations.forEach(d => { this.mmpCurrentBests[d] = 0; this.mmpRunningSums[d] = 0; });
     this.powerBuffer = [];
+  }
+
+  /** A pause ends continuous windows without discarding accumulated work, NP or bests. */
+  startSegment() {
+    this.rolling30s = [];
+    this.rolling30Sum = 0;
+    this.powerBuffer = [];
+    this.mmpDurations.forEach(d => { this.mmpRunningSums[d] = 0; });
   }
 
   /** Feeds one 1 Hz power sample. O(number of MMP durations) per call. */
@@ -59,6 +68,7 @@ class VeloAnalytics {
       this.mmpRunningSums[d] += p;
       if (len > d) this.mmpRunningSums[d] -= this.powerBuffer[len - 1 - d];
       if (len >= d) {
+        this._hasMmpWindow[d] = true;
         const avg = Math.round(this.mmpRunningSums[d] / d);
         if (avg > this.mmpCurrentBests[d]) this.mmpCurrentBests[d] = avg;
       }
@@ -67,7 +77,7 @@ class VeloAnalytics {
 
   /** Live mean-maximal curve of the current session (null where not yet long enough). */
   getLiveMmp() {
-    return this.mmpDurations.map(d => (this.totalSeconds >= d ? this.mmpCurrentBests[d] : null));
+    return this.mmpDurations.map(d => (this._hasMmpWindow[d] ? this.mmpCurrentBests[d] : null));
   }
 
   getCurrentZoneInfo(powerWatts) {

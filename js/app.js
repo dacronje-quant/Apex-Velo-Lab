@@ -49,16 +49,16 @@ class VeloApp {
     this.currentPower = 0;
     this.currentCadence = 0;
     this.currentHeartRate = 0;
-    this.currentLeftBal = 50;
-    this.currentRightBal = 50;
+    this.currentLeftBal = null;
+    this.currentRightBal = null;
     this.activePowerSource = 'SIMULATOR';
     this.lastInstantPower = 0;
     this.lastCadence = 0;
     this.lastHr = 0;
 
     // BLE telemetry caches
-    this.blePedal = { name: 'Assioma DUO-Shi', watts: null, cadence: null, leftPct: null, rightPct: null, torque: null, lastTime: -1e9 };
-    this.bleTrainer = { name: 'Wahoo KICKR SHIFT', watts: null, cadence: null, speed: null, distanceMeters: null, lastTime: -1e9 };
+    this.blePedal = { name: 'Power meter', watts: null, cadence: null, leftPct: null, rightPct: null, torque: null, lastTime: -1e9 };
+    this.bleTrainer = { name: 'Smart trainer', watts: null, cadence: null, speed: null, distanceMeters: null, lastTime: -1e9 };
     this.bleHr = { hr: null, contact: null, lastTime: -1e9 };
     this.bleBattery = { trainer: null, pedals: null, hr: null };
     this.lowBatteryWarned = { trainer: false, pedals: false, hr: false };
@@ -114,6 +114,7 @@ class VeloApp {
     this._disposers = [];
 
     this.initDoms();
+    if (this.initDevicesUi) this.initDevicesUi();
     this.initCharts();
     this.initKeyboardShortcuts();
     this.initCalendarEvents();
@@ -203,6 +204,7 @@ class VeloApp {
     const m = this.$(id);
     if (!m) return;
     m.classList.remove('open');
+    if (id === 'hardwareModal' && this.closeDevicesFocus) this.closeDevicesFocus();
     if (id === 'rideSummaryModal') this.destroyScrubChart();
   }
 
@@ -608,14 +610,16 @@ class VeloApp {
     if (soft) {
       // Live readings, not the last tick's: after a pause the cranks may have stopped.
       const now = performance.now();
-      const pedalAlive = (now - this.blePedal.lastTime) < 3500 && this.blePedal.watts !== null;
-      const trainerAlive = (now - this.bleTrainer.lastTime) < 3500 && this.bleTrainer.watts !== null;
+      const fresh = this.devicePowerFresh ? this.devicePowerFresh(now) : null;
+      const pedalAlive = fresh ? fresh.pedals : (now - this.blePedal.lastTime) < 3500 && this.blePedal.watts !== null;
+      const trainerAlive = fresh ? fresh.trainer : (now - this.bleTrainer.lastTime) < 3500 && this.bleTrainer.watts !== null;
       const src = pedalAlive ? this.blePedal : trainerAlive ? this.bleTrainer : null;
+      const cad = this.deviceCadenceReading ? this.deviceCadenceReading(now) : src?.cadence;
       this.erg.softStart({
         target,
         power: src ? Math.max(0, src.watts || 0) : 0,
-        cadence: src && src.cadence !== null ? src.cadence : 0,
-        cadenceKnown: !!(src && src.cadence !== null),
+        cadence: cad ?? 0,
+        cadenceKnown: Number.isFinite(cad),
       });
     }
     const watts = this.erg.now(target);
@@ -690,6 +694,11 @@ class VeloApp {
     this.isPlaying = !this.isPlaying;
     if (this.isPlaying) {
       if (!this.sessionStartedAt) this.sessionStartedAt = Date.now();
+      if (this.recordedSamples.length) {
+        this.analytics.startSegment();
+        this.powerBuffer = [];
+        this._nextSampleStartsSegment = true;
+      }
       this.trainerOdoLast = null; // distance ridden while paused is not counted
       this.audio.init();
       this.ble.startTrainerWorkout();
@@ -748,6 +757,8 @@ class VeloApp {
     this.intervalIndex = 0;
     this.intervalSecondsRemaining = this.currentWorkout.intervals[0]?.duration || 300;
     this.recordedSamples = [];
+    this._nextSampleStartsSegment = false;
+    this._deviceSourceChanges = [];
     this.powerBuffer = [];
     this.totalDistanceMeters = 0;
     this.totalDistanceKm = 0;
@@ -830,8 +841,9 @@ class VeloApp {
 
     // Source hierarchy: Assioma pedals (CPS) > KICKR SHIFT (FTMS) > simulator
     const now = performance.now();
-    const pedalAlive = (now - this.blePedal.lastTime) < 3500 && this.blePedal.watts !== null;
-    const trainerAlive = (now - this.bleTrainer.lastTime) < 3500 && this.bleTrainer.watts !== null;
+    const chosenSources = this.devicePowerFresh ? this.devicePowerFresh(now) : null;
+    const pedalAlive = chosenSources ? chosenSources.pedals : (now - this.blePedal.lastTime) < 3500 && this.blePedal.watts !== null;
+    const trainerAlive = chosenSources ? chosenSources.trainer : (now - this.bleTrainer.lastTime) < 3500 && this.bleTrainer.watts !== null;
     const trainerLinkAlive = (now - this.bleTrainer.lastTime) < 3500;
     const trainerConnected = this.ble && this.ble.isTrainerConnected();
     const hrAlive = (now - this.bleHr.lastTime) < 4000 && this.bleHr.hr !== null;
@@ -860,11 +872,13 @@ class VeloApp {
     } else {
       source = 'NONE';
     }
+    const chosenCadence = this.deviceCadenceReading ? this.deviceCadenceReading(now) : null;
+    if (this.deviceCadenceReading && (chosenCadence !== null || !simOk || this.cadenceSourcePreference !== 'auto')) cadence = chosenCadence ?? 0;
     const hr = hrAlive ? this.bleHr.hr : (simOk && !anyHardware ? Math.round(this.simulator.heartRate) : 0);
 
     // ERG: the governor shapes the trainer target (soft start, anti-stall, step lead) and runs
     // PowerMatch, where the pedals are truth and trim the trainer so pedal power meets the target.
-    const cadenceKnown = (pedalAlive && this.blePedal.cadence !== null) || (trainerAlive && this.bleTrainer.cadence !== null);
+    const cadenceKnown = this.deviceCadenceReading ? chosenCadence !== null : (pedalAlive && this.blePedal.cadence !== null) || (trainerAlive && this.bleTrainer.cadence !== null);
     const pmOn = this.powerMatchEnabled && pedalAlive && trainerConnected && this.ergModeEnabled;
     const ivs = this.currentWorkout.intervals;
     const nextIv = ivs[this.intervalIndex + 1];
@@ -939,6 +953,7 @@ class VeloApp {
     this.recordedSamples.push({
       time: this.totalElapsedSeconds,
       timestamp: Date.now(),
+      segmentStart: !!this._nextSampleStartsSegment,
       target: targetPower,
       power,
       cadence,
@@ -949,6 +964,7 @@ class VeloApp {
       rightBal,
       src: source
     });
+    this._nextSampleStartsSegment = false;
 
     this.updateHudDisplays(power, targetPower, cadence, hr);
     this.updateTelemetryChart(this.totalElapsedSeconds, power, cadence, hr, targetPower);
@@ -1071,7 +1087,7 @@ class VeloApp {
     const bal = samples.filter(s => Number(s.leftBal) > 0 && Number(s.rightBal) > 0);
     const avgLeft = bal.length ? Math.round((bal.reduce((a, s) => a + Number(s.leftBal), 0) / bal.length) * 10) / 10 : null;
     const kj = Math.round(this.analytics.totalJoules / 1000) || Math.round(VeloMetrics.workKjFromSamples(samples));
-    const np = this.analytics.normalizedPower || VeloMetrics.normalizedPower(samples.map(s => s.power)) || p.avg;
+    const np = this.analytics.normalizedPower || VeloMetrics.normalizedPower(samples) || VeloMetrics.avgPower(samples.map(s => s.power));
     const ftp = this.activeProfile.ftp;
     const ifac = ftp > 0 ? np / ftp : 0;
     const tss = this.analytics.tss || (ftp > 0 ? Math.round(((durSec * np * ifac) / (ftp * 3600)) * 100) : 0);
@@ -1083,6 +1099,8 @@ class VeloApp {
       id: 'ride_' + Date.now(),
       date: start.toISOString(),
       profileName: this.activeProfile.name,
+      deviceSourceChanges: (this._deviceSourceChanges || []).slice(),
+      deviceSources: { power: this.powerSourcePreference || 'auto', cadence: this.cadenceSourcePreference || 'auto' },
       title: this.currentWorkout.title,
       workoutId: this.currentWorkout.id,
       duration: this.totalElapsedSeconds,
@@ -1185,12 +1203,14 @@ class VeloApp {
   }
 
   deviceLabel(kind) {
-    return { trainer: 'KICKR SHIFT', pedals: 'Assioma pedals', hr: 'Heart-rate strap' }[kind] || kind;
+    const slot = this.ble?.slots?.[kind];
+    const alias = this.ble?._knownIds?.()[kind]?.alias;
+    return alias || slot?.device?.name || { trainer: 'Smart trainer', pedals: 'Power meter', hr: 'Heart-rate sensor', fan: 'HEADWIND fan' }[kind] || kind;
   }
 
   onDeviceDisconnected(kind, willReconnect) {
     if (kind === 'trainer') {
-      this.bleTrainer.watts = null; this.bleTrainer.speed = null; this.bleTrainer.distanceMeters = null;
+      this.bleTrainer.watts = null; this.bleTrainer.cadence = null; this.bleTrainer.speed = null; this.bleTrainer.distanceMeters = null;
     } else if (kind === 'pedals') {
       this.blePedal.watts = null; this.blePedal.cadence = null; this.blePedal.leftPct = null; this.blePedal.rightPct = null;
       if (this.calibration.phase !== 'idle') this.finishCalibration(false, 'Pedals disconnected during calibration.');
@@ -1219,13 +1239,13 @@ class VeloApp {
       this.showToast('Web Bluetooth needs Chrome, Edge or Brave on https:// or localhost.', 'error');
       return;
     }
-    const connected = kind === 'trainer' ? this.ble.isTrainerConnected() : kind === 'pedals' ? this.ble.isPedalsConnected() : this.ble.isHrConnected();
+    const connected = kind === 'fan' ? this.ble.isFanConnected() : kind === 'trainer' ? this.ble.isTrainerConnected() : kind === 'pedals' ? this.ble.isPedalsConnected() : this.ble.isHrConnected();
     const state = this.ble.getState(kind);
     if (state === 'connecting') {
       this.showToast(`${this.deviceLabel(kind)} is already connecting...`, 'info');
       return;
     }
-    if (connected || state === 'reconnecting') {
+    if (!options.replace && (connected || state === 'reconnecting')) {
       if (connected && !confirm(`Disconnect ${this.deviceLabel(kind)}?`)) return;
       this.disconnectDeviceKind(kind);
       return;
@@ -1236,12 +1256,13 @@ class VeloApp {
     this.updateDeviceBadge(kind, 'connecting');
     this.bleBattery[kind] = null;
     try {
-      const ok = kind === 'trainer' ? await this.ble.connectTrainer(options) : kind === 'pedals' ? await this.ble.connectPedals(options) : await this.ble.connectHr(options);
+      const ok = kind === 'fan' ? await this.ble.connectFan(options) : kind === 'trainer' ? await this.ble.connectTrainer(options) : kind === 'pedals' ? await this.ble.connectPedals(options) : await this.ble.connectHr(options);
       this.onConnectResult(kind, ok);
     } catch (err) {
-      this.updateDeviceBadge(kind, 'disconnected');
+      this.updateDeviceBadge(kind, this.ble.getState(kind));
       const msg = String((err && err.message) || err || '');
-      if (err && err.name === 'NotFoundError') {
+      if (err && err.name === 'AbortError') this.showToast('Pairing stopped.', 'info');
+      else if (err && err.name === 'NotFoundError') {
         if (/cancel/i.test(msg)) this.showToast(`${this.deviceLabel(kind)} pairing cancelled.`, 'info');
         else this.showToast(`No ${this.deviceLabel(kind)} found. ${this.deviceWakeHint(kind)}`, 'warning');
       } else if (err && err.name === 'SecurityError') {
@@ -1278,6 +1299,7 @@ class VeloApp {
   disconnectDeviceKind(kind, silent = false) {
     if (kind === 'trainer') this.ble.disconnectTrainer();
     else if (kind === 'pedals') this.ble.disconnectPedals();
+    else if (kind === 'fan') this.ble.disconnectFan();
     else this.ble.disconnectHr();
     this.updateDeviceBadge(kind, 'disconnected');
     if (!silent) this.updatePowerSourceBadge();
@@ -1286,14 +1308,19 @@ class VeloApp {
   /** What to check when a device is not found or does not answer. */
   deviceWakeHint(kind) {
     return {
-      trainer: 'Make sure the KICKR is powered and not connected to Zwift or the Wahoo app.',
-      pedals: 'Turn the cranks to wake the pedals and close the Favero app or any head unit using them.',
-      hr: 'Wet the strap electrodes and put it on (a Polar H10 only wakes on skin contact), and close Polar Beat/Flow, Zwift or any watch connected to it.'
+      trainer: 'Power on the trainer and close other apps that may hold its Bluetooth connection.',
+      pedals: 'Turn the cranks to wake the power meter and close other apps using it.',
+      fan: 'Plug in HEADWIND, keep it nearby, and close the Wahoo app if it holds the connection.',
+      hr: 'Put on the sensor, wet strap electrodes if needed, and close other apps using its connection.'
     }[kind] || '';
   }
 
   /** Real hardware takes over: the simulator must never mix synthetic data into a real ride. */
   onHardwareConnected(kind) {
+    if (kind === 'fan') {
+      this.fanStatus = 'Connected. Choose an airflow level; connecting has not changed it.';
+      return; // a fan is not a telemetry source
+    }
     if (this.simulator && this.simulator.enabled) {
       this.simulator.enabled = false;
       this.simulator.reset();
@@ -1307,20 +1334,21 @@ class VeloApp {
     const badge = this.$('hudPowerSourceBadge');
     if (!badge) return;
     const now = performance.now();
-    const pedalAlive = (now - this.blePedal.lastTime) < 3500 && this.blePedal.watts !== null;
-    const trainerAlive = (now - this.bleTrainer.lastTime) < 3500 && this.bleTrainer.watts !== null;
+    const chosen = this.devicePowerFresh ? this.devicePowerFresh(now) : null;
+    const pedalAlive = chosen ? chosen.pedals : (now - this.blePedal.lastTime) < 3500 && this.blePedal.watts !== null;
+    const trainerAlive = chosen ? chosen.trainer : (now - this.bleTrainer.lastTime) < 3500 && this.bleTrainer.watts !== null;
     const trainerConnected = this.ble && this.ble.isTrainerConnected();
     const pmActive = pedalAlive && trainerConnected && this.powerMatchEnabled && this.ergModeEnabled;
     const trim = `${this.powerMatchOffset >= 0 ? '+' : ''}${Math.round(this.powerMatchOffset)}`;
 
     let cls, label, title;
     if (pmActive) {
-      cls = 'src-powermatch'; label = 'ASSIOMA POWERMATCH';
-      title = `PowerMatch: Assioma (${Math.round(this.currentPower)} W) trims KICKR ERG by ${trim} W`;
+      cls = 'src-powermatch'; label = `${/assioma/i.test(this.blePedal.name) ? 'ASSIOMA' : 'METER'} POWERMATCH`;
+      title = `PowerMatch: ${this.blePedal.name} (${Math.round(this.currentPower)} W) trims trainer ERG by ${trim} W`;
     } else if (pedalAlive) {
-      cls = 'src-pedals'; label = 'ASSIOMA DUO'; title = 'Power from Assioma DUO-Shi pedals (CPS)';
-    } else if (trainerAlive || trainerConnected) {
-      cls = 'src-trainer'; label = 'KICKR SHIFT'; title = 'Power from Wahoo KICKR SHIFT (FTMS)';
+      cls = 'src-pedals'; label = 'POWER METER'; title = `Power from ${this.blePedal.name} (CPS)`;
+    } else if (trainerAlive) {
+      cls = 'src-trainer'; label = 'TRAINER POWER'; title = `Power from ${this.bleTrainer.name} (FTMS)`;
     } else if (this.simulator.enabled && !this.rideHadHardware) {
       cls = 'src-sim'; label = 'SIMULATOR'; title = 'Physics simulator - connect pedals or trainer for live data';
     } else {
@@ -1328,7 +1356,7 @@ class VeloApp {
     }
     const newCls = `power-source-badge ${cls}`;
     if (badge.className !== newCls) badge.className = newCls;
-    const html = `<span class="badge-dot"></span>${label}`;
+    const html = `<span class="badge-dot"></span>${VeloApp.esc(label)}`;
     if (badge.innerHTML !== html) badge.innerHTML = html;
     badge.title = title;
 
@@ -1337,18 +1365,22 @@ class VeloApp {
       const targetW = this.getCurrentTargetWatts();
       let text, pc;
       if (!this.ergModeEnabled) { text = 'ERG OFF'; pc = 'erg-status-pill erg-off'; }
+      else if (trainerConnected && this.ble.slots.trainer.controlGranted !== true) {
+        text = this.ble.slots.trainer.controlGranted === false ? 'ERG · CONTROL REFUSED' : 'ERG · WAITING FOR CONTROL'; pc = 'erg-status-pill';
+      }
       else if (trainerConnected && this.erg.mode !== 'normal') {
         const cmd = this.lastCommandedErgWatts != null ? this.lastCommandedErgWatts : targetW;
         text = { 'soft-start': `ERG SOFT START ${cmd}W - SPIN UP`, stall: `ERG EASED ${cmd}W - SPIN UP`, ramp: `ERG RAMP ${cmd}/${targetW}W`, stand: `ERG STAND ${cmd}W - ${this.erg.standLeft}s` }[this.erg.mode];
         pc = 'erg-status-pill erg-active';
       }
       else if (trainerConnected) { text = pmActive ? `ERG MATCH ${targetW}W (${trim})` : `ERG ${targetW}W`; pc = 'erg-status-pill erg-active'; }
-      else { text = `ERG READY ${targetW}W`; pc = 'erg-status-pill'; }
+      else { text = 'ERG · CONNECT TRAINER'; pc = 'erg-status-pill'; }
       if (ergPill.textContent !== text) ergPill.textContent = text;
       if (ergPill.className !== pc) ergPill.className = pc;
     }
 
     if (this.$('hardwareModal')?.classList.contains('open')) this.updateHardwarePanel();
+    else if (this.renderDevicesPanel) this.renderDevicesPanel();
   }
 
   /** Hardware Lab drawer: live values, link diagnostics, PowerMatch trim. */
@@ -1422,6 +1454,7 @@ class VeloApp {
     }
     const errW = pedalAlive ? Math.round((this.blePedal.watts || 0) - this.getCurrentTargetWatts()) : null;
     this.setText('hwPowerMatchError', errW === null ? 'Pedal error vs target: --' : `Pedal error vs target: ${errW >= 0 ? '+' : ''}${errW} W`);
+    if (this.renderDevicesPanel) this.renderDevicesPanel();
   }
 
   // -------------------------------------------------- pedal calibration --
@@ -1444,9 +1477,11 @@ class VeloApp {
   /** Guided zero-offset: 3-2-1 countdown, send CPS op code 0x0C, wait up to 12 s for the pedals' response. */
   async calibrateAssiomaPedals() {
     if (!this.ble || !this.ble.isPedalsConnected()) {
-      this.showToast('Connect your Assioma DUO-Shi pedals first.', 'warning');
+      this.showToast('Connect your power meter first.', 'warning');
       return;
     }
+    if (this.isPlaying) { this.showToast('Pause the ride before calibrating.', 'warning'); return; }
+    if (!this.ble.canCalibrate()) { this.showToast('This meter does not expose offset calibration. Use its manufacturer app.', 'warning'); return; }
     if (this.calibration.phase !== 'idle') return;
     const btn = this.$('btnCalibratePedalsModal');
     if (btn) btn.disabled = true;
@@ -1603,6 +1638,7 @@ class VeloApp {
     // L/R balance: only measured values are shown ('--' when the source does not report it)
     const lBal = Number.isFinite(this.currentLeftBal) ? this.currentLeftBal : null;
     const rBal = Number.isFinite(this.currentRightBal) ? this.currentRightBal : null;
+    this.setText('balanceDataStatus', lBal === null ? 'NO DATA' : this.activePowerSource === 'SIMULATOR' ? 'SIMULATED' : 'MEASURED');
     this.setText('valLeftBalance', lBal !== null ? lBal.toFixed(1) + '%' : '--');
     this.setText('valRightBalance', rBal !== null ? rBal.toFixed(1) + '%' : '--');
     const bl = this.$('barLeftBalance'), br = this.$('barRightBalance');
@@ -1651,10 +1687,12 @@ class VeloApp {
   /** Live device values (same freshness rules as the ride tick), or null when none is streaming. */
   liveDeviceReadings() {
     const now = performance.now();
-    const pedalAlive = (now - this.blePedal.lastTime) < 3500 && this.blePedal.watts !== null;
-    const trainerAlive = (now - this.bleTrainer.lastTime) < 3500 && this.bleTrainer.watts !== null;
+    const fresh = this.devicePowerFresh ? this.devicePowerFresh(now) : null;
+    const pedalAlive = fresh ? fresh.pedals : (now - this.blePedal.lastTime) < 3500 && this.blePedal.watts !== null;
+    const trainerAlive = fresh ? fresh.trainer : (now - this.bleTrainer.lastTime) < 3500 && this.bleTrainer.watts !== null;
     const hrAlive = (now - this.bleHr.lastTime) < 4000 && this.bleHr.hr !== null;
-    if (!pedalAlive && !trainerAlive && !hrAlive) return null;
+    const chosenCadence = this.deviceCadenceReading ? this.deviceCadenceReading(now) : null;
+    if (!pedalAlive && !trainerAlive && !hrAlive && chosenCadence === null) return null;
     let power = null, cadence = null, leftBal = null;
     if (pedalAlive) {
       power = Math.max(0, Math.round(this.blePedal.watts));
@@ -1664,6 +1702,7 @@ class VeloApp {
       power = Math.max(0, Math.round(this.bleTrainer.watts));
       cadence = this.bleTrainer.cadence;
     }
+    if (this.deviceCadenceReading) cadence = chosenCadence;
     return { power, cadence: cadence !== null && cadence !== undefined ? Math.round(cadence) : null, hr: hrAlive ? this.bleHr.hr : null, leftBal };
   }
 
@@ -1695,6 +1734,7 @@ class VeloApp {
     this.setText('zenHeartRate', hr || '--');
     this.setText('zenHrZone', hrz ? `${hrz.label} - ${hrz.pct}% of max` : '--');
     const lBal = Number.isFinite(leftBal) ? leftBal : null;
+    this.setText('balanceDataStatus', lBal === null ? 'NO DATA' : 'MEASURED');
     this.setText('valLeftBalance', lBal !== null ? lBal.toFixed(1) + '%' : '--');
     this.setText('valRightBalance', lBal !== null ? (100 - lBal).toFixed(1) + '%' : '--');
     // The phone view reads these.
@@ -1703,6 +1743,8 @@ class VeloApp {
     this.lastHr = hr || 0;
     this.currentLeftBal = lBal;
     this.currentRightBal = lBal !== null ? 100 - lBal : null;
+    const source = this.devicePowerFresh ? this.devicePowerFresh() : null;
+    if (source) this.activePowerSource = power === null ? 'NONE' : source.pedals ? 'PEDALS' : source.trainer ? 'TRAINER' : 'NONE';
   }
 
   // ------------------------------------------------------------------ Zen --
@@ -2071,6 +2113,8 @@ class VeloApp {
     if (this.stopRemoteView) this.stopRemoteView();
     clearTimeout(this._backupTimer);
     clearTimeout(this._stravaAutoTimer);
+    clearInterval(this._fanAutoTimer);
+    if (this.ble?.destroy) this.ble.destroy();
     this.clock.destroy();
     this._disposers.forEach(fn => { try { fn(); } catch (e) { /* ignore */ } });
     this._disposers = [];
@@ -2246,11 +2290,11 @@ class VeloApp {
     this.on(this.$('btnBleFtms'), 'click', () => this.connectDevice('trainer'));
     this.on(this.$('btnBlePedals'), 'click', () => this.connectDevice('pedals'));
     this.on(this.$('btnBleHr'), 'click', () => this.connectDevice('hr'));
-    this.on(this.$('btnConnectPedalsModal'), 'click', () => this.connectDevice('pedals'));
+    this.on(this.$('btnConnectPedalsModal'), 'click', () => this.connectSavedDevice ? this.connectSavedDevice('pedals') : this.connectDevice('pedals'));
     this.on(this.$('btnConnectPedalsAllModal'), 'click', () => this.connectDevice('pedals', { acceptAll: true }));
-    this.on(this.$('btnConnectTrainerModal'), 'click', () => this.connectDevice('trainer'));
+    this.on(this.$('btnConnectTrainerModal'), 'click', () => this.connectSavedDevice ? this.connectSavedDevice('trainer') : this.connectDevice('trainer'));
     this.on(this.$('btnConnectTrainerAllModal'), 'click', () => this.connectDevice('trainer', { acceptAll: true }));
-    this.on(this.$('btnConnectHrModal'), 'click', () => this.connectDevice('hr'));
+    this.on(this.$('btnConnectHrModal'), 'click', () => this.connectSavedDevice ? this.connectSavedDevice('hr') : this.connectDevice('hr'));
     this.on(this.$('btnConnectHrAllModal'), 'click', () => this.connectDevice('hr', { acceptAll: true }));
     this.on(this.$('btnCalibratePedalsModal'), 'click', () => this.calibrateAssiomaPedals());
     this.on(this.$('chkEnablePowerMatch'), 'change', (e) => {
@@ -2320,6 +2364,7 @@ class VeloApp {
     this.updatePowerSourceBadge();
     this.openModal('hardwareModal');
     this.updateHardwarePanel();
+    if (this.openDevicesFocus) this.openDevicesFocus();
   }
 
   toggleErgMode() {
@@ -2359,14 +2404,18 @@ class VeloApp {
 
   initKeyboardShortcuts() {
     this.on(window, 'keydown', (e) => {
+      // Devices controls keep normal Tab, Space and arrow behavior. Ride shortcuts
+      // must never change resistance or skip steps while a dialog is being used.
+      if (document.querySelector('.modal-overlay.open') && e.code !== 'Escape') return;
       const tag = e.target.tagName ? e.target.tagName.toLowerCase() : '';
-      if (tag === 'input' || tag === 'textarea' || tag === 'select' || e.metaKey || e.ctrlKey || e.altKey) return;
+      if (tag === 'input' || tag === 'textarea' || tag === 'select' || e.target.isContentEditable || e.metaKey || e.ctrlKey || e.altKey) return;
+      if (e.code === 'Tab' || ((tag === 'button' || tag === 'summary') && ['Space', 'Enter', 'ArrowUp', 'ArrowDown', 'ArrowRight'].includes(e.code))) return;
+      if (['Space','ArrowUp','ArrowDown','ArrowRight','KeyS'].includes(e.code) && this.activeTab !== 'cockpit' && !this.isZenMode) return;
       switch (e.code) {
         case 'Space': e.preventDefault(); this.togglePlayPause(); break;
         case 'ArrowUp': e.preventDefault(); this.setErgBias(e.shiftKey ? 0.05 : 0.01); break;
         case 'ArrowDown': e.preventDefault(); this.setErgBias(e.shiftKey ? -0.05 : -0.01); break;
-        case 'ArrowRight':
-        case 'Tab': e.preventDefault(); this.skipInterval(); break;
+        case 'ArrowRight': e.preventDefault(); this.skipInterval(); break;
         case 'KeyF': e.preventDefault(); this.toggleFullscreen(); break;
         case 'KeyP': e.preventDefault(); this.pip.toggle(); break;
         case 'KeyM': e.preventDefault(); this.audio.toggleMute(); break;

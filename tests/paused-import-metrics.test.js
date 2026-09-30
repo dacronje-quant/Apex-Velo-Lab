@@ -1,0 +1,17 @@
+const {test}=require('node:test');
+const assert=require('node:assert/strict');
+const fs=require('node:fs'),vm=require('node:vm');
+const ctx=vm.createContext({window:{}});
+for(const file of ['velo-metrics','velo-importer','velo-insight','velo-sim']) vm.runInContext(fs.readFileSync(`js/${file}.js`,'utf8'),ctx);
+const M=vm.runInContext('VeloMetrics',ctx), I=vm.runInContext('VeloRideImporter',ctx), F=vm.runInContext('VeloInsight',ctx);
+const block=(n,start=0,power=200)=>Array.from({length:n},(_,i)=>({time:start+i,power,hr:170}));
+const paused=[...block(600),...block(600,1800)];
+test('simulator starts disabled',()=>assert.equal(vm.runInContext('new VeloSimulator().enabled',ctx),false));
+test('paused import uses active duration and TSS',()=>{const r=I.summarize(paused,200,{});assert.equal(r.duration,1200);assert.equal(r.tss,33);});
+test('pause adds no energy or calories',()=>{const r=I.summarize(paused,200,{});assert.equal(r.kj,240);assert.equal(r.totalCalories,240);});
+test('short smart recording still holds prior reading',()=>{const s=M.toOneHz([{time:0,power:100},{time:5,power:200}]);assert.equal(s.length,6);assert.equal(s[4].power,100);assert.equal(M.workKjFromSamples(s),0.7);});
+test('10-second interpolation boundary excludes longer pauses',()=>{assert.equal(M.toOneHz([{time:0,power:100},{time:10,power:100}]).length,11);assert.equal(M.toOneHz([{time:0,power:100},{time:11,power:100}]).length,2);});
+test('rolling peaks cannot concatenate paused efforts',()=>{assert.equal(M.bestRollingAvg(paused,1200),null);assert.equal(M.bestRollingAvg(paused,600),200);assert.equal(F.peaksOf(paused)[3],null);});
+test('NP excludes cross-pause windows',()=>{assert.equal(M.normalizedPower([...block(30,0,100),...block(30,300,300)]),253);assert.equal(M.normalizedPower([...block(15),...block(15,300)]),0);});
+test('FTP cannot concatenate paused efforts',()=>assert.equal(F.ftpEvidence(paused),null));
+test('continuous FTP evidence and numeric rolling remain supported',()=>{assert.equal(F.ftpEvidence(block(1200)).estimate,190);assert.equal(M.bestRollingAvg([100,200,300],2),250);assert.equal(M.normalizedPower(Array(30).fill(200)),200);});

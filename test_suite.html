@@ -387,10 +387,18 @@
           // 23. Banister PMC Authentic Calculation (Zero Synthetic Seeds or Sine Waves)
           await app.resyncHealthFitHistory(true);
           const pmc = app.analytics.calculatePmcHistory(app.completedWorkouts, 90);
-          const isPmcAccurate = pmc.currentCtl >= 18.0 && pmc.currentCtl <= 20.5 &&
-                                pmc.currentAtl >= 10.0 && pmc.currentAtl <= 13.0 &&
-                                pmc.currentTsb >= 6.0 && pmc.currentTsb <= 9.0;
-          log('Banister PMC Authentic Modeling (Divan History -> CTL ~19.0, ATL ~11.9, TSB ~+7.2)', isPmcAccurate, 
+          const loads = new Map();
+          app.completedWorkouts.forEach(r => { const k = frame.contentWindow.VeloMetrics.localDateKey(r.date); loads.set(k, (loads.get(k) || 0) + (Number(r.tss) || 0)); });
+          const day = new Date(Math.min(...app.completedWorkouts.map(r => new Date(r.date)))); day.setHours(0, 0, 0, 0);
+          const today = new Date(); today.setHours(0, 0, 0, 0);
+          let expectedCtl = 0, expectedAtl = 0;
+          for (; day <= today; day.setDate(day.getDate() + 1)) {
+            const load = loads.get(frame.contentWindow.VeloMetrics.localDateKey(day)) || 0;
+            expectedCtl += (load - expectedCtl) * (1 - Math.exp(-1 / 42));
+            expectedAtl += (load - expectedAtl) * (1 - Math.exp(-1 / 7));
+          }
+          const isPmcAccurate = Math.abs(pmc.currentCtl - expectedCtl) <= 0.06 && Math.abs(pmc.currentAtl - expectedAtl) <= 0.06 && Math.abs(pmc.currentTsb - (expectedCtl - expectedAtl)) <= 0.11;
+          log('Banister PMC Authentic Modeling (dated history integrated through today)', isPmcAccurate,
             `CTL: ${pmc.currentCtl}, ATL: ${pmc.currentAtl}, TSB: +${pmc.currentTsb}, Points: ${pmc.ctlData.length}`);
 
           const emptyPmc = app.analytics.calculatePmcHistory([]);
@@ -644,6 +652,8 @@
 
           // Trigger Pedal Zero-Offset Calibration
           let calibOpCodeSent = false;
+          app.isPlaying = false; // calibration requires a paused, unloaded meter
+          app.ble.slots.pedals.chars.control = {}; // the mock exposes CPS offset calibration
           app.ble.calibratePedals = async () => { calibOpCodeSent = true; return true; };
           await app.calibrateAssiomaPedals();
 
@@ -794,7 +804,7 @@
             const bestOk = M.bestRollingAvg([100, 200, 300, 100], 2) === 250 && M.bestRollingAvg([1, 2], 5) === null;
             const backoff = [0, 1, 2, 3, 4, 5, 6].map(a => M.backoffDelay(a));
             const backoffOk = JSON.stringify(backoff) === JSON.stringify([1000, 2000, 4000, 8000, 16000, 30000, 30000]);
-            const kjOk = Math.abs(M.workKjFromSamples([{ time: 10, power: 100 }, { time: 20, power: 100 }]) - 2) < 1e-9;
+            const kjOk = Math.abs(M.workKjFromSamples([{ time: 10, power: 100 }, { time: 20, power: 100 }]) - 1.1) < 1e-9;
             return { ok: zonesOk && keyOk && formOk && bestOk && backoffOk && kjOk, detail: `zones:${zonesOk} key:${keyOk} form:${formOk} best:${bestOk} backoff:${backoff.join('/')} kJ:${kjOk}` };
           });
 
@@ -815,6 +825,51 @@
               Math.abs(s[119].dist - samples[119].dist) < 0.001 && s[0].leftBal === 48 && s[0].rightBal === 52 &&
               new W.Date(parsed.date).getTime() === samples[0].timestamp;
             return { ok: hdrOk && fileOk && sizeOk && rt, detail: `bytes:${bytes.length} hdrCRC:${hdrOk} fileCRC:${fileOk} size:${sizeOk} roundtrip:${rt} (${s.length} records, L/R ${s[0].leftBal}/${s[0].rightBal})` };
+          });
+
+          await suite('Pause Safety: Short Pauses Survive FIT, TCX and CSV Round-Trips', () => {
+            const t0 = Date.UTC(2026, 8, 20, 6);
+            const samples = Array.from({ length: 30 }, (_, i) => ({ time: i + 1, timestamp: t0 + (i + 1 + (i >= 15 ? 4 : 0)) * 1000,
+              power: 200, hr: 140, cadence: 90, segmentStart: i === 15 }));
+            const ride = { date: new W.Date(t0).toISOString(), duration: 30 };
+            const E = W.VeloExport, I = W.VeloRideImporter, M = W.VeloMetrics;
+            const rides = [I.parseFit(E.buildFit(ride, samples).buffer, 'Test', 200),
+              I.parseTcx(E.buildTcx(ride, samples), 200, 'Test'), I.parseCsv(E.buildCsv(ride, samples), 'Test', 200)];
+            const ok = rides.every(r => r.duration === 30 && r.kj === 6 && r.samples[15].segmentStart && M.bestRollingAvg(r.samples, 30) === null);
+            const smart = M.toOneHz([{ time: 0, timestamp: t0, power: 100 }, { time: 5, timestamp: t0 + 5000, power: 100 }]);
+            return { ok: ok && smart.length === 6, detail: `three formats preserve pause + 6 kJ:${ok} short smart recording kept:${smart.length === 6}` };
+          });
+
+          await suite('Export Safety: Raw Smart-Recorded Streams Keep Short Interpolation', () => {
+            const samples = [{ time: 0, power: 100 }, { time: 5, power: 200 }];
+            const ride = { date: '2026-09-20T06:00:00Z' }, E = W.VeloExport, I = W.VeloRideImporter, M = W.VeloMetrics;
+            const rides = [I.parseFit(E.buildFit(ride, samples).buffer, 'Test', 200), I.parseTcx(E.buildTcx(ride, samples), 200, 'Test')];
+            const ok = rides.every(r => r.samples.length === 6 && Math.abs(M.workKjFromSamples(r.samples) - 0.7) < 1e-9 && M.bestRollingAvg(r.samples, 6) === 117);
+            return { ok, detail: `FIT + TCX: 6 recorded/interpolated seconds, 0.7 kJ and continuous 6 s peak:${ok}` };
+          });
+
+          await suite('Pause Safety: Live Windows Reset, Totals Retained, Resume Marker Recorded', () => {
+            const start = app.clock.start;
+            const pedalTime = app.blePedal.lastTime;
+            app.clock.start = () => {};
+            try {
+              app.blePedal.lastTime = -Infinity;
+              app.resetWorkout(false); app.togglePlayPause();
+              const feed = power => { app.handleBleTelemetry({ type: 'trainer', watts: power, cadence: 90, speed: 30 }); app.tick1Hz(); };
+              for (let i = 0; i < 20; i++) feed(100);
+              app.togglePlayPause(); app.togglePlayPause();
+              for (let i = 0; i < 20; i++) feed(300);
+              const ok = app.recordedSamples[20].segmentStart && !app.recordedSamples[21].segmentStart &&
+                app.analytics.totalSeconds === 40 && app.analytics.totalJoules === 8000 && app.analytics.normalizedPower === 0 &&
+                app.analytics.getLiveMmp()[2] === null && W.VeloMetrics.bestRollingAvg(app.recordedSamples, 30) === null && app.getSmoothedPower(30) === 300;
+              return { ok, detail: `marker:${app.recordedSamples[20].segmentStart} seconds:${app.analytics.totalSeconds} joules:${app.analytics.totalJoules} NP:${app.analytics.normalizedPower} 30s:${app.analytics.getLiveMmp()[2]} smoothing:${app.getSmoothedPower(30)}` };
+            } finally { app.resetWorkout(false); app.clock.start = start; app.blePedal.lastTime = pedalTime; }
+          });
+
+          await suite('Long Ride: Workout Image Handles Large Power and HR Streams', () => {
+            const samples = Array.from({ length: 180000 }, (_, i) => ({ time: i + 1, power: 150, target: 150, hr: 140 }));
+            const image = app.renderWorkoutCard({ date: new W.Date().toISOString(), title: 'Long ride regression', samples, duration: samples.length });
+            return { ok: image.width === 1600 && image.height === 1000, detail: `${samples.length} samples, ${image.width} x ${image.height}` };
           });
 
           // 34. TCX + CSV round-trip
@@ -936,7 +991,7 @@
             const badge = D.getElementById('pmcFormStatus');
             const badgeOk = /form-(fresh|productive|optimal|fatigue|overtraining)/.test(badge.className);
             D.querySelector('#anaRangePills [data-range="6m"]').click();
-            const ok = lens['6w'] === 42 && lens['3m'] === 91 && lens['6m'] === 182 && lens['1y'] === 365 && lens.all > 365 && tssOk && badgeOk && app.progWeeks === 26;
+            const ok = lens['6w'] === 42 && lens['3m'] === 91 && lens['6m'] === 182 && lens['1y'] === Math.min(365, lens.all) && lens.all >= lens['6m'] && tssOk && badgeOk && app.progWeeks === 26;
             return { ok, detail: `points 6w:${lens['6w']} 3m:${lens['3m']} 6m:${lens['6m']} 1y:${lens['1y']} all:${lens.all} | badge "${badge.textContent}"` };
           });
 
@@ -1198,11 +1253,11 @@
 
             // The local server accepts the new phone commands (409 = PC app not open, 400 = unknown command)
             const codes = [];
-            for (const cmd of ['watts-up', 'watts-down', 'stand', 'spin-more', 'spin-finish', 'nonsense']) {
+            for (const cmd of ['watts-up', 'watts-down', 'stand', 'spin-more', 'spin-finish', 'connect-fan', 'disconnect-fan', 'connect-stop', 'fan-0', 'fan-25', 'fan-50', 'fan-75', 'fan-100', 'fan-mode-manual', 'fan-mode-hr', 'fan-mode-power', 'nonsense']) {
               const r = await fetch('api/live/cmd', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ cmd }) });
               codes.push(r.status);
             }
-            const serverOk = codes.slice(0, 5).every(c => c !== 400) && codes[5] === 400;
+            const serverOk = codes.slice(0, -1).every(c => c !== 400) && codes[codes.length - 1] === 400;
             // Drain anything the relay queued so no later test (or ride) picks these commands up.
             await fetch('api/live', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ v: 1, state: 'ready', test: true }) }).catch(() => {});
             return { ok: standOk && endEarly && wattsOk && spinOk && remoteOk && snapOk && finishOk && timeoutOk && stripped && serverOk,
@@ -1246,6 +1301,7 @@
             // In the app: banner + one-click update in the ride review, medal chips in History
             const savedProf = JSON.stringify(app.activeProfile);
             const savedHist = app.completedWorkouts;
+            const savedArchive = app.medalArchive; app.medalArchive = () => null;
             W.localStorage.removeItem('apex_ftp_suggest_dismissed');
             let uiOk = false, histOk = false, acceptOk = false, dismissOk = false;
             try {
@@ -1275,6 +1331,7 @@
               Object.keys(app.activeProfile).forEach(k => delete app.activeProfile[k]);
               Object.assign(app.activeProfile, restored);
               app.applyProfileChange();
+              app.medalArchive = savedArchive;
               app.completedWorkouts = savedHist;
               app.renderHistoryTable();
             }
@@ -1582,7 +1639,7 @@
               const sec = (prompt.match(/RECENT RIDE INSIGHT[\s\S]*?(?=RIDES IN THE LAST)/) || [''])[0];
               promptOk = /Last hard session .*"Threshold 3x10"/.test(sec) && /Interval 3 .*under target|Interval 3 .*faded|Interval 3 .*heart rate rose/.test(sec) && /FTP about 195 W/.test(sec) && !/Threshold 3x10.*%, .*Threshold 3x10/.test(sec);
               const adv = app.aiCoach.insightAdvice(ctx, 'threshold');
-              offlineAdviceOk = /faded late/.test(adv) && /FTP of about 195 W/.test(adv);
+              offlineAdviceOk = /faded towards the end/.test(adv) && /sustainable power may have changed/.test(adv) && !/\b(FTP|CTL|ATL|TSB)\b/.test(adv);
               detail = sec.replace(/\s+/g, ' ').slice(0, 400);
             } finally {
               const restored = JSON.parse(savedProf);
@@ -1607,8 +1664,8 @@
             const tcx = `<?xml version="1.0"?><TrainingCenterDatabase><Activities><Activity Sport="Biking"><Id>${new W.Date(t0).toISOString()}</Id><Lap><Track>${pts.join('')}</Track></Lap></Activity></Activities></TrainingCenterDatabase>`;
             const ride = W.VeloRideImporter.parseTcx(tcx, 185, 'Rider');
             const onePerSec = ride.samples.every((x, i) => i === 0 || x.time - ride.samples[i - 1].time === 1 || x.time - ride.samples[i - 1].time === 100);
-            const p1m = W.VeloMetrics.bestRollingAvg(ride.samples.map(x => x.power), 60);
-            const importOk = ride.samples.length === 1202 && onePerSec && p1m === 400 && ride.duration === 1300;
+            const p1m = W.VeloMetrics.bestRollingAvg(ride.samples, 60);
+            const importOk = ride.samples.length === 1202 && onePerSec && p1m === 400 && ride.duration === 1202;
 
             // 2. KICKR odometer: counts, re-syncs after a counter reset (reboot), ignores pedalling while paused
             const savedBle = { tc: app.ble.isTrainerConnected, set: app.ble.setTrainerErgPower, start: app.ble.startTrainerWorkout, pause: app.ble.pauseTrainerWorkout, clock: app.clock.start };
@@ -1829,7 +1886,7 @@
               app.applyRemoteCommand('connect-hr');
               await new Promise((r) => setTimeout(r, 30));
               const bEl = W.document.getElementById('pairBanner');
-              banner = !!(bEl && bEl.classList.contains('show') && /Heart-rate strap/.test(bEl.textContent));
+              banner = !!(bEl && bEl.classList.contains('show') && /Heart-rate sensor/.test(bEl.textContent));
               pairOk = banner && app.buildRemoteHardware().pairRequest === 'hr' && chooserCalls === 0;
               app.applyRemoteCommand('pair-cancel');
               cancelOk = !bEl.classList.contains('show') && app.buildRemoteHardware().pairRequest === null;
@@ -1842,7 +1899,7 @@
               for (let i = 0; i < 50 && app.ble.getState('hr') !== 'connected'; i++) await new Promise((r) => setTimeout(r, 10));
               reconnectOk = knownBefore && app.ble.isHrConnected() && permittedDevice.calls === 1 && chooserCalls === 0;
               const hrRow = app.buildRemoteHardware().list.find((x) => x.kind === 'hr');
-              snapOk = hrRow.state === 'connected' && hrRow.battery === 77 && hrRow.name === 'Polar H10 PHONE' && app.buildRemoteSnapshot().hw.list.length === 3;
+              snapOk = hrRow.state === 'connected' && hrRow.battery === 77 && hrRow.name === 'Polar H10 PHONE' && app.buildRemoteSnapshot().hw.list.length === 4;
               app.applyRemoteCommand('disconnect-hr');
               discOk = app.ble.getState('hr') === 'disconnected' && !permittedDevice.gatt.connected && app.ble.canReconnect('hr');
             } finally {
@@ -1921,7 +1978,7 @@
               await waitFor(() => !app.ble.slots.pedals.connecting && app.ble.getState('pedals') === 'disconnected');
               const silentRow = app.buildRemoteHardware().list.find((x) => x.kind === 'pedals');
               silentOk = pedals.calls === 1 && pedals.scans === 1 && !pedals.live && silentRow.known && silentRow.notFound && /scan/.test(silentRow.error)
-                && toasts.some((m) => /Assioma pedals not found nearby/.test(m));
+                && toasts.some((m) => /ASSIOMA-TEST not found nearby/.test(m));
 
               // Stopped from the phone while it is still scanning: the scan ends at once and nothing connects later.
               W.VeloBle.SCAN_TIMEOUT_MS = 5000;
@@ -2412,7 +2469,7 @@
                 const hour = Array.from({ length: 3600 }, (_, i) => ({ time: i + 1, power: 185 }));
                 const act = { id: '9001', name: 'FTP hour', sport_type: 'VirtualRide', start_date: iso(at(5, 6)), moving_time: 3600, elapsed_time: 3600, average_watts: 185, device_watts: true, samples: hour };
                 const rec = SS.toRecord(act, { ftp: 185 }, null);
-                const tssOk = rec.tss === 100 && rec.np === 185 && rec.tssMethod === 'power-stream' && rec.tssEstimated === false && rec.streams === 'ok' && rec.samples === hour;
+                const tssOk = rec.tss === 100 && rec.np === 185 && rec.tssMethod === 'power-stream' && rec.tssEstimated === false && rec.streams === 'ok' && rec.samples.length === hour.length && rec.samples.every((s, i) => s.time === hour[i].time && s.power === hour[i].power);
                 const measured = SS.hasMeasuredPower({ sport_type: 'Ride', device_watts: true, average_watts: 200 }) && !SS.hasMeasuredPower({ sport_type: 'Ride', device_watts: false, average_watts: 200 }) && !SS.hasMeasuredPower({ sport_type: 'Run', device_watts: true, average_watts: 200 });
                 return { ok: heldOk && seqOk && noPower && tooShort && tssOk && measured,
                   detail: `3 s gap held + 79 s pause dropped (182 samples):${heldOk} (${smp && smp.length}) 1 Hz sequence + HR/cadence:${seqOk} no power stream -> none:${noPower} too short -> none:${tooShort} TSS from stream (1 h @ FTP = ${rec.tss}):${tssOk} measured power only (not Strava's estimate, not runs):${measured}` };
@@ -2558,13 +2615,48 @@
             }
           }
 
+          await suite('Devices Dialog: Focus Restored, Background Isolated, Tab Does Not Skip a Ride Step', () => {
+            app.resetWorkout(false);
+            const opener = D.getElementById('btnOpenHardwareModal'); opener.focus(); opener.click();
+            const modal = D.getElementById('hardwareModal');
+            const focused = D.activeElement === D.getElementById('btnCloseHardwareModal');
+            const isolated = [...D.body.children].filter(el => el !== modal && el.tagName !== 'SCRIPT' && !el.contains(modal)).every(el => el.inert);
+            const index = app.intervalIndex;
+            D.activeElement.dispatchEvent(new W.KeyboardEvent('keydown', { code:'Tab', key:'Tab', bubbles:true }));
+            const noSkip = app.intervalIndex === index;
+            D.getElementById('btnCloseHardwareModal').click();
+            return { ok: focused && isolated && noSkip && modal.hidden && D.activeElement === opener && !opener.closest('[inert]'), detail:`focus:${focused} background:${isolated} Tab keeps step:${noSkip} focus restored:${D.activeElement === opener}` };
+          });
+
+          await suite('Devices: Independent Power/Cadence Sources, Pause-Only Calibration, Fan Feedback and Manual Override', async () => {
+            const saved = { ble:app.ble, p:app.blePedal, t:app.bleTrainer, power:app.powerSourcePreference, cadence:app.cadenceSourcePreference, fanMode:app.fanMode, sim:app.simulator.enabled };
+            try {
+              app.ble = new W.VeloBle(e => app.handleBleTelemetry(e));
+              const d = {id:'qa-fan',name:'HEADWIND QA',addEventListener(){},removeEventListener(){},gatt:{connected:true,disconnect(){this.connected=false;}}};
+              app.ble._adopt('fan',d); app.ble.slots.fan.state='connected'; app.ble.slots.fan.chars.control={writeValueWithResponse:async()=>{}};
+              const now=W.performance.now(); app.blePedal={watts:210,cadence:91,lastTime:now}; app.bleTrainer={watts:190,cadence:88,lastTime:now};
+              app.powerSourcePreference='trainer'; app.cadenceSourcePreference='auto';
+              const sources=app.liveDeviceReadings().power===190 && app.liveDeviceReadings().cadence===91;
+              app.bleTrainer.lastTime=-1e9; app.cadenceSourcePreference='trainer';
+              const noFallback=app.liveDeviceReadings()?.power==null && app.deviceCadenceReading()===null;
+              app.renderDevicesPanel();
+              const feedback=D.getElementById('fanReportedSpeed').textContent==='Airflow not reported yet';
+              app.fanMode='hr'; await app.setFanAirflow(25);
+              const manual=app.fanMode==='manual' && app.ble.slots.fan.requestedSpeed===25 && app.ble.slots.fan.fanSpeed===null && /awaiting fan confirmation/.test(D.getElementById('fanReportedSpeed').textContent);
+              app.isPlaying=true; app.renderDevicesPanel(); const cal=D.getElementById('btnCalibratePedalsModal').disabled;
+              app.onHardwareConnected('fan'); const noSimChange=app.simulator.enabled===saved.sim;
+              return {ok:sources && noFallback && feedback && manual && cal && noSimChange,detail:`sources:${sources} no silent fallback:${noFallback} honest fan feedback:${feedback}/${manual} calibration disabled:${cal} fan preserves simulator:${noSimChange}`};
+            } finally { app.ble.destroy(); app.ble=saved.ble; app.blePedal=saved.p; app.bleTrainer=saved.t; app.powerSourcePreference=saved.power; app.cadenceSourcePreference=saved.cadence; app.fanMode=saved.fanMode; app.isPlaying=false; app.renderDevicesPanel(); }
+          });
+
           await app.resyncHealthFitHistory(true);
           app.selectWorkoutById('carson');
           app.resetWorkout(false);
 
           const summary = document.createElement('h3');
           summary.style.color = '#38bdf8';
-          summary.textContent = 'ALL TEST SUITE SUITES COMPLETED SUCCESSFULLY!';
+          const failures = results.querySelectorAll('.fail').length;
+          summary.textContent = failures ? failures + ' TEST SUITE CHECKS FAILED' : 'ALL TEST SUITE SUITES COMPLETED SUCCESSFULLY!';
           results.appendChild(summary);
 
         } catch (err) {

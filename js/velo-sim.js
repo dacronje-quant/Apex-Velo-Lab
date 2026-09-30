@@ -1,6 +1,6 @@
     class VeloSimulator {
       constructor() {
-        this.enabled = true;
+        this.enabled = false;
         this.crankAngle = 0;
         this.cadence = 0;
         this.power = 0;

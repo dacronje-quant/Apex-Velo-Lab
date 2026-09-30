@@ -119,14 +119,52 @@ class VeloBlockPlanner {
     const goal = VeloAiCoach.GOALS[o.goal] ? o.goal : 'ftp';
     const w = Math.round(Number(o.weeks));
     const weeks = w >= 1 && w <= 16 ? w : 8;
-    const hours = Math.min(25, Math.max(2, Number(o.hoursPerWeek) || 6));
+    const autoHours = o.aiChoosesHours === true || o.hoursPerWeek === null || (typeof o.hoursPerWeek === 'string' && o.hoursPerWeek.trim() === '');
+    const hours = autoHours ? null : Math.min(25, Math.max(2, Number(o.hoursPerWeek) || 6));
     let days = Array.isArray(o.days) ? [...new Set(o.days.map(Number).filter(d => d >= 0 && d <= 6))].sort((a, b) => a - b) : [];
     if (days.length < 2) days = [1, 3, 5, 6];
     const start = /^\d{4}-\d{2}-\d{2}$/.test(o.startDate || '') ? o.startDate : VeloBlockPlanner.today();
     let longDay = o.longDay === '' || o.longDay === null || o.longDay === undefined ? null : Number(o.longDay);
     if (longDay !== null && !days.includes(longDay)) longDay = null;
     if (longDay === null && hours >= 4) longDay = days.includes(6) ? 6 : days.includes(5) ? 5 : null;
-    return { goal, weeks, hoursPerWeek: Math.round(hours * 2) / 2, days, startDate: start, longDay };
+    return { goal, weeks, hoursPerWeek: autoHours ? null : Math.round(hours * 2) / 2, aiChoosesHours: autoHours, days, startDate: start, longDay };
+  }
+
+  /** A conservative starting allowance, not a claim of a physiologically optimal volume. */
+  static historyTimeBounds(ctx, days) {
+    const h = ctx.history || {};
+    const average = Number(h.hoursPerWeek4w);
+    const recent = Number(h.hours7);
+    const hasHistory = Number(h.rides28) >= 3 && Number.isFinite(average) && average > 0;
+    let base = hasHistory ? average : 2;
+    if (hasHistory && Number.isFinite(recent) && recent >= 0) base = Math.min(base, recent > 0 ? recent * 1.25 : base * 0.7);
+    const tired = ctx.tsb < -15 || ['amber', 'red'].includes(ctx.readiness && ctx.readiness.level);
+    if (tired) base *= ctx.tsb < -25 || (ctx.readiness && ctx.readiness.level === 'red') ? 0.65 : 0.8;
+    const ceiling = Math.min(25, days.length * 3, Math.max(1.5, base * 1.5));
+    const baselineHours = Math.min(ceiling, Math.max(1.5, Math.round(base * 4) / 4));
+    const reason = !hasHistory ? 'There is little recent riding history, so the plan starts gently.'
+      : tired ? 'Weekly time starts below your recent riding because your training or recovery readings suggest tiredness.'
+        : 'Weekly time starts close to your recent riding and builds gradually, with easier weeks for recovery.';
+    return { baselineHours, ceilingHours: ceiling, reason };
+  }
+
+  /** Trim AI-chosen plans to their time allowance, including rounded session durations. */
+  static capChosenSessions(sessions, minutes) {
+    const F = VeloBlockPlanner.FOCUS;
+    const cap = Math.floor(minutes / 5) * 5;
+    const total = () => sessions.reduce((sum, s) => sum + s.durationMin, 0);
+    while (total() > cap && sessions.length) {
+      const adjustable = sessions.filter(s => s.durationMin > F[s.focus].min)
+        .sort((a, b) => Number(a.key) - Number(b.key) || b.durationMin - a.durationMin)[0];
+      if (adjustable) {
+        adjustable.durationMin -= 5;
+        adjustable.tss = VeloBlockPlanner.tssFor(adjustable.focus, adjustable.durationMin);
+      } else {
+        const drop = sessions.find(s => !s.key) || sessions.find(s => s.focus !== 'test') || sessions[0];
+        sessions.splice(sessions.indexOf(drop), 1);
+      }
+    }
+    return sessions;
   }
 
   // -------------------------------------------------------------- skeleton --
@@ -315,6 +353,7 @@ class VeloBlockPlanner {
     let lastBuildTss = null;
     let prevHard = [];
     let prevLongDow = null;
+    let previousBuildHours = opts.hoursPerWeek;
     for (let w = 0; w < n; w++) {
       const d = design && Array.isArray(design.weeks) ? (design.weeks.find(x => x && Number(x.week) === w + 1) || design.weeks[w] || null) : null;
       const info = { ...skel[w] };
@@ -342,9 +381,19 @@ class VeloBlockPlanner {
       }
       targetTss *= frac;
       const keyFoci = d && Array.isArray(d.keySessions) ? d.keySessions.filter(f => ['sweetspot', 'threshold', 'vo2max'].includes(f)) : null;
+      let weekOpts = opts;
+      if (opts.aiChoosesHours) {
+        const growth = info.type === 'build' && w > 0 ? 1.1 : 1;
+        const limit = Math.min(opts.timeBounds.ceilingHours, previousBuildHours * growth);
+        const proposed = d && Number(d.recommendedHours);
+        const chosen = Math.min(limit, Math.max(1.5, proposed));
+        weekOpts = { ...opts, hoursPerWeek: chosen };
+        if (info.type === 'build') previousBuildHours = chosen;
+      }
       const sessions = available.length
-        ? VeloBlockPlanner.placeWeek({ weekStart, available, info, targetTss, opts, prevHard, keyFoci, prevLongDow, ctl })
+        ? VeloBlockPlanner.placeWeek({ weekStart, available, info, targetTss, opts: weekOpts, prevHard, keyFoci, prevLongDow, ctl })
         : [];
+      if (opts.aiChoosesHours) VeloBlockPlanner.capChosenSessions(sessions, weekOpts.hoursPerWeek * 60 * (info.type === 'build' ? 1 : 0.65) * frac);
       const lastLong = sessions.filter(s => s.focus === 'long').pop();
       prevLongDow = lastLong ? VeloBlockPlanner.dow(lastLong.date) : null;
       const planned = sessions.reduce((a, s) => a + s.tss, 0);
@@ -360,6 +409,7 @@ class VeloBlockPlanner {
         stage: info.stage,
         plannedTss: Math.round(planned),
         plannedMin: sessions.reduce((a, s) => a + s.durationMin, 0),
+        hoursBudget: weekOpts.hoursPerWeek * (info.type === 'build' ? 1 : 0.65) * frac,
         projectedCtl: Math.round(ctl * 10) / 10,
         targetTss: Math.round(targetTss),
         cappedByHours: info.type === 'build' && planned < targetTss * 0.85,
@@ -383,20 +433,11 @@ class VeloBlockPlanner {
   }
 
   static offlineSummary(opts, built, ctx) {
-    const goal = VeloAiCoach.GOALS[opts.goal] || VeloAiCoach.GOALS.ftp;
     const recov = built.weeks.filter(w => w.type === 'recovery').length;
-    const phases = [...new Set(built.weeks.filter(w => w.type === 'build').map(w => w.phase))];
-    return `${opts.weeks}-week ${goal.label} block: ${phases.join(' -> ')}. Load weeks are followed by ${recov ? `${recov} recovery week${recov > 1 ? 's' : ''} (about 45% less load) and ` : ''}a final lighter week with a ramp test to reset your FTP and zones. `
-      + `Fitness (CTL) is planned to go from ${built.stats.startCtl} to about ${built.stats.endCtl} (peak ${built.stats.peakCtl}), a ramp of ${goal.ctlRampPerWeek} CTL per load week${(ctx.tsb || 0) < -15 ? ' after an easier first week because you start fatigued' : ''}. `
-      + `Key sessions are never on consecutive days or the day after the long ride, and about ${built.stats.easyPct}% of the riding time is easy.`
-      + (() => {
-        const load = built.weeks.filter(w => w.type === 'build');
-        if (!load.length) return '';
-        const first = load[0].plannedMin / 60, peak = Math.max(...load.map(w => w.plannedMin)) / 60;
-        return peak < opts.hoursPerWeek * 0.8
-          ? ` Volume builds from ${first.toFixed(1)} to ${peak.toFixed(1)} h/week rather than your full ${opts.hoursPerWeek} h: a faster jump in load is the classic route to overreaching.`
-          : '';
-      })();
+    return 'This plan builds your riding gradually, with mostly easy rides and harder sessions spaced apart. '
+      + `${(ctx.tsb || 0) < -15 ? 'It starts gently because your recent training suggests you may be tired. ' : ''}`
+      + `${recov ? 'Easier weeks give your body time to recover as you progress. ' : ''}`
+      + 'The final week is lighter and includes a power test to help set suitable workout targets. Treat the plan as a guide and ease back when you feel unusually tired.';
   }
 
   // ----------------------------------------------------------------- AI part --
@@ -410,6 +451,7 @@ class VeloBlockPlanner {
 RIDER: FTP ${ctx.profile.ftp} W, weight ${ctx.profile.weightKg} kg.
 GOAL: ${goal.label} - ${goal.summary}
 AVAILABILITY: ${opts.hoursPerWeek} h/week on ${dayNames}${opts.longDay !== null ? `; long ride on ${VeloBlockPlanner.DAY_NAMES[opts.longDay]}` : ''}. Block starts ${opts.startDate}.
+${opts.aiChoosesHours ? `AI-CHOSEN WEEKLY TIME: The rider left weekly hours blank. Choose recommendedHours for each week from the history, goal and recovery below. Starting allowance ${opts.timeBounds.baselineHours} h; overall ceiling ${opts.timeBounds.ceilingHours} h/week. Build gradually, never more than 10% above the previous build-week allowance; recovery and test weeks are shorter. recommendedHours is the allowance BEFORE the app reduces recovery/test weeks to 65%. Explain the choice in plain language in summary. This is an estimate, not proof of an optimal duration. ${opts.timeBounds.reason}` : 'The entered hours are a maximum, not a requirement to fill every week.'}
 CURRENT STATE: CTL ${ctx.ctl.toFixed(1)}, ATL ${ctx.atl.toFixed(1)}, TSB ${ctx.tsb.toFixed(1)} (${ctx.formZone}); last 7 days ${ctx.sevenDayTss} TSS.
 STRENGTH TRAINING: ${ctx.strength && ctx.strength.line ? ctx.strength.line : 'none recorded'}
 LAST ${ctx.lookbackDays} DAYS: ${h.ridesWin} rides, ${h.hoursPerWeekWin} h/week, intensity mix easy ${h.lowIntensityPct ?? 'n/a'}% / tempo-SweetSpot ${h.midIntensityPct ?? 'n/a'}% / threshold+ ${h.highIntensityPct ?? 'n/a'}%; days since last hard ride ${h.daysSinceHard ?? 'n/a'}; power profile ${h.profileType || 'n/a'}.
@@ -417,10 +459,12 @@ ${ctx.notes ? `RIDER NOTES: ${ctx.notes}\n` : ''}DEFAULT STRUCTURE (adjust if th
 
 PRINCIPLES TO APPLY: progressive overload with CTL ramp 2-6 per load week (lower if fatigued or low training age); 3:1 or 2:1 load:recovery; recovery weeks ~40-50% less load but keep brief intensity; phase progression toward the goal (general -> specific); 1-3 key sessions per week depending on hours; most time easy (polarised or pyramidal); final week lighter with an FTP ramp test.
 
+WRITING STYLE: Use plain language for a beginner in summary, phase and notes. Explain the plan's purpose, how it builds gradually and when to rest. Do not quote CTL, ATL, TSB, TSS, predicted fitness scores or percentages in prose. Use numbers only when they help the rider act. Explain any essential technical term immediately. Keep numeric planning fields and enum values exact.
+
 Return ONLY JSON:
 {
   "summary": "3-5 sentences: the logic of this block for this rider",
-  "weeks": [ { "week": 1, "type": "build" | "recovery" | "test", "phase": "short phase name", "targetTss": 350, "keySessions": ["sweetspot" | "threshold" | "vo2max", ...], "notes": "one sentence: the week's intent" } ]
+  "weeks": [ { "week": 1, "type": "build" | "recovery" | "test", "phase": "short phase name", "targetTss": 350, ${opts.aiChoosesHours ? '"recommendedHours": 3, ' : ''}"keySessions": ["sweetspot" | "threshold" | "vo2max", ...], "notes": "one sentence: the week's intent" } ]
 }
 Exactly ${opts.weeks} weeks; the last week has type "test". targetTss is the week's total TSS. keySessions lists the hard sessions in order of priority (the app places them on days, spaces them 48 h apart and adds the easy rides and long ride).`;
   }
@@ -456,17 +500,31 @@ Exactly ${opts.weeks} weeks; the last week has type "test". targetTss is the wee
   async create(options, { useAi = true } = {}) {
     const opts = VeloBlockPlanner.normaliseOptions(options);
     const ctx = this.coach.getPhysiologicalContext('auto', 60, opts.goal, options.notes || '');
+    if (opts.aiChoosesHours) {
+      opts.timeBounds = VeloBlockPlanner.historyTimeBounds(ctx, opts.days);
+      opts.hoursPerWeek = opts.timeBounds.baselineHours;
+    }
     let design = null, source = 'offline_heuristic', model = null, apiError = null, thinking = '';
+    if (opts.aiChoosesHours && !useAi) throw new Error('Leave hours blank only when using the AI coach. Enter weekly hours to use the built-in planner.');
     if (useAi) {
       if (!this.coach.isLive) await this.coach.detectEngine();
+      if (opts.aiChoosesHours && !this.coach.isLive) throw new Error('The AI coach is unavailable. Enter weekly hours to use the built-in planner, or connect the AI coach and try again.');
       if (this.coach.isLive) {
         try {
           const r = await this.requestDesign(opts, ctx);
           design = r.design; source = r.provider; model = r.model; thinking = r.thinking;
         } catch (e) {
+          if (opts.aiChoosesHours) throw new Error('The AI could not choose weekly ride time. Try again or enter weekly hours. ' + e.message);
           apiError = `${VeloAiCoach.labelFor(this.coach.model)} unavailable (${e.message}). Built with the built-in periodisation engine instead.`;
         }
       }
+    }
+    if (opts.aiChoosesHours) {
+      const allHours = Array.from({ length: opts.weeks }, (_, i) => {
+        const week = design && Array.isArray(design.weeks) && (design.weeks.find(w => w && Number(w.week) === i + 1) || design.weeks[i]);
+        return week && Number(week.recommendedHours);
+      });
+      if (!allHours.every(h => Number.isFinite(h) && h > 0)) throw new Error('The AI did not choose ride time for every week. Try again or enter weekly hours.');
     }
     const built = VeloBlockPlanner.assemble(opts, ctx, design);
     const summary = design && typeof design.summary === 'string' && design.summary.trim()
@@ -483,7 +541,7 @@ Exactly ${opts.weeks} weeks; the last week has type "test". targetTss is the wee
       source,
       model,
       modelLabel: model ? VeloAiCoach.labelFor(model) : null,
-      summary,
+      summary: opts.aiChoosesHours ? `${summary} ${opts.timeBounds.reason}` : summary,
       thinking: thinking ? String(thinking).slice(0, 8000) : '',
       stats: built.stats,
       weeks: built.weeks,
