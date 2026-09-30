@@ -454,8 +454,14 @@
       g.fillStyle = 'rgba(148,163,184,0.05)'; this._roundRect(g, cx, cy, cw, ch, 14); g.fill();
       const n = samples.length;
       if (n >= 2) {
-        const smooth = samples.map((s, i) => { let sum = 0, k = 0; for (let j = Math.max(0, i - 4); j <= i; j++) { sum += Number(samples[j].power) || 0; k++; } return sum / k; });
-        const maxP = Math.max(ftp * 1.3, ...smooth, ...samples.map(s => Number(s.target) || 0)) * 1.05;
+        let segmentStart = 0;
+        const smooth = samples.map((s, i) => {
+          if (VeloMetrics.isSampleBreak(samples[i - 1], s)) segmentStart = i;
+          let sum = 0, k = 0;
+          for (let j = Math.max(segmentStart, i - 4); j <= i; j++) { sum += Number(samples[j].power) || 0; k++; }
+          return sum / k;
+        });
+        const maxP = Math.max(ftp * 1.3, VeloMetrics.stats(smooth).max, VeloMetrics.stats(samples.map(s => s.target)).max) * 1.05;
         const px = (i) => cx + 16 + (i / (n - 1)) * (cw - 32);
         const py = (w) => cy + ch - 20 - (w / maxP) * (ch - 40);
         // FTP reference
@@ -485,9 +491,9 @@
         // Heart rate on its own scale
         // Heart rate on its own scale; values outside 40-230 bpm are sensor noise and are skipped.
         const hrs = samples.map(s => { const h = Number(s.hr) || 0; return h >= 40 && h <= 230 ? h : 0; });
-        const hrMax = Math.max(...hrs);
+        const hrMax = VeloMetrics.stats(hrs).max;
         if (hrMax > 0) {
-          const hrMin = Math.max(40, Math.min(...hrs.filter(h => h > 0)) - 10);
+          const hrMin = Math.max(40, hrs.reduce((min, h) => h > 0 ? Math.min(min, h) : min, Infinity) - 10);
           const top = cy + 44, bottom = cy + ch - 20;
           const hy = (h) => Math.max(top, Math.min(bottom, bottom - ((h - hrMin) / Math.max(1, hrMax + 10 - hrMin)) * (bottom - top)));
           g.strokeStyle = '#fb7185'; g.lineWidth = 2.5; g.beginPath(); let started = false;
@@ -532,7 +538,7 @@
       // Peaks + balance footer
       const powers = samples.map(s => Number(s.power) || 0);
       const peaks = [[5, '5 s'], [60, '1 min'], [300, '5 min'], [1200, '20 min']]
-        .map(([sec, l]) => [l, powers.length >= sec ? VeloMetrics.bestRollingAvg(powers, sec) : 0]).filter(p => p[1] > 0);
+        .map(([sec, l]) => [l, powers.length >= sec ? VeloMetrics.bestRollingAvg(VeloMetrics.toOneHz(samples), sec) : 0]).filter(p => p[1] > 0);
       g.fillStyle = '#94a3b8'; g.font = `700 16px ${FONT}`; g.fillText('PEAK POWER', 64, 890);
       g.font = `700 30px ${MONO}`;
       let fx = 64;

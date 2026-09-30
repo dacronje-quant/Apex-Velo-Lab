@@ -35,7 +35,9 @@ class VeloBle {
     HRS: '0000180d-0000-1000-8000-00805f9b34fb',
     HRS_MEASUREMENT: '00002a37-0000-1000-8000-00805f9b34fb',
     BATTERY: '0000180f-0000-1000-8000-00805f9b34fb',
-    BATTERY_LEVEL: '00002a19-0000-1000-8000-00805f9b34fb'
+    BATTERY_LEVEL: '00002a19-0000-1000-8000-00805f9b34fb',
+    HEADWIND: 'a026ee0c-0a7d-4ab3-97fa-f1500f9feb8b',
+    HEADWIND_CONTROL: 'a026e038-0a7d-4ab3-97fa-f1500f9feb8b'
   };
 
   /** CPS Control Point op codes (Bluetooth SIG Cycling Power Service spec). */
@@ -47,6 +49,7 @@ class VeloBle {
   static FIRST_CONNECT_ATTEMPTS = 3;
   static CONNECT_TIMEOUT_MS = 15000;
   static SCAN_TIMEOUT_MS = 12000; // how long a reconnect waits for a forgotten device to advertise
+  static FAN_WRITE_TIMEOUT_MS = 6000;
   static RECONNECT_BASE_MS = 1000;
   static RECONNECT_CAP_MS = 30000;
 
@@ -83,9 +86,10 @@ class VeloBle {
   constructor(onData) {
     this.onData = onData;
     this.slots = {
-      trainer: this._newSlot('Wahoo KICKR SHIFT'),
-      pedals: this._newSlot('Assioma DUO-Shi'),
-      hr: this._newSlot('Heart Rate Monitor')
+      trainer: this._newSlot('Smart trainer'),
+      pedals: this._newSlot('Power meter'),
+      hr: this._newSlot('Heart-rate sensor'),
+      fan: this._newSlot('KICKR HEADWIND')
     };
     // FTMS ERG write throttling & keepalive state
     this.lastTargetPowerSent = null;
@@ -105,7 +109,8 @@ class VeloBle {
       manualDisconnect: false, inRetry: false, attempt: 0, retryTimer: null, nextRetryAt: 0,
       battery: null, rssi: null, lastPacket: 0, connectedSince: 0,
       pktWindowStart: 0, pktCount: 0, packetRate: 0, writeChain: Promise.resolve(), onGattDisconnected: null,
-      connecting: false, lastError: null, stopScan: null
+      connecting: false, lastError: null, stopScan: null, generation: 0, capabilities: {},
+      controlGranted: null, fanSpeed: null, requestedSpeed: null
     };
   }
 
@@ -145,6 +150,16 @@ class VeloBle {
     slot.listeners = [];
     slot.chars = {};
     slot.connectedSince = 0;
+    slot.capabilities = {};
+    slot.lastPacket = 0;
+    slot.pktCount = 0;
+    slot.pktWindowStart = 0;
+    slot.packetRate = 0;
+    if (kind === 'trainer') slot.controlGranted = null;
+    if (kind === 'fan') {
+      slot.fanSpeed = null; slot.requestedSpeed = null;
+      slot.writeChain = Promise.resolve(); // a hung vendor write must not block a new connection
+    }
     if (kind === 'pedals') {
       this.lastCrankRevs = null;
       this.lastCrankTime = null;
@@ -156,7 +171,12 @@ class VeloBle {
   /** Serialises GATT writes for one device. */
   _write(kind, char, bytes) {
     const slot = this.slots[kind];
-    const run = () => (char.writeValueWithResponse ? char.writeValueWithResponse(bytes) : char.writeValue(bytes));
+    const generation = slot.generation;
+    const run = () => {
+      if (slot.generation !== generation || slot.manualDisconnect) throw new Error('Device connection changed before the command could be sent');
+      if (char.properties && !char.properties.write && char.properties.writeWithoutResponse && char.writeValueWithoutResponse) return char.writeValueWithoutResponse(bytes);
+      return char.writeValueWithResponse ? char.writeValueWithResponse(bytes) : char.writeValue(bytes);
+    };
     const p = slot.writeChain.then(run, run);
     slot.writeChain = p.catch(() => {});
     return p;
@@ -176,6 +196,14 @@ class VeloBle {
     return !!(s.device && s.device.gatt && s.device.gatt.connected && s.chars.measurement);
   }
 
+  isFanConnected() { const s = this.slots.fan; return !!(s.device?.gatt?.connected && s.chars.control); }
+
+  isConnected(kind) {
+    return kind === 'trainer' ? this.isTrainerConnected() : kind === 'pedals' ? this.isPedalsConnected() : kind === 'hr' ? this.isHrConnected() : kind === 'fan' ? this.isFanConnected() : false;
+  }
+
+  canCalibrate() { return !!(this.isPedalsConnected() && this.slots.pedals.chars.control); }
+
   getState(kind) { return this.slots[kind] ? this.slots[kind].state : 'disconnected'; }
 
   /** Snapshot for the Hardware Diagnostics drawer. Values that the browser does not expose are null. */
@@ -184,6 +212,11 @@ class VeloBle {
     const now = performance.now();
     return {
       name: s.device && s.device.name ? s.device.name : s.name,
+      alias: this._knownIds()[kind]?.alias || null,
+      capabilities: { ...s.capabilities },
+      controlGranted: s.controlGranted,
+      fanSpeed: s.fanSpeed,
+      requestedSpeed: s.requestedSpeed,
       state: s.state,
       attempt: s.attempt,
       nextRetryMs: s.nextRetryAt ? Math.max(0, s.nextRetryAt - now) : 0,
@@ -197,7 +230,37 @@ class VeloBle {
 
   async _request(kind, filters, optionalServices, acceptAll = false) {
     const opts = acceptAll ? { acceptAllDevices: true, optionalServices } : { filters, optionalServices };
-    const device = await navigator.bluetooth.requestDevice(opts);
+    const old = this.slots[kind];
+    if (old.connecting || old.choosing) throw new Error('A connection is already in progress');
+    const generation = old.generation;
+    const priorState = old.state;
+    clearTimeout(old.retryTimer); old.retryTimer = null;
+    old.nextRetryAt = 0;
+    old.choosing = true;
+    this._setState(kind, 'connecting');
+    let device;
+    try {
+      device = await navigator.bluetooth.requestDevice(opts);
+      if (old.generation !== generation) throw Object.assign(new Error('Pairing cancelled'), { name: 'AbortError' });
+    } finally {
+      old.choosing = false;
+      if (old.generation === generation) {
+        this._setState(kind, priorState);
+        if (priorState === 'reconnecting') this._scheduleReconnect(kind);
+      }
+    }
+    // One physical device must never get two competing GATT sessions. A trainer's
+    // built-in power/cadence are already available through its existing connection.
+    const duplicate = Object.entries(this.slots).find(([k, s]) => k !== kind && s.device && (s.device === device || (device.id && s.device.id === device.id)));
+    if (duplicate) throw new Error(`This device is already assigned as ${duplicate[0] === 'pedals' ? 'a power meter' : duplicate[0]}. Use its existing measurement source in Devices.`);
+    // Retain the working assignment while the chooser is open; remember it if setup fails.
+    if (old.connecting) throw new Error('A connection is already in progress');
+    this._disconnect(kind);
+    if (old.device && old.onGattDisconnected) old.device.removeEventListener('gattserverdisconnected', old.onGattDisconnected);
+    const previous = { device: old.device, name: old.name };
+    old.device = null;
+    old.onGattDisconnected = null;
+    old.replacedDevice = previous;
     this._adopt(kind, device);
     return device;
   }
@@ -233,7 +296,7 @@ class VeloBle {
   _remember(kind, device) {
     if (!device || !device.id) return;
     const known = this._knownIds();
-    known[kind] = { id: device.id, name: device.name || null };
+    known[kind] = { id: device.id, name: device.name || null, alias: known[kind]?.id === device.id ? known[kind].alias : undefined };
     try { localStorage.setItem(VeloBle.KNOWN_KEY, JSON.stringify(known)); } catch (e) { /* storage blocked */ }
     this.permitted = { ...(this.permitted || {}), [kind]: device };
   }
@@ -244,8 +307,8 @@ class VeloBle {
     const bt = typeof navigator !== 'undefined' ? navigator.bluetooth : null;
     if (bt && typeof bt.getDevices === 'function') {
       try {
-        const known = this._knownIds();
         const devices = await bt.getDevices();
+        const known = this._knownIds(); // Forget may have changed assignments while permissions were loading
         Object.keys(this.slots).forEach((kind) => {
           const k = known[kind];
           const d = k && devices.find((x) => x.id === k.id);
@@ -262,6 +325,26 @@ class VeloBle {
     return !!(this.slots[kind].device || (this.permitted && this.permitted[kind]));
   }
 
+  rename(kind, alias) {
+    const known = this._knownIds();
+    if (!known[kind]) return;
+    known[kind].alias = String(alias || '').trim().slice(0, 60);
+    localStorage.setItem(VeloBle.KNOWN_KEY, JSON.stringify(known));
+  }
+
+  forget(kind) {
+    this._disconnect(kind);
+    const slot = this.slots[kind];
+    if (slot.device && slot.onGattDisconnected) slot.device.removeEventListener('gattserverdisconnected', slot.onGattDisconnected);
+    slot.device = null;
+    slot.onGattDisconnected = null;
+    slot.replacedDevice = null;
+    delete this.permitted[kind];
+    const known = this._knownIds();
+    delete known[kind];
+    try { localStorage.setItem(VeloBle.KNOWN_KEY, JSON.stringify(known)); } catch (e) { /* storage unavailable */ }
+  }
+
   /**
    * Connects the already-chosen device for `kind` without the chooser. Resolves to true / false
    * (connected / failed after the usual 3 tries), or null when no known device exists and it has
@@ -269,10 +352,16 @@ class VeloBle {
    */
   async reconnect(kind) {
     const slot = this.slots[kind];
-    if (slot.state === 'connecting' || slot.connecting) return false;
+    if (slot.state === 'connecting' || slot.connecting || slot.choosing) return false;
     if (slot.device && slot.device.gatt && slot.device.gatt.connected && slot.state === 'connected') return true;
     let device = slot.device || (this.permitted && this.permitted[kind]);
-    if (!device) device = (await this.refreshPermitted())[kind];
+    if (!device) {
+      const generation = slot.generation;
+      this._setState(kind, 'connecting');
+      device = (await this.refreshPermitted())[kind];
+      if (slot.generation !== generation) return false;
+      if (!device) this._setState(kind, 'disconnected');
+    }
     if (!device) return null;
     clearTimeout(slot.retryTimer);
     slot.retryTimer = null;
@@ -375,6 +464,10 @@ class VeloBle {
    */
   async _connect(kind, setupFn, isRetry = false) {
     const slot = this.slots[kind];
+    if (slot.connecting) return false;
+    const generation = ++slot.generation;
+    const device = slot.device;
+    const stopped = () => slot.manualDisconnect || slot.generation !== generation;
     slot.manualDisconnect = false;
     slot.connecting = true;
     this._setState(kind, 'connecting');
@@ -384,13 +477,15 @@ class VeloBle {
         if (slot.manualDisconnect && attempt > 1) break; // user cancelled while we were retrying
         try {
           const server = await this._gattConnect(kind);
+          if (stopped()) { if (device?.gatt?.connected) device.gatt.disconnect(); return false; }
           this._teardown(kind);
           // Wait for Windows BLE connection parameter update & MTU negotiation to settle
           await VeloBle.delay(600);
+          if (stopped()) return false;
           await setupFn(server);
           await VeloBle.delay(200);
           await this._setupBattery(kind, server);
-          if (slot.manualDisconnect) { // disconnected by the user while setup was still running
+          if (stopped()) { // disconnected by the user while setup was still running
             try { slot.device.gatt.disconnect(); } catch (e) { /* ignore */ }
             this._teardown(kind);
             this._setState(kind, 'disconnected');
@@ -402,10 +497,16 @@ class VeloBle {
           slot.lastError = null;
           slot.connecting = false;
           this._remember(kind, slot.device);
+          slot.replacedDevice = null;
           this._setState(kind, 'connected');
           this._watchRssi(kind);
           return true;
         } catch (err) {
+          if (stopped()) {
+            this._teardown(kind); // setup may have added handlers after the Stop action
+            try { if (device?.gatt?.connected) device.gatt.disconnect(); } catch (e) { /* ignore */ }
+            return false;
+          }
           slot.lastError = err;
           console.warn(`[VeloBle] ${kind} connect attempt ${attempt}/${attempts} failed:`, err);
           this._teardown(kind);
@@ -417,6 +518,16 @@ class VeloBle {
       if (!isRetry) {
         slot.manualDisconnect = true; // a failed first connect must not start the reconnect loop
         this._setState(kind, 'disconnected');
+        // Failed replacement: keep the prior remembered device reconnectable.
+        if (slot.replacedDevice?.device) {
+          if (slot.device && slot.onGattDisconnected) slot.device.removeEventListener('gattserverdisconnected', slot.onGattDisconnected);
+          const previous = slot.replacedDevice;
+          slot.device = null; slot.onGattDisconnected = null;
+          this._adopt(kind, previous.device);
+          slot.name = previous.name;
+          slot.lastError = new Error('Replacement failed. Your previous device is still saved; reconnect it or choose another device.');
+        }
+        slot.replacedDevice = null;
       }
       return false;
     } finally {
@@ -469,12 +580,14 @@ class VeloBle {
   _setupFor(kind) {
     if (kind === 'trainer') return (server) => this._setupTrainer(server);
     if (kind === 'pedals') return (server) => this._setupPedals(server);
+    if (kind === 'fan') return (server) => this._setupFan(server);
     return (server) => this._setupHr(server);
   }
 
   _disconnect(kind) {
     const slot = this.slots[kind];
     slot.manualDisconnect = true;
+    slot.generation++;
     clearTimeout(slot.retryTimer);
     slot.retryTimer = null;
     if (slot.stopScan) slot.stopScan();
@@ -523,10 +636,12 @@ class VeloBle {
     const device = slot.device;
     if (!device || typeof device.watchAdvertisements !== 'function') return;
     if (slot.rssiDevice !== device) {
+      if (slot.rssiDevice && slot.onRssi) slot.rssiDevice.removeEventListener('advertisementreceived', slot.onRssi);
       slot.rssiDevice = device;
-      device.addEventListener('advertisementreceived', (e) => {
+      slot.onRssi = (e) => {
         if (typeof e.rssi === 'number') slot.rssi = e.rssi;
-      });
+      };
+      device.addEventListener('advertisementreceived', slot.onRssi);
     }
     // Started on every connection: a scan for a forgotten device (_scanFor) ends the previous one.
     device.watchAdvertisements().catch(() => { /* not permitted - leave RSSI unavailable */ });
@@ -550,7 +665,6 @@ class VeloBle {
       return await this._connect('trainer', (server) => this._setupTrainer(server));
     } catch (err) {
       console.error('FTMS Trainer connection failed:', err);
-      this._setState('trainer', 'disconnected');
       throw err;
     }
   }
@@ -566,6 +680,7 @@ class VeloBle {
     await control.startNotifications();
     this._listen('trainer', control, 'characteristicvaluechanged', (e) => this._onFtmsControlResponse(e.target.value));
     slot.chars.control = control;
+    slot.capabilities = { trainerControl: true };
 
     await VeloBle.delay(150);
     try {
@@ -584,6 +699,7 @@ class VeloBle {
       this._listen('trainer', data, 'characteristicvaluechanged', (e) => {
         this._markPacket('trainer');
         const parsed = VeloBle.parseIndoorBikeData(e.target.value);
+        Object.entries(parsed).forEach(([k, v]) => { if (v !== null && v !== undefined) slot.capabilities[k] = true; });
         this._emit({ type: 'trainer', name: slot.device ? slot.device.name : slot.name, ...parsed });
       });
       slot.chars.data = data;
@@ -599,6 +715,8 @@ class VeloBle {
     const requestOpCode = dv.getUint8(1);
     const result = dv.getUint8(2);
     const ok = result === 0x01;
+    if (requestOpCode === VeloBle.FTMS_OP.REQUEST_CONTROL) this.slots.trainer.controlGranted = ok;
+    if (result === 0x05) this.slots.trainer.controlGranted = false;
     this._emit({ type: 'ftms_response', ok, requestOpCode, result });
     // 0x05 = Control Not Permitted: another app grabbed control or the trainer rebooted - request it again.
     if (result === 0x05 && this.slots.trainer.chars.control) {
@@ -684,7 +802,6 @@ class VeloBle {
       return await this._connect('pedals', (server) => this._setupPedals(server));
     } catch (err) {
       console.error('CPS Pedal connection failed:', err);
-      this._setState('pedals', 'disconnected');
       throw err;
     }
   }
@@ -699,9 +816,11 @@ class VeloBle {
     this._listen('pedals', meas, 'characteristicvaluechanged', (e) => {
       this._markPacket('pedals');
       const parsed = this._parseCpsMeasurement(e.target.value);
+      Object.entries(parsed).forEach(([k, v]) => { if (v !== null && v !== undefined) slot.capabilities[k] = true; });
       this._emit({ type: 'pedals', name: slot.device ? slot.device.name : slot.name, ...parsed });
     });
     slot.chars.measurement = meas;
+    slot.capabilities.watts = true;
 
     await VeloBle.delay(150);
     try {
@@ -713,6 +832,7 @@ class VeloBle {
         if (r) this._emit({ type: 'calibration_response', ...r });
       });
       slot.chars.control = ctrl;
+      slot.capabilities.calibration = true;
     } catch (ctrlErr) {
       console.warn('CPS Control Point (0x2A66) unavailable:', ctrlErr);
     }
@@ -783,7 +903,7 @@ class VeloBle {
   /** Starts CPS Offset Compensation (op code 0x0C). Pedals must be unloaded and static. */
   async calibratePedals() {
     const ctrl = this.slots.pedals.chars.control;
-    if (!ctrl) throw new Error('Assioma control point not available or pedals disconnected');
+    if (!ctrl) throw new Error('This power meter does not expose an offset-calibration control point');
     await this._write('pedals', ctrl, new Uint8Array([VeloBle.CPS_OP.START_OFFSET_COMPENSATION]));
     return true;
   }
@@ -810,7 +930,6 @@ class VeloBle {
       return await this._connect('hr', (server) => this._setupHr(server));
     } catch (err) {
       console.error('HRS Heart Rate connection failed:', err);
-      this._setState('hr', 'disconnected');
       throw err;
     }
   }
@@ -828,6 +947,7 @@ class VeloBle {
       this._emit({ type: 'hr', ...parsed });
     });
     slot.chars.measurement = ch;
+    slot.capabilities.hr = true;
   }
 
   /**
@@ -847,6 +967,80 @@ class VeloBle {
   }
 
   disconnectHr() { this._disconnect('hr'); }
+
+  // HEADWIND vendor adapter. Protocol references: garanj/wearwind FanControlService.kt
+  // and octopusx/bluewind headwind/spec.py. Connecting never changes the fan setting.
+  async connectFan(options = {}) {
+    await this._request('fan', [{ services: [VeloBle.UUID.HEADWIND] }, { namePrefix: 'HEADWIND' }],
+      [VeloBle.UUID.HEADWIND, 'battery_service', 'device_information'], !!options.acceptAll);
+    return this._connect('fan', (server) => this._setupFan(server));
+  }
+
+  async _setupFan(server) {
+    const s = this.slots.fan;
+    const service = await VeloBle.getServiceWithRetry(server, VeloBle.UUID.HEADWIND);
+    const c = await service.getCharacteristic(VeloBle.UUID.HEADWIND_CONTROL);
+    if (c.properties && !c.properties.write && !c.properties.writeWithoutResponse) throw new Error('HEADWIND control is not writable on this firmware');
+    await c.startNotifications();
+    this._listen('fan', c, 'characteristicvaluechanged', (e) => {
+      const speed = VeloBle.parseFanResponse(e.target.value);
+      if (speed === null) return;
+      this._markPacket('fan'); s.fanSpeed = speed;
+      this._emit({ type: 'fan', speed });
+    });
+    s.chars.control = c;
+    s.capabilities.fanControl = true;
+  }
+
+  static parseFanResponse(dv) {
+    if (!dv || dv.byteLength !== 4 || dv.getUint8(0) !== 0xFD || dv.getUint8(1) !== 1 || dv.getUint8(3) !== 4) return null;
+    const speed = dv.getUint8(2);
+    return speed <= 100 ? speed : null;
+  }
+
+  async setFanSpeed(value) {
+    if (!Number.isFinite(Number(value))) throw new Error('Fan speed must be a number');
+    const speed = Math.max(0, Math.min(100, Math.round(Number(value))));
+    const slot = this.slots.fan;
+    if (!this.isFanConnected()) throw new Error('Connect HEADWIND first');
+    const c = slot.chars.control;
+    // Queue wake/manual-mode + speed as one unit so overlapping clicks cannot interleave.
+    const generation = slot.generation;
+    const send = async () => {
+      const write = async (bytes) => {
+        if (slot.generation !== generation || slot.manualDisconnect) throw new Error('Fan disconnected before command was sent');
+        if (c.properties?.writeWithoutResponse && !c.properties.write && c.writeValueWithoutResponse) return c.writeValueWithoutResponse(bytes);
+        return c.writeValueWithResponse ? c.writeValueWithResponse(bytes) : c.writeValue(bytes);
+      };
+      if (speed > 0) await write(new Uint8Array([4, 4, 1]));
+      await write(new Uint8Array([2, speed]));
+      if (slot.generation !== generation || slot.manualDisconnect) throw new Error('Fan disconnected before command completed');
+      slot.requestedSpeed = speed;
+      this._emit({ type: 'fan_command', speed });
+      return speed;
+    };
+    const p = slot.writeChain.then(send, send);
+    slot.writeChain = p.catch(() => {});
+    let timer;
+    const timeout = new Promise((_, reject) => {
+      timer = setTimeout(() => {
+        this._disconnect('fan'); // retire pending writes before a reconnect can send new commands
+        reject(new Error('Fan command timed out. Reconnect HEADWIND and retry.'));
+      }, VeloBle.FAN_WRITE_TIMEOUT_MS);
+    });
+    return Promise.race([p, timeout]).finally(() => clearTimeout(timer));
+  }
+
+  disconnectFan() { this._disconnect('fan'); }
+
+  destroy() {
+    Object.keys(this.slots).forEach(kind => {
+      this._disconnect(kind);
+      const s = this.slots[kind];
+      if (s.device && s.onGattDisconnected) s.device.removeEventListener('gattserverdisconnected', s.onGattDisconnected);
+      if (s.rssiDevice && s.onRssi) s.rssiDevice.removeEventListener('advertisementreceived', s.onRssi);
+    });
+  }
 }
 
 if (typeof window !== 'undefined') window.VeloBle = VeloBle;

@@ -236,7 +236,7 @@
       const bests = durations.map((d, i) => (archive && Number(archive[i]) > 0 ? Number(archive[i]) : null));
       rides.forEach(w => {
         if (w.samples && w.samples.length >= 5) {
-          const curve = VeloMetrics.mmpCurve(w.samples.map(s => s.power || 0), durations);
+          const curve = VeloMetrics.mmpCurve(VeloMetrics.toOneHz(w.samples), durations);
           curve.forEach((v, i) => { if (v !== null && (bests[i] === null || v > bests[i])) bests[i] = v; });
         }
       });
@@ -245,7 +245,7 @@
 
     getCurrentRideMmp() {
       if (!this.recordedSamples || this.recordedSamples.length < 5) return [];
-      return VeloMetrics.mmpCurve(this.recordedSamples.map(s => s.power || 0));
+      return VeloMetrics.mmpCurve(this.recordedSamples);
     },
 
     initMmpChart() {

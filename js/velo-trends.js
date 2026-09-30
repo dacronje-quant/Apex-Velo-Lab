@@ -28,7 +28,7 @@ class VeloTrends {
       if (win.length < 1200) return null;
       const p = win.map(s => Number(s.power));
       const avg = p.reduce((a, b) => a + b, 0) / p.length;
-      const np = VeloMetrics.normalizedPower(p) || avg;
+      const np = VeloMetrics.normalizedPower(win) || avg;
       const hr = win.reduce((a, s) => a + Number(s.hr), 0) / win.length;
       if (np / avg > 1.06) return null;
       if (ftp && (np / ftp < 0.55 || np / ftp > 0.88)) return null;

@@ -23,7 +23,7 @@
   const TRACE_LEN = 120; // seconds of power trace shown on the phone
   const PHONE_POWER_SEC = 5; // the phone's big power number is a 5 s average
   const PAIR_REQUEST_MS = 120000; // a "pair on the PC" request from the phone waits this long
-  const KINDS = ['trainer', 'pedals', 'hr'];
+  const KINDS = ['trainer', 'pedals', 'hr', 'fan'];
 
   Object.assign(VeloApp.prototype, {
     initRemoteView() {
@@ -178,6 +178,8 @@
         targetPct: iv ? Math.round(iv.pctFtp * this.ergBiasMultiplier) : null,
         zone: { name: zone.name, short: zone.short, color: zone.color },
         power5,
+        powerAverages: Object.fromEntries([3, 5, 7, 10].map(seconds => [seconds,
+          this.isPlaying && this.powerBuffer && this.powerBuffer.length ? this.getSmoothedPower(seconds) : power])),
         powerAvgSec: PHONE_POWER_SEC,
         zone5: { name: zone5.name, short: zone5.short, color: zone5.color },
         targetZone: tZone ? { name: tZone.name, short: tZone.short, color: tZone.color } : null,
@@ -202,6 +204,7 @@
           trainer: !!(this.ble && this.ble.isTrainerConnected()),
           pedals: !!(this.ble && this.ble.isPedalsConnected()),
           hr: !!(this.ble && this.ble.isHrConnected()),
+          fan: !!(this.ble && this.ble.isFanConnected()),
         },
         trace: this.remoteTrace.slice(),
         hist: this.remoteRideHist(totalDur),
@@ -219,7 +222,7 @@
         const d = this.ble.getDiagnostics(kind);
         const s = src[kind] || {};
         const fresh = !!s.lastTime && now - s.lastTime < 3500;
-        const reading = !fresh ? null
+        const reading = kind === 'fan' ? { speed: d.fanSpeed, requestedSpeed: d.requestedSpeed, mode: this.fanMode || 'manual', status: this.fanStatus, busy: !!this._fanWriteBusy } : !fresh ? null
           : kind === 'hr' ? { hr: s.hr != null ? s.hr : null, contact: s.contact != null ? s.contact : null }
           : kind === 'pedals' ? { watts: s.watts, cadence: s.cadence, left: s.leftPct != null ? s.leftPct : null }
           : { watts: s.watts, cadence: s.cadence, speed: s.speed != null ? round1(s.speed) : null };
@@ -228,6 +231,10 @@
           kind,
           label: this.deviceLabel(kind),
           name: d.name,
+          alias: d.alias,
+          capabilities: d.capabilities,
+          controlGranted: d.controlGranted,
+          canCalibrate: kind === 'pedals' && this.ble.canCalibrate(),
           state: d.state,
           known: !!(this.ble.canReconnect && this.ble.canReconnect(kind)),
           battery: this.bleBattery ? this.bleBattery[kind] : null,
@@ -246,6 +253,7 @@
       const cv = this.calibrationView;
       return {
         bluetooth: typeof navigator !== 'undefined' && !!navigator.bluetooth,
+        connectingAll: !!this._devicesConnectingAll,
         list,
         pairRequest: pr ? pr.kind : null,
         calibration: {
@@ -284,6 +292,7 @@
 
     /** One tap before a ride: every known device that is not connected, one after another (Windows BLE dislikes parallel connects). New ones keep their own Pair button. */
     async remoteConnectAll() {
+      if (this.connectSavedDevices) return this.connectSavedDevices({ fromPhone: true });
       if (this._remoteConnectingAll) return;
       this._remoteConnectingAll = true;
       try {
@@ -365,7 +374,7 @@
     },
 
     applyRemoteCommand(cmd) {
-      const dev = /^(connect|disconnect)-(trainer|pedals|hr)$/.exec(cmd || '');
+      const dev = /^(connect|disconnect)-(trainer|pedals|hr|fan)$/.exec(cmd || '');
       if (dev) {
         const kind = dev[2];
         if (dev[1] === 'connect') { this.remoteConnectDevice(kind); return; }
@@ -375,6 +384,14 @@
         }
         this.publishSoon();
         return;
+      }
+      const airflow = /^fan-(0|25|50|75|100)$/.exec(cmd || '');
+      if (airflow) { this.setFanAirflow(Number(airflow[1])); return; }
+      const fanMode = /^fan-mode-(manual|hr|power)$/.exec(cmd || '');
+      if (fanMode && this.ble?.isFanConnected()) {
+        this.fanMode = fanMode[1];
+        this.fanStatus = this.fanMode === 'manual' ? 'Manual control. Choose an airflow level.' : 'Automatic cooling holds the last airflow when data is unavailable or riding is paused.';
+        this.renderDevicesPanel(); this.publishSoon(); return;
       }
       const ivs = (this.currentWorkout && this.currentWorkout.intervals) || [];
       const finished = this.isWorkoutCompleted || this.intervalIndex >= ivs.length;
@@ -400,9 +417,10 @@
           this.toggleStand();
           break;
         case 'connect-all': this.remoteConnectAll(); return;
+        case 'connect-stop': this.stopDeviceConnections(); return;
         case 'pair-cancel': this.clearPairRequest(); return;
         case 'calibrate-pedals':
-          if (this.isPlaying) return; // zero-offset needs the cranks still and unloaded
+          if (this.isPlaying || !this.ble?.canCalibrate()) return; // zero-offset needs the cranks still and unloaded
           this.calibrateAssiomaPedals();
           break;
         case 'bias-reset':

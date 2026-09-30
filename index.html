@@ -118,14 +118,14 @@
       </div>
 
       <div class="device-cluster" role="group" aria-label="Bluetooth devices">
-        <button type="button" class="ble-badge" id="btnBleFtms" data-state="disconnected" title="Wahoo KICKR SHIFT (FTMS) - click to connect"><span class="pulse"></span>Trainer</button>
-        <button type="button" class="ble-badge" id="btnBlePedals" data-state="disconnected" title="Assioma DUO-Shi (CPS) - click to connect"><span class="pulse"></span>Pedals</button>
-        <button type="button" class="ble-badge" id="btnBleHr" data-state="disconnected" title="Heart-rate strap (HRS) - click to connect"><span class="pulse"></span>HR</button>
-        <button type="button" class="icon-btn" id="btnOpenHardwareModal" title="Hardware Lab: diagnostics, PowerMatch &amp; calibration (H)"><svg class="ic"><use href="#i-bluetooth"/></svg></button>
+        <button type="button" class="ble-badge" id="btnBleFtms" hidden data-state="disconnected" title="Wahoo KICKR SHIFT (FTMS) - click to connect"><span class="pulse"></span>Trainer</button>
+        <button type="button" class="ble-badge" id="btnBlePedals" hidden data-state="disconnected" title="Assioma DUO-Shi (CPS) - click to connect"><span class="pulse"></span>Pedals</button>
+        <button type="button" class="ble-badge" id="btnBleHr" hidden data-state="disconnected" title="Heart-rate strap (HRS) - click to connect"><span class="pulse"></span>HR</button>
+        <button type="button" class="btn devices-header-button" id="btnOpenHardwareModal" title="Devices, connections, calibration and fan control (H)" aria-haspopup="dialog"><svg class="ic"><use href="#i-bluetooth"/></svg><span>Devices</span><span class="devices-header-status" id="devicesHeaderStatus">Connect</span></button>
       </div>
 
       <div class="header-tools">
-        <button type="button" class="sim-toggle-pill active" id="simToggleBtn" title="Physics simulator (used only when no hardware is streaming)"><span class="switch-dot"></span><span>Sim</span></button>
+        <button type="button" class="sim-toggle-pill" id="simToggleBtn" title="Physics simulator (used only when no hardware is streaming)"><span class="switch-dot"></span><span>Sim</span></button>
         <button type="button" class="icon-btn active" id="btnToggleAudio" title="Interval audio cues (M)"><svg class="ic"><use href="#i-volume"/></svg></button>
         <button type="button" class="icon-btn" id="btnHeaderZenMode" title="Zen cockpit (Z)"><svg class="ic"><use href="#i-zen"/></svg></button>
         <button type="button" class="icon-btn" id="btnToggleFullscreen" title="Fullscreen (F)"><svg class="ic"><use href="#i-expand"/></svg></button>
@@ -189,7 +189,7 @@
             <button type="button" class="btn btn-reset" id="btnResetWorkout" title="Reset to step 1"><svg class="ic"><use href="#i-reset"/></svg><span>RESET</span></button>
           </div>
           <div class="control-btn-group">
-            <button type="button" class="btn btn-step" id="btnSkipInterval" title="Skip to the next step (Tab / &rarr;)"><svg class="ic"><use href="#i-skip"/></svg><span>Next step</span></button>
+            <button type="button" class="btn btn-step" id="btnSkipInterval" title="Skip to the next step (&rarr;)"><svg class="ic"><use href="#i-skip"/></svg><span>Next step</span></button>
             <button type="button" class="btn btn-step" id="btnStand" title="Out of the saddle: eases ERG 5% for 30 s, then ramps back (S). Tap again to end early."><span id="btnStandText">Stand 30s</span></button>
             <div class="segmented">
               <button type="button" id="btnShortenInterval" title="Shorten current step by 30 s">&minus;30s</button>
@@ -311,11 +311,11 @@
           <div class="card polar-card">
             <div class="card-title">
               <span>Left / right balance</span>
-              <span class="chip chip-ghost">MEASURED</span>
+              <span class="chip chip-ghost" id="balanceDataStatus">NO DATA</span>
             </div>
             <div class="polar-container">
               <div class="balance-gauge" aria-label="Left/right balance">
-                <div class="balance-gauge-labels"><span>L <b class="num" id="valLeftBalance">50.0%</b></span><span><b class="num" id="valRightBalance">50.0%</b> R</span></div>
+                <div class="balance-gauge-labels"><span>L <b class="num" id="valLeftBalance">--</b></span><span><b class="num" id="valRightBalance">--</b> R</span></div>
                 <div class="balance-bar-visual">
                   <div class="balance-bar-left" id="barLeftBalance" style="width:50%;"></div>
                   <div class="balance-bar-right" id="barRightBalance" style="width:50%;"></div>
@@ -426,6 +426,7 @@
           <div>
             <span class="eyebrow">Goal-driven coaching</span>
             <h2 class="section-title">AI Coach</h2>
+            <button type="button" class="link-btn" data-training-guide>Training terms explained</button>
             <p class="section-sub">Builds today's session and the next 7 days from your real history: fitness, fatigue, form, recent volume, intensity mix and power profile. Uses Claude or Gemini when the local server has the API key, otherwise the built-in physiology engine.</p>
           </div>
           <span class="engine-pill" id="aiCoachEngineStatus"><span class="status-indicator-dot"></span>Offline engine</span>
@@ -565,7 +566,7 @@
         <div class="card ai-coach-card block-card" id="trainingBlockCard">
           <div class="ai-coach-card-title"><span>Training block</span><span class="chip chip-ghost num" id="blockHeaderChip">Periodised plan</span></div>
           <div id="blockSetup">
-            <p class="field-help">Plans several weeks toward your goal with proven periodisation: 3 load weeks then a recovery week, a controlled rise in fitness (CTL), key sessions at least 48 h apart and mostly easy riding, ending with a ramp test to reset your FTP. The sessions go on your Calendar and the plan is re-checked after every ride.</p>
+            <p class="field-help">Builds your riding gradually, with mostly easy rides, harder efforts spaced apart and easier weeks to recover. Sessions go on your Calendar and the plan is reviewed after each ride.</p>
             <div class="block-form">
               <label class="field"><span>Goal</span>
                 <select id="selectBlockGoal" class="input-field">
@@ -585,11 +586,12 @@
                 </select>
               </label>
               <label class="field"><span>Start</span><input type="date" id="inputBlockStart" class="input-field"></label>
-              <label class="field"><span>Hours per week</span><input type="number" id="inputBlockHours" class="input-field" min="2" max="25" step="0.5" value="6"></label>
+              <label class="field"><span>Hours per week (optional)</span><input type="number" id="inputBlockHours" class="input-field" min="2" max="25" step="0.5" value="6" placeholder="Let the coach choose" aria-describedby="blockHoursHelp"></label>
               <label class="field"><span>Long ride day</span>
                 <select id="selectBlockLongDay" class="input-field"><option value="">No long ride</option><option value="0">Monday</option><option value="1">Tuesday</option><option value="2">Wednesday</option><option value="3">Thursday</option><option value="4">Friday</option><option value="5">Saturday</option><option value="6">Sunday</option></select>
               </label>
             </div>
+            <p class="field-help" id="blockHoursHelp">Leave hours blank for the AI to choose weekly ride time from your recent riding and recovery. Enter hours to set your weekly limit. Your selected days still apply. Choosing hours needs a connected AI coach.</p>
             <div class="field"><span>Days you can ride</span><div class="day-toggle" id="blockDays"><button type="button" class="day-chip" data-dow="0" aria-pressed="false">Mon</button><button type="button" class="day-chip" data-dow="1" aria-pressed="false">Tue</button><button type="button" class="day-chip" data-dow="2" aria-pressed="false">Wed</button><button type="button" class="day-chip" data-dow="3" aria-pressed="false">Thu</button><button type="button" class="day-chip" data-dow="4" aria-pressed="false">Fri</button><button type="button" class="day-chip" data-dow="5" aria-pressed="false">Sat</button><button type="button" class="day-chip" data-dow="6" aria-pressed="false">Sun</button></div></div>
             <button type="button" class="btn btn-ai btn-block" id="btnBuildBlock"><svg class="ic"><use href="#i-sparkles"/></svg><span id="btnBuildBlockLabel">Build training block</span></button>
             <div class="think-timer num" id="blockThinkTimer" hidden></div>
@@ -920,7 +922,68 @@
         <button type="button" class="cat-pill" data-sec="health">Apple Health</button>
         <button type="button" class="cat-pill" data-sec="backups">Backups</button>
         <button type="button" class="cat-pill" data-sec="phone">Phone view</button>
+        <button type="button" class="cat-pill" data-sec="guide">Training guide</button>
       </nav>
+
+      <section class="settings-section training-guide" data-sec="guide" aria-labelledby="trainingGuideTitle">
+        <h3 id="trainingGuideTitle">Training terms explained</h3>
+        <p>You do not need a sports science background. Start with the plain name; the abbreviation in brackets is what you see elsewhere in the app.</p>
+        <p class="field-help">These are suggested names for your review. Training scores are estimates from recorded data: they cannot tell exactly how you feel, diagnose overtraining or guarantee recovery. More is not always better.</p>
+        <details open>
+          <summary>Your training and recovery</summary>
+          <dl>
+            <dt>Fitness base <span>(CTL)</span></dt><dd><small>Chronic Training Load</small>How much training you have been used to over recent weeks. A rising score suggests you are doing more training; it does not prove you are faster.</dd>
+            <dt>Recent training strain <span>(ATL)</span></dt><dd><small>Acute Training Load</small>How much training you have done recently. A higher score suggests more strain to recover from; it is not a direct measure of tiredness.</dd>
+            <dt>Freshness <span>(TSB)</span></dt><dd><small>Training Stress Balance</small>Compares your recent strain with your fitness base. It hints whether you might be rested or carrying tiredness. Check how you actually feel too.</dd>
+            <dt>Workout load <span>(TSS)</span></dt><dd><small>Training Stress Score</small>An estimate of how demanding a ride was, combining how long and how hard you rode. Use it to compare your own rides, not as a score to beat.</dd>
+            <dt>Sustainable power <span>(FTP)</span></dt><dd><small>Functional Threshold Power</small>An estimate of the power you can hold during a long, hard effort. It helps the app set workout targets that suit you.</dd>
+            <dt>Fitness build rate <span>(CTL ramp)</span></dt><dd>How quickly your fitness-base score is changing. A fast rise means you are adding training quickly, so check that you have enough recovery.</dd>
+          </dl>
+        </details>
+        <details>
+          <summary>Understanding a ride</summary>
+          <dl>
+            <dt>Overall effort power <span>(NP)</span></dt><dd><small>Normalised Power</small>A calculated power value that gives extra weight to hard bursts. It helps describe how demanding an uneven ride was.</dd>
+            <dt>Relative ride effort <span>(IF)</span></dt><dd><small>Intensity Factor</small>Compares the ride's overall effort power with your sustainable power. It helps compare easy and hard rides for you.</dd>
+            <dt>Pacing variation <span>(VI)</span></dt><dd><small>Variability Index</small>Compares overall effort power with average power. A higher value suggests a ride with more changes in effort.</dd>
+            <dt>Power for heart effort <span>(EF)</span></dt><dd><small>Efficiency Factor</small>Compares power with heart rate. It can help you track similar steady rides; heat, tiredness and missing sensor data can affect it.</dd>
+            <dt>Heart-rate drift <span>(Pw:HR / decoupling)</span></dt><dd><small>Power-to-heart-rate relationship</small>Checks whether your heart needs to work harder for the same cycling effort later in a steady ride. Heat, drinks, food and fatigue can all play a part.</dd>
+            <dt>Best sustained power <span>(MMP)</span></dt><dd><small>Mean Maximal Power</small>Your best average power over different effort lengths. This is the power curve: short efforts show bursts, longer efforts show staying power.</dd>
+            <dt>Personal best <span>(PR)</span></dt><dd><small>Personal Record</small>Your best recorded result for a particular effort. It is a comparison with your own history.</dd>
+            <dt>Hard-effort capacity <span>(VO2 max)</span></dt><dd><small>Maximum oxygen uptake</small>How much oxygen your body can use during very hard exercise. Workouts with this name aim to improve your ability to ride hard; the workout itself does not measure this value.</dd>
+            <dt>Effort bands <span>(Z1-Z7 / zones)</span></dt><dd>Groups ranging from very easy riding to short, maximum efforts. The app uses your sustainable power to set the bands. Easy rides should still feel easy.</dd>
+          </dl>
+        </details>
+        <details>
+          <summary>Heart rate and recovery readings</summary>
+          <dl>
+            <dt>Heart rate <span>(HR / bpm)</span></dt><dd><small>Heart Rate / beats per minute</small>How fast your heart is beating. Effort, heat, stress and tiredness can change it.</dd>
+            <dt>Resting heart rate <span>(RHR)</span></dt><dd>Your heart rate while resting. Changes from your usual level can help you notice when you may need more recovery.</dd>
+            <dt>Heartbeat variation <span>(HRV)</span></dt><dd><small>Heart Rate Variability</small>The small changes in time between heartbeats. Compare it with your own usual pattern; a single reading or a higher number is not automatically better.</dd>
+            <dt>Hard-effort heart rate <span>(LTHR)</span></dt><dd><small>Lactate Threshold Heart Rate</small>An estimate of your heart rate during a sustained hard effort. The app can use it to estimate the load of rides without power data.</dd>
+          </dl>
+        </details>
+        <details>
+          <summary>Power, energy and pedalling</summary>
+          <dl>
+            <dt>Cycling power <span>(W)</span></dt><dd><small>Watts</small>How hard you are pushing the pedals right now. A workout target tells you the power to aim for.</dd>
+            <dt>Power compared with body weight <span>(W/kg)</span></dt><dd><small>Watts per kilogram</small>Power divided by body weight. It helps put climbing power in context; it does not describe all of your riding ability.</dd>
+            <dt>Pedalling speed <span>(cadence / rpm)</span></dt><dd><small>Revolutions per minute</small>How quickly you turn the pedals. Pedal smoothly rather than forcing a speed that feels uncomfortable.</dd>
+            <dt>Work done <span>(kJ)</span></dt><dd><small>Kilojoules</small>The mechanical energy you put into the bike. Longer or harder rides usually add more.</dd>
+            <dt>Energy used <span>(kcal)</span></dt><dd><small>Kilocalories</small>An estimate of the energy your body used. This is different from the mechanical work you put into the bike.</dd>
+          </dl>
+        </details>
+        <details>
+          <summary>Trainer and Bluetooth terms</summary>
+          <dl>
+            <dt>Automatic resistance <span>(ERG)</span></dt><dd><small>Ergometer mode</small>The trainer adjusts resistance to help you hold the workout's power target. Keep pedalling smoothly as the effort changes.</dd>
+            <dt>Match resistance to your power meter <span>(PowerMatch)</span></dt><dd>Uses your separate power meter as the reference and gently adjusts trainer resistance to match the target. This helps keep your indoor and outdoor power readings consistent.</dd>
+            <dt>Trainer connection standard <span>(FTMS)</span></dt><dd><small>Fitness Machine Service</small>A Bluetooth language that compatible trainers use to share readings and accept control commands.</dd>
+            <dt>Power-meter connection standard <span>(CPS)</span></dt><dd><small>Cycling Power Service</small>A Bluetooth language used to share cycling power readings.</dd>
+            <dt>Bluetooth signal strength <span>(RSSI)</span></dt><dd><small>Received Signal Strength Indicator</small>A clue to how strong the wireless signal is when the browser provides it. It is not a guarantee that the connection will stay stable.</dd>
+          </dl>
+        </details>
+      </section>
 
       <section class="settings-section active" data-sec="rider">
         <p class="field-help">FTP, weight and heart-rate limits drive every zone, target and W/kg in the app.</p>
@@ -1150,12 +1213,12 @@
       </div>
       <div class="shortcuts-grid">
         <div class="shortcut-row"><span>Play / pause</span><kbd class="key-badge">Space</kbd></div>
-        <div class="shortcut-row"><span>Next step</span><kbd class="key-badge">Tab / &rarr;</kbd></div>
+        <div class="shortcut-row"><span>Next step</span><kbd class="key-badge">&rarr;</kbd></div>
         <div class="shortcut-row"><span>Stand break (ERG -5% for 30 s)</span><kbd class="key-badge">S</kbd></div>
         <div class="shortcut-row"><span>ERG bias &plusmn;1% (Shift &plusmn;5%)</span><kbd class="key-badge">&uarr; &darr;</kbd></div>
         <div class="shortcut-row"><span>Zen cockpit</span><kbd class="key-badge">Z</kbd></div>
         <div class="shortcut-row"><span>Cadence halo (in Zen)</span><kbd class="key-badge">C</kbd></div>
-        <div class="shortcut-row"><span>Hardware Lab</span><kbd class="key-badge">H</kbd></div>
+        <div class="shortcut-row"><span>Devices</span><kbd class="key-badge">H</kbd></div>
         <div class="shortcut-row"><span>Fullscreen</span><kbd class="key-badge">F</kbd></div>
         <div class="shortcut-row"><span>Picture-in-picture mini HUD</span><kbd class="key-badge">P</kbd></div>
         <div class="shortcut-row"><span>Mute / unmute cues</span><kbd class="key-badge">M</kbd></div>
@@ -1166,16 +1229,19 @@
   </div>
 
   <!-- ============================== DRAWER: HARDWARE LAB ============================== -->
-  <div class="modal-overlay drawer-overlay" id="hardwareModal" role="dialog" aria-modal="true" aria-labelledby="hwTitle">
-    <aside class="drawer">
+  <div class="modal-overlay drawer-overlay" id="hardwareModal" hidden role="dialog" aria-modal="true" aria-labelledby="hwTitle">
+    <aside class="drawer devices-drawer">
       <div class="modal-header">
-        <div><span class="eyebrow">Hardware diagnostics</span><h3 id="hwTitle">Hardware Lab</h3></div>
+        <div><span class="eyebrow">Your riding setup</span><h3 id="hwTitle">Devices</h3></div>
         <button type="button" class="close-modal icon-btn" id="btnCloseHardwareModal" aria-label="Close"><svg class="ic"><use href="#i-x"/></svg></button>
       </div>
+      <div class="devices-summary"><strong id="devicesSummary" aria-live="polite">Add your riding devices</strong><p id="devicesSummaryHint">Connect saved devices or pair a new one.</p><div class="btn-row"><button type="button" class="btn btn-primary" id="btnConnectSavedDevices">Connect saved devices</button><button type="button" class="btn" id="btnStopDeviceConnections" hidden>Stop connecting</button></div></div>
+      <details class="device-add" id="deviceAddSection"><summary>Add or replace a device</summary><p class="muted">Choose what it provides, then select it in the browser Bluetooth list. Apex verifies compatibility before saving the assignment.</p><div class="device-pair-row"><label class="field"><span>Device type</span><select id="deviceTypeSelect" class="input-field"><option value="trainer">Trainer / smart bike</option><option value="pedals">Power meter (pedals, crank, spider or hub)</option><option value="hr">Heart-rate sensor</option><option value="fan">Wahoo KICKR HEADWIND fan</option></select></label><button type="button" class="btn btn-primary" id="btnPairDevice">Pair device</button></div><details class="device-help"><summary>My device is missing</summary><p>Wake it, enable Bluetooth and close other apps using it. If it still does not appear, use the broader chooser; Apex will check whether it is compatible.</p><button type="button" class="btn" id="btnPairDeviceBroad">Show all Bluetooth devices</button></details><p class="muted">First-time pairing needs a click on this PC. The phone can reconnect saved devices.</p></details>
 
-      <div class="hw-card" data-accent="lime">
+
+      <div class="hw-card device-card" id="deviceCard-pedals" data-accent="lime">
         <div class="hw-card-head">
-          <div><strong>Favero Assioma DUO-Shi</strong><span class="hw-sub">CPS 0x1818 &middot; ground truth for power, cadence, L/R</span></div>
+          <div><strong id="deviceName-pedals">Power meter</strong><span class="hw-sub" id="deviceCapabilities-pedals">Supported power, cadence and left/right balance</span></div>
           <span class="hw-state" id="hwPedalStatusBadge" data-state="disconnected">Disconnected</span>
         </div>
         <div class="hw-state-line" id="hwPedalState">Not connected</div>
@@ -1190,21 +1256,21 @@
         <div class="calib-panel" id="calibPanel" data-phase="idle">
           <div class="calib-ring"><svg viewBox="0 0 44 44"><circle class="calib-track" cx="22" cy="22" r="19"/><circle class="calib-arc" id="calibArc" cx="22" cy="22" r="19"/></svg><span class="num" id="calibCountdown"><svg class="ic"><use href="#i-target"/></svg></span></div>
           <div class="calib-text">
-            <strong id="calibTitle">Zero-offset calibration</strong>
+            <strong id="calibTitle">Offset calibration</strong>
             <span id="calibStatus">Unclip, set the cranks vertical and keep them still.</span>
             <span class="calib-last num" id="calibLastOffset"></span>
           </div>
         </div>
         <div class="btn-row">
-          <button type="button" class="btn btn-sm btn-grow" id="btnConnectPedalsModal">Connect Assioma pedals</button>
-          <button type="button" class="btn btn-sm btn-ghost" id="btnConnectPedalsAllModal" title="Scans for all nearby Bluetooth devices without service filter">Scan All BLE</button>
+          <button type="button" class="btn btn-sm btn-grow" id="btnConnectPedalsModal">Reconnect</button>
+          <button type="button" class="btn btn-sm btn-ghost" id="btnConnectPedalsAllModal" hidden title="Scans for all nearby Bluetooth devices without service filter">Scan All BLE</button>
           <button type="button" class="btn btn-sm btn-warning btn-grow" id="btnCalibratePedalsModal"><svg class="ic"><use href="#i-target"/></svg>Zero-offset calibrate</button>
-        </div>
+        </div><p class="muted" id="deviceCalibrationHint"></p><p class="device-error" id="deviceError-pedals"></p><div class="btn-row"><button type="button" class="btn" id="deviceStop-pedals" hidden>Stop reconnecting</button></div><details class="device-settings"><summary>Device settings &amp; connection details</summary><div class="device-alias-row"><label class="field"><span>Friendly name</span><input class="input-field" id="deviceAlias-pedals" maxlength="60" placeholder="Optional device name"></label><button type="button" class="btn" id="deviceRename-pedals">Save name</button></div><div class="btn-row"><button type="button" class="btn" id="deviceReplace-pedals">Replace device</button><button type="button" class="btn btn-ghost" id="deviceForget-pedals">Forget in Apex</button></div><p class="muted">Forgetting clears the Apex assignment. Browser permission is managed in site settings.</p></details>
       </div>
 
-      <div class="hw-card" data-accent="cyan">
+      <div class="hw-card device-card" id="deviceCard-trainer" data-accent="cyan">
         <div class="hw-card-head">
-          <div><strong>Wahoo KICKR SHIFT</strong><span class="hw-sub">FTMS 0x1826 &middot; ERG brake, speed, distance</span></div>
+          <div><strong id="deviceName-trainer">Trainer / smart bike</strong><span class="hw-sub" id="deviceCapabilities-trainer">Resistance control and supported measurements</span></div>
           <span class="hw-state" id="hwTrainerStatusBadge" data-state="disconnected">Disconnected</span>
         </div>
         <div class="hw-state-line" id="hwTrainerState">Not connected</div>
@@ -1218,14 +1284,14 @@
           <div class="span2"><span>Link</span><strong class="num" id="hwTrainerLink">--</strong></div>
         </div>
         <div class="btn-row">
-          <button type="button" class="btn btn-sm btn-grow" id="btnConnectTrainerModal">Connect KICKR SHIFT</button>
-          <button type="button" class="btn btn-sm btn-ghost" id="btnConnectTrainerAllModal" title="Scans for all nearby Bluetooth devices without service filter">Scan All BLE</button>
-        </div>
+          <button type="button" class="btn btn-sm btn-grow" id="btnConnectTrainerModal">Reconnect</button>
+          <button type="button" class="btn btn-sm btn-ghost" id="btnConnectTrainerAllModal" hidden title="Scans for all nearby Bluetooth devices without service filter">Scan All BLE</button>
+        </div><p class="device-error" id="deviceError-trainer"></p><div class="btn-row"><button type="button" class="btn" id="deviceStop-trainer" hidden>Stop reconnecting</button></div><details class="device-settings"><summary>Device settings &amp; connection details</summary><div class="device-alias-row"><label class="field"><span>Friendly name</span><input class="input-field" id="deviceAlias-trainer" maxlength="60" placeholder="Optional device name"></label><button type="button" class="btn" id="deviceRename-trainer">Save name</button></div><div class="btn-row"><button type="button" class="btn" id="deviceReplace-trainer">Replace device</button><button type="button" class="btn btn-ghost" id="deviceForget-trainer">Forget in Apex</button></div><p class="muted">Forgetting clears the Apex assignment. Browser permission is managed in site settings.</p></details>
       </div>
 
-      <div class="hw-card" data-accent="rose">
+      <div class="hw-card device-card" id="deviceCard-hr" data-accent="rose">
         <div class="hw-card-head">
-          <div><strong>Heart-rate strap</strong><span class="hw-sub">HRS 0x180D</span></div>
+          <div><strong id="deviceName-hr">Heart-rate sensor</strong><span class="hw-sub" id="deviceCapabilities-hr">Heart rate and contact status when supported</span></div>
           <span class="hw-state" id="hwHrStatusBadge" data-state="disconnected">Disconnected</span>
         </div>
         <div class="hw-state-line" id="hwHrState">Not connected</div>
@@ -1236,11 +1302,14 @@
           <div><span>Link</span><strong class="num" id="hwHrLink">--</strong></div>
         </div>
         <div class="btn-row">
-          <button type="button" class="btn btn-sm btn-grow" id="btnConnectHrModal">Connect HR strap</button>
-          <button type="button" class="btn btn-sm btn-ghost" id="btnConnectHrAllModal" title="Scans for all nearby Bluetooth devices without service filter">Scan All BLE</button>
-        </div>
+          <button type="button" class="btn btn-sm btn-grow" id="btnConnectHrModal">Reconnect</button>
+          <button type="button" class="btn btn-sm btn-ghost" id="btnConnectHrAllModal" hidden title="Scans for all nearby Bluetooth devices without service filter">Scan All BLE</button>
+        </div><p class="device-error" id="deviceError-hr"></p><div class="btn-row"><button type="button" class="btn" id="deviceStop-hr" hidden>Stop reconnecting</button></div><details class="device-settings"><summary>Device settings &amp; connection details</summary><div class="device-alias-row"><label class="field"><span>Friendly name</span><input class="input-field" id="deviceAlias-hr" maxlength="60" placeholder="Optional device name"></label><button type="button" class="btn" id="deviceRename-hr">Save name</button></div><div class="btn-row"><button type="button" class="btn" id="deviceReplace-hr">Replace device</button><button type="button" class="btn btn-ghost" id="deviceForget-hr">Forget in Apex</button></div><p class="muted">Forgetting clears the Apex assignment. Browser permission is managed in site settings.</p></details>
       </div>
 
+
+      <div class="hw-card device-card" id="deviceCard-fan" data-accent="cyan"><div class="hw-card-head"><div><strong id="deviceName-fan">HEADWIND fan</strong><span class="hw-sub" id="deviceCapabilities-fan">Airflow control</span></div><span class="hw-state" id="hwFanStatusBadge">Not paired</span></div><p class="device-error" id="deviceError-fan"></p><div class="btn-row"><button type="button" class="btn" id="btnConnectFanModal">Reconnect</button><button type="button" class="btn" id="deviceStop-fan" hidden>Stop reconnecting</button></div><div class="fan-controls"><label class="field"><span>Cooling mode</span><select class="input-field" id="fanModeSelect"><option value="manual">Manual</option><option value="hr">Apex auto · heart rate</option><option value="power">Apex auto · power</option></select></label><label class="field"><span>Airflow <b id="fanSpeedPreview">--</b></span><input type="range" min="0" max="100" step="1" value="25" id="fanSpeedSlider"></label><div class="btn-row"><button type="button" class="btn" id="fanPreset0">Off</button><button type="button" class="btn" id="fanPreset25">25%</button><button type="button" class="btn" id="fanPreset50">50%</button><button type="button" class="btn" id="fanPreset75">75%</button><button type="button" class="btn" id="fanPreset100">100%</button></div><p id="fanReportedSpeed">Airflow not reported yet</p><p class="muted" id="fanControlStatus" aria-live="polite"></p></div><details class="device-settings"><summary>Fan settings &amp; connection details</summary><p class="muted">Apex auto maps fresh HR (60–95% max HR) or power (40–120% FTP) to 20–100% airflow. It holds the last setting on pause or signal loss. Manual controls override auto; use Off when finished.</p><div class="device-alias-row"><label class="field"><span>Friendly name</span><input class="input-field" id="deviceAlias-fan" maxlength="60"></label><button type="button" class="btn" id="deviceRename-fan">Save name</button></div><div class="btn-row"><button type="button" class="btn" id="deviceReplace-fan">Replace device</button><button type="button" class="btn btn-ghost" id="deviceForget-fan">Forget in Apex</button></div><p class="muted">Connecting never changes airflow. HEADWIND firmware compatibility needs verification on your fan.</p></details></div>
+      <details class="device-sources"><summary>Measurement sources &amp; PowerMatch</summary><div class="sources-grid"><label class="field"><span>Power</span><select class="input-field" id="devicePowerSource"><option value="auto">Auto · prefer meter, trainer fallback</option><option value="pedals">Power meter only</option><option value="trainer">Trainer only</option></select></label><label class="field"><span>Cadence</span><select class="input-field" id="deviceCadenceSource"><option value="auto">Auto · prefer meter, trainer fallback</option><option value="pedals">Power meter only</option><option value="trainer">Trainer only</option></select></label></div><p class="muted">Speed and distance use the trainer when available. Automatic source changes are recorded in the ride; select a fixed source to prevent fallback. Missing measurements are never simulated in a real ride.</p>
       <div class="hw-card" data-accent="violet">
         <div class="hw-card-head">
           <label class="toggle">
@@ -1257,6 +1326,8 @@
         <div class="hw-state-line num" id="hwPowerMatchError">Pedal error vs target: --</div>
       </div>
 
+      </details>
+      <details class="device-help"><summary>Bluetooth troubleshooting</summary>
       <div class="hw-card" data-accent="amber" style="border-left: 3px solid var(--amber); background: rgba(245, 158, 11, 0.05); padding: 12px;">
         <div style="font-weight: 700; color: var(--amber); margin-bottom: 6px; font-size: 0.85rem;">⚡ BLUETOOTH CONNECTION TROUBLESHOOTER</div>
         <ul style="font-size: 0.78rem; line-height: 1.5; color: var(--text-dim); margin: 0; padding-left: 18px;">
@@ -1270,6 +1341,7 @@
       </div>
 
       <p class="footnote">RSSI appears only when the browser exposes advertisement data (Chrome experimental Web Bluetooth). A dropped link reconnects automatically with exponential backoff (1 s, 2 s, 4 s &hellip; capped at 30 s, 8 attempts).</p>
+      </details>
       <div class="btn-row btn-row-end"><button type="button" class="btn btn-primary" id="btnCloseHardwareBtn">Done</button></div>
     </aside>
   </div>
@@ -1307,6 +1379,7 @@
   <script src="js/app-strava-sync.js"></script>
   <script src="js/app-insight.js"></script>
   <script src="js/app-backup.js"></script>
+  <script src="js/app-devices.js"></script>
   <script src="js/app-remote.js"></script>
   <script src="js/app-health.js"></script>
   <script src="js/app-settings.js"></script>

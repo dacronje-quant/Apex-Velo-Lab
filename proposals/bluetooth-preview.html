@@ -1,0 +1,102 @@
+﻿<!doctype html><html><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Apex Bluetooth proposal</title><style>:root{color-scheme:dark;--foreground:#e6edf7}body{margin:0;padding:24px;background:#06080f;color:#e6edf7;font:14px/1.45 system-ui}h2{font-size:24px}h3{font-size:16px}b{font-weight:500}button{font:inherit}.btn{padding:10px 16px;background:#111a2b;color:#e6edf7;border:1px solid #2a364a;border-radius:8px;cursor:pointer}.btn-primary{background:#22d3ee;color:#090d16}small{font-size:12px}[data-lucide]{display:none}</style></head><body><div id="av-bluetooth-proposal">
+<style>
+#av-bluetooth-proposal { color:var(--foreground); font-family:Inter,system-ui,sans-serif; }
+#av-bluetooth-proposal .preview-tabs { display:flex; flex-wrap:wrap; gap:8px; margin-bottom:16px; }
+#av-bluetooth-proposal .product { --p-bg:light-dark(#f6f8fc,#090d16); --p-card:light-dark(#fff,#111a2b); --p-ink:light-dark(#182538,#e6edf7); --p-dim:light-dark(#536277,#a9b6c9); --p-line:light-dark(#dce3ee,#2a364a); --p-accent:light-dark(#08768a,#22d3ee); --p-ok:light-dark(#35670b,#a3e635); --p-warn:light-dark(#805705,#fbbf24); background:var(--p-bg);color:var(--p-ink); padding:24px; border-radius:18px; max-width:760px; margin:auto; }
+#av-bluetooth-proposal .top { display:flex; align-items:center; justify-content:space-between;gap:16px; border-bottom:1px solid var(--p-line);padding-bottom:18px;margin-bottom:20px; }
+#av-bluetooth-proposal .brand { color:var(--p-accent);letter-spacing:.08em; }
+#av-bluetooth-proposal h2,#av-bluetooth-proposal h3,#av-bluetooth-proposal p { margin:0; }
+#av-bluetooth-proposal .dim {color:var(--p-dim);}
+#av-bluetooth-proposal .title { display:flex;justify-content:space-between;align-items:center;gap:16px;margin-bottom:20px; }
+#av-bluetooth-proposal .banner { background:var(--p-card);padding:15px 18px;border-radius:10px;margin:16px 0;display:flex;align-items:center;gap:12px; }
+#av-bluetooth-proposal .ok {color:var(--p-ok);}
+#av-bluetooth-proposal .warn {color:var(--p-warn);}
+#av-bluetooth-proposal .device { background:var(--p-card);border:1px solid var(--p-line);border-radius:12px;padding:18px;margin:12px 0; }
+#av-bluetooth-proposal .row {display:flex;align-items:center;justify-content:space-between;gap:14px;flex-wrap:wrap;}
+#av-bluetooth-proposal .device-name {display:flex;gap:12px;align-items:center;}
+#av-bluetooth-proposal .badge {display:inline-block;padding:5px 9px;border:1px solid var(--p-line);border-radius:7px;}
+#av-bluetooth-proposal .metrics {display:flex;gap:24px;flex-wrap:wrap;margin-top:16px;}
+#av-bluetooth-proposal .metrics span {display:flex;flex-direction:column;gap:4px;}
+#av-bluetooth-proposal .product button {font:inherit;color:var(--p-ink);background:var(--p-card);border:1px solid var(--p-line);border-radius:8px;padding:10px 14px;cursor:pointer;}
+#av-bluetooth-proposal .product button.primary {background:var(--p-accent);color:var(--p-bg);border-color:var(--p-accent);}
+#av-bluetooth-proposal .product button:focus-visible {outline:2px solid var(--p-accent);outline-offset:3px;}
+#av-bluetooth-proposal .product select {font:inherit;color:var(--p-ink);background:var(--p-card);border:1px solid var(--p-line);border-radius:8px;padding:10px;max-width:100%;}
+#av-bluetooth-proposal .sources {display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-top:16px;}
+#av-bluetooth-proposal label {display:flex;flex-direction:column;gap:7px;}
+#av-bluetooth-proposal .foot {display:flex;justify-content:space-between;align-items:center;gap:14px;flex-wrap:wrap;margin-top:22px;}
+#av-bluetooth-proposal details {margin-top:16px;border-top:1px solid var(--p-line);padding-top:14px;}
+#av-bluetooth-proposal summary {cursor:pointer;}
+#av-bluetooth-proposal .steps {display:flex;gap:16px;flex-wrap:wrap;margin-bottom:24px;color:var(--p-dim);}
+#av-bluetooth-proposal .steps .current {color:var(--p-accent);}
+#av-bluetooth-proposal .choice {display:grid;grid-template-columns:1fr 1fr;gap:12px;margin:22px 0;}
+#av-bluetooth-proposal .choice button {text-align:left;padding:18px;}
+#av-bluetooth-proposal .choice small {display:block;color:var(--p-dim);margin-top:6px;}
+#av-bluetooth-proposal .trace {display:grid;grid-template-columns:1fr auto;gap:12px;padding:12px 0;border-bottom:1px solid var(--p-line);}
+#av-bluetooth-proposal .phone {max-width:390px;}
+#av-bluetooth-proposal .phone .row button {width:100%;}
+#av-bluetooth-proposal [hidden] {display:none!important;}
+@media(max-width:520px) {#av-bluetooth-proposal .product{padding:16px;} #av-bluetooth-proposal .sources,#av-bluetooth-proposal .choice{grid-template-columns:1fr;} }
+</style>
+<div class="preview-tabs" aria-label="Proposed Bluetooth screens">
+ <button class="btn btn-primary" data-screen="ready">Everyday connection</button>
+ <button class="btn" data-screen="add">Add a device</button>
+ <button class="btn" data-screen="recovery">Connection recovery</button>
+ <button class="btn" data-screen="phone">Phone view</button>
+</div>
+<section class="product" aria-label="Bluetooth connection proposal">
+ <div class="top"><span class="brand">APEX VELO</span><span class="dim">Design proposal · sample readings</span></div>
+ <div class="title"><div><h2>Devices</h2><p class="dim">Your riding setup, in one place</p></div><button aria-label="Close devices">Close</button></div>
+ <div data-panel="ready">
+  <div class="banner"><i data-lucide="circle-check" aria-hidden="true"></i><div><span class="ok">Ready to ride</span><p class="dim">Trainer control and all selected sensors are working</p></div></div>
+  <div class="device"><div class="row"><div class="device-name"><i data-lucide="bike" aria-hidden="true"></i><div><h3>Wahoo KICKR SHIFT</h3><span class="dim">Trainer · resistance, power, speed & distance</span></div></div><span class="ok">Connected · control granted</span></div><div class="metrics"><span><b>185 W</b><small class="dim">Trainer power</small></span><span><b>31.4 km/h</b><small class="dim">Speed</small></span><span><b>93 W</b><small class="dim">ERG target</small></span></div></div>
+  <div class="device"><div class="row"><div class="device-name"><i data-lucide="gauge" aria-hidden="true"></i><div><h3>Favero Assioma DUO-Shi</h3><span class="dim">Power meter · power, cadence & left/right balance</span></div></div><span class="ok">Receiving data</span></div><div class="metrics"><span><b>188 W</b><small class="dim">Power</small></span><span><b>89 rpm</b><small class="dim">Cadence</small></span><span><b>49 / 51%</b><small class="dim">Left / right</small></span><span><b>82%</b><small class="dim">Battery</small></span></div><div class="foot"><span class="dim" id="cal-status">Last calibrated today, 08:42</span><button id="calibrate">Calibrate</button></div></div>
+  <div class="device"><div class="row"><div class="device-name"><i data-lucide="heart" aria-hidden="true"></i><div><h3>Polar H10</h3><span class="dim">Heart rate</span></div></div><span class="ok">Receiving data · 128 bpm</span></div></div>
+  <details><summary>Measurement sources & PowerMatch</summary><div class="sources"><label>Power<select><option>Assioma DUO-Shi · preferred</option><option>KICKR SHIFT</option></select></label><label>Cadence<select><option>Assioma DUO-Shi</option><option>KICKR SHIFT · if available</option></select></label></div><p class="dim" style="margin-top:14px">Speed & distance: KICKR SHIFT · Heart rate: Polar H10</p><label style="display:block;margin-top:14px"><input type="checkbox" checked> Match trainer resistance to power-meter readings</label><p class="dim" style="margin-top:8px">PowerMatch active · adjustment +3 W · limit ±45 W</p></details>
+  <details><summary>Device settings & diagnostics</summary><p class="dim" style="margin:12px 0">Each device: Rename · Replace · Disconnect · Forget in Apex</p><div class="trace"><span>Trainer control</span><span>Granted · ERG active</span></div><div class="trace"><span>Last sensor reading</span><span>Less than 1 second ago</span></div><div class="trace"><span>Signal strength</span><span>Not exposed by this browser</span></div><div class="trace"><span>Services</span><span>FTMS · Cycling Power · Heart Rate</span></div></details>
+  <div class="foot"><button data-screen="add">Add device</button><button class="primary" id="done">Done</button></div>
+ </div>
+ <div data-panel="add" hidden>
+  <div class="steps"><span class="current">Choose type</span><span>→ Browser selection</span><span>→ Confirm capabilities</span></div>
+  <h3>What would you like to connect?</h3>
+  <div class="choice"><button data-kind="Trainer">Trainer / smart bike<small>Control resistance and read supported sensors</small></button><button data-kind="Power meter">Power meter<small>Pedals, crank, spider or hub</small></button><button data-kind="Heart rate">Heart-rate sensor<small>Strap, armband or compatible wearable</small></button><button data-kind="Cadence / speed">Cadence / speed sensor<small>Read cadence and wheel speed if supported</small></button></div>
+  <div class="banner"><i data-lucide="bluetooth" aria-hidden="true"></i><div><h3 id="add-label">Choose a device type</h3><p class="dim" id="add-help">Wake the device and close other apps using it.</p></div></div>
+  <p class="dim">Apex checks what the selected device can actually do. Device names do not determine compatibility.</p>
+  <details><summary>My device is missing</summary><p class="dim" style="margin:12px 0">Wake it, check Bluetooth is on, and close other cycling apps. If it still does not appear, try the broader browser chooser.</p><button id="broad">Show all Bluetooth devices</button></details>
+  <div class="foot"><button data-screen="ready">Back</button><button class="primary" id="chooser" disabled>Open browser chooser</button></div>
+ </div>
+ <div data-panel="recovery" hidden>
+  <div class="banner"><i data-lucide="refresh-cw" aria-hidden="true"></i><div><span class="warn" id="recover-status">Power meter signal lost</span><p class="dim" id="recover-help">Reconnecting to Assioma DUO-Shi · attempt 2 of 8</p></div></div>
+  <div class="device"><div class="row"><h3>Your workout is still recording</h3><span class="badge">Sensor gap marked</span></div><p class="dim" style="margin-top:12px">Power and cadence are unavailable until the meter returns. Heart rate, time and trainer distance continue.</p><p style="margin-top:12px">Trainer stays at the interval target. PowerMatch is suspended.</p></div>
+  <h3 style="margin-top:22px">Get connected again</h3><p class="dim" style="margin-top:10px">Spin the cranks to wake the meter. Close any app that may have taken its connection.</p>
+  <div class="foot"><button id="retry">Retry now</button><button id="stop-retry">Stop reconnecting</button></div>
+  <details open><summary>Use another power source</summary><p class="dim" style="margin:12px 0">KICKR SHIFT is connected and can provide power. Switching is recorded in the ride; PowerMatch stays off.</p><button id="fallback">Use trainer power for this ride</button></details>
+  <details><summary>Connection details</summary><div class="trace"><span>Last reading</span><span>8 seconds ago</span></div><div class="trace"><span>Auto reconnect</span><span>1–30 second backoff · 8 attempts</span></div><div class="trace"><span>Permission</span><span>Device remembered by this browser</span></div><button style="margin-top:12px" data-screen="add">Replace device</button></details>
+ </div>
+ <div data-panel="phone" hidden>
+  <div class="banner"><i data-lucide="monitor" aria-hidden="true"></i><div><h3>Connected through your PC</h3><p class="dim">Bluetooth stays on the riding computer</p></div></div>
+  <div class="device"><h3>Trainer</h3><p class="dim" style="margin:8px 0">KICKR SHIFT · control granted</p><span class="ok">Connected</span></div>
+  <div class="device"><h3>Power meter</h3><p class="dim" style="margin:8px 0">Assioma DUO-Shi · remembered</p><div class="row"><span class="warn" id="phone-state">Disconnected</span><button id="phone-connect">Reconnect</button></div></div>
+  <div class="device"><h3>Heart rate</h3><p class="dim" style="margin:8px 0">Polar H10 · 128 bpm</p><span class="ok">Receiving data</span></div>
+  <button style="width:100%;margin-top:12px" id="phone-add">Add a new device</button><p class="dim" id="phone-note" style="margin-top:12px">First-time pairing needs one click on the PC.</p>
+ </div>
+ <p id="mock-result" class="dim" aria-live="polite" style="margin-top:16px"></p>
+</section>
+<script>
+(()=>{const root=document.getElementById('av-bluetooth-proposal');const product=root.querySelector('.product');function screen(name){root.querySelectorAll('[data-panel]').forEach(p=>p.hidden=p.dataset.panel!==name);product.classList.toggle('phone',name==='phone');root.querySelector('#mock-result').textContent='';root.querySelectorAll('.preview-tabs button').forEach(b=>b.classList.toggle('btn-primary',b.dataset.screen===name));}
+root.querySelectorAll('[data-screen]').forEach(b=>b.addEventListener('click',()=>screen(b.dataset.screen)));
+root.querySelectorAll('[data-kind]').forEach(b=>b.addEventListener('click',()=>{root.querySelector('#add-label').textContent=b.dataset.kind;root.querySelector('#add-help').textContent='Select your device in the browser’s own Bluetooth chooser.';root.querySelector('#chooser').disabled=false;}));
+const msg=t=>root.querySelector('#mock-result').textContent=t;
+root.querySelector('#chooser').onclick=()=>msg('Demo: browser chooser → capability check → confirm device. No real Bluetooth request is made.');
+root.querySelector('#broad').onclick=()=>msg('Demo: broader chooser, followed by the same compatibility check.');
+root.querySelector('#calibrate').onclick=()=>{root.querySelector('#cal-status').textContent='Unclip, set cranks vertical, keep still · then start calibration';msg('Guided calibration keeps the countdown, device response and saved offset.');};
+root.querySelector('#retry').onclick=()=>{root.querySelector('#recover-status').textContent='Checking connection…';root.querySelector('#recover-help').textContent='Demo: reconnect request sent to the PC';};
+root.querySelector('#stop-retry').onclick=()=>{root.querySelector('#recover-status').textContent='Reconnect stopped';root.querySelector('#recover-help').textContent='Power meter remains remembered · reconnect when ready';};
+root.querySelector('#fallback').onclick=()=>{root.querySelector('#recover-status').textContent='Using trainer power';root.querySelector('#recover-help').textContent='Source change recorded · PowerMatch off';};
+root.querySelector('#phone-connect').onclick=()=>{root.querySelector('#phone-state').textContent='Connecting on PC…';};
+root.querySelector('#phone-add').onclick=()=>{root.querySelector('#phone-note').textContent='Pairing request sent · click “Pair device” on your PC. Your phone will update when it connects.';};
+root.querySelector('#done').onclick=()=>msg('Ready to return to your workout.');
+if(globalThis.Tweak){const state={showSources:false};const tweak=new Tweak({container:product,onChange:()=>{root.querySelector('[data-panel="ready"] details').open=state.showSources;}});tweak.addToggle(state,'showSources',{label:'Show measurement sources'});}
+})();
+</script>
+</div>
+</body></html>

@@ -12,11 +12,11 @@ class VeloRideImporter {
     const samples = VeloMetrics.toOneHz(rawSamples);
     const powers = samples.map(s => Number(s.power) || 0);
     const hasPower = samples.some(s => Number(s.power) > 0);
-    const duration = samples.length ? Math.max(samples.length, Math.round(samples[samples.length - 1].time || 0)) : 0;
+    const duration = samples.length;
     const p = VeloMetrics.stats(powers);
     const h = VeloMetrics.stats(samples.map(s => s.hr));
     const c = VeloMetrics.stats(samples.map(s => s.cadence));
-    const np = hasPower ? (VeloMetrics.normalizedPower(powers) || p.avg) : 0;
+    const np = hasPower ? (VeloMetrics.normalizedPower(samples) || VeloMetrics.avgPower(powers)) : 0;
     const ifac = hasPower && riderFtp > 0 ? np / riderFtp : 0;
     const tss = hasPower && riderFtp > 0 ? Math.round(((duration * np * ifac) / (riderFtp * 3600)) * 100) : 0;
     const kj = hasPower ? Math.round(VeloMetrics.workKjFromSamples(samples)) : 0;
@@ -46,7 +46,7 @@ class VeloRideImporter {
       distanceKm,
       totalDistanceMeters: distanceKm ? Math.round(distanceKm * 1000) : 0,
       avgSpeedKmh: distanceKm && duration ? Math.round((distanceKm / (duration / 3600)) * 10) / 10 : 0,
-      maxSpeedKmh: speeds.length ? Math.round(Math.max(...speeds) * 10) / 10 : 0,
+      maxSpeedKmh: speeds.length ? Math.round(VeloMetrics.stats(speeds).max * 10) / 10 : 0,
       leftBal,
       rightBal: leftBal === null ? null : Math.round((100 - leftBal) * 10) / 10,
       samplesCount: samples.length,
@@ -74,8 +74,11 @@ class VeloRideImporter {
     const startMs = new Date(startIso).getTime();
 
     const samples = [];
+    let previousTrack = null;
     for (let i = 0; i < trackpoints.length; i++) {
       const pt = trackpoints[i];
+      let track = pt.parentNode;
+      while (track && track.localName !== 'Track') track = track.parentNode;
       const tStr = text(pt, 'Time');
       const t = tStr && Number.isFinite(startMs) ? Math.round((new Date(tStr).getTime() - startMs) / 1000) : i;
       const hrNode = pt.getElementsByTagName('HeartRateBpm')[0];
@@ -86,6 +89,7 @@ class VeloRideImporter {
       const dist = text(pt, 'DistanceMeters');
       samples.push({
         time: t,
+        segmentStart: i > 0 && track !== previousTrack,
         timestamp: tStr ? new Date(tStr).getTime() : undefined,
         power: watts !== null ? parseInt(watts, 10) || 0 : 0,
         cadence: cad !== null ? parseInt(cad, 10) || 0 : 0,
@@ -93,6 +97,7 @@ class VeloRideImporter {
         speed: spd !== null ? Math.round(parseFloat(spd) * 3.6 * 10) / 10 : null,
         dist: dist !== null ? parseFloat(dist) / 1000 : null
       });
+      previousTrack = track;
     }
 
     return VeloRideImporter.summarize(samples, riderFtp, {
@@ -125,7 +130,8 @@ class VeloRideImporter {
       speed: find('speed_kmh', 'speedkmh', 'speed'),
       dist: find('distance_km', 'distancekm', 'distance'),
       left: find('left_balance_pct', 'leftbalancepct', 'left'),
-      right: find('right_balance_pct', 'rightbalancepct', 'right')
+      right: find('right_balance_pct', 'rightbalancepct', 'right'),
+      segment: find('segment_start')
     } : { time: 0, ts: -1, target: 1, power: 2, cad: 3, hr: 4, speed: -1, dist: -1, left: 5, right: 6 };
 
     const num = (parts, idx) => {
@@ -149,7 +155,8 @@ class VeloRideImporter {
         speed: num(parts, col.speed),
         dist: num(parts, col.dist),
         leftBal: num(parts, col.left),
-        rightBal: num(parts, col.right)
+        rightBal: num(parts, col.right),
+        segmentStart: num(parts, col.segment ?? -1) === 1
       });
     }
     if (!samples.length) throw new Error('CSV contained no telemetry rows.');
@@ -179,6 +186,18 @@ class VeloRideImporter {
     const defs = {};
     const records = [];
     let lastTimestamp = 0;
+    let timerStopped = false, segmentPending = false;
+    const acceptMessage = (def, msg) => {
+      if (msg.timestamp !== undefined) lastTimestamp = msg.timestamp;
+      if (def.globalMesg === 21 && msg.event === 0) {
+        if (msg.eventType === 0) { if (timerStopped) segmentPending = true; timerStopped = false; }
+        else if ([1, 4, 8, 9].includes(msg.eventType)) timerStopped = true;
+      }
+      if (def.globalMesg === 20 && !timerStopped) {
+        if (segmentPending) { msg.segmentStart = true; segmentPending = false; }
+        records.push(msg);
+      }
+    };
 
     while (offset < endPos) {
       const headerByte = dv.getUint8(offset++);
@@ -192,7 +211,8 @@ class VeloRideImporter {
         lastTimestamp = ts;
         const msg = VeloRideImporter._readFitMsg(dv, offset, def);
         offset += def.totalSize;
-        if (def.globalMesg === 20) { msg.timestamp = ts; records.push(msg); }
+        msg.timestamp = ts;
+        acceptMessage(def, msg);
         continue;
       }
       const isDefinition = (headerByte & 0x40) !== 0;
@@ -224,10 +244,7 @@ class VeloRideImporter {
         if (!def) break;
         const msg = VeloRideImporter._readFitMsg(dv, offset, def);
         offset += def.totalSize;
-        if (def.globalMesg === 20) {
-          if (msg.timestamp) lastTimestamp = msg.timestamp;
-          records.push(msg);
-        }
+        acceptMessage(def, msg);
       }
     }
 
@@ -244,6 +261,7 @@ class VeloRideImporter {
       }
       return {
         time: r.timestamp && firstTs ? r.timestamp - firstTs : i,
+        segmentStart: !!r.segmentStart,
         timestamp: r.timestamp ? (r.timestamp + 631065600) * 1000 : undefined,
         power: r.power || 0,
         cadence: r.cadence || 0,
@@ -274,7 +292,9 @@ class VeloRideImporter {
       if (f.size === 1) {
         const val = dv.getUint8(off);
         if (val !== 0xff) {
-          if (f.num === 3) msg.heart_rate = val;
+          if (def.globalMesg === 21 && f.num === 0) msg.event = val;
+          else if (def.globalMesg === 21 && f.num === 1) msg.eventType = val;
+          else if (f.num === 3) msg.heart_rate = val;
           else if (f.num === 4) msg.cadence = val;
           else if (f.num === 30) msg.left_right_balance = val;
         }

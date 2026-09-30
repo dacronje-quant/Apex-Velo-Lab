@@ -38,12 +38,12 @@ class VeloExport {
   static totals(ride, samples) {
     const n = samples.length;
     const pos = (v) => (Number(v) > 0 ? Number(v) : null);
-    const duration = pos(ride.duration) || (n ? Math.max(n, Math.round(samples[n - 1].time || 0)) : 0);
+    const duration = pos(ride.duration) || VeloMetrics.toOneHz(samples).length;
     let distM = pos(ride.totalDistanceMeters) || (pos(ride.distanceKm) ? Math.round(ride.distanceKm * 1000) : null);
     if (!distM && n && pos(samples[n - 1].dist)) distM = Math.round(samples[n - 1].dist * 1000);
     let maxSpeed = pos(ride.maxSpeedKmh);
     if (!maxSpeed && n) {
-      const m = Math.max(0, ...samples.map(s => Number(s.speed) || 0));
+      const m = VeloMetrics.stats(samples.map(s => s.speed)).max;
       maxSpeed = m > 0 ? m : null;
     }
     const kj = pos(ride.kj) || (n ? Math.round(VeloMetrics.workKjFromSamples(samples)) || null : null);
@@ -71,7 +71,7 @@ class VeloExport {
   }
 
   // ------------------------------------------------------------------- CSV --
-  static CSV_HEADER = ['time_s', 'timestamp_iso', 'target_w', 'power_w', 'cadence_rpm', 'heart_rate_bpm', 'speed_kmh', 'distance_km', 'left_balance_pct', 'right_balance_pct'];
+  static CSV_HEADER = ['time_s', 'timestamp_iso', 'target_w', 'power_w', 'cadence_rpm', 'heart_rate_bpm', 'speed_kmh', 'distance_km', 'left_balance_pct', 'right_balance_pct', 'segment_start'];
 
   static buildCsv(ride, samples) {
     const cell = (v, digits) => {
@@ -95,7 +95,7 @@ class VeloExport {
         cell(s.time), VeloExport.sampleDate(start, s).toISOString(), cell(s.target), cell(s.power),
         cell(s.cadence > 0 ? s.cadence : null), cell(s.hr > 0 ? s.hr : null),
         cell(s.speed, 1), cell(s.dist, 3),
-        hasBal ? cell(s.leftBal, 1) : '', hasBal ? cell(s.rightBal, 1) : ''
+        hasBal ? cell(s.leftBal, 1) : '', hasBal ? cell(s.rightBal, 1) : '', s.segmentStart ? '1' : ''
       ].join(','));
     }
     return lines.join('\n') + '\n';
@@ -107,7 +107,7 @@ class VeloExport {
   }
 
   static buildTcx(ride, samples) {
-    samples = samples || [];
+    samples = VeloMetrics.toOneHz(samples);
     const start = VeloExport.startDateOf(ride, samples);
     const t = VeloExport.totals(ride, samples);
     const iso = start.toISOString();
@@ -129,7 +129,8 @@ class VeloExport {
     out.push('        <TriggerMethod>Manual</TriggerMethod>');
     if (samples.length) {
       out.push('        <Track>');
-      for (const s of samples) {
+      for (const [i, s] of samples.entries()) {
+        if (VeloMetrics.isSampleBreak(samples[i - 1], s)) out.push('        </Track>', '        <Track>');
         out.push('          <Trackpoint>');
         out.push(`            <Time>${VeloExport.sampleDate(start, s).toISOString()}</Time>`);
         if (Number.isFinite(Number(s.dist)) && s.dist !== null && s.dist !== undefined) out.push(`            <DistanceMeters>${(Number(s.dist) * 1000).toFixed(1)}</DistanceMeters>`);
@@ -188,13 +189,20 @@ class VeloExport {
    * Returns a Uint8Array. Record fields that were not measured are written as FIT invalid values.
    */
   static buildFit(ride, samples) {
-    samples = samples || [];
+    samples = VeloMetrics.toOneHz(samples);
     const TY = VeloExport.FIT_TYPES;
     const start = VeloExport.startDateOf(ride, samples);
     const t = VeloExport.totals(ride, samples);
     const fitTs = (date) => Math.max(0, Math.round(date.getTime() / 1000) - VeloExport.FIT_EPOCH_OFFSET);
     const startTs = fitTs(start);
-    const endTs = samples.length ? fitTs(VeloExport.sampleDate(start, samples[samples.length - 1])) : startTs + (t.duration || 0);
+    // Imported 0-based points represent the second starting at their timestamp; cockpit
+    // 1-based points are taken at the end of the recorded second. Timer events enclose
+    // each full second, including the last one, and resume before the first resumed tick.
+    const tickAtEnd = samples.length && samples[0].time !== 0 ? 1 : 0;
+    const sampleStartTs = s => fitTs(VeloExport.sampleDate(start, s)) - tickAtEnd;
+    const sampleEndTs = s => sampleStartTs(s) + 1;
+    const timerStartTs = samples.length ? sampleStartTs(samples[0]) : startTs;
+    const endTs = samples.length ? sampleEndTs(samples[samples.length - 1]) : startTs + (t.duration || 0);
 
     const bytes = [];
     const defs = {};
@@ -221,13 +229,17 @@ class VeloExport {
 
     // event (21): timer start / stop_all
     define(1, 21, [[253, 'uint32'], [0, 'enum'], [1, 'enum']]);
-    write(1, [startTs, 0 /* timer */, 0 /* start */]);
+    write(1, [timerStartTs, 0 /* timer */, 0 /* start */]);
 
     // record (20)
     if (samples.length) {
       define(2, 20, [[253, 'uint32'], [7, 'uint16'], [4, 'uint8'], [3, 'uint8'], [6, 'uint16'], [5, 'uint32'], [30, 'uint8']]);
-      for (const s of samples) {
+      for (const [i, s] of samples.entries()) {
         const ts = fitTs(VeloExport.sampleDate(start, s));
+        if (VeloMetrics.isSampleBreak(samples[i - 1], s)) {
+          write(1, [sampleEndTs(samples[i - 1]), 0, 4 /* stop_all */]);
+          write(1, [sampleStartTs(s), 0, 0 /* start */]);
+        }
         const speed = (s.speed === null || s.speed === undefined || !Number.isFinite(Number(s.speed))) ? null : (Number(s.speed) / 3.6) * 1000;
         const dist = (s.dist === null || s.dist === undefined || !Number.isFinite(Number(s.dist))) ? null : Number(s.dist) * 1000 * 100;
         // left_right_balance: bit 7 set = value is the RIGHT pedal contribution (%).
@@ -242,7 +254,8 @@ class VeloExport {
 
     write(1, [endTs, 0 /* timer */, 4 /* stop_all */]);
 
-    const elapsedMs = (t.duration || Math.max(0, endTs - startTs)) * 1000;
+    const timerMs = t.duration * 1000;
+    const elapsedMs = Math.max(t.duration, endTs - startTs) * 1000;
     const distCm = t.distM ? t.distM * 100 : null;
     const avgSpeed = t.avgSpeed ? (t.avgSpeed / 3.6) * 1000 : null;
     const maxSpeed = t.maxSpeed ? (t.maxSpeed / 3.6) * 1000 : null;
@@ -251,7 +264,7 @@ class VeloExport {
     define(3, 19, [[253, 'uint32'], [2, 'uint32'], [7, 'uint32'], [8, 'uint32'], [9, 'uint32'], [11, 'uint16'],
       [13, 'uint16'], [14, 'uint16'], [15, 'uint8'], [16, 'uint8'], [17, 'uint8'], [18, 'uint8'], [19, 'uint16'], [20, 'uint16'],
       [0, 'enum'], [1, 'enum'], [25, 'enum']]);
-    write(3, [endTs, startTs, elapsedMs, elapsedMs, distCm, t.kcal, avgSpeed, maxSpeed, t.avgHr, t.maxHr, t.avgCad, t.maxCad,
+    write(3, [endTs, startTs, elapsedMs, timerMs, distCm, t.kcal, avgSpeed, maxSpeed, t.avgHr, t.maxHr, t.avgCad, t.maxCad,
       t.avgPower, t.maxPower, 9 /* lap */, 1 /* stop */, 2 /* cycling */]);
 
     // session (18)
@@ -259,13 +272,13 @@ class VeloExport {
       [14, 'uint16'], [15, 'uint16'], [16, 'uint8'], [17, 'uint8'], [18, 'uint8'], [19, 'uint8'], [20, 'uint16'], [21, 'uint16'],
       [34, 'uint16'], [35, 'uint16'], [36, 'uint16'], [48, 'uint32'], [25, 'uint16'], [26, 'uint16'],
       [0, 'enum'], [1, 'enum'], [5, 'enum'], [6, 'enum']]);
-    write(4, [endTs, startTs, elapsedMs, elapsedMs, distCm, t.kcal, avgSpeed, maxSpeed, t.avgHr, t.maxHr, t.avgCad, t.maxCad,
+    write(4, [endTs, startTs, elapsedMs, timerMs, distCm, t.kcal, avgSpeed, maxSpeed, t.avgHr, t.maxHr, t.avgCad, t.maxCad,
       t.avgPower, t.maxPower, t.np, t.tss ? t.tss * 10 : null, t.ifac ? t.ifac * 1000 : null, t.kj ? t.kj * 1000 : null,
       0, 1, 8 /* session */, 1 /* stop */, 2 /* cycling */, 6 /* indoor_cycling */]);
 
     // activity (34)
     define(5, 34, [[253, 'uint32'], [0, 'uint32'], [1, 'uint16'], [2, 'enum'], [3, 'enum'], [4, 'enum']]);
-    write(5, [endTs, elapsedMs, 1, 0 /* manual */, 26 /* activity */, 1 /* stop */]);
+    write(5, [endTs, timerMs, 1, 0 /* manual */, 26 /* activity */, 1 /* stop */]);
 
     // Header (14 bytes) + data + file CRC
     const dataSize = bytes.length;

@@ -324,8 +324,8 @@ class VeloAiCoach {
       iv.push({ name: 'Recovery Spin (high cadence)', duration: main, pctFtp: 50, cadence: 95 });
       cooldown();
       title = `Active Recovery Flush (${dur}m)`;
-      desc = 'Low-stress circulation ride to clear fatigue without adding training load.';
-      notes = `Stay under ${W(55)}W. Light, fast pedalling (90-100 rpm). If legs still feel heavy, stop early - recovery is the goal.`;
+      desc = 'An easy spin to keep moving while giving your legs a break.';
+      notes = 'Pedal lightly and smoothly. If your legs still feel heavy, stop early.';
     } else if (focus === 'endurance') {
       warmup(false);
       const cadenceDrills = main >= 1800;
@@ -340,8 +340,8 @@ class VeloAiCoach {
       }
       cooldown();
       title = `Zone 2 Durability Builder (${dur}m)`;
-      desc = 'Steady aerobic work (65-72% FTP) that builds mitochondrial density, fat oxidation and fatigue resistance.';
-      notes = `Hold ${W(65)}-${W(72)}W with conversational breathing. The low-cadence block (~72 rpm) adds muscular endurance without raising intensity.`;
+      desc = 'A steady, easy ride to help you ride longer without tiring.';
+      notes = 'Keep the effort easy enough to hold a conversation. During the slower-pedalling section, stay smooth and avoid straining.';
     } else if (focus === 'sweetspot') {
       warmup(true);
       let block = ctlLevel >= 45 ? 1200 : ctlLevel >= 30 ? 900 : ctlLevel >= 18 ? 600 : 480;
@@ -358,8 +358,8 @@ class VeloAiCoach {
       if (avail - used >= 120) iv.push({ name: 'Endurance Top-up', duration: avail - used, pctFtp: 65, cadence: 90 });
       cooldown();
       title = `Progressive SweetSpot ${reps}x${Math.round(block / 60)} (${dur}m)`;
-      desc = 'Sub-threshold time-in-zone (88-92% FTP): the most time-efficient stimulus for lifting FTP and muscular endurance. Block length is scaled to your current CTL.';
-      notes = `Target ${W(88)}-${W(92)}W, rising 1% per block. Seated, 90-95 rpm, steady breathing - it should feel "comfortably hard".`;
+      desc = 'Sustained efforts to help you hold a stronger pace for longer. The effort lengths suit your recent training.';
+      notes = 'Stay seated and pedal smoothly. It should feel comfortably hard, with enough left to finish well.';
     } else if (focus === 'threshold') {
       warmup(true);
       const rest = 240;
@@ -379,7 +379,7 @@ class VeloAiCoach {
       if (avail - used >= 120) iv.push({ name: 'Endurance Top-up', duration: avail - used, pctFtp: 65, cadence: 90 });
       cooldown();
       title = `Threshold Over-Unders ${reps}x${cycles * 3} (${dur}m)`;
-      desc = 'Alternating 95% and 106% FTP teaches the body to clear lactate while working at threshold - direct FTP stimulus.';
+      desc = 'Switch between a strong, steady effort and a short harder push to practise handling changes in pace.';
       notes = `Unders at ${W(95)}W, overs at ${W(106)}W. Don't surge the overs - smooth the transition and keep cadence up.`;
     } else {
       // VO2 max
@@ -395,7 +395,7 @@ class VeloAiCoach {
         const used = reps * block + (reps - 1) * rest;
         if (avail - used >= 120) iv.push({ name: 'Endurance Top-up', duration: avail - used, pctFtp: 62, cadence: 90 });
         title = `VO2 Max ${reps}x4 min (${dur}m)`;
-        desc = 'Classic 4-minute efforts at ~112% FTP to raise maximal aerobic power.';
+        desc = 'Hard efforts with easy breaks to help you handle faster riding.';
       } else {
         const setSec = 13 * 45 - 15, setRest = 300;
         const sets = VeloAiCoach.fill(avail, setSec, setRest, 3);
@@ -409,10 +409,10 @@ class VeloAiCoach {
         const used = sets * setSec + (sets - 1) * setRest;
         if (avail - used >= 120) iv.push({ name: 'Endurance Top-up', duration: avail - used, pctFtp: 62, cadence: 90 });
         title = `Ronnestad 30/15 x ${sets} (${dur}m)`;
-        desc = '30 s on / 15 s off keeps VO2 elevated for long periods with less lactate than continuous efforts (Ronnestad et al.).';
+        desc = 'Short hard pushes with brief easy breaks to build your ability to ride hard.';
       }
       cooldown();
-      notes = `Hit ${W(112)}-${W(120)}W on the efforts at 100-105 rpm. Recover fully on the floats. Quality over quantity - stop a set if power fades >5%.`;
+      notes = 'Use the easy breaks to catch your breath. End the set if you can no longer hold the target smoothly.';
     }
 
     const load = VeloAiCoach.estimateLoad(iv);
@@ -476,14 +476,14 @@ class VeloAiCoach {
     const ins = ctx.insight || {};
     const out = [];
     const faded = ins.lastHard && ins.lastHard.diag.some(l => /faded|under target|drift/.test(l));
-    if (faded && ['vo2max', 'threshold', 'sweetspot'].includes(focus)) out.push(`Your last hard session (${ins.lastHard.date}) faded late - start today's intervals at the low end of the targets and fuel early.`);
+    if (faded && ['vo2max', 'threshold', 'sweetspot'].includes(focus)) out.push('You faded towards the end of your last hard ride. Start steadily and eat before you run low on energy.');
     const d = ins.drift || [];
     if (d.length >= 2) {
       const avg = d.reduce((a, x) => a + x.pct, 0) / d.length;
-      if (avg > 8) out.push(`Pw:HR drift on your steady rides averages ${avg.toFixed(1)}% - more steady Zone 2 volume will help your aerobic base.`);
-      else if (avg < 5) out.push(`Pw:HR drift averages ${avg.toFixed(1)}% - your aerobic base is solid.`);
+      if (avg > 8) out.push('Your heart rate has been rising during steady efforts. Keep easy rides comfortable and check your cooling, drinks and food.');
+      else if (avg < 5) out.push('Your heart rate has stayed fairly steady on easy rides, suggesting you are handling them well.');
     }
-    if (ins.ftp) out.push(`Your recent rides suggest an FTP of about ${ins.ftp.ftp} W - update it in the ride review to scale the targets.`);
+    if (ins.ftp) out.push('Your recent rides suggest your sustainable power may have changed. Review the suggested power setting in your ride review.');
     return out.join(' ');
   }
 
@@ -492,20 +492,28 @@ class VeloAiCoach {
     if (ctx.autoDuration) ctx.durationMin = this.optimalDuration(focus, ctx);
     const { workout, notes } = this.buildWorkout(focus, ctx);
     const h = ctx.history || {};
-    const goal = VeloAiCoach.GOALS[ctx.goal] || VeloAiCoach.GOALS.ftp;
     const weekPlan = this.buildWeekPlan(ctx, focus, workout);
 
-    const win = h.windowDays || 28;
     const mixText = h.lowIntensityPct !== null && h.lowIntensityPct !== undefined
-      ? `Last ${win} days: ${h.lowIntensityPct}% easy / ${h.midIntensityPct}% SweetSpot-tempo / ${h.highIntensityPct}% threshold+ (by ride IF).`
-      : `Not enough rides with recorded power in the last ${win} days to judge the intensity mix.`;
+      ? (h.lowIntensityPct >= 70 ? 'Most of your recent riding has been easy.' : 'Your recent riding includes plenty of harder work. Keep room for easy days.')
+      : 'There is not enough recent power data to judge the balance of easy and hard riding.';
     const why = {
-      recovery: 'Form and recent load say absorb, not add.',
-      endurance: h.daysSinceHard !== null && h.daysSinceHard <= 1 ? 'You went hard in the last 48 h, so today builds aerobic volume instead.' : 'Aerobic volume is the foundation for both FTP and longevity.',
-      sweetspot: 'You are fresh enough for productive sub-threshold overload.',
-      threshold: 'Your form supports direct threshold work, the fastest route to FTP gains.',
-      vo2max: 'Freshness allows a high-quality VO2 session.'
+      recovery: 'Take it easy today so your body can recover from recent training.',
+      endurance: h.daysSinceHard !== null && h.daysSinceHard !== undefined && h.daysSinceHard <= 1 ? 'You recently rode hard, so keep today comfortable.' : 'Easy, steady riding helps you build the stamina for longer rides.',
+      sweetspot: 'Today uses comfortably hard efforts to help you hold a stronger pace for longer.',
+      threshold: 'Today practises holding a strong pace and handling short harder pushes.',
+      vo2max: 'Today uses hard efforts with easy breaks to build your ability to ride faster.'
     }[focus] || '';
+    const fitnessText = {
+      fresh: 'Your recent training suggests you may be ready for a harder ride if you feel well.',
+      productive: 'Your recent training and recovery appear fairly balanced.',
+      optimal: 'You have been building fitness, with some tiredness expected. Pay attention to how your legs feel.',
+      fatigue: 'Your recent training suggests you may be carrying quite a bit of tiredness.',
+      overtraining: 'Your recent training suggests you need more recovery. This estimate cannot tell us whether you are overtrained.'
+    }[ctx.formKey] || 'Your recent rides help estimate how much training you can comfortably handle.';
+    const recoveryText = ctx.readiness
+      ? ({ red: 'Your recovery readings suggest taking it easy today.', amber: 'Your recovery readings suggest keeping today comfortable.', green: 'Your recovery readings look encouraging; check how you feel before riding hard.' }[ctx.readiness.level] || '')
+      : 'Check how you feel before starting; training records cannot measure every part of recovery.';
 
     return {
       source: 'offline_heuristic',
@@ -514,9 +522,9 @@ class VeloAiCoach {
       focus,
       coachAssessment: {
         formZone: ctx.formZone,
-        fitnessDiagnosis: `CTL ${ctx.ctl.toFixed(1)} / ATL ${ctx.atl.toFixed(1)} / TSB ${ctx.tsb >= 0 ? '+' : ''}${ctx.tsb.toFixed(1)} (${ctx.formZone}). ${ctx.formDesc} ${h.hoursPerWeek4w !== undefined ? `You have averaged ${h.hoursPerWeek4w} h/week over the last 4 weeks.` : ''}`,
-        fatigueStatus: `${ctx.readiness ? `Readiness ${ctx.readiness.label.toLowerCase()} (${ctx.readiness.level})${ctx.readiness.reasons.length ? ': ' + ctx.readiness.reasons.join('; ') : ''}. ` : ''}${ctx.sevenDayTss} TSS in 7 days (${ctx.sevenDayHours.toFixed(1)} h). ${ctx.consecutiveDays >= 2 ? `${ctx.consecutiveDays} riding days in a row.` : ''} ${h.daysSinceHard !== null && h.daysSinceHard !== undefined ? `Last hard ride (IF >= 0.85) ${h.daysSinceHard} day(s) ago.` : ''} ${mixText}`.replace(/\s+/g, ' ').trim(),
-        trainingAdvice: `Goal: ${goal.label} - ${goal.summary} ${why} ${this.insightAdvice(ctx, focus)} ${ctx.autoDuration ? `Auto duration: ${ctx.durationMin} min - ${{ recovery: 'short enough to aid recovery', endurance: 'a little longer than your usual ride to build durability', vo2max: 'enough work at VO2 without sacrificing quality', threshold: 'enough time at threshold for your current fitness', sweetspot: 'the time-in-zone your fitness can absorb' }[focus] || 'matched to your form'}.` : ''} ${notes}`.replace(/\s+/g, ' ').trim()
+        fitnessDiagnosis: fitnessText,
+        fatigueStatus: `${recoveryText} ${ctx.consecutiveDays >= 2 ? 'You have ridden several days in a row, so allow time to recover. ' : ''}${mixText}`,
+        trainingAdvice: `${why} ${this.insightAdvice(ctx, focus)} ${ctx.autoDuration ? `Allow about ${ctx.durationMin} minutes for this ride. ` : ''}${notes}`.replace(/\s+/g, ' ').trim()
       },
       workout,
       weekPlan
@@ -548,6 +556,8 @@ ${ctx.insight.lines.map(l => `- ${l}`).join('\n')}
 ${ctx.recentList}
 
 RULES: scale all targets as % of FTP; include warmup and cooldown; interval durations in seconds; every interval needs a cadence target (rpm); ${ctx.autoDuration ? 'total duration 30-150 min as you judge optimal' : `total duration must be within 3 minutes of ${ctx.durationMin} min`}; respect fatigue (TSB < -25 -> recovery). The weekPlan must contain 7 days starting today; use focus "off" for rest days.
+
+WRITING STYLE: Write for a beginner in plain language. Each assessment field should be one or two short sentences explaining what to do and why. Say fitness base, recent training strain, and freshness instead of CTL, ATL, and TSB. Explain any essential technical term immediately. Do not repeat the input scores, percentages, or statistics in prose. Use numbers only for an actionable duration or target. Give workout and day titles simple, descriptive names. Keep all numeric workout fields, enum values and JSON keys exact; these control the workout.
 
 Return ONLY JSON matching:
 {

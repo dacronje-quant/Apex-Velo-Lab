@@ -32,7 +32,7 @@ class VeloInsight {
     if (win.length < 1200) return { status: samples.slice(warm).some(s => Number(s.hr) > 0) ? 'too-short' : 'no-hr' };
     const powers = win.map(s => Number(s.power));
     const avg = powers.reduce((a, b) => a + b, 0) / powers.length;
-    const np = VeloMetrics.normalizedPower(powers) || avg;
+    const np = VeloMetrics.normalizedPower(win) || avg;
     const vi = np / avg;
     // Steady = variability index <= 1.05 and at least 80% of the time within +/-20% of the average.
     const near = powers.filter(w => Math.abs(w - avg) <= avg * 0.2).length / powers.length;
@@ -81,24 +81,27 @@ class VeloInsight {
   static longestOnTarget(samples) {
     const n = (samples || []).length;
     if (n < 10) return null;
-    let best = null, runStart = -1, tSum = 0;
+    let best = null, runStart = -1, tSum = 0, segmentStart = 0;
     const p = samples.map(s => Number(s.power) || 0);
+    const finishRun = end => {
+      if (runStart < 0) return;
+      const len = end - runStart;
+      if (!best || len > best.seconds) best = { seconds: len, from: runStart, target: Math.round(tSum / len) };
+      runStart = -1;
+    };
     for (let i = 0; i <= n; i++) {
       const s = samples[i];
+      if (VeloMetrics.isSampleBreak(samples[i - 1], s)) { finishRun(i); segmentStart = i; }
       const t = s ? Number(s.target) || 0 : 0;
       let on = false;
       if (t > 0) {
-        const a = i >= 2 ? (p[i] + p[i - 1] + p[i - 2]) / 3 : p[i];
+        const a = i - segmentStart >= 2 ? (p[i] + p[i - 1] + p[i - 2]) / 3 : p[i];
         on = Math.abs(a - t) <= t * 0.05;
       }
       if (on) {
         if (runStart < 0) { runStart = i; tSum = 0; }
         tSum += t;
-      } else if (runStart >= 0) {
-        const len = i - runStart;
-        if (!best || len > best.seconds) best = { seconds: len, from: runStart, target: Math.round(tSum / len) };
-        runStart = -1;
-      }
+      } else finishRun(i);
     }
     return best && best.seconds >= 10 ? best : null;
   }
@@ -119,12 +122,15 @@ class VeloInsight {
     const useTarget = samples.filter(s => Number(s.target) > 0).length > n * 0.5;
     const pw = samples.map(s => Number(s.power) || 0);
     const hard = new Array(n).fill(false);
-    let acc = 0;
+    const segments = [];
+    let acc = 0, segment = 0, runStart = 0;
     for (let i = 0; i < n; i++) {
+      if (VeloMetrics.isSampleBreak(samples[i - 1], samples[i])) { acc = 0; segment++; runStart = i; }
+      segments[i] = segment;
       if (useTarget) hard[i] = (Number(samples[i].target) || 0) >= ftp * 0.88;
       else {
-        acc += pw[i] - (i >= 10 ? pw[i - 10] : 0);
-        hard[i] = i >= 9 && acc / 10 >= ftp * 0.88;
+        acc += pw[i] - (i - runStart >= 10 ? pw[i - 10] : 0);
+        hard[i] = i - runStart >= 9 && acc / 10 >= ftp * 0.88;
       }
     }
     const avgHr = (a, b) => { const v = hr.slice(Math.max(0, a), Math.min(n, b)).filter(x => x > 0); return v.length ? v.reduce((x, y) => x + y, 0) / v.length : 0; };
@@ -133,10 +139,10 @@ class VeloInsight {
     while (i < n) {
       if (!hard[i]) { i++; continue; }
       let j = i;
-      while (j < n && hard[j]) j++;
+      while (j < n && hard[j] && segments[j] === segments[i]) j++;
       const end = j; // first easy second
-      if (end - i >= 30 && end + 60 <= n && !hard.slice(end, end + 60).some(Boolean)) {
-        const peak = Math.max.apply(null, hr.slice(i, Math.min(n, end + 10)));
+      if (end - i >= 30 && end + 60 <= n && segments[Math.min(n - 1, end + 62)] === segments[i] && !hard.slice(end, end + 60).some(Boolean)) {
+        const peak = VeloMetrics.stats(hr.slice(i, Math.min(n, end + 10))).max;
         const hrEnd = Math.round(avgHr(end - 3, end + 2));
         const hr60 = Math.round(avgHr(end + 58, end + 63));
         if (peak >= maxHr * 0.85 && hrEnd > 0 && hr60 > 0) efforts.push({ n: efforts.length + 1, at: end, hrEnd, hr60, drop: hrEnd - hr60 });
@@ -163,7 +169,7 @@ class VeloInsight {
   // ---------------------------------------------------------------- medals --
   /** Best average power for each medal duration (null when the ride is shorter). */
   static peaksOf(samples) {
-    const p = (samples || []).map(s => Number(s.power) || 0);
+    const p = VeloMetrics.toOneHz(samples);
     return VeloInsight.MEDAL_DURATIONS.map(d => VeloMetrics.bestRollingAvg(p, d));
   }
 
@@ -209,8 +215,8 @@ class VeloInsight {
   static intervalRows(samples, ftp) {
     const segs = [];
     let cur = null;
-    (samples || []).forEach(s => {
-      if (!cur || s.target !== cur.target) { cur = { target: s.target, samples: [] }; segs.push(cur); }
+    (samples || []).forEach((s, i, all) => {
+      if (!cur || s.target !== cur.target || VeloMetrics.isSampleBreak(all[i - 1], s)) { cur = { target: s.target, samples: [] }; segs.push(cur); }
       cur.samples.push(s);
     });
     const mean = (arr) => { const v = arr.filter(x => x > 0); return v.length ? v.reduce((a, b) => a + b, 0) / v.length : null; };
@@ -262,9 +268,9 @@ class VeloInsight {
       `Workout: ${meta.title || 'workout'}; FTP ${meta.ftp || '?'} W; duration ${meta.minutes || '?'} min${meta.avgHr ? `; avg HR ${meta.avgHr}` : ''}${meta.maxHr ? `; rider max HR ${meta.maxHr}` : ''}.`,
       'Per-step data (cadence fade and HR rise compare the first and last third of each step; "-" = not recorded):',
       head, table,
-      'Write 3 to 6 short markdown bullet points: how the intervals (the hard steps, numbered in the interval column) were executed (group those on target),',
+      'Write 3 short markdown bullet points in plain language for a beginner: how the hard efforts went overall (group those on target),',
       'where cadence faded or heart rate drifted and what it likely means (fatigue, fuelling, heat, pacing),',
-      'and one concrete suggestion for the next session. Only use the numbers above - never invent data. No preamble.'
+      'and one concrete suggestion for the next session. Avoid jargon and acronyms; say pedalling slowed or heart rate rose instead of cadence fade or cardiac drift. Explain any essential technical term immediately. Use numbers only when needed to identify a particular effort or give an actionable target; do not repeat the step table or percentages. Only use the data above - never invent data or diagnose a cause from these measurements alone. No preamble.'
     ].join('\n');
   }
 
@@ -275,18 +281,18 @@ class VeloInsight {
    * a near-maximal effort in that window (>= 90% of threshold HR, or >= 85% of max HR).
    */
   static ftpEvidence(samples, { maxHr = 0, lthr = 0 } = {}) {
-    if (!Array.isArray(samples) || samples.length < 1200) return null;
+    samples = VeloMetrics.toOneHz(samples);
+    if (samples.length < 1200) return null;
     const p = samples.map(s => Number(s.power) || 0);
     const bestWindow = (len) => {
-      let sum = 0, best = -1, at = 0;
-      for (let i = 0; i < p.length; i++) {
-        sum += p[i];
-        if (i >= len) sum -= p[i - len];
-        if (i >= len - 1 && sum > best) { best = sum; at = i - len + 1; }
-      }
-      return best < 0 ? null : { avg: best / len, at };
+      let best = -1, at = 0;
+      VeloMetrics.powerWindows(samples, len, (avg, start) => {
+        if (avg > best) { best = avg; at = start; }
+      });
+      return best < 0 ? null : { avg: best, at };
     };
     const w20 = bestWindow(1200);
+    if (!w20) return null;
     const seg = p.slice(w20.at, w20.at + 1200);
     const vi20 = (VeloMetrics.normalizedPower(seg) || w20.avg) / Math.max(1, w20.avg);
     const steady = vi20 <= 1.05;

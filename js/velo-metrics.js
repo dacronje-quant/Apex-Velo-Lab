@@ -58,18 +58,36 @@ class VeloMetrics {
     return         { key: 'overtraining', label: 'Overtraining', desc: 'Overtraining risk. Recovery should take priority.' };
   }
 
-  /** Best rolling average over `windowSec` samples (1 Hz). Returns null when too few samples. */
-  static bestRollingAvg(powers, windowSec) {
-    const n = powers.length;
-    if (!windowSec || n < windowSec) return null;
-    let sum = 0;
-    for (let i = 0; i < windowSec; i++) sum += powers[i] || 0;
-    let best = sum;
-    for (let i = windowSec; i < n; i++) {
-      sum += (powers[i] || 0) - (powers[i - windowSec] || 0);
-      if (sum > best) best = sum;
+  /** Explicit pause markers also work when a live ride's time counts only active seconds. */
+  static isSampleBreak(previous, sample) {
+    if (!previous || !sample) return false;
+    if (sample.segmentStart) return true;
+    if (Number.isFinite(previous.time) && Number.isFinite(sample.time) && sample.time - previous.time !== 1) return true;
+    // Older cockpit recordings have active time and wall timestamps but no pause marker.
+    return Number.isFinite(previous.timestamp) && Number.isFinite(sample.timestamp) &&
+      sample.timestamp - previous.timestamp > 10000;
+  }
+
+  /** Visit full rolling windows over numeric powers or 1 Hz samples, resetting at time gaps. */
+  static powerWindows(values, seconds, visit) {
+    if (!Number.isInteger(seconds) || seconds <= 0) return;
+    const power = x => typeof x === 'object' && x ? Number(x.power) || 0 : Number(x) || 0;
+    let sum = 0, run = 0;
+    for (let i = 0; i < values.length; i++) {
+      const v = values[i], prev = values[i - 1];
+      if (VeloMetrics.isSampleBreak(prev, v)) { sum = 0; run = 0; }
+      sum += power(v); run++;
+      if (run > seconds) sum -= power(values[i - seconds]);
+      if (run >= seconds) visit(sum / seconds, i - seconds + 1);
     }
-    return Math.round(best / windowSec);
+  }
+
+  /** Best continuous rolling average; null when no uninterrupted window is long enough. */
+  static bestRollingAvg(powers, windowSec) {
+    if (!windowSec) return null;
+    let best = null;
+    VeloMetrics.powerWindows(powers, windowSec, avg => { if (best === null || avg > best) best = avg; });
+    return best === null ? null : Math.round(best);
   }
 
   /**
@@ -79,8 +97,11 @@ class VeloMetrics {
    * the same second keep the first one. Samples must have `time` in seconds.
    */
   static toOneHz(samples, maxHoldSec = 10) {
-    const src = (samples || []).filter(s => s && Number.isFinite(Number(s.time)));
-    if (src.length < 2) return samples || [];
+    const rows = (Array.isArray(samples) ? samples : []).filter(s => s && typeof s === 'object');
+    // Keep legacy samples without a time channel, but drop malformed timed rows.
+    if (!rows.some(s => Object.prototype.hasOwnProperty.call(s, 'time'))) return rows;
+    const src = rows.filter(s => s.time !== null && s.time !== '' && Number.isFinite(Number(s.time)))
+      .map(s => ({ ...s, time: Math.round(Number(s.time)) }));
     src.sort((a, b) => a.time - b.time);
     const out = [];
     for (const s of src) {
@@ -88,8 +109,10 @@ class VeloMetrics {
       if (prev) {
         const gap = Math.round(s.time - prev.time);
         if (gap <= 0) continue;
-        for (let k = 1; gap <= maxHoldSec && k < gap; k++) {
-          out.push({ ...prev, time: prev.time + k, timestamp: Number.isFinite(prev.timestamp) ? prev.timestamp + k * 1000 : prev.timestamp });
+        const paused = s.segmentStart || (Number.isFinite(prev.timestamp) && Number.isFinite(s.timestamp) &&
+          s.timestamp - prev.timestamp > maxHoldSec * 1000 && gap <= maxHoldSec);
+        for (let k = 1; !paused && gap <= maxHoldSec && k < gap; k++) {
+          out.push({ ...prev, segmentStart: false, time: prev.time + k, timestamp: Number.isFinite(prev.timestamp) ? prev.timestamp + k * 1000 : prev.timestamp });
         }
       }
       out.push(s);
@@ -104,18 +127,9 @@ class VeloMetrics {
 
   /** Normalized Power (30 s rolling, 4th power mean). Returns 0 with fewer than 30 samples. */
   static normalizedPower(powers) {
-    const n = powers.length;
-    if (n < 30) return 0;
-    let sum = 0;
-    for (let i = 0; i < 30; i++) sum += powers[i] || 0;
-    let acc = Math.pow(sum / 30, 4);
-    let count = 1;
-    for (let i = 30; i < n; i++) {
-      sum += (powers[i] || 0) - (powers[i - 30] || 0);
-      acc += Math.pow(sum / 30, 4);
-      count++;
-    }
-    return Math.round(Math.pow(acc / count, 0.25));
+    let acc = 0, count = 0;
+    VeloMetrics.powerWindows(powers, 30, avg => { acc += Math.pow(avg, 4); count++; });
+    return count ? Math.round(Math.pow(acc / count, 0.25)) : 0;
   }
 
   /** Min / max / mean over the positive (i.e. recorded) values of an array. */
@@ -145,22 +159,10 @@ class VeloMetrics {
 
   /**
    * Mechanical work in kJ integrated from recorded samples.
-   * Uses the real time step between samples (defaults to 1 s at 1 Hz).
+   * Each recorded or interpolated second contributes once; pauses contribute nothing.
    */
   static workKjFromSamples(samples) {
-    if (!samples || !samples.length) return 0;
-    let joules = 0;
-    for (let i = 0; i < samples.length; i++) {
-      const s = samples[i];
-      let dt = 1;
-      if (i > 0 && Number.isFinite(s.time) && Number.isFinite(samples[i - 1].time)) {
-        dt = Math.max(0, s.time - samples[i - 1].time) || 1;
-      } else if (i === 0 && samples.length > 1 && Number.isFinite(s.time) && Number.isFinite(samples[1].time)) {
-        dt = Math.max(0, samples[1].time - s.time) || 1;
-      }
-      joules += (Number(s.power) || 0) * dt;
-    }
-    return joules / 1000;
+    return VeloMetrics.toOneHz(samples).reduce((sum, s) => sum + (Number(s.power) || 0), 0) / 1000;
   }
 
   /**
