@@ -869,7 +869,10 @@ class VeloApp {
   }
 
   adjustIntervalDuration(secondsDelta) {
-    this.intervalSecondsRemaining = Math.max(5, this.intervalSecondsRemaining + secondsDelta);
+    const remaining = Math.max(5, this.intervalSecondsRemaining + secondsDelta);
+    const iv = this.currentWorkout.intervals[this.intervalIndex];
+    if (iv) iv.duration += remaining - this.intervalSecondsRemaining;
+    this.intervalSecondsRemaining = remaining;
     this.setText('hudIntervalCountdown', this.fmtTime(this.intervalSecondsRemaining));
     this.renderIntervalTrack();
   }
@@ -1010,6 +1013,8 @@ class VeloApp {
       timestamp: Date.now(),
       segmentStart: !!this._nextSampleStartsSegment,
       target: targetPower,
+      workoutStep: this.intervalIndex,
+      stepTime: Math.max(0, this.currentWorkout.intervals[this.intervalIndex].duration - this.intervalSecondsRemaining),
       power,
       cadence,
       hr,
@@ -1090,6 +1095,7 @@ class VeloApp {
       this.currentWorkout = { ...this.currentWorkout, intervals: ivs.slice(0, -1) };
       this.intervalIndex = this.currentWorkout.intervals.length;
     }
+    this.updateWorkoutOverview();
     this.finishWorkout(true, { fanfare: false }); // a natural end; the fanfare already played with the offer
   }
 
@@ -1593,7 +1599,30 @@ class VeloApp {
   }
 
   // ---------------------------------------------------------------- HUD --
+  /** Planned duration and time-weighted target power for the whole loaded workout. */
+  updateWorkoutOverview() {
+    let duration = 0, joules = 0;
+    for (const iv of this.currentWorkout.intervals) {
+      const seconds = Number(iv.duration) || 0;
+      if (seconds <= 0) continue;
+      const watts = Math.round(this.activeProfile.ftp * (iv.pctFtp / 100) * this.ergBiasMultiplier);
+      duration += seconds;
+      joules += watts * seconds;
+    }
+    const totalSeconds = Math.round(duration);
+    const hours = Math.floor(totalSeconds / 3600);
+    const minutes = Math.floor(totalSeconds % 3600 / 60);
+    const seconds = totalSeconds % 60;
+    const parts = [];
+    if (minutes) parts.push(`${minutes} min`);
+    if (seconds) parts.push(`${seconds} s`);
+    this.setText('hudWorkoutTitle', this.currentWorkout.title || 'Loaded workout');
+    this.setText('hudWorkoutDuration', hours ? this.fmtTime(totalSeconds) : parts.join(' ') || '0 min');
+    this.setText('hudWorkoutAvgPower', duration > 0 ? `${Math.round(joules / duration)} W` : '--');
+  }
+
   updateHudTitles() {
+    this.updateWorkoutOverview();
     this.updateErgResponseUi();
     const iv = this.currentWorkout.intervals[this.intervalIndex];
     if (!iv) return;
@@ -1922,6 +1951,7 @@ class VeloApp {
    * offscreen canvas; the 60 fps loop only composites it and draws the moving playhead.
    */
   renderIntervalTrack() {
+    this.updateWorkoutOverview();
     this._trackRenderKey = this.intervalTrackRenderKey();
     this.drawIntervalTrack(true);
     this.renderUpcomingIntervals();

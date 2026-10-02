@@ -142,6 +142,22 @@
     <section class="tab-view active" id="view-cockpit">
 
       <div class="card session-card timeline-runner">
+        <div class="workout-overview" role="group" aria-label="Loaded workout summary">
+          <div class="workout-overview-name">
+            <span class="eyebrow">Loaded workout</span>
+            <h3 id="hudWorkoutTitle">--</h3>
+          </div>
+          <dl class="workout-overview-stats">
+            <div>
+              <dt>Total duration</dt>
+              <dd class="num" id="hudWorkoutDuration">--</dd>
+            </div>
+            <div title="Average of all step targets weighted by their duration, including warmup, recoveries and cooldown. Uses your FTP and ERG bias.">
+              <dt>Expected avg power</dt>
+              <dd class="num" id="hudWorkoutAvgPower">--</dd>
+            </div>
+          </dl>
+        </div>
         <div class="timeline-header">
           <div class="interval-info">
             <h2 class="interval-name" id="hudIntervalName">Interval 1: Warmup</h2>
