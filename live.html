@@ -185,6 +185,14 @@
   .spin-offer .so-actions { display: grid; grid-template-columns: 1.5fr 1fr; gap: 8px; }
   .spin-offer button { min-height: 64px; font-size: 19px; }
   .spin-offer button.primary { grid-column: auto; }
+  .ride-download { flex: none; display: flex; align-items: center; gap: 12px; background: var(--panel); border: 1px solid var(--lime); border-radius: 16px; padding: 12px; }
+  .ride-download[hidden], .ride-download a[hidden] { display: none; }
+  .ride-download .details { flex: 1; min-width: 0; }
+  .ride-download strong { display: block; font-size: 16px; }
+  .ride-download p { margin: 4px 0 0; font-size: 12px; line-height: 1.4; color: var(--muted); }
+  .ride-download a { display: flex; align-items: center; justify-content: center; min-height: 60px; padding: 12px 16px; border-radius: 12px; background: var(--lime); color: var(--bg); text-decoration: none; font-size: 18px; font-weight: 750; white-space: nowrap; }
+  .ride-download a:focus-visible { outline: 2px solid var(--cyan); outline-offset: 3px; }
+  body.finished .controls, body.finished #zoneBar { display: none; }
 
   /* Workout bar above the controls, on every screen */
   #zoneBar { flex: none; height: 20px; margin: 0; }
@@ -397,6 +405,14 @@
 
   <canvas id="zoneBar" aria-hidden="true"></canvas>
 
+  <section class="ride-download" id="rideDownload" hidden aria-label="Completed workout">
+    <div class="details">
+      <strong>Workout saved</strong>
+      <p id="fitDownloadStatus" role="status">Preparing your FIT file...</p>
+    </div>
+    <a id="btnDownloadFit" hidden download>Download .fit</a>
+  </section>
+
   <section class="controls">
     <button class="primary" id="btnToggle" disabled>START</button>
     <button id="btnDown" disabled>&minus;5 W</button>
@@ -515,12 +531,13 @@
         if (gen !== pollGen) return;
         lastOkAt = Date.now(); failures = 0;
         seq = typeof d.seq === 'number' ? d.seq : null;
-        if (!d.snapshot || d.ageMs == null || d.ageMs > 8000) {
+        const savedFit = d.fit && d.snapshot?.state === 'finished' && d.fit.id === d.snapshot.completedRide?.id;
+        if (!d.snapshot || d.ageMs == null || (d.ageMs > 8000 && !savedFit)) {
           render(null);
           overlay(true, 'Open the app on the PC', 'The server is running, but Apex Velo Lab is not open in Chrome on the PC (or the tab is closed). Open it there and this screen comes alive.');
         } else {
           overlay(false);
-          render(d.snapshot);
+          render({ ...d.snapshot, fitFile: d.fit });
         }
         if (seq == null) await wait(1000); // older server without long-poll: plain 1 s polling
       } catch (e) {
@@ -559,6 +576,20 @@
     const live = !!s;
     const riding = live && s.state === 'running';
     const finished = live && s.state === 'finished';
+    document.body.classList.toggle('finished', finished);
+    const completed = finished && s.completedRide;
+    $('rideDownload').hidden = !completed;
+    const fit = completed && s.fitFile?.id === completed.id ? s.fitFile : null;
+    const download = $('btnDownloadFit');
+    download.hidden = !fit;
+    if (fit) {
+      download.href = 'api/live/fit?id=' + encodeURIComponent(completed.id);
+      download.download = fit.filename;
+    } else {
+      download.removeAttribute('href');
+      download.removeAttribute('download');
+    }
+    $('fitDownloadStatus').textContent = fit ? 'Save this ride to your phone. Keep the PC server running until downloaded.' : completed?.fitError || 'Preparing your FIT file...';
     const tb = $('btnToggle');
     tb.disabled = !live || finished || sending;
     tb.textContent = !live ? 'START' : riding ? 'PAUSE' : finished ? 'FINISHED' : s.state === 'paused' ? 'RESUME' : 'START';

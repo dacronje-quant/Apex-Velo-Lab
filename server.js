@@ -584,10 +584,12 @@ const LIVE_HOLD_MS = 2500;
 const LIVE_CMD_HOLD_MS = 20000;
 const LIVE_MAX_WAITERS = 8;
 const LIVE_CMD_TTL_MS = 10000;
-const live = { snapshot: null, at: 0, seq: 0, cmds: [], cmdId: Date.now(), waiters: [], cmdWaiter: null }; // ids keep rising across restarts
+const live = { snapshot: null, at: 0, seq: 0, cmds: [], cmdId: Date.now(), waiters: [], cmdWaiter: null, fit: null }; // ids keep rising across restarts
+const LIVE_FIT_MAX_BYTES = 16 * 1024 * 1024;
 
 function liveState() {
-  return { snapshot: live.snapshot, ageMs: live.at ? Date.now() - live.at : null, pending: live.cmds.length, seq: live.seq };
+  const fit = live.fit ? { id: live.fit.id, filename: live.fit.filename, url: '/api/live/fit?id=' + encodeURIComponent(live.fit.id) } : null;
+  return { snapshot: live.snapshot, ageMs: live.at ? Date.now() - live.at : null, pending: live.cmds.length, seq: live.seq, fit };
 }
 function releaseLiveWaiters() {
   const ws = live.waiters; live.waiters = [];
@@ -773,6 +775,33 @@ async function handleHealth(req, res, urlPath, query) {
 
 async function handleLive(req, res, urlPath) {
   if (!isLocalRequest(req)) return sendJson(res, 403, { error: 'Forbidden' });
+  if (urlPath === '/api/live/fit') {
+    const query = new URL(req.url, 'http://localhost').searchParams;
+    const id = query.get('id');
+    if (req.method === 'GET' || req.method === 'HEAD') {
+      if (!live.fit || live.fit.id !== id) return sendJson(res, 404, { error: 'This FIT file is no longer available. Keep the PC app open until downloaded.' });
+      res.writeHead(200, {
+        'Content-Type': 'application/octet-stream', 'Content-Length': live.fit.bytes.length,
+        'Content-Disposition': `attachment; filename="${live.fit.filename}"`,
+        'Cache-Control': 'no-store', 'X-Content-Type-Options': 'nosniff',
+      });
+      return res.end(req.method === 'HEAD' ? undefined : live.fit.bytes);
+    }
+    if (req.method !== 'POST') return sendJson(res, 405, { error: 'Method not allowed' });
+    if (!isPcRequest(req)) return sendJson(res, 403, { error: 'Only the app on this PC can publish FIT files.' });
+    const filename = query.get('filename');
+    if (!/^[a-zA-Z0-9_-]{1,80}$/.test(id || '') || !/^[a-zA-Z0-9_-]{1,120}\.fit$/.test(filename || '')) return sendJson(res, 400, { error: 'Invalid FIT file name or ride id.' });
+    if (Number(req.headers['content-length']) > LIVE_FIT_MAX_BYTES) return sendJson(res, 413, { error: 'FIT file too large' });
+    let bytes;
+    try { bytes = await readRaw(req, LIVE_FIT_MAX_BYTES); }
+    catch (e) { return sendJson(res, e.status || 400, { error: e.status === 413 ? 'FIT file too large' : 'Could not read the FIT file.' }); }
+    if (bytes.length < 14 || ![12, 14].includes(bytes[0]) || bytes.toString('ascii', 8, 12) !== '.FIT' || bytes[0] + bytes.readUInt32LE(4) + 2 !== bytes.length) return sendJson(res, 400, { error: 'Invalid FIT activity file.' });
+    live.fit = { id, filename, bytes };
+    live.seq++;
+    sendJson(res, 200, { ok: true });
+    releaseLiveWaiters();
+    return;
+  }
   if (urlPath === '/api/live') {
     if (req.method === 'GET') {
       const after = new URL(req.url, 'http://localhost').searchParams.get('after');
@@ -796,7 +825,7 @@ async function handleLive(req, res, urlPath) {
       const ack = body && Number.isFinite(body.cmdAck) ? body.cmdAck : null;
       if (ack !== null) live.cmds = live.cmds.filter(c => c.id > ack);
       const cmds = ack !== null ? pendingLiveCmds(ack) : live.cmds.splice(0); // no ack: an older app, hand over once
-      sendJson(res, 200, { cmds });
+      sendJson(res, 200, { cmds, fitId: live.fit ? live.fit.id : null });
       releaseLiveWaiters();
       return;
     }
@@ -843,7 +872,7 @@ function createServer() {
       const query = new URL(req.url, 'http://localhost').searchParams;
       return handleHealth(req, res, urlPath, query).catch((e) => { if (!res.headersSent) sendJson(res, 500, { error: e.message }); });
     }
-    if (urlPath === '/api/live' || urlPath === '/api/live/cmd' || urlPath === '/api/live/cmds') {
+    if (urlPath === '/api/live' || urlPath === '/api/live/cmd' || urlPath === '/api/live/cmds' || urlPath === '/api/live/fit') {
       return handleLive(req, res, urlPath).catch((e) => { if (!res.headersSent) sendJson(res, 500, { error: e.message }); });
     }
     if (urlPath === '/api/coach/status') {

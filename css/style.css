@@ -196,6 +196,9 @@ button.chip:hover { border-color: var(--line-strong); color: var(--text-1); }
 .segmented-wrap > button { font-family: var(--font-sans); }
 .ctrl-label { font-size: 11px; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase; color: var(--text-3); }
 .ctrl-label-accent { color: var(--cyan); display: block; margin-bottom: 4px; }
+.erg-response-control { display: flex; align-items: center; flex-wrap: wrap; gap: 8px 12px; margin-top: 10px; }
+.erg-response-control select { width: auto; max-width: 100%; min-height: 36px; }
+.erg-response-control p { flex: 1 1 300px; margin: 0; line-height: 1.5; }
 .dot-sep { width: 3px; height: 3px; border-radius: 50%; background: var(--text-3); display: inline-block; margin: 0 8px; vertical-align: middle; }
 .link { font-size: 12px; text-decoration: none; }
 .link:hover { text-decoration: underline; }

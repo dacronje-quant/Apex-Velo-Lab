@@ -40,6 +40,12 @@ Then restart `Launch-Apex-Velo.bat` (the server only reads its code at start) an
 
 ## Bluetooth Devices
 
+**Workout-aware ERG:** the cockpit's **ERG response** defaults to **Auto**, choosing settings for each interval rather than using one setting for the whole ride. Easy/endurance steps use a longer PowerMatch average and gentle corrections; tempo, SweetSpot, threshold and over-unders use stable corrections; longer VO2 / hard-start efforts use faster corrections. Hard bursts up to 30 seconds hold the proportional trim learned on steadier steps, so PowerMatch does not chase trainer lag. Targets change at the interval boundary, preserving the full recovery duration. Steady and Responsive overrides are saved on this browser; burst protection still applies. Display power smoothing is independent of resistance control.
+
+**All workout types stay in ERG.** Auto adapts how power targets and meter corrections are handled; it does not switch trainer modes or recommend another mode. Cadence drills use gentle corrections and all adaptive profiles pause PowerMatch corrections briefly during rapid cadence changes so they do not compete with the trainer's own ERG response. Explicit low-cadence targets lower the stall threshold and the cadence needed for a restart. Short bursts and sprint steps hold the learned trim while following the prescribed ERG target. Paced tests use stable corrections at the prescribed power; a target-controlled test does not measure unrestricted maximum effort. A failed ramp-test step pauses instead of continuing at a reduced load; the Stand load reduction is unavailable on ramp-test efforts.
+
+These are conservative software presets. Physical response and firmware behavior need checking on the trainer. Guidance: [TrainerRoad smart trainer modes](https://support.trainerroad.com/hc/trainerroad-support/articles/360024069532-smart-trainer-modes-explained), [Wahoo ERG guide](https://support.wahoofitness.com/hc/en-us/articles/4402565516946-A-Guide-to-using-ERG-mode), and [Wahoo Easy Ramp](https://support.wahoofitness.com/hc/en-us/articles/39167740791442-ERG-Easy-Ramp-explained). The per-profile numerical tuning is Apex's implementation choice. Run `node --test tests/erg-adaptive.test.js` for controller and workout-engine regressions.
+
 The Devices drawer supports FTMS trainers/smart bikes, Cycling Power Service meters (pedals, crank, spider or hub), heart-rate sensors and the Wahoo KICKR HEADWIND fan. Measurements depend on what the device reports; a power meter does not have to report cadence or left/right balance. Existing Bluetooth assignments remain compatible.
 
 - **Connect saved devices** reconnects one at a time. **Stop connecting** cancels the current attempt and remaining devices. Each saved device has Reconnect/Retry, Stop, Rename, Replace and Forget in Apex. Forget clears the app assignment; browser permission remains in browser site settings.
@@ -129,13 +135,14 @@ The **Sync from Strava** card in *History* imports your Strava activities for a 
 
 1. Pick a range: the last **2 / 4 / 8 (default) / 12 / 26 weeks**, or **Custom dates** (from - to). The last choice is remembered.
 2. Click **Sync from Strava**. The app reads the range from Strava and shows a **preview** - nothing is changed yet:
-   **New** (will be imported) · **Linked** (already in the app, only a link is added) · **Refreshed** (edited on Strava) · **Removed** (deleted on Strava) · **Merged Strava duplicates** · **Needs review** (possible duplicates).
+   **New** (will be imported) · **Linked** (already in the app, summaries combined) · **Refreshed** (edited on Strava) · **Removed** (deleted on Strava) · **Merged Strava duplicates** · **Needs review** (possible duplicates).
 3. Press **Apply** to write it, or **Cancel**. **Undo last sync** (with the time of that sync) puts everything back.
 
 **Refresh semantics.** A sync is a complete, repeatable refresh of the chosen range:
 - Records imported from Strava (source *Strava*) inside the range are rebuilt from what Strava returns now: updated when you edited them on Strava (name, description, calories...), added when new, and removed from the app **only** when they no longer exist on Strava. Removals are listed in the preview and need Apply.
 - Records outside the range are never touched.
 - Rides recorded in this app are never removed; their Strava links are re-checked (a link to a deleted activity is reported, not changed).
+- Matched rides, including already linked rides, use Strava distance and moving time (elapsed time if moving time is missing). Missing Strava values fall back to the original HealthFit/local summary. Local recordings and measured training load are retained; Strava fills missing summary metrics or power recordings. Preview lists combined/refreshed rides, and Undo restores the pre-sync records.
 - Running the same sync twice: the second preview says **No changes**.
 
 **Duplicates - three layers, in order.**
@@ -191,6 +198,8 @@ Before you press Start (and while paused) the phone already shows live heart rat
 A thin zone-coloured bar of the whole workout sits above the controls on every screen, with a needle showing where you are. The controls stay at the bottom of every screen, sized for sweaty fingers (60 px targets): **Start/Pause**, **-5 W / +5 W** (the middle shows the change from the plan in watts - tap it to go back to the plan), **Stand 30s** and **Skip step** (tap twice to confirm). When a workout ends, the phone shows the **+5 min easy spin** offer with giant buttons too. Keep the Apex tab open on the PC (it can be minimised). Only devices on your private home network are accepted; anything else gets 403.
 
 **No visible lag.** The PC pushes every ride second to the phone the moment it happens, and the phone keeps a request open that the server answers as soon as the new data arrives (long-poll), so the phone shows each update about 10-20 ms after the PC. Taps on the phone reach the PC just as fast: the PC keeps its own request open for commands, and each command is confirmed by the PC so it is never lost or applied twice.
+
+**Download the finished ride on your phone.** After **Finish** (or the easy-spin offer times out), a **Download .fit** button appears on every phone screen. Tap it to save the completed activity, including its recorded power, heart rate, cadence, speed, distance and balance, directly to the phone. Your browser may ask you to confirm the download; on iPhone, find it in Safari's Downloads / the Files app. Keep the PC server running and the phone on the same Wi-Fi until the download finishes. Only the latest completed file is held in server memory; if a connection fails, the PC retries automatically. Restart the launcher and refresh both the PC and phone pages after updating. Run `node --test tests/phone-fit-download.test.js` to verify the download flow on both local servers.
 
 **Instant taps.** A tap on the phone shows its result straight away (and buzzes) - +/-5 W, Start/Pause and Stand don't wait for the PC. The PC applies the command within a few tens of ms and its confirmed state replaces the prediction exactly when it arrives (each command has an id the PC acknowledges), so rapid taps add up correctly and nothing flickers. If the PC doesn't confirm within 4 s, the screen falls back to the real state. After the phone wakes or Wi-Fi comes back, it reconnects at once.
 

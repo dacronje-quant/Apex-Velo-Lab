@@ -5,8 +5,8 @@
  *  - Strava-imported records (source 'Strava') in the range are rebuilt from what Strava returns now:
  *    updated when edited on Strava, added when new, removed only when deleted on Strava.
  *  - Rides recorded in this app (cockpit, HealthFit, FIT imports - anything whose source is not
- *    'Strava') are never modified, replaced or deleted. The only change allowed on them is adding
- *    a link to the Strava activity (ride.strava.activityId).
+ *    'Strava') keep their identity and recordings. Matched summaries use Strava distance/time
+ *    and fill missing metrics; native rides are never deleted.
  *  - Records outside the range are untouched.
  *
  * Duplicates are caught in three layers:
@@ -93,6 +93,7 @@ class VeloStravaSync {
     };
     plan.new.forEach(x => consider(x.activity, x.record));
     plan.refreshed.forEach(x => consider(x.activity, x.record));
+    plan.linked.forEach(x => consider(x.activity, x.record));
     (plan.unchangedList || []).forEach(x => consider(x.activity, x.record));
     return [...new Set(want)];
   }
@@ -346,6 +347,49 @@ class VeloStravaSync {
     return rec;
   }
 
+  /** Combine matched summaries while preserving local samples and measured training load. */
+  static combineRecord(ride, activity, opts = {}) {
+    const S = VeloStravaSync;
+    const summary = S.toRecord(activity, opts, ride);
+    const next = { ...ride };
+    const positive = v => Number.isFinite(Number(v)) && Number(v) > 0;
+    const fallback = ride.stravaSummaryFallback || {
+      duration: ride.duration || 0, distanceKm: ride.distanceKm || 0,
+      totalDistanceMeters: ride.totalDistanceMeters || 0, elapsedSec: ride.elapsedSec || 0
+    };
+    next.stravaSummaryFallback = fallback;
+    const moving = positive(activity.moving_time) ? Number(activity.moving_time)
+      : positive(activity.elapsed_time) ? Number(activity.elapsed_time) : 0;
+    next.duration = moving ? Math.round(moving) : fallback.duration || ride.duration;
+    if (positive(next.duration)) next.durationMin = Math.round(next.duration / 60);
+    const meters = positive(activity.distance) ? Number(activity.distance)
+      : Number(fallback.totalDistanceMeters) || Number(fallback.distanceKm) * 1000
+        || Number(ride.totalDistanceMeters) || Number(ride.distanceKm) * 1000;
+    if (positive(meters)) {
+      next.totalDistanceMeters = Math.round(meters);
+      next.distanceKm = Math.round(meters / 10) / 100;
+    }
+    const elapsed = positive(activity.elapsed_time) ? Math.round(Number(activity.elapsed_time)) : fallback.elapsedSec;
+    if (positive(elapsed)) next.elapsedSec = elapsed;
+    else delete next.elapsedSec;
+    if (positive(next.distanceKm) && positive(next.duration))
+      next.avgSpeedKmh = Math.round(next.distanceKm / (next.duration / 3600) * 10) / 10;
+    for (const key of ['avgWatts', 'maxWatts', 'np', 'kj', 'avgHr', 'maxHr', 'avgCadence', 'totalCalories']) {
+      if (!positive(next[key]) && positive(summary[key])) next[key] = summary[key];
+    }
+    if (!next.description && summary.description) next.description = summary.description;
+    if (!(Array.isArray(ride.samples) && ride.samples.length) && summary.samples) {
+      next.samples = summary.samples;
+      next.samplesCount = summary.samples.length;
+      next.streams = summary.streams;
+    } else if (!ride.streams && summary.streams) next.streams = summary.streams;
+    if (!positive(next.tss) && !(Array.isArray(ride.samples) && ride.samples.length)) {
+      for (const key of ['tss', 'if', 'tssMethod', 'tssEstimated', 'ftpAtRide', 'lthrAtRide', 'lthrEstimated'])
+        if (summary[key] !== undefined) next[key] = summary[key];
+    }
+    return next;
+  }
+
   /** Threshold HR for heart-rate TSS; sets rec.lthrAtRide (+ lthrEstimated when guessed from max HR). */
   static lthrFor(rec, opts, existing) {
     const n = VeloStravaSync.num;
@@ -414,7 +458,7 @@ class VeloStravaSync {
     });
 
     const out = {
-      range, fetched: acts.length,
+      range, opts, fetched: acts.length,
       new: [], linked: [], refreshed: [], removed: [], merged: [], review: [], staleLinks: [],
       alreadyLinked: 0, unchanged: 0, unchangedList: [], knownMerged: 0,
       mergedMap: { ...mergedPrev }, decisions: { ...decisions }
@@ -461,6 +505,11 @@ class VeloStravaSync {
       // Layer 1: exact id
       if (appLinks.has(a.id)) {
         out.alreadyLinked++;
+        const before = appLinks.get(a.id);
+        const record = S.combineRecord(before, a, opts);
+        const changes = S.diffRecords(before, record);
+        if (changes.length) out.refreshed.push({ activity: a, record, before, changes });
+        else out.unchangedList.push({ activity: a, record: before });
         const rec = stravaRecs.get(a.id);
         if (rec) out.merged.push({ activity: a, keptId: a.id, removeRecordId: rec.id, reason: 'already recorded in the app' });
         return;
@@ -531,6 +580,7 @@ class VeloStravaSync {
       const l = S.linkOf(r);
       if (l && S.inRange(r.date, range) && !fetchedIds.has(l)) out.staleLinks.push({ rideId: r.id, rideTitle: r.title, activityId: l });
     });
+    out.linked.forEach(x => { x.record = S.combineRecord(hist.find(r => r.id === x.rideId), x.activity, opts); });
     out.changeCount = out.new.length + out.linked.length + out.refreshed.length + out.removed.length + out.merged.filter(m => m.removeRecordId || !mergedPrev[m.activity.id]).length;
     out.hasChanges = out.changeCount > 0;
     return out;
@@ -550,7 +600,7 @@ class VeloStravaSync {
   // --------------------------------------------------------------- apply --
   /**
    * The complete new history for a plan, computed in memory. App-native rides are the very same
-   * objects unless a link is added (then a copy with only `strava` changed).
+   * objects unless their matched summary or Strava link changes.
    * @returns {{ history, put: object[], del: string[], links: object[] }}
    */
   static nextState(history, plan) {
@@ -570,7 +620,7 @@ class VeloStravaSync {
         const l = links.get(r.id);
         const prev = r.strava && typeof r.strava === 'object' ? r.strava : {};
         const keepState = ['sent', 'duplicate', 'found'].includes(prev.state);
-        const copy = { ...r, strava: { ...prev, state: keepState ? prev.state : 'found', activityId: String(l.activity.id), name: l.activity.name || '', linkedBy: 'sync' } };
+        const copy = { ...S.combineRecord(r, l.activity, plan.opts), strava: { ...prev, state: keepState ? prev.state : 'found', activityId: String(l.activity.id), name: l.activity.name || '', linkedBy: 'sync' } };
         next.push(copy); put.push(copy);
         return;
       }
@@ -596,8 +646,14 @@ class VeloStravaSync {
       const a = afterById.get(r.id);
       if (!a) { errs.push(`app ride ${r.id} would be lost`); return; }
       if (a === r) return;
+      const refresh = plan.refreshed.find(x => x.record.id === r.id);
+      const link = plan.linked.find(x => x.rideId === r.id);
+      const activity = refresh ? refresh.activity : link && link.activity;
+      const expected = activity ? S.combineRecord(r, activity, plan.opts) : r;
       const strip = (x) => { const { strava, samples, ...rest } = x; return rest; };
-      if (S.stable(strip(a)) !== S.stable(strip(r)) || a.samples !== r.samples) errs.push(`app ride ${r.id} would be modified`);
+      const samplesOk = Array.isArray(r.samples) && r.samples.length ? a.samples === r.samples
+        : S.stable(a.samples) === S.stable(expected.samples);
+      if (S.stable(strip(a)) !== S.stable(strip(expected)) || !samplesOk) errs.push(`app ride ${r.id} has unexpected changes`);
       const was = S.linkOf(r), now = S.linkOf(a);
       if (was && was !== now) errs.push(`app ride ${r.id} would lose its Strava link`);
       if (!was && now !== linkIds.get(r.id)) errs.push(`app ride ${r.id} got an unexpected link`);

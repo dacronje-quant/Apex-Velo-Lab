@@ -303,11 +303,11 @@
         const load = r.activityType === 'ride' ? `${r.tss} TSS${r.tssEstimated ? ` (est. from ${r.tssMethod})` : ''}` : r.activityType === 'strength' ? `strength load ${r.strengthTss}` : 'no training load';
         return `<li>${actLine(x.activity)}<span class="sync-sub">${esc(load)}</span></li>`;
       };
-      const linkRows = (x) => `<li>${actLine(x.activity)}<span class="sync-sub">links to your ride "${esc(x.rideTitle || '')}" (${fmtDate(x.rideDate)})${x.score !== null ? ` - ${Math.round(x.score * 100)}% match` : ''}</span></li>`;
+      const linkRows = (x) => `<li>${actLine(x.activity)}<span class="sync-sub">combines with your ride "${esc(x.rideTitle || '')}" (${fmtDate(x.rideDate)})${x.score !== null ? ` - ${Math.round(x.score * 100)}% match` : ''}; Strava distance/time, local recordings kept</span></li>`;
       const STREAM_KEYS = new Set(['samples', 'streams', 'np', 'tss', 'if', 'tssMethod', 'tssEstimated', 'maxWatts']);
       const refRows = (x) => {
         const powerOnly = x.changes.every(k => STREAM_KEYS.has(k));
-        const what = !powerOnly ? `changed on Strava: ${x.changes.join(', ')}`
+        const what = S().isAppNative(x.record) ? `updates matched ride: ${x.changes.filter(k => k !== 'stravaSummaryFallback').join(', ')}` : !powerOnly ? `changed on Strava: ${x.changes.join(', ')}`
           : x.record.streams === 'ok' ? 'adds second-by-second power (TSS from the power stream)' : 'no power stream on Strava - keeps the summary';
         return `<li>${actLine(x.activity)}<span class="sync-sub">${esc(what)}</span></li>`;
       };
@@ -338,8 +338,8 @@
           ${notes.length ? `<div class="dim sync-notes">${esc(notes.join(' · '))}</div>` : ''}
         </div>
         ${section('new', 'New from Strava', plan.new, newRows, true)}
-        ${section('linked', 'Linked to rides already in the app (not imported)', plan.linked, linkRows, true)}
-        ${section('refreshed', 'Refreshed (edited on Strava or power data added)', plan.refreshed, refRows, true)}
+        ${section('linked', 'Combined with rides already in the app', plan.linked, linkRows, true)}
+        ${section('refreshed', 'Refreshed rides', plan.refreshed, refRows, true)}
         ${section('removed', 'Removed (deleted on Strava)', plan.removed, remRows, true)}
         ${section('merged', 'Merged Strava duplicates', plan.merged, mergeRows, false)}
         ${section('review', 'Needs review (possible duplicates - never imported automatically)', plan.review, reviewRows, true)}
