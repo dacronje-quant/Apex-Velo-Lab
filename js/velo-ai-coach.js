@@ -28,7 +28,7 @@ class VeloAiCoach {
   };
   static MODEL_LABELS = {
     'claude-opus-5-5': 'Claude Opus 5.5',
-    'claude-sonnet-5': 'Claude Sonnet 5',
+    'claude-sonnet-5-5': 'Claude Sonnet 5.5',
     'claude-haiku-4-5-20251001': 'Claude Haiku 4.5',
     'gemini-3.8-flash': 'Gemini 3.8 Flash',
     'gemini-3.1-pro-preview': 'Gemini 3.1 Pro (preview)',
@@ -53,6 +53,7 @@ class VeloAiCoach {
     try {
       this.providerOverride = localStorage.getItem('apex_coach_provider') || '';
       this.modelOverride = localStorage.getItem('apex_coach_model') || localStorage.getItem('apex_claude_model') || '';
+      if (this.modelOverride === 'claude-sonnet-5') this.modelOverride = 'claude-sonnet-5-5'; // renamed model
       this.effortOverride = localStorage.getItem('apex_coach_effort') || localStorage.getItem('apex_claude_effort') || '';
       const lb = parseInt(localStorage.getItem('apex_coach_lookback_days') || '', 10);
       if (VeloAiCoach.LOOKBACK_OPTIONS.includes(lb)) this.lookbackDays = lb;

@@ -353,7 +353,7 @@
           const savedCfg = { provider: app.aiCoach.providerOverride, model: app.aiCoach.modelOverride, effort: app.aiCoach.effortOverride, lookback: app.aiCoach.lookbackDays };
           app.aiCoach.saveConfig({ provider: 'gemini', model: '' });
           const geminiOk = app.aiCoach.provider === 'gemini' && app.aiCoach.model === 'gemini-3.8-flash';
-          app.aiCoach.saveConfig({ provider: 'gemini', model: 'claude-sonnet-5' });
+          app.aiCoach.saveConfig({ provider: 'gemini', model: 'claude-sonnet-5-5' });
           const mismatchDropped = app.aiCoach.model === 'gemini-3.8-flash';
           app.fillCoachModelOptions();
           const geminiOptions = Array.from(modelSelect.options).map(o => o.value).filter(Boolean);

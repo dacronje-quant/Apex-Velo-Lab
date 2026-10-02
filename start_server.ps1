@@ -38,7 +38,7 @@ function Get-Setting([string]$name, [string]$default) {
 # For Gemini the effort setting maps to thinkingLevel (low / medium / high).
 $models = [ordered]@{
     'claude-opus-5-5'           = @{ label = 'Claude Opus 5.5';          provider = 'claude'; adaptive = $true }
-    'claude-sonnet-5'           = @{ label = 'Claude Sonnet 5';          provider = 'claude'; adaptive = $true }
+    'claude-sonnet-5-5'         = @{ label = 'Claude Sonnet 5.5';        provider = 'claude'; adaptive = $true }
     'claude-haiku-4-5-20251001' = @{ label = 'Claude Haiku 4.5';         provider = 'claude'; adaptive = $false }
     'gemini-3.8-flash'          = @{ label = 'Gemini 3.8 Flash';         provider = 'gemini'; adaptive = $true }
     'gemini-3.1-pro-preview'    = @{ label = 'Gemini 3.1 Pro (preview)'; provider = 'gemini'; adaptive = $true }
@@ -55,6 +55,7 @@ $apiKey = if ($keyFromEnvironment) { $env:ANTHROPIC_API_KEY.Trim() } else { (Get
 $geminiKey = if ($geminiKeyFromEnvironment) { $env:GEMINI_API_KEY.Trim() } else { (Get-Setting 'GEMINI_API_KEY' '').Trim() }
 $keys = @{ claude = $apiKey; gemini = $geminiKey }
 function Select-Model([string]$id, [string]$provider) {
+    if ($id -eq 'claude-sonnet-5') { $id = 'claude-sonnet-5-5' }  # renamed model
     if ($models.Contains($id) -and $models[$id].provider -eq $provider) { return $id }
     return $providers[$provider].fallbackModel
 }

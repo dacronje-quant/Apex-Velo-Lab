@@ -45,7 +45,7 @@ loadDotEnv(path.join(ROOT, '.env'));
  */
 const MODELS = {
   'claude-opus-5-5':           { label: 'Claude Opus 5.5', provider: 'claude', adaptive: true },
-  'claude-sonnet-5':           { label: 'Claude Sonnet 5', provider: 'claude', adaptive: true },
+  'claude-sonnet-5-5':         { label: 'Claude Sonnet 5.5', provider: 'claude', adaptive: true },
   'claude-haiku-4-5-20251001': { label: 'Claude Haiku 4.5', provider: 'claude', adaptive: false },
   'gemini-3.8-flash':          { label: 'Gemini 3.8 Flash', provider: 'gemini', adaptive: true },
   'gemini-3.1-pro-preview':    { label: 'Gemini 3.1 Pro (preview)', provider: 'gemini', adaptive: true },
@@ -60,7 +60,7 @@ const EFFORTS = ['low', 'medium', 'high'];
 const API_KEY = (process.env.ANTHROPIC_API_KEY || '').trim();
 const GEMINI_API_KEY = (process.env.GEMINI_API_KEY || '').trim();
 const KEYS = { claude: API_KEY, gemini: GEMINI_API_KEY };
-const pickModel = (id, provider) => (MODELS[id] && MODELS[id].provider === provider ? id : PROVIDERS[provider].fallbackModel);
+const pickModel = (raw, provider) => { const id = raw === 'claude-sonnet-5' ? 'claude-sonnet-5-5' : raw; return (MODELS[id] && MODELS[id].provider === provider ? id : PROVIDERS[provider].fallbackModel); };
 const DEFAULT_MODELS = {
   claude: pickModel(process.env.APEX_COACH_MODEL, 'claude'),
   gemini: pickModel(process.env.APEX_GEMINI_MODEL, 'gemini')
