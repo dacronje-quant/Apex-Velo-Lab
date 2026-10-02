@@ -207,3 +207,49 @@ test('phone fan commands are constrained and both server allowlists agree', () =
     for (const cmd of ['connect-fan','disconnect-fan','connect-stop','fan-0','fan-25','fan-50','fan-75','fan-100','fan-mode-manual','fan-mode-hr','fan-mode-power']) assert.ok(source.includes(`'${cmd}'`),`${file}: ${cmd}`);
   }
 });
+test('Stop during a replacement connect keeps the previous saved device assigned', async () => {
+  for (const stage of ['gatt', 'setup']) {
+    const f = fixture(), old = link(f, 'hr');
+    let release, gated = null;
+    const gate = () => gated || (gated = new Promise(r => { release = r; }));
+    const server = { getPrimaryService: async () => { if (stage === 'setup') await gate(); throw new Error('stopped'); } };
+    const fresh = device('new-strap', server);
+    if (stage === 'gatt') fresh.gatt.connect = function () { return gate().then(() => { this.connected = true; return server; }); };
+    f.ctx.navigator.bluetooth.requestDevice = async () => fresh;
+    const pending = f.ble.connectHr();
+    while (!release) await new Promise(r => setTimeout(r, 1));
+    f.ble.disconnectHr(); // the user taps Stop
+    release();
+    assert.equal(await pending, false);
+    assert.equal(f.ble.slots.hr.device, old, `${stage}: previous device restored`);
+    assert.equal(f.ble.slots.hr.replacedDevice, null);
+    assert.equal(f.ble._knownIds().hr.id, old.id);
+    assert.equal(fresh.listeners.size, 0, `${stage}: abandoned device has no listeners`);
+    assert.equal(fresh.gatt.connected, false);
+    assert.equal(f.ble.getState('hr'), 'disconnected');
+    // Reconnect now targets the saved device, not the abandoned one.
+    let connectedTo = null; old.gatt.connect = async function () { connectedTo = 'old'; this.connected = true; return {}; };
+    f.ble._setupFor = () => async () => {};
+    assert.equal(await f.ble.reconnect('hr'), true);
+    assert.equal(connectedTo, 'old');
+  }
+});
+test('automatic fan cooling follows a trailing average and does not hunt on noisy power', () => {
+  const f = fixture(), app = appFixture(f); link(f,'fan');
+  let t = 10000; f.ctx.performance.now = () => t;
+  app.fanMode = 'power'; app.activeProfile = { ftp: 250, maxHr: 185 };
+  app.blePedal.lastTime = -1e9; // trainer power only
+  const sent = []; app.setFanAirflow = v => { sent.push({ t, v }); f.ble.slots.fan.requestedSpeed = v; };
+  let seed = 7; const rnd = () => (seed = (seed * 16807) % 2147483647) / 2147483647;
+  for (let s = 0; s < 600; s++, t += 1000) { // 10 min steady ~200 W with +/-30 W noise
+    app.bleTrainer.watts = Math.round(200 + (rnd() - 0.5) * 60); app.bleTrainer.lastTime = t; app.updateFanAutomatic();
+  }
+  assert(sent.length >= 1 && sent.length <= 4, `steady ride sent ${sent.length} commands`);
+  sent.forEach(c => assert.equal(c.v % 5, 0));
+  for (let i = 1; i < sent.length; i++) assert(sent[i].t - sent[i - 1].t >= 10000);
+  // A real change in effort still moves the fan, within about 20 s.
+  const before = sent.length, settled = sent[sent.length - 1].v;
+  for (let s = 0; s < 30; s++, t += 1000) { app.bleTrainer.watts = 300; app.bleTrainer.lastTime = t; app.updateFanAutomatic(); }
+  assert(sent.length > before, 'harder effort raises airflow');
+  assert(sent[sent.length - 1].v > settled);
+});

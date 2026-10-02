@@ -6,7 +6,10 @@
   const LABELS = { trainer: 'Trainer / smart bike', pedals: 'Power meter', hr: 'Heart-rate sensor', fan: 'HEADWIND fan' };
   const BUTTONS = { trainer: 'btnConnectTrainerModal', pedals: 'btnConnectPedalsModal', hr: 'btnConnectHrModal', fan: 'btnConnectFanModal' };
   const STATUS = { trainer: 'hwTrainerStatusBadge', pedals: 'hwPedalStatusBadge', hr: 'hwHrStatusBadge', fan: 'hwFanStatusBadge' };
-  const readPrefs = () => { try { return JSON.parse(localStorage.getItem('apex_device_sources') || '{}') || {}; } catch (e) { return {}; } };
+  const FAN_AUTO_POWER_AVG_SEC = 20, FAN_AUTO_HR_AVG_SEC = 10; // trailing average that drives automatic airflow
+  const FAN_AUTO_STEP = 5; // airflow moves in 5% steps
+  const FAN_AUTO_MIN_INTERVAL_MS = 10000; // at most one automatic change every 10 s
+  const readPrefs =() => { try { return JSON.parse(localStorage.getItem('apex_device_sources') || '{}') || {}; } catch (e) { return {}; } };
 
   Object.assign(VeloApp.prototype, {
     initDevicesUi() {
@@ -258,20 +261,36 @@
       finally { this._fanWriteBusy = false; this.renderDevicesPanel(); if (this.publishSoon) this.publishSoon(); }
     },
 
+    /**
+     * Automatic cooling follows a trailing average (20 s power, 10 s HR), in 5% steps, and changes
+     * the fan at most every 10 s once it is running - instantaneous watts made it hunt every second.
+     */
     updateFanAutomatic() {
       if (!this.ble.isFanConnected() || !['hr', 'power'].includes(this.fanMode) || this._fanWriteBusy) return;
-      if (!this.isPlaying) { this.fanStatus = 'Automatic cooling paused. Holding the last airflow; use Off when finished.'; return; }
+      const auto = this._fanAuto && this._fanAuto.mode === this.fanMode ? this._fanAuto : (this._fanAuto = { mode: this.fanMode, samples: [], lastSentAt: this._fanAuto ? this._fanAuto.lastSentAt : -Infinity });
+      if (!this.isPlaying) { auto.samples = []; this.fanStatus = 'Automatic cooling paused. Holding the last airflow; use Off when finished.'; return; }
       const now = performance.now();
       const fresh = this.devicePowerFresh(now);
       const value = this.fanMode === 'hr' ? (now - this.bleHr.lastTime < 4000 ? this.bleHr.hr : null) : fresh.pedals ? this.blePedal.watts : fresh.trainer ? this.bleTrainer.watts : null;
-      if (value === null || !Number.isFinite(value)) { this.fanStatus = 'Waiting for fresh sensor data. Holding the last airflow.'; return; }
+      if (value === null || !Number.isFinite(value)) { auto.samples = []; this.fanStatus = 'Waiting for fresh sensor data. Holding the last airflow.'; return; }
       const max = this.fanMode === 'hr' ? this.activeProfile.maxHr : this.activeProfile.ftp;
       if (!(max > 0)) return;
+      const windowMs = (this.fanMode === 'hr' ? FAN_AUTO_HR_AVG_SEC : FAN_AUTO_POWER_AVG_SEC) * 1000;
+      auto.samples.push({ t: now, v: Math.max(0, value) });
+      auto.samples = auto.samples.filter(s => now - s.t < windowMs);
+      const avg = auto.samples.reduce((sum, s) => sum + s.v, 0) / auto.samples.length;
       const lo = this.fanMode === 'hr' ? 0.6 : 0.4;
       const hi = this.fanMode === 'hr' ? 0.95 : 1.2;
-      const speed = Math.round(20 + 80 * Math.max(0, Math.min(1, (value / max - lo) / (hi - lo))));
+      const raw = 20 + 80 * Math.max(0, Math.min(1, (avg / max - lo) / (hi - lo)));
+      const speed = Math.round(raw / FAN_AUTO_STEP) * FAN_AUTO_STEP;
       const last = this.ble.slots.fan.requestedSpeed;
-      if (last !== null && Math.abs(speed - last) < 3) return;
+      if (last !== null) {
+        // Hysteresis: the unrounded airflow must move a full step away, so an average sitting on a
+        // rounding boundary cannot flip the fan back and forth.
+        if (Math.abs(raw - last) < FAN_AUTO_STEP || speed === last) return;
+        if (now - auto.lastSentAt < FAN_AUTO_MIN_INTERVAL_MS) return;
+      }
+      auto.lastSentAt = now;
       this.setFanAirflow(speed, { automatic: true });
     }
   });
