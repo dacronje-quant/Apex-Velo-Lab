@@ -37,6 +37,31 @@
           }
           log('App Instance Available', true, 'Version: 3.0.0');
 
+          // Tab views must be siblings: a hidden parent tab also hides an active child tab.
+          {
+            const doc = frame.contentDocument;
+            const navButtons = [...doc.querySelectorAll('.nav-btn[data-tab]')];
+            const views = [...doc.querySelectorAll('.tab-view')];
+            const structureOk = views.length === navButtons.length && navButtons.every(button => {
+              const matches = doc.querySelectorAll(`#view-${button.dataset.tab}`);
+              return matches.length === 1 && matches[0].parentElement.tagName === 'MAIN';
+            });
+            const originalTab = app.activeTab;
+            const visibility = [];
+            try {
+              for (const tab of ['history', 'calendar']) {
+                doc.querySelector(`.nav-btn[data-tab="${tab}"]`).click();
+                const view = doc.getElementById(`view-${tab}`);
+                visibility.push(view.classList.contains('active') && view.getClientRects().length > 0);
+              }
+            } finally {
+              app.switchTab(originalTab);
+            }
+            log('History & Calendar Navigation: Unique Sibling Views and Visible Selected Tabs',
+              structureOk && visibility.every(Boolean),
+              `Structure: ${structureOk}, History visible: ${visibility[0]}, Calendar visible: ${visibility[1]}`);
+          }
+
           // 1. Check Profiles: Divan should be sole default profile
           const profiles = app.profiles;
           const hasDivan = profiles.some(p => p.id === 'prof_divan' && p.ftp === 185);
