@@ -113,6 +113,11 @@
   .tr-tile.hr .tv { color: #fb7185; }
   .tr-tile .ts.on { color: var(--lime); } .tr-tile .ts.close { color: var(--amber); } .tr-tile .ts.off { color: var(--red); }
   .tr-graph { position: relative; flex: 1; min-height: 170px; background: #05070b; border: 1px solid var(--line); border-radius: 12px; overflow: hidden; }
+  .tr-graph[role="button"] { cursor: pointer; touch-action: pan-x pan-y; }
+  .tr-graph:focus-visible { outline: 2px solid var(--cyan); outline-offset: 2px; }
+  .tr-graph-tools { position: absolute; top: 8px; left: 10px; right: 10px; display: flex; justify-content: space-between; align-items: center; gap: 8px; pointer-events: none; font-size: 11px; color: var(--muted); }
+  .tr-graph-mode { background: rgba(16,20,27,.9); border: 1px solid var(--line); border-radius: 999px; padding: 3px 8px; color: var(--text); font-weight: 650; }
+  .tr-graph[data-view="follow"] .tr-graph-mode { color: var(--cyan); border-color: rgba(34,211,238,.4); }
   #trGraph { position: absolute; inset: 0; width: 100%; height: 100%; margin: 0; }
   .tr-legend { display: flex; gap: 12px; justify-content: center; font-size: 11px; color: var(--muted); }
   .tr-legend i { display: inline-block; width: 12px; height: 3px; border-radius: 2px; vertical-align: middle; margin-right: 4px; }
@@ -239,7 +244,7 @@
     .tr-tile .tv { font-size: 26px; }
     .tr-tile .tl { font-size: 9.5px; margin-top: 2px; }
     .tr-tile .ts { font-size: 11px; min-height: 13px; }
-    .tr-graph { min-height: 90px; }
+    .tr-graph { min-height: 150px; }
     .tr-legend, .tr-next { display: none; }
     .tabs button { padding: 3px 4px; font-size: 12px; }
     .controls { grid-template-columns: 1.6fr 1fr 1fr 1fr 1fr 1fr; gap: 6px; }
@@ -286,7 +291,10 @@
         <div class="tr-tile"><div class="tv num" id="trCad">--</div><div class="tl">CADENCE</div><div class="ts num" id="trCadSub">&nbsp;</div></div>
         <div class="tr-tile"><div class="tv num" id="trLeft">--:--</div><div class="tl">TIME LEFT</div><div class="ts num" id="trElapsed">&nbsp;</div></div>
       </div>
-      <div class="tr-graph"><canvas id="trGraph"></canvas></div>
+      <div class="tr-graph" id="rideGraphView" role="button" tabindex="0" aria-pressed="false" aria-label="Full workout graph. Tap to follow the current intervals.">
+        <canvas id="trGraph" aria-label="Workout targets with measured power, heart rate and cadence"></canvas>
+        <div class="tr-graph-tools" aria-hidden="true"><span class="tr-graph-mode" id="rideGraphMode">Full workout</span><span id="rideGraphHint">Tap to follow</span></div>
+      </div>
       <div class="tr-legend"><span><i style="background:#2d7ff9"></i>Workout</span><span><i style="background:#facc15"></i>Power</span><span><i style="background:#fb7185"></i>Heart rate</span><span><i style="background:#34d399"></i>Cadence</span></div>
       <div class="tr-next" id="trNext">&nbsp;</div>
     </section>
@@ -431,6 +439,7 @@
   <div class="toast" id="toast"></div>
 
 <script src="js/velo-metrics.js"></script>
+<script src="js/velo-live-graph.js"></script>
 <script src="js/velo-biomech.js"></script>
 <script>
 (function () {
@@ -445,6 +454,28 @@
   const zoneColor = (pct) => (window.VeloMetrics ? VeloMetrics.zoneForPct(pct).color : '#566174');
   const BAL_LEN = 120; // seconds of L/R balance kept for the Balance screen
   let snap = null, snapAt = 0, lastOkAt = 0, failures = 0, sending = false, skipArmedUntil = 0;
+  const rideViewport = new VeloLiveGraph.Viewport({ reduceMotion: matchMedia('(prefers-reduced-motion: reduce)').matches });
+  try { rideViewport.setMode(localStorage.getItem('apexLiveGraphView'), performance.now()); } catch (e) { /* storage blocked */ }
+  function updateGraphMode() {
+    const following = rideViewport.mode === 'follow';
+    const graph = $('rideGraphView');
+    graph.dataset.view = rideViewport.mode;
+    graph.setAttribute('aria-pressed', String(following));
+    graph.setAttribute('aria-label', following ? 'Following workout graph. Tap to show the full workout.' : 'Full workout graph. Tap to follow the current intervals.');
+    $('rideGraphMode').textContent = following ? 'Following · 6 min' : 'Full workout';
+    $('rideGraphHint').textContent = following ? 'Tap for full' : 'Tap to follow';
+  }
+  function toggleGraphView() {
+    rideViewport.setMode(rideViewport.mode === 'full' ? 'follow' : 'full', performance.now());
+    try { localStorage.setItem('apexLiveGraphView', rideViewport.mode); } catch (e) { /* storage blocked */ }
+    updateGraphMode();
+    if (snap) drawRideGraph(snap, graphProgress(), performance.now());
+  }
+  $('rideGraphView').addEventListener('click', toggleGraphView);
+  $('rideGraphView').addEventListener('keydown', (event) => {
+    if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); toggleGraphView(); }
+  });
+  updateGraphMode();
   let balHistory = [], balLastSecond = -1;
   const powerViews = [0, 3, 5, 7, 10];
   let powerView = 0;
@@ -567,7 +598,10 @@
   }
 
   function render(s) {
-    snap = s; snapAt = Date.now();
+    if (s && snap && (s.title !== snap.title || s.elapsed < snap.elapsed)) rideViewport.reset();
+    const advanced = !s || !snap || s.elapsed !== snap.elapsed || s.progress !== snap.progress || s.state !== snap.state;
+    snap = s;
+    if (advanced) snapAt = Date.now();
     const st = $('state');
     const state = s ? s.state : (Date.now() - lastOkAt < 5000 ? 'ready' : 'offline');
     st.textContent = { running: 'RIDING', paused: 'PAUSED', finished: 'FINISHED', ready: 'READY', offline: 'OFFLINE' }[state] || state.toUpperCase();
@@ -1013,7 +1047,7 @@
 
   function drawAll(s) {
     drawZoneBar(s, s.progress || 0);
-    if (page === 0) drawRideGraph(s, s.progress || 0);
+    if (page === 0) drawRideGraph(s, graphProgress());
     if (page === 1) drawTrace(s);
     if (page === 2) drawRibbon(s, s.progress || 0);
     if (page === 3) drawBalance();
@@ -1024,52 +1058,114 @@
    * current step outlined), your power (yellow), heart rate (red, own scale) and cadence
    * (green, own scale) traced over it, and the playhead at `progress`.
    */
-  function drawRideGraph(s, progress) {
+  function drawRideGraph(s, progress, now = performance.now()) {
     const cv = ctx2d($('trGraph')); if (!cv) return;
     const { g, w, h } = cv;
     const prof = (s.profile || []).filter((p) => p[0] > 0);
     const total = prof.reduce((a, p) => a + p[0], 0);
     if (!total) return;
+    const view = rideViewport.range(total, progress, now);
+    const span = Math.max(1, view.end - view.start);
+    const xOf = (seconds) => (seconds - view.start) / span * w;
+    const following = rideViewport.mode === 'follow';
+    const modeLabel = following ? `Following · ${Math.min(6, total / 60).toFixed(total % 60 ? 1 : 0)} min` : 'Full workout';
+    if ($('rideGraphMode').textContent !== modeLabel) $('rideGraphMode').textContent = modeLabel;
+    const graph = $('rideGraphView');
+    graph.dataset.start = view.start.toFixed(2);
+    graph.dataset.end = view.end.toFixed(2);
+    graph.dataset.position = view.position.toFixed(2);
     const ftp = s.ftp || 200, bias = (s.bias || 100) / 100;
     const hist = s.hist || { p: [], h: [], c: [], bin: 1 };
-    const pw = hist.p.filter((v) => v != null);
-    const top = 8, bottom = h - 4;
+    const recent = hist.recent;
+    const zoomAmount = total > 360 ? Math.max(0, Math.min(1, (total - span) / (total - 360))) : 0;
+    const top = 32, bottom = h - 22 - 26 * zoomAmount;
+    // Keep the vertical scales the same in both views so zooming never distorts the effort.
+    const pw = (hist.p || []).concat(recent?.p || []).filter((v) => v != null);
     const maxW = Math.max(ftp * 1.2, ...prof.map((p) => ftp * p[1] / 100 * bias), ...pw) * 1.08;
     const yW = (v) => bottom - (v / maxW) * (bottom - top);
-    const px = Math.min(1, Math.max(0, progress)) * w;
+    const px = xOf(view.position);
+    const tick = [15, 30, 60, 120, 300, 600, 900, 1800, 3600].find(v => v >= span / 5) || 7200;
+    g.font = '10px system-ui';
+    g.lineWidth = 1;
+    for (let t = Math.ceil(view.start / tick) * tick; t <= view.end; t += tick) {
+      const x = xOf(t);
+      g.strokeStyle = 'rgba(148,163,184,.1)'; g.beginPath(); g.moveTo(x, top); g.lineTo(x, bottom); g.stroke();
+      g.fillStyle = '#8a95a6'; g.textAlign = x < 20 ? 'left' : x > w - 20 ? 'right' : 'center';
+      g.fillText(fmt(t), x, bottom + 14);
+    }
+    g.textAlign = 'left';
+    g.save(); g.beginPath(); g.rect(0, top, w, bottom - top); g.clip();
     // Grid: FTP line + 100 W steps
     g.lineWidth = 1;
     for (let v = 100; v < maxW; v += 100) { g.strokeStyle = 'rgba(148,163,184,.08)'; g.beginPath(); g.moveTo(0, yW(v)); g.lineTo(w, yW(v)); g.stroke(); }
     // Steps
-    let x = 0;
+    let seconds = 0;
     prof.forEach(([dur, pct], i) => {
-      const bw = (dur / total) * w, yT = yW(ftp * pct / 100 * bias);
+      const x = xOf(seconds), bw = dur / span * w, yT = yW(ftp * pct / 100 * bias);
       g.fillStyle = 'rgba(45,127,249,.28)';
       g.fillRect(x, yT, Math.max(1, bw - 1), bottom - yT);
       if (px > x) { g.fillStyle = 'rgba(45,127,249,.72)'; g.fillRect(x, yT, Math.max(0, Math.min(bw - 1, px - x)), bottom - yT); }
       if (s.step && i === s.step.index - 1) { g.strokeStyle = 'rgba(238,242,247,.85)'; g.lineWidth = 1.5; g.strokeRect(x + .75, yT + .75, Math.max(1, bw - 2.5), bottom - yT - 1.5); }
-      x += bw;
+      seconds += dur;
     });
     g.strokeStyle = 'rgba(238,242,247,.35)'; g.setLineDash([3, 4]); g.lineWidth = 1;
     g.beginPath(); g.moveTo(0, yW(ftp)); g.lineTo(w, yW(ftp)); g.stroke(); g.setLineDash([]);
     g.fillStyle = 'rgba(238,242,247,.5)'; g.font = '10px system-ui'; g.fillText('FTP', 4, yW(ftp) - 3);
-    // Traces: one point per history bin, placed by ride seconds; gaps stay gaps
-    const line = (arr, yOf, color, width) => {
-      g.beginPath(); let pen = false;
+    // Coarse history gives the overview; recent one-second readings retain every burst when following.
+    const line = (arr, times, breaks, maxGap, yOf, color, width, until = Infinity, extend = false) => {
+      g.beginPath(); let pen = false, last = null;
       arr.forEach((v, i) => {
-        if (v == null) { pen = false; return; }
-        const xx = Math.min(w, ((i + 0.5) * hist.bin / total) * w), yy = yOf(v);
+        const time = times[i];
+        if (time > until) return;
+        if (v == null || !Number.isFinite(time)) { pen = false; last = null; return; }
+        if (breaks?.[i] || (last && (time <= last.time || time - last.time > maxGap))) pen = false;
+        const xx = xOf(time), yy = yOf(v);
         pen ? g.lineTo(xx, yy) : g.moveTo(xx, yy); pen = true;
+        last = { time, value: v };
       });
-      g.strokeStyle = color; g.lineWidth = width; g.lineJoin = 'round'; g.stroke();
+      // Hold the latest real reading as the cursor glides between updates; never bridge a skipped step.
+      if (extend && last && view.position >= last.time && view.position - last.time <= 2) {
+        g.lineTo(px, yOf(last.value));
+      }
+      g.strokeStyle = color; g.lineWidth = width; g.lineJoin = 'round'; g.lineCap = 'round'; g.stroke();
+      if (extend && last && view.position >= last.time && view.position - last.time <= 2) {
+        g.fillStyle = color; g.beginPath(); g.arc(px, yOf(last.value), 2.8, 0, Math.PI * 2); g.fill();
+      }
     };
-    const hrs = hist.h.filter((v) => v != null);
+    const hrs = (hist.h || []).concat(recent?.h || []).filter((v) => v != null);
     const hrLo = 50, hrHi = Math.max(190, ...hrs) + 5;
-    line(hist.c, (v) => bottom - (v / 150) * (bottom - top), 'rgba(52,211,153,.55)', 1);
-    line(hist.h, (v) => bottom - ((v - hrLo) / (hrHi - hrLo)) * (bottom - top), '#fb7185', 1.5);
-    line(hist.p, yW, '#facc15', 1.6);
+    const times = hist.t || (hist.p || []).map((_, i) => Math.min(hist.seconds || total, (i + .5) * hist.bin));
+    const recentStart = recent?.t?.length ? recent.t[0] : Infinity;
+    const streams = [
+      ['c', (v) => bottom - (v / 150) * (bottom - top), '#34d399', 1.5],
+      ['h', (v) => bottom - ((v - hrLo) / (hrHi - hrLo)) * (bottom - top), '#fb7185', 1.8],
+      ['p', yW, '#facc15', 2]
+    ];
+    for (const [key, yOf, color, width] of streams) {
+      line(hist[key] || [], times, null, hist.bin * 2, yOf, color, width, recentStart, !recent);
+      if (recent) line(recent[key] || [], recent.t, recent.breaks, 2, yOf, color, width, Infinity, true);
+    }
     // Playhead
-    g.fillStyle = '#eef2f7'; g.fillRect(Math.round(px) - 1, 0, 2, h);
+    g.fillStyle = '#eef2f7'; g.fillRect(px - .75, top, 1.5, bottom - top);
+    g.restore();
+    // A miniature full workout keeps the following window in context.
+    if (zoomAmount > .001) {
+      g.save(); g.globalAlpha = zoomAmount;
+      const my = h - 20, mh = 14;
+      let t = 0;
+      g.fillStyle = '#10141b'; g.fillRect(0, my, w, mh);
+      for (const [dur, pct] of prof) {
+        const height = Math.max(2, (ftp * pct / 100 * bias) / maxW * mh);
+        g.fillStyle = 'rgba(45,127,249,.6)';
+        g.fillRect(t / total * w, my + mh - height, Math.max(1, dur / total * w - 1), height);
+        t += dur;
+      }
+      const left = view.start / total * w, width = span / total * w;
+      g.fillStyle = 'rgba(34,211,238,.16)'; g.fillRect(left, my, width, mh);
+      g.strokeStyle = '#22d3ee'; g.lineWidth = 1; g.strokeRect(left + .5, my + .5, Math.max(1, width - 1), mh - 1);
+      g.fillStyle = '#eef2f7'; g.fillRect(view.position / total * w - .75, my, 1.5, mh);
+      g.restore();
+    }
   }
 
   function renderRide(s, riding) {
@@ -1230,13 +1326,19 @@
   }
 
   // Glide the session playhead between the once-a-second updates while riding.
+  function graphProgress() {
+    const ahead = snap?.state === 'running' && snap.totalDuration ? Math.min(1.5, Math.max(0, (Date.now() - snapAt) / 1000)) / snap.totalDuration : 0;
+    return Math.min(1, (snap?.progress || 0) + ahead);
+  }
   function glide(now) {
     if (document.visibilityState === 'visible') drawPedal(now || performance.now());
+    if (snap && page === 0 && document.visibilityState === 'visible' && (snap.state === 'running' || rideViewport.isAnimating(now))) {
+      drawRideGraph(snap, graphProgress(), now);
+    }
     if (snap && snap.state === 'running' && snap.totalDuration && document.visibilityState === 'visible') {
       const ahead = Math.min(1.5, (Date.now() - snapAt) / 1000) / snap.totalDuration;
       const prog = Math.min(1, (snap.progress || 0) + ahead);
       drawZoneBar(snap, prog);
-      if (page === 0) drawRideGraph(snap, prog);
       if (page === 2) drawRibbon(snap, prog);
     }
     requestAnimationFrame(glide);

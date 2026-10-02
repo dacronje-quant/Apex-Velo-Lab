@@ -82,8 +82,31 @@
         hh.n += bin;
       }
       const tail = hh.n < rs.length;
+      const offsets = [];
+      let offset = 0;
+      for (const iv of (this.currentWorkout?.intervals || [])) { offsets.push(offset); offset += iv.duration || 0; }
+      const timeOf = (sample, fallback) => sample && Number.isInteger(sample.workoutStep) && offsets[sample.workoutStep] != null && Number.isFinite(sample.stepTime)
+        ? offsets[sample.workoutStep] + sample.stepTime
+        : sample?.time != null && Number.isFinite(Number(sample.time)) ? Number(sample.time) : fallback;
+      const count = hh.p.length + (tail ? 1 : 0);
+      const times = Array.from({ length: count }, (_, i) => {
+        const mid = Math.min(rs.length - 1, i * bin + Math.floor(bin / 2));
+        return timeOf(rs[mid], mid + 1);
+      });
+      // The following view gets real one-second readings; the full ride stays compact.
+      const recent = { t: [], p: [], h: [], c: [], breaks: [] };
+      for (let i = Math.max(0, rs.length - 480); i < rs.length; i++) {
+        const sample = rs[i] || {};
+        recent.t.push(timeOf(sample, i + 1));
+        recent.p.push(sample.src !== 'NONE' && sample.power != null && Number.isFinite(Number(sample.power)) ? Number(sample.power) : null);
+        recent.h.push(Number(sample.hr) > 0 ? Number(sample.hr) : null);
+        recent.c.push(Number(sample.cadence) > 0 ? Number(sample.cadence) : null);
+        recent.breaks.push(sample.segmentStart ? 1 : 0);
+      }
       return {
         bin,
+        t: times,
+        recent,
         p: tail ? hh.p.concat(avg(hh.n, rs.length, 'power', false)) : hh.p.slice(),
         h: tail ? hh.h.concat(avg(hh.n, rs.length, 'hr', true)) : hh.h.slice(),
         c: tail ? hh.c.concat(avg(hh.n, rs.length, 'cadence', true)) : hh.c.slice(),

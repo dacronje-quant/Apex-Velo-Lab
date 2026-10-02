@@ -320,6 +320,12 @@ main { padding: 18px clamp(12px, 2vw, 28px) 48px; max-width: 1760px; margin: 0 a
 
 /* ------------------------------------------------------------------ cockpit */
 .session-card { padding: 16px 18px; }
+.workout-overview { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 12px 24px; margin-bottom: 14px; padding-bottom: 14px; border-bottom: 1px solid var(--line); }
+.workout-overview-name { flex: 1 1 240px; min-width: 0; }
+.workout-overview-name h3 { font-size: 16px; font-weight: 700; margin-top: 4px; overflow-wrap: anywhere; }
+.workout-overview-stats { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 24px; }
+.workout-overview-stats dt { font-size: 11px; font-weight: 600; color: var(--text-2); }
+.workout-overview-stats dd { font-size: 26px; font-weight: 700; line-height: 1.3; color: var(--cyan); white-space: nowrap; }
 .timeline-header { display: flex; justify-content: space-between; align-items: flex-start; gap: 16px; margin-bottom: 12px; }
 .interval-info { min-width: 0; }
 .interval-name { font-size: 20px; font-weight: 800; letter-spacing: -0.02em; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; margin-bottom: 8px; }
@@ -1091,6 +1097,8 @@ body.focus-mode #valInstantPower { font-size: clamp(120px, 14vw, 220px); }
   .search-wrap { min-width: 0; width: 100%; }
 }
 @media (max-width: 560px) {
+  .workout-overview-stats { width: 100%; gap: 12px; }
+  .workout-overview-stats dd { font-size: 22px; white-space: normal; }
   .header-profile-group select { max-width: 90px; }
   .device-cluster .ble-badge { font-size: 0; gap: 0; width: 30px; justify-content: center; padding: 0; }
   .device-cluster .ble-badge .pulse { width: 9px; height: 9px; }
