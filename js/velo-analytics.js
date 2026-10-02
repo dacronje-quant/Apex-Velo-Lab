@@ -3,6 +3,12 @@
  * Pure math over recorded power; no DOM access.
  */
 class VeloAnalytics {
+  /** "Mar 4" labels; one cached formatter (toLocaleDateString builds a new one on every call). */
+  static dayLabel(d) {
+    if (!VeloAnalytics._fmt) VeloAnalytics._fmt = new Intl.DateTimeFormat('en-US', { month: 'short', day: 'numeric' });
+    return VeloAnalytics._fmt.format(d);
+  }
+
   constructor(ftp = 185, weightKg = 75) {
     this.ftp = ftp;
     this.weightKg = weightKg;
@@ -135,7 +141,7 @@ class VeloAnalytics {
       atl += (dayTss + (inAtl ? dayStrength : 0) - atl) * kAtl;
       all.push({
         dateKey: k,
-        label: curr.toLocaleDateString('en-US', { month: 'short', day: 'numeric' }),
+        label: VeloAnalytics.dayLabel(curr),
         ctl: parseFloat(ctl.toFixed(1)),
         atl: parseFloat(atl.toFixed(1)),
         tsb: parseFloat((ctl - atl).toFixed(1)),

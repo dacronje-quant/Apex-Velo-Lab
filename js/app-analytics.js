@@ -53,6 +53,13 @@
     }
   };
 
+  const DAY = 86400000;
+  /** Labelled durations on the power duration curve's log axis. */
+  const PDC_TICKS = [1, 5, 15, 30, 60, 120, 300, 600, 1200, 3600, 7200, 14400];
+  const PDC_TICKS_NARROW = [1, 10, 60, 300, 1200, 3600, 14400];
+  /** Durations the CP model curve is drawn at (log-spaced, 1 s to 1 h). */
+  const PDC_MODEL_X = [...new Set(Array.from({ length: 61 }, (_, i) => Math.round(Math.pow(3600, i / 60))))];
+
   VeloApp.CHART = { VIZ, INK, axis };
 
   Object.assign(VeloApp.prototype, {
@@ -110,7 +117,51 @@
       };
       this.on(document.getElementById('progWeekRides'), 'click', delegateRide);
       this.on(document.getElementById('progRecords'), 'click', delegateRide);
+      this.on(document.getElementById('mmpScrubReadout'), 'click', delegateRide);
+      this.on(document.getElementById('cpModelBody'), 'click', delegateRide);
+      // Power duration curve: watts or W/kg (remembered in this browser).
+      try { this.pdcUnit = localStorage.getItem('apex_pdc_unit') === 'wkg' ? 'wkg' : 'w'; } catch (e) { this.pdcUnit = 'w'; }
+      const unitPills = document.querySelectorAll('#pdcUnitPills .pdc-unit');
+      const syncUnits = () => unitPills.forEach(x => { const on = x.dataset.unit === this.pdcUnit; x.classList.toggle('active', on); x.setAttribute('aria-pressed', String(on)); });
+      syncUnits();
+      unitPills.forEach(p => this.on(p, 'click', () => {
+        this.pdcUnit = p.dataset.unit === 'wkg' ? 'wkg' : 'w';
+        try { localStorage.setItem('apex_pdc_unit', this.pdcUnit); } catch (e) { /* storage blocked */ }
+        syncUnits();
+        this.updateMmpChart();
+      }));
+      const tableWrap = document.getElementById('pdcTableWrap');
+      if (tableWrap) this.on(tableWrap, 'toggle', () => { if (tableWrap.open) document.getElementById('pdcTable').innerHTML = this.pdcTableHtml(); });
+      this.initAnalyticsNav();
       this.refreshAnalytics();
+    },
+
+    /** Section links under the page header, with the visible section highlighted. */
+    initAnalyticsNav() {
+      const nav = document.getElementById('anaSectionNav');
+      if (!nav) return;
+      const btns = [...nav.querySelectorAll('.ana-nav-btn')];
+      const setActive = (id) => btns.forEach(b => { const on = b.dataset.target === id; b.classList.toggle('active', on); if (on) b.setAttribute('aria-current', 'true'); else b.removeAttribute('aria-current'); });
+      btns.forEach(b => this.on(b, 'click', () => {
+        const el = document.getElementById(b.dataset.target);
+        if (!el) return;
+        setActive(b.dataset.target);
+        this._anaNavLock = Date.now() + 900;
+        el.scrollIntoView({ behavior: matchMedia('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth', block: 'start' });
+      }));
+      // Scroll spy: the active section is the last one whose heading has passed under the sticky nav.
+      const targets = btns.map(b => document.getElementById(b.dataset.target)).filter(Boolean);
+      let queued = false;
+      const spy = () => {
+        queued = false;
+        if (this.activeTab !== 'analytics' || Date.now() < (this._anaNavLock || 0)) return;
+        const line = nav.getBoundingClientRect().bottom + 40;
+        let current = targets[0];
+        for (const t of targets) { if (t.getBoundingClientRect().top <= line) current = t; else break; }
+        const atEnd = window.innerHeight + window.scrollY >= document.documentElement.scrollHeight - 4;
+        setActive(atEnd ? targets[targets.length - 1].id : current.id);
+      };
+      this.on(window, 'scroll', () => { if (!queued) { queued = true; requestAnimationFrame(spy); } }, { passive: true });
     },
 
     /** Sets the page-wide range: '6w' | '3m' | '6m' | '1y' | 'all'. */
@@ -123,6 +174,7 @@
       document.querySelectorAll('#anaRangePills .ana-range').forEach(x => x.classList.toggle('active', x.dataset.range === this.anaRange));
       this.recalculatePmc();
       this.renderProgression();
+      this.updateMmpChart();
       if (this.renderDashboard) this.renderDashboard();
     },
 
@@ -135,6 +187,7 @@
       this.renderProgression();
       if (this.renderDashboard) this.renderDashboard();
       this.updateHeroStats && this.updateHeroStats();
+      if (this.renderLiveWbal && !this.isPlaying) this.renderLiveWbal();
     },
 
     // ----------------------------------------------------------- telemetry --
@@ -227,18 +280,21 @@
     },
 
     // ------------------------------------------------------------------ MMP --
+    /** HealthFit archive bests at VeloMetrics.MMP_DURATIONS (from before the app), or null. */
+    archiveMmp() {
+      return (typeof DIVAN_HEALTHFIT_DATA !== 'undefined' && DIVAN_HEALTHFIT_DATA.allTimeMmp && Array.isArray(DIVAN_HEALTHFIT_DATA.allTimeMmp.watts))
+        ? DIVAN_HEALTHFIT_DATA.allTimeMmp.watts : null;
+    },
+
+    /** All-time bests at VeloMetrics.MMP_DURATIONS: archive plus every recorded ride (cached curves). */
     getAllTimeMmpBests() {
       const rides = this.cyclingRides();
       if (!rides.length) return [];
-      const durations = VeloMetrics.MMP_DURATIONS;
-      const archive = (typeof DIVAN_HEALTHFIT_DATA !== 'undefined' && DIVAN_HEALTHFIT_DATA.allTimeMmp && Array.isArray(DIVAN_HEALTHFIT_DATA.allTimeMmp.watts))
-        ? DIVAN_HEALTHFIT_DATA.allTimeMmp.watts : null;
-      const bests = durations.map((d, i) => (archive && Number(archive[i]) > 0 ? Number(archive[i]) : null));
+      const archive = this.archiveMmp();
+      const bests = VeloMetrics.MMP_DURATIONS.map((d, i) => (archive && Number(archive[i]) > 0 ? Number(archive[i]) : null));
       rides.forEach(w => {
-        if (w.samples && w.samples.length >= 5) {
-          const curve = VeloMetrics.mmpCurve(VeloMetrics.toOneHz(w.samples), durations);
-          curve.forEach((v, i) => { if (v !== null && (bests[i] === null || v > bests[i])) bests[i] = v; });
-        }
+        const curve = this.rideMmp(w);
+        if (curve) curve.forEach((v, i) => { if (v !== null && (bests[i] === null || v > bests[i])) bests[i] = v; });
       });
       return bests;
     },
@@ -248,60 +304,184 @@
       return VeloMetrics.mmpCurve(this.recordedSamples);
     },
 
+    /** Everything the power duration curve shows, on VeloPower.GRID (envelopes are memoised). */
+    pdcData(now = Date.now()) {
+      const G = VeloPower.GRID;
+      const start = this.anaRangeStart ? this.anaRangeStart(now) : now - 182 * DAY;
+      const days = this.anaRangeDays ? this.anaRangeDays() : 182;
+      const range = this.powerEnvelope(start, now);
+      const prev = days ? this.powerEnvelope(start - (now - start), start) : null;
+      const all = this.powerEnvelope(-Infinity, Infinity);
+      // All-time includes the HealthFit archive bests (from before the app) at its 9 durations.
+      const allTime = { watts: all.watts.slice(), ids: all.ids.slice(), times: all.times.slice(), archive: new Array(G.length).fill(false) };
+      const arch = this.archiveMmp();
+      if (arch) {
+        VeloMetrics.MMP_DURATIONS.forEach((d, i) => {
+          const g = VeloPower.gridIndex(d), v = Number(arch[i]);
+          if (v > 0 && (allTime.watts[g] === null || v > allTime.watts[g])) { allTime.watts[g] = v; allTime.ids[g] = null; allTime.times[g] = null; allTime.archive[g] = true; }
+        });
+      }
+      const rec = this.recordedSamples || [];
+      let live = null;
+      if (rec.length >= 5) {
+        if (!this._pdcLive || this._pdcLive.n !== rec.length || this._pdcLive.first !== rec[0]) this._pdcLive = { n: rec.length, first: rec[0], curve: VeloPower.mmp(VeloPower.prepare(rec)) };
+        live = this._pdcLive.curve;
+      }
+      return { start, now, days, range, prev, allTime, live, model: this.powerModelAt(now) };
+    },
+
     initMmpChart() {
       const ctx = document.getElementById('mmpChartCanvas')?.getContext('2d');
       if (!ctx) return;
+      const self = this;
+      // Crosshair at the inspected duration, with a ringed marker on every curve that has a value there.
+      const crosshair = {
+        id: 'pdcCrosshair',
+        afterDatasetsDraw(chart) {
+          const sec = self._pdcSel, area = chart.chartArea;
+          if (!sec || !area) return;
+          const x = chart.scales.x.getPixelForValue(sec);
+          if (!(x >= area.left - 1 && x <= area.right + 1)) return;
+          const c = chart.ctx;
+          c.save();
+          c.strokeStyle = 'rgba(230, 237, 247, 0.32)'; c.lineWidth = 1;
+          c.beginPath(); c.moveTo(x, area.top); c.lineTo(x, area.bottom); c.stroke();
+          chart.data.datasets.forEach((ds, i) => {
+            if (!chart.isDatasetVisible(i) || ds.pdcRole === 'model') return;
+            const pt = ds.data.find(q => q.x === sec);
+            if (!pt) return;
+            c.beginPath(); c.arc(x, chart.scales.y.getPixelForValue(pt.y), 4.5, 0, Math.PI * 2);
+            c.fillStyle = ds.borderColor; c.fill(); c.lineWidth = 2; c.strokeStyle = '#0b1220'; c.stroke();
+          });
+          c.restore();
+        }
+      };
+      const rangeFill = (c) => {
+        const area = c.chart.chartArea;
+        if (!area) return 'rgba(8,145,178,0.12)';
+        const g = c.chart.ctx.createLinearGradient(0, area.top, 0, area.bottom);
+        g.addColorStop(0, 'rgba(8,145,178,0.30)'); g.addColorStop(1, 'rgba(8,145,178,0.02)');
+        return g;
+      };
       this.mmpChart = new Chart(ctx, {
         type: 'line',
-        data: {
-          labels: VeloMetrics.MMP_LABELS.slice(),
-          datasets: [
-            { label: 'All-time PR', data: this.getAllTimeMmpBests(), borderColor: VIZ.violet, pointBackgroundColor: VIZ.violet, pointBorderColor: '#0b1220', pointBorderWidth: 2, pointRadius: 4, tension: 0.3, spanGaps: true },
-            { label: 'This session', data: this.getCurrentRideMmp(), borderColor: VIZ.cyan, backgroundColor: 'rgba(8,145,178,0.14)', fill: true, pointBackgroundColor: VIZ.cyan, pointBorderColor: '#0b1220', pointBorderWidth: 2, pointRadius: 4, tension: 0.3, spanGaps: true }
-          ]
-        },
+        data: { datasets: [
+          { label: 'This period', pdcRole: 'range', data: [], borderColor: VIZ.cyan, backgroundColor: rangeFill, fill: 'start', borderWidth: 3.2, tension: 0.25, order: 2 },
+          { label: 'All-time best', pdcRole: 'all', data: [], borderColor: VIZ.violet, borderWidth: 1.6, tension: 0.25, order: 1 },
+          { label: 'Previous period', pdcRole: 'prev', data: [], borderColor: VIZ.grey, borderWidth: 1.5, borderDash: [4, 4], tension: 0.25, order: 3 },
+          { label: 'CP model', pdcRole: 'model', data: [], borderColor: VIZ.amber, borderWidth: 1.5, borderDash: [7, 4], tension: 0, order: 4 },
+          { label: 'This session', pdcRole: 'live', data: [], borderColor: VIZ.rose, borderWidth: 2, tension: 0.25, order: 0 }
+        ] },
         options: {
-          responsive: true, maintainAspectRatio: false, animation: { duration: 300 },
-          interaction: { mode: 'index', intersect: false },
-          onHover: (evt, els) => {
-            if (els && els.length) {
-              const slider = document.getElementById('mmpScrubSlider');
-              if (slider && Number(slider.value) !== els[0].index) { slider.value = els[0].index; this.renderMmpScrub(els[0].index); }
-            }
+          responsive: true, maintainAspectRatio: false, animation: { duration: 250 }, normalized: true,
+          events: ['mousemove', 'click', 'touchstart', 'touchmove'],
+          onHover: (evt, els, chart) => this.pdcPointer(evt, chart),
+          onClick: (evt, els, chart) => this.pdcPointer(evt, chart),
+          scales: {
+            x: axis({
+              type: 'logarithmic', min: 1, max: 3600,
+              afterBuildTicks: (ax) => { ax.ticks = (ax.width < 520 ? PDC_TICKS_NARROW : PDC_TICKS).filter(v => v >= ax.min && v <= ax.max).map(v => ({ value: v })); },
+              ticks: { color: INK.muted, autoSkip: false, maxRotation: 0, padding: 6, callback: (v) => VeloPower.durLabel(v) }
+            }),
+            y: axis({ grace: '5%', title: { display: true, text: 'W', color: INK.muted } })
           },
-          scales: { x: axis({ ticks: { color: INK.muted } }), y: axis({ title: { display: true, text: 'W', color: INK.muted } }) },
-          plugins: { tooltip: { callbacks: { label: (c) => ` ${c.dataset.label}: ${c.parsed.y === null ? '--' : c.parsed.y + ' W'}` } } }
-        }
+          plugins: { tooltip: { enabled: false } }
+        },
+        plugins: [crosshair]
       });
-      this.renderMmpScrub(7);
+      this.updateMmpChart();
+    },
+
+    /** Pointer over the curve: inspect the nearest grid duration (log distance). */
+    pdcPointer(evt, chart) {
+      if (!evt || !chart || !chart.chartArea || evt.x < chart.chartArea.left || evt.x > chart.chartArea.right) return;
+      const sec = chart.scales.x.getValueForPixel(evt.x);
+      if (!(sec > 0)) return;
+      const G = VeloPower.GRID;
+      let best = 0;
+      G.forEach((t, i) => { if (Math.abs(Math.log(t / sec)) < Math.abs(Math.log(G[best] / sec))) best = i; });
+      const slider = document.getElementById('mmpScrubSlider');
+      if (slider && Number(slider.value) !== best) { slider.value = best; this.renderMmpScrub(best); }
     },
 
     updateMmpChart() {
       if (!this.mmpChart) return;
-      this.mmpChart.data.datasets[0].data = this.getAllTimeMmpBests();
-      this.mmpChart.data.datasets[1].data = this.getCurrentRideMmp();
+      const d = this.pdcData();
+      this._pdc = d;
+      const G = VeloPower.GRID;
+      const kg = this.pdcUnit === 'wkg' ? Number(this.activeProfile.weightKg) || 0 : 0;
+      const conv = (v) => (kg > 0 ? Math.round((v / kg) * 100) / 100 : v);
+      const pts = (arr) => (arr ? G.map((t, i) => (arr[i] > 0 ? { x: t, y: conv(arr[i]) } : null)).filter(Boolean) : []);
+      const ds = this.mmpChart.data.datasets;
+      ds[0].data = pts(d.range.watts);
+      ds[1].data = pts(d.allTime.watts);
+      ds[2].data = pts(d.prev && d.prev.watts);
+      ds[3].data = d.model && d.model.ok ? PDC_MODEL_X.map(t => ({ x: t, y: conv(Math.round(VeloPower.model(t, d.model))) })) : [];
+      ds[4].data = pts(d.live);
+      const longest = (arr) => { let L = 0; (arr || []).forEach((v, i) => { if (v > 0) L = G[i]; }); return L; };
+      this.mmpChart.options.scales.x.max = Math.max(600, longest(d.range.watts), longest(d.allTime.watts), longest(d.live));
+      this.mmpChart.options.scales.y.title.text = kg ? 'W/kg' : 'W';
       this.mmpChart.update();
+      const label = { 42: 'Last 6 weeks', 91: 'Last 3 months', 182: 'Last 6 months', 365: 'Last year' }[d.days] || (d.days ? `Last ${d.days} days` : 'All rides');
+      this.setText('pdcRangeLegend', label);
+      const prevWrap = document.getElementById('pdcPrevLegendWrap');
+      if (prevWrap) prevWrap.hidden = !ds[2].data.length;
+      const liveWrap = document.getElementById('pdcLiveLegendWrap');
+      if (liveWrap) liveWrap.hidden = !ds[4].data.length;
       const slider = document.getElementById('mmpScrubSlider');
-      this.renderMmpScrub(slider ? parseInt(slider.value, 10) : 7);
+      if (slider) slider.max = String(G.length - 1);
+      this.renderMmpScrub(slider ? parseInt(slider.value, 10) : VeloPower.gridIndex(1200));
+      const tableWrap = document.getElementById('pdcTableWrap');
+      if (tableWrap && tableWrap.open) document.getElementById('pdcTable').innerHTML = this.pdcTableHtml();
+      if (this.renderCpModelCard) this.renderCpModelCard(d);
     },
 
-    /** MMP scrub readout: PR vs this session at one duration, with % of PR and W/kg. */
+    /** Readout for one duration: this period, all-time, previous period, the model and this session. */
     renderMmpScrub(idx) {
       const el = document.getElementById('mmpScrubReadout');
       if (!el || !this.mmpChart) return;
-      const i = Math.max(0, Math.min(8, Number.isFinite(idx) ? idx : 7));
-      const pr = this.mmpChart.data.datasets[0].data[i];
-      const cur = this.mmpChart.data.datasets[1].data[i];
-      const kg = this.activeProfile.weightKg;
-      const pct = (pr && cur) ? Math.round((cur / pr) * 100) : null;
-      const radius = VeloMetrics.MMP_DURATIONS.map((_, j) => (j === i ? 7 : 4));
-      this.mmpChart.data.datasets.forEach(ds => { ds.pointRadius = radius; });
-      this.mmpChart.update('none');
-      el.innerHTML = `
-        <div class="scrub-cell"><span>Duration</span><b class="num">${VeloMetrics.MMP_LABELS[i]}</b></div>
-        <div class="scrub-cell"><span>All-time PR</span><b class="num">${pr ? pr + ' W' : '--'}</b><small class="num">${pr ? (pr / kg).toFixed(2) + ' W/kg' : ''}</small></div>
-        <div class="scrub-cell"><span>This session</span><b class="num">${cur ? cur + ' W' : '--'}</b><small class="num">${cur ? (cur / kg).toFixed(2) + ' W/kg' : 'ride longer than ' + VeloMetrics.MMP_LABELS[i]}</small></div>
-        <div class="scrub-cell"><span>vs PR</span><b class="num ${pct !== null && pct >= 100 ? 'pos' : ''}">${pct !== null ? pct + '%' : '--'}</b>${pct !== null && pct >= 100 ? '<small>New PR</small>' : ''}</div>`;
+      const G = VeloPower.GRID;
+      const i = Math.max(0, Math.min(G.length - 1, Number.isFinite(idx) ? idx : VeloPower.gridIndex(1200)));
+      const sec = G[i];
+      this._pdcSel = sec;
+      const d = this._pdc || this.pdcData();
+      const kg = Number(this.activeProfile.weightKg) || 0;
+      const w = (v) => (v > 0 ? `${v} W` : '--');
+      const wkg = (v) => (v > 0 && kg > 0 ? `${(v / kg).toFixed(2)} W/kg` : '');
+      const when = (t) => (t ? new Date(t).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: '2-digit' }) : '');
+      const ride = (id, t) => (id ? `<button type="button" class="link-btn" data-ride="${VeloApp.esc(id)}" title="Open this ride">${when(t)}</button>` : '');
+      const r = d.range.watts[i], a = d.allTime.watts[i], p = d.prev ? d.prev.watts[i] : null, live = d.live ? d.live[i] : null;
+      const m = d.model && d.model.ok && sec <= 3600 ? Math.round(VeloPower.model(sec, d.model)) : null;
+      const delta = r > 0 && p > 0 ? r - p : null;
+      const pctOf = (v, base) => (v > 0 && base > 0 ? Math.round((v / base) * 100) : null);
+      const livePct = pctOf(live, a);
+      const cells = [
+        `<div class="scrub-cell"><span>Duration</span><b class="num">${VeloPower.durLabel(sec)}</b><small>${sec >= 60 ? `${sec} s` : 'sprint range'}</small></div>`,
+        `<div class="scrub-cell" data-series="range"><span>This period</span><b class="num">${w(r)}</b><small class="num">${wkg(r)} ${ride(d.range.ids[i], d.range.times[i])}</small></div>`,
+        `<div class="scrub-cell" data-series="all"><span>All-time best</span><b class="num">${w(a)}</b><small class="num">${wkg(a)} ${d.allTime.archive[i] ? 'HealthFit archive' : ride(d.allTime.ids[i], d.allTime.times[i])}</small></div>`,
+        d.prev ? `<div class="scrub-cell" data-series="prev"><span>vs previous period</span><b class="num ${delta > 0 ? 'pos' : ''}">${delta === null ? '--' : `${delta > 0 ? '+' : ''}${delta} W`}</b><small class="num">${delta === null ? (p > 0 ? 'nothing this period' : 'no rides before') : `${p} W before (${delta >= 0 ? '+' : ''}${Math.round((delta / p) * 100)}%)`}</small></div>` : '',
+        `<div class="scrub-cell" data-series="model"><span>CP model</span><b class="num">${m ? `${m} W` : '--'}</b><small class="num">${m && r > 0 ? `this period ${pctOf(r, m)}% of model` : d.model && d.model.ok ? 'model covers 1 s - 1 h' : 'no model yet'}</small></div>`,
+        live > 0 || (this.recordedSamples || []).length >= 5 ? `<div class="scrub-cell" data-series="live"><span>This session</span><b class="num ${livePct !== null && livePct >= 100 ? 'pos' : ''}">${w(live)}</b><small class="num">${live > 0 ? (livePct !== null ? `${livePct}% of PR${livePct >= 100 ? ' - New PR' : ''}` : wkg(live)) : `ride longer than ${VeloPower.durLabel(sec)}`}</small></div>` : ''
+      ];
+      el.innerHTML = cells.join('');
+      if (!d.range.watts.some(v => v > 0) && !d.allTime.watts.some(v => v > 0)) {
+        el.insertAdjacentHTML('beforeend', '<div class="scrub-empty">No rides with second-by-second power yet. Ride with your power meter, or import FIT / TCX files with power, and your curve appears here.</div>');
+      }
+      this.mmpChart.draw();
+    },
+
+    /** Table view of the curve (accessible twin of the chart). */
+    pdcTableHtml() {
+      const d = this._pdc;
+      if (!d) return '';
+      const G = VeloPower.GRID;
+      const m = d.model && d.model.ok ? d.model : null;
+      const rows = G.map((t, i) => {
+        const r = d.range.watts[i], a = d.allTime.watts[i], p = d.prev ? d.prev.watts[i] : null;
+        if (!(r > 0) && !(a > 0)) return '';
+        return `<tr><td>${VeloPower.durLabel(t)}</td><td class="num">${r > 0 ? r : '--'}</td><td class="num">${a > 0 ? a : '--'}</td>${d.prev ? `<td class="num">${p > 0 ? p : '--'}</td>` : ''}<td class="num">${m && t <= 3600 ? Math.round(VeloPower.model(t, m)) : '--'}</td></tr>`;
+      }).join('');
+      return `<table class="data-table pdc-table"><thead><tr><th>Duration</th><th>This period (W)</th><th>All-time (W)</th>${d.prev ? '<th>Previous (W)</th>' : ''}<th>Model (W)</th></tr></thead><tbody>${rows}</tbody></table>`;
     },
 
     // ------------------------------------------------------ monthly peak NP --
@@ -451,6 +631,7 @@
         case 'hours': return `${Number(v).toFixed(1)} h`;
         case 'kj': return `${Math.round(v).toLocaleString()} kJ`;
         case 'rides': return `${v}`;
+        case 'zones': return `${Number(v).toFixed(1)} h`;
         default: return `${Math.round(v)} TSS`;
       }
     },
@@ -460,10 +641,37 @@
       const weeks = VeloProgress.weekly(rides, this.progWeeks);
       this._progWeeks = weeks;
       const metric = this.progMetric || 'tss';
-      const titles = { tss: 'Weekly training load (TSS)', hours: 'Weekly riding time', kj: 'Weekly mechanical work', rides: 'Rides per week' };
+      const titles = { tss: 'Weekly training load (TSS)', hours: 'Weekly riding time', kj: 'Weekly mechanical work', rides: 'Rides per week', zones: 'Weekly time in power zones' };
       this.setText('progWeeklyTitle', titles[metric]);
+      this.setText('progWeeklyHint', metric === 'zones' ? 'Hours per zone from 1 Hz power - click a week to list its rides' : 'Click a week to list its rides');
 
-      if (this.progWeeklyChart) {
+      const chart = this.progWeeklyChart;
+      if (chart && metric === 'zones') {
+        // Stacked hours per Coggan zone (rides with second-by-second power only).
+        if (!this._progBaseDatasets) this._progBaseDatasets = chart.data.datasets;
+        const byId = new Map(rides.map(r => [r.id, r]));
+        const zoneHours = weeks.map(w => {
+          const z = [0, 0, 0, 0, 0, 0, 0];
+          w.rideIds.forEach(id => { const zs = byId.has(id) ? this.rideZoneSeconds(byId.get(id)) : null; if (zs) zs.forEach((v, i) => { z[i] += v / 3600; }); });
+          return z;
+        });
+        chart.data.labels = weeks.map(w => w.label);
+        chart.data.datasets = VeloMetrics.ZONES.map((Z, i) => ({
+          label: `${Z.short} ${Z.name}`, data: zoneHours.map(z => Math.round(z[i] * 100) / 100), backgroundColor: Z.color,
+          borderColor: '#0d1424', borderWidth: { top: 2, right: 0, bottom: 0, left: 0 }, borderSkipped: false, maxBarThickness: 28, stack: 'zones'
+        }));
+        chart.options.scales.x.stacked = true; chart.options.scales.y.stacked = true;
+        chart.options.plugins.legend = { display: true, position: 'bottom', labels: { color: INK.secondary, boxWidth: 10, boxHeight: 10, padding: 10 } };
+        chart.options.plugins.tooltip.filter = (it) => it.parsed.y > 0;
+        chart.update();
+      } else if (chart) {
+        if (this._progBaseDatasets) { chart.data.datasets = this._progBaseDatasets; this._progBaseDatasets = null; }
+        chart.options.scales.x.stacked = false; chart.options.scales.y.stacked = false;
+        chart.options.plugins.legend = { display: false };
+        chart.options.plugins.tooltip.filter = undefined;
+      }
+
+      if (chart && metric !== 'zones') {
         const vals = weeks.map(w => w[metric]);
         const avg = vals.map((_, i) => {
           const slice = vals.slice(Math.max(0, i - 3), i + 1);
@@ -490,14 +698,14 @@
         };
         const c = k.cur, p = k.prev || {};
         const tiles = [
-          ['Rides', c.rides, delta(c.rides, p.rides, v => v)],
-          ['Hours', c.hours.toFixed(1), delta(c.hours, p.hours, v => v.toFixed(1))],
-          ['TSS', c.tss.toLocaleString(), delta(c.tss, p.tss, v => Math.round(v))],
-          ['Work', `${Math.round(c.kj / 1000 * 10) / 10} MJ`, delta(c.kj / 1000, (p.kj || 0) / 1000, v => v.toFixed(1))],
-          ['Avg NP', c.avgNp ? `${c.avgNp} W` : '--', c.avgNp && p.avgNp ? delta(c.avgNp, p.avgNp, v => Math.round(v)) : ''],
-          ['Longest', c.longestSec ? this.fmtTime(c.longestSec) : '--', '']
+          ['Rides', c.rides, delta(c.rides, p.rides, v => v), 'gap'],
+          ['Hours', c.hours.toFixed(1), delta(c.hours, p.hours, v => v.toFixed(1)), 'gap'],
+          ['TSS', c.tss.toLocaleString(), delta(c.tss, p.tss, v => Math.round(v)), 'tss'],
+          ['Work', `${Math.round(c.kj / 1000 * 10) / 10} MJ`, delta(c.kj / 1000, (p.kj || 0) / 1000, v => v.toFixed(1)), 'kj'],
+          ['Avg NP', c.avgNp ? `${c.avgNp} W` : '--', c.avgNp && p.avgNp ? delta(c.avgNp, p.avgNp, v => Math.round(v)) : '', 'np'],
+          ['Longest', c.longestSec ? this.fmtTime(c.longestSec) : '--', '', 'gap']
         ];
-        kpiEl.innerHTML = tiles.map(([l, v, d]) => `<div class="kpi"><span class="kpi-lbl">${l}</span><span class="kpi-val num">${v}</span>${d || '<span class="delta flat">&nbsp;</span>'}</div>`).join('') +
+        kpiEl.innerHTML = tiles.map(([l, v, d, term]) => `<div class="kpi"${VeloGlossary.tip(term) ? ` title="${VeloApp.esc(VeloGlossary.tip(term))}"` : ''}><span class="kpi-lbl">${l}${VeloGlossary.html(term)}</span><span class="kpi-val num">${v}</span>${d || '<span class="delta flat">&nbsp;</span>'}</div>`).join('') +
           `<div class="kpi-caption">${k.prev ? 'vs previous ' + (this.progWeeks >= 52 ? '12 months' : this.progWeeks + ' weeks') : 'all recorded history'}</div>`;
       }
 

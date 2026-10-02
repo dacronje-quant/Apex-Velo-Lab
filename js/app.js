@@ -115,6 +115,8 @@ class VeloApp {
     this._disposers = [];
 
     this.initDoms();
+    // Plain-English subtext under every acronym / metric label (js/velo-glossary.js).
+    if (typeof VeloGlossary !== 'undefined') VeloGlossary.apply(document);
     if (this.initDevicesUi) this.initDevicesUi();
     this.initCharts();
     this.initKeyboardShortcuts();
@@ -306,6 +308,7 @@ class VeloApp {
     this.$('profInputWeight').value = p.weightKg;
     this.$('profInputMaxHr').value = p.maxHr;
     if (this.$('profInputLthr')) this.$('profInputLthr').value = p.lthr || '';
+    if (this.$('profInputCrank')) this.$('profInputCrank').value = p.crankMm || '';
     this.$('profInputName').dataset.editId = id;
     this.setText('profileFormHeaderTitle', `EDIT PROFILE: ${p.name}`);
     const cancelBtn = this.$('btnCancelEditProfile');
@@ -319,6 +322,7 @@ class VeloApp {
     this.$('profInputWeight').value = this.activeProfile.weightKg;
     this.$('profInputMaxHr').value = this.activeProfile.maxHr;
     if (this.$('profInputLthr')) this.$('profInputLthr').value = this.activeProfile.lthr || '';
+    if (this.$('profInputCrank')) this.$('profInputCrank').value = this.activeProfile.crankMm || '';
     delete this.$('profInputName').dataset.editId;
     this.setText('profileFormHeaderTitle', 'CREATE NEW RIDER PROFILE');
     const cancelBtn = this.$('btnCancelEditProfile');
@@ -346,17 +350,21 @@ class VeloApp {
     // Threshold HR is optional: blank = estimated as 90% of max HR where it is needed.
     const lthrIn = parseInt((this.$('profInputLthr') || {}).value, 10);
     const lthr = lthrIn >= 100 && lthrIn <= 220 && lthrIn < maxHr ? lthrIn : null;
+    // Crank length is optional (quadrant analysis); blank = 172.5 mm.
+    const crankIn = parseFloat((this.$('profInputCrank') || {}).value);
+    const crankMm = crankIn >= 150 && crankIn <= 200 ? Math.round(crankIn * 2) / 2 : null;
     const editId = this.$('profInputName').dataset.editId;
     if (editId) {
       const p = this.profiles.find(x => x.id === editId);
       if (p) {
         if (p === this.activeProfile && Number(p.ftp) !== ftp && this.logFtpChange) this.logFtpChange(p.ftp, ftp, 'manual');
         Object.assign(p, { name, ftp, weightKg, maxHr }); if (lthr) p.lthr = lthr; else delete p.lthr;
+        if (crankMm) p.crankMm = crankMm; else delete p.crankMm;
       }
       this.showToast(`Updated "${name}" (${ftp} W FTP)`, 'success');
     } else {
       const newId = 'prof_' + Date.now();
-      this.profiles.push({ id: newId, name, ftp, weightKg, maxHr, ...(lthr ? { lthr } : {}) });
+      this.profiles.push({ id: newId, name, ftp, weightKg, maxHr, ...(lthr ? { lthr } : {}), ...(crankMm ? { crankMm } : {}) });
       this.activeProfileId = newId;
       this.showToast(`Created and activated "${name}" (${ftp} W FTP)`, 'success');
     }
@@ -792,6 +800,8 @@ class VeloApp {
     this._nextSampleStartsSegment = false;
     this._deviceSourceChanges = [];
     this.powerBuffer = [];
+    this.liveWbal = undefined; // set from the CP model on the first ride second
+    if (this.renderLiveWbal) this.renderLiveWbal();
     this.totalDistanceMeters = 0;
     this.totalDistanceKm = 0;
     this.currentSpeed = 0;
@@ -988,6 +998,11 @@ class VeloApp {
     else if (this.intervalSecondsRemaining === 0) this.audio.intervalGo();
 
     if (this.pip && this.pip.active) this.pip.renderMiniHud();
+
+    if (this.updateLiveWbal) {
+      if (this.liveWbal === undefined) this.resetLiveWbal();
+      this.updateLiveWbal(power, !!this._nextSampleStartsSegment && this.recordedSamples.length > 0);
+    }
 
     this.recordedSamples.push({
       time: this.totalElapsedSeconds,
@@ -2161,8 +2176,9 @@ class VeloApp {
     this.clock.destroy();
     this._disposers.forEach(fn => { try { fn(); } catch (e) { /* ignore */ } });
     this._disposers = [];
-    [this.telemetryChart, this.pmcChart, this.mmpChart, this.ftpChart, this.driftChart, this.currentScrubChart, this.progWeeklyChart, this.progScatterChart, this.efChart, this.recoveryChart, this.balanceChart]
+    [this.telemetryChart, this.pmcChart, this.mmpChart, this.ftpChart, this.driftChart, this.currentScrubChart, this.progWeeklyChart, this.progScatterChart, this.efChart, this.recoveryChart, this.balanceChart, this.cpHistoryChart]
       .forEach(c => { if (c) c.destroy(); });
+    if (this.destroyReviewCharts) this.destroyReviewCharts();
     if (this._resizeObserver) this._resizeObserver.disconnect();
   }
 
@@ -2181,9 +2197,8 @@ class VeloApp {
     else if (tabKey === 'ai-coach') { this.updateAiCoachTelemetry(); if (this.renderTrainingBlock) this.renderTrainingBlock(); }
     else if (tabKey === 'analytics') {
       requestAnimationFrame(() => {
-        this.updateMmpChart();
         this.refreshAnalytics();
-        [this.pmcChart, this.mmpChart, this.ftpChart, this.driftChart, this.progWeeklyChart, this.progScatterChart, this.efChart, this.recoveryChart, this.balanceChart].forEach(c => c && c.resize());
+        [this.pmcChart, this.mmpChart, this.ftpChart, this.driftChart, this.progWeeklyChart, this.progScatterChart, this.efChart, this.recoveryChart, this.balanceChart, this.cpHistoryChart].forEach(c => c && c.resize());
       });
     } else if (tabKey === 'cockpit') {
       requestAnimationFrame(() => {

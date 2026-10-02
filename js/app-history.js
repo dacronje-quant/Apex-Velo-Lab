@@ -420,7 +420,8 @@
           </div>
         </div>` : '';
 
-      // Time in zone from samples
+      // Power analysis (js/app-ride-analysis.js): lanes with W' balance, zones, curves, quadrants.
+      const A = hasSamples && this.rideAnalysis ? this.rideAnalysis(record) : null;
       let zonesHtml = '';
       let stepsHtml = '';
       if (hasSamples) {
@@ -439,11 +440,12 @@
               <div class="ai-sub ${hrr.slowing ? 'warn' : ''}">${hrr.slowing ? `Recovery slowed from &minus;${hrr.first} to &minus;${hrr.last} bpm - fatigue building on later repeats.` : 'bpm drop in the 60 s after each hard effort (pedalling easy in ERG, so compare repeats, not rides).'}</div>
             </div>` : '';
         zonesHtml = `
+          ${A && this.rideZonesHtml ? this.rideZonesHtml(record, A) : `
           <div class="review-block">
             <div class="sub-title"><span>Time in power zone</span><span class="hint num">FTP ${ftp} W</span></div>
             <div class="zone-bars-stacked tall">${zs.map((v, i) => `<div class="zone-seg z-seg-${i + 1}" style="width:${(v / tot) * 100}%" title="${VeloMetrics.ZONES[i].short} ${VeloMetrics.ZONES[i].name}: ${mins(v)} (${Math.round((v / tot) * 100)}%)"></div>`).join('')}</div>
             <div class="zone-legend-row">${zs.map((v, i) => `<span><i class="zdot z-seg-${i + 1}"></i>${VeloMetrics.ZONES[i].short} <strong class="num">${this.fmtTime(v)}</strong></span>`).join('')}</div>
-          </div>
+          </div>`}
           <div class="review-block ride-analysis">
             <div class="analysis-item">
               <div class="ai-lbl">Longest on target (&plusmn;5%)</div>
@@ -478,7 +480,7 @@
         }
       }
 
-      const telemetry = hasSamples ? `
+      const telemetry = A && this.rideLanesHtml ? this.rideLanesHtml(A) : hasSamples ? `
         <div class="review-block inspector-chart-box">
           <div class="sub-title"><span>Telemetry scrubber</span><span id="scrubReadout" class="hint num">Hover the chart to inspect each second</span></div>
           <div class="chart-box" style="height:230px;"><canvas id="rideScrubCanvas"></canvas></div>
@@ -505,18 +507,18 @@
         ${banner}
         ${this.rideInsightHtml ? this.rideInsightHtml(record) : ''}
         <div class="inspector-header-stats">
-          <div class="metric-cell"><span class="metric-cell-lbl">Duration</span><span class="metric-cell-val num">${this.fmtTime(record.duration)}</span>${cmp(record.duration, avgOf(r => r.duration))}</div>
-          <div class="metric-cell" data-accent="violet"><span class="metric-cell-lbl">Distance</span><span class="metric-cell-val num">${dist}</span></div>
-          <div class="metric-cell" data-accent="cyan"><span class="metric-cell-lbl">Avg Speed</span><span class="metric-cell-val num">${avgSpd}</span><span class="metric-cell-sub num">max ${maxSpd}</span></div>
-          <div class="metric-cell" data-accent="cyan"><span class="metric-cell-lbl">Avg Power</span><span class="metric-cell-val num">${avgP}</span><span class="metric-cell-sub num">max ${maxP}</span></div>
-          <div class="metric-cell" data-accent="violet"><span class="metric-cell-lbl">Norm Power</span><span class="metric-cell-val num">${npStr}</span>${cmp(npVal, avgOf(r => r.np || r.avgWatts))}</div>
-          <div class="metric-cell" data-accent="lime"><span class="metric-cell-lbl">TSS</span><span class="metric-cell-val num">${tssStr}</span>${cmp(record.tss, avgOf(r => r.tss))}</div>
-          <div class="metric-cell" data-accent="cyan"><span class="metric-cell-lbl">Intensity (IF)</span><span class="metric-cell-val num">${ifStr}</span></div>
-          <div class="metric-cell"><span class="metric-cell-lbl">Work</span><span class="metric-cell-val num">${kjStr}</span></div>
-          <div class="metric-cell" data-accent="amber"><span class="metric-cell-lbl">Calories</span><span class="metric-cell-val num">${calStr}</span></div>
-          <div class="metric-cell" data-accent="rose"><span class="metric-cell-lbl">Heart Rate (Avg/Max)</span><span class="metric-cell-val num">${hrStr}</span></div>
-          <div class="metric-cell" data-accent="amber"><span class="metric-cell-lbl">Cadence (Avg/Max)</span><span class="metric-cell-val num">${cadStr}</span></div>
-          <div class="metric-cell"><span class="metric-cell-lbl">L/R Balance</span><span class="metric-cell-val num">${balStr}</span></div>
+          <div class="metric-cell"><span class="metric-cell-lbl">Duration${VeloGlossary.html('gap')}</span><span class="metric-cell-val num">${this.fmtTime(record.duration)}</span>${cmp(record.duration, avgOf(r => r.duration))}</div>
+          <div class="metric-cell" data-accent="violet"><span class="metric-cell-lbl">Distance${VeloGlossary.html('gap')}</span><span class="metric-cell-val num">${dist}</span></div>
+          <div class="metric-cell" data-accent="cyan"><span class="metric-cell-lbl">Avg Speed${VeloGlossary.html('gap')}</span><span class="metric-cell-val num">${avgSpd}</span><span class="metric-cell-sub num">max ${maxSpd}</span></div>
+          <div class="metric-cell" data-accent="cyan"><span class="metric-cell-lbl">Avg Power${VeloGlossary.html('gap')}</span><span class="metric-cell-val num">${avgP}</span><span class="metric-cell-sub num">max ${maxP}</span></div>
+          <div class="metric-cell" data-accent="violet"><span class="metric-cell-lbl">Norm Power (NP)${VeloGlossary.html('np')}</span><span class="metric-cell-val num">${npStr}</span>${cmp(npVal, avgOf(r => r.np || r.avgWatts))}</div>
+          <div class="metric-cell" data-accent="lime"><span class="metric-cell-lbl">TSS${VeloGlossary.html('tss')}</span><span class="metric-cell-val num">${tssStr}</span>${cmp(record.tss, avgOf(r => r.tss))}</div>
+          <div class="metric-cell" data-accent="cyan"><span class="metric-cell-lbl">Intensity (IF)${VeloGlossary.html('if')}</span><span class="metric-cell-val num">${ifStr}</span></div>
+          <div class="metric-cell"><span class="metric-cell-lbl">Work${VeloGlossary.html('kj')}</span><span class="metric-cell-val num">${kjStr}</span></div>
+          <div class="metric-cell" data-accent="amber"><span class="metric-cell-lbl">Calories${VeloGlossary.html('kcal')}</span><span class="metric-cell-val num">${calStr}</span></div>
+          <div class="metric-cell" data-accent="rose"><span class="metric-cell-lbl">Heart Rate (Avg/Max)${VeloGlossary.html('gap')}</span><span class="metric-cell-val num">${hrStr}</span></div>
+          <div class="metric-cell" data-accent="amber"><span class="metric-cell-lbl">Cadence (Avg/Max)${VeloGlossary.html('cadence')}</span><span class="metric-cell-val num">${cadStr}</span></div>
+          <div class="metric-cell"><span class="metric-cell-lbl">L/R Balance${VeloGlossary.html('lr')}</span><span class="metric-cell-val num">${balStr}</span></div>
         </div>
         <div class="peak-grid">
           <div class="metric-cell" data-accent="amber"><span class="metric-cell-lbl">Peak 5s Sprint</span><span class="metric-cell-val num">${fmtPeak(p5s, 0)}</span></div>
@@ -524,8 +526,10 @@
           <div class="metric-cell" data-accent="lime"><span class="metric-cell-lbl">Peak 5m VO2Max</span><span class="metric-cell-val num">${fmtPeak(p5m, 5)}</span></div>
           <div class="metric-cell" data-accent="violet"><span class="metric-cell-lbl">Peak 20m Threshold</span><span class="metric-cell-val num">${fmtPeak(p20m, 7)}</span></div>
         </div>
+        ${A && this.rideAdvancedHtml ? this.rideAdvancedHtml(record, A) : ''}
         ${telemetry}
         ${zonesHtml}
+        ${A && this.rideChartsHtml ? this.rideChartsHtml(A) : ''}
         ${stepsHtml}
         <div class="modal-actions">
           <div class="btn-row">
@@ -584,6 +588,7 @@
         this.currentScrubChart.destroy();
         this.currentScrubChart = null;
       }
+      if (this.destroyReviewCharts) this.destroyReviewCharts();
     },
 
     initRideScrubChart(record) {
@@ -591,6 +596,7 @@
       const samples = record.samples || [];
       if (!canvas || samples.length < 5) return;
       this.destroyScrubChart();
+      if (this.initRideReviewCharts && VeloMetrics.isCycling(record)) { this.initRideReviewCharts(record); return; }
       // Down-sample very long rides for rendering (keeps every point for rides < 2 h)
       const step = Math.max(1, Math.ceil(samples.length / 7200));
       const pts = samples.filter((_, i) => i % step === 0);

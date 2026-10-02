@@ -260,48 +260,48 @@
               <span class="hero-stat-badge"><small>3s</small><strong class="num" id="val3sPower">0W</strong></span>
               <span class="hero-stat-badge"><small>30s</small><strong class="num" id="val30sPower">0W</strong></span>
               <span class="hero-stat-badge hero-stat-target"><small>Target</small><strong class="num" id="valTargetPower">93W</strong></span>
-              <span class="hero-stat-badge"><small>W/kg</small><strong class="num" id="valWkg">0.00</strong></span>
+              <span class="hero-stat-badge" data-term-tip="wkg"><small>W/kg</small><strong class="num" id="valWkg">0.00</strong></span>
             </div>
           </div>
 
           <div class="metrics-row">
             <div class="metric-cell" data-accent="cyan">
-              <div class="metric-cell-top"><span class="metric-cell-lbl">Speed</span><span class="metric-src" id="speedSourceTag">SIM</span></div>
+              <div class="metric-cell-top"><span class="metric-cell-lbl" data-term="gap">Speed</span><span class="metric-src" id="speedSourceTag">SIM</span></div>
               <span class="metric-cell-val num" id="valSpeed">0.0</span>
               <span class="metric-cell-sub">km/h</span>
             </div>
             <div class="metric-cell" data-accent="violet">
-              <div class="metric-cell-top"><span class="metric-cell-lbl">Distance</span><span class="metric-src" id="distSourceTag">SIM</span></div>
+              <div class="metric-cell-top"><span class="metric-cell-lbl" data-term="gap">Distance</span><span class="metric-src" id="distSourceTag">SIM</span></div>
               <span class="metric-cell-val num" id="valDistance">0.00</span>
               <span class="metric-cell-sub">km</span>
             </div>
             <div class="metric-cell" data-accent="amber" id="metricCellCadence">
-              <div class="metric-cell-top"><span class="metric-cell-lbl">Cadence</span></div>
+              <div class="metric-cell-top"><span class="metric-cell-lbl" data-term="cadence">Cadence</span></div>
               <span class="metric-cell-val num" id="valCadence">0</span>
               <span class="metric-cell-sub num" id="valCadenceSub">TGT: 90 RPM</span>
             </div>
             <div class="metric-cell" data-accent="rose">
-              <div class="metric-cell-top"><span class="metric-cell-lbl">Heart rate</span></div>
+              <div class="metric-cell-top"><span class="metric-cell-lbl" data-term="gap">Heart rate</span></div>
               <span class="metric-cell-val num" id="valHeartRate">0</span>
               <span class="metric-cell-sub" id="valHrZone">--</span>
             </div>
             <div class="metric-cell" data-accent="cyan">
-              <div class="metric-cell-top"><span class="metric-cell-lbl">Avg power</span></div>
+              <div class="metric-cell-top"><span class="metric-cell-lbl" data-term="gap">Avg power</span></div>
               <span class="metric-cell-val num" id="valAvgPower">0</span>
               <span class="metric-cell-sub">Watts</span>
             </div>
             <div class="metric-cell" data-accent="violet">
-              <div class="metric-cell-top"><span class="metric-cell-lbl">Norm power</span></div>
+              <div class="metric-cell-top"><span class="metric-cell-lbl" data-term="np">Norm power (NP)</span></div>
               <span class="metric-cell-val num" id="valNormPower">0</span>
               <span class="metric-cell-sub">Watts</span>
             </div>
             <div class="metric-cell" data-accent="cyan">
-              <div class="metric-cell-top"><span class="metric-cell-lbl">Intensity IF</span></div>
+              <div class="metric-cell-top"><span class="metric-cell-lbl" data-term="if">Intensity (IF)</span></div>
               <span class="metric-cell-val num" id="valIntensityFactor">0.00</span>
-              <span class="metric-cell-sub">NP / FTP</span>
+              <span class="metric-cell-sub">1.00 = your FTP</span>
             </div>
             <div class="metric-cell" data-accent="lime">
-              <div class="metric-cell-top"><span class="metric-cell-lbl">TSS</span></div>
+              <div class="metric-cell-top"><span class="metric-cell-lbl" data-term="tss">TSS</span></div>
               <span class="metric-cell-val num" id="valTss">0</span>
               <span class="metric-cell-sub num" id="valTotalKj">0 kJ</span>
             </div>
@@ -317,6 +317,15 @@
         </div>
 
         <div class="col-span-4 stack">
+          <div class="card wbal-card" id="wbalCard" data-state="none">
+            <div class="card-title">
+              <span data-term="wbal">W&prime; balance</span>
+              <span class="chip chip-ghost num" id="wbalCpChip">NO MODEL</span>
+            </div>
+            <div class="wbal-main"><span class="wbal-value num" id="wbalValue">--</span><span class="wbal-unit">kJ</span><span class="wbal-pct num" id="wbalPct"></span></div>
+            <div class="wbal-track" aria-hidden="true"><div class="wbal-fill" id="wbalFill"></div></div>
+            <div class="wbal-foot"><span id="wbalNote">Your anaerobic reserve above critical power.</span><span class="wbal-matches">Matches <b class="num" id="wbalMatches">0</b></span></div>
+          </div>
           <div class="card polar-card">
             <div class="card-title">
               <span>Left / right balance</span>
@@ -354,7 +363,7 @@
 
           <div class="card zone-distribution-wrap">
             <div class="card-title">
-              <span>Time in zone</span>
+              <span data-term="zones">Time in zone</span>
               <span class="chip chip-ghost" id="currentZoneBadge">READY</span>
             </div>
             <div class="zone-bars-stacked">
@@ -544,8 +553,8 @@
                 <span>Today's session</span>
                 <div class="btn-row btn-row-tight">
                   <span class="chip chip-accent num" id="aiCoachWorkoutDur">-- min</span>
-                  <span class="chip chip-violet num" id="aiCoachWorkoutTss">-- TSS</span>
-                  <span class="chip chip-amber num" id="aiCoachWorkoutIf">-- IF</span>
+                  <span class="chip chip-violet num" id="aiCoachWorkoutTss" data-term-tip="tss">-- TSS</span>
+                  <span class="chip chip-amber num" id="aiCoachWorkoutIf" data-term-tip="if">-- IF</span>
                 </div>
               </div>
               <h3 id="aiCoachWorkoutTitle" class="rx-title">--</h3>
@@ -647,103 +656,161 @@
           <button type="button" class="ana-range" data-range="all">All</button>
         </div>
       </div>
+      <nav class="ana-nav" id="anaSectionNav" aria-label="Analytics sections">
+        <button type="button" class="ana-nav-btn active" data-target="ana-overview">Overview</button>
+        <button type="button" class="ana-nav-btn" data-target="ana-load">Fitness &amp; load</button>
+        <button type="button" class="ana-nav-btn" data-target="ana-power">Power &amp; CP</button>
+        <button type="button" class="ana-nav-btn" data-target="ana-intensity">Intensity</button>
+        <button type="button" class="ana-nav-btn" data-target="ana-aerobic">Aerobic engine</button>
+        <button type="button" class="ana-nav-btn" data-target="ana-balance">Pedal balance</button>
+      </nav>
+      <div class="ana-anchor" id="ana-overview"></div>
       <div class="pmc-status-row today-strip">
-        <div class="pmc-stat-pill" data-accent="lime"><span class="title">Readiness &middot; today</span><span class="val"><button type="button" class="readiness-chip" id="anaReadinessChip" data-level="none">Readiness --</button></span><span class="desc" id="anaReadinessNote">Resting HR, HRV &amp; sleep</span></div>
-        <div class="pmc-stat-pill" data-accent="amber"><span class="title">TSB &middot; Form</span><span class="val num" id="pmcValTsb">--</span><span class="desc"><span class="form-badge" id="pmcFormStatus">--</span></span></div>
-        <div class="pmc-stat-pill" data-accent="cyan"><span class="title">CTL &middot; Fitness (42d)</span><span class="val num" id="pmcValCtl">--</span><span class="desc">ATL fatigue <b class="num" id="pmcValAtl">--</b></span></div>
-        <div class="pmc-stat-pill" data-accent="violet"><span class="title">Ramp rate &middot; 7 days</span><span class="val num" id="anaRampVal">--</span><span class="desc" id="anaRampNote">CTL change per week</span></div>
-        <div class="pmc-stat-pill" data-accent="rose"><span class="title">Active FTP</span><span class="val num" id="pmcValFtp">185 W</span><span class="desc num" id="pmcValWkg">2.47 W/kg (75 kg)</span></div>
+        <div class="pmc-stat-pill" data-accent="lime"><span class="title" data-term="readiness">Readiness &middot; today</span><span class="val"><button type="button" class="readiness-chip" id="anaReadinessChip" data-level="none">Readiness --</button></span><span class="desc" id="anaReadinessNote">Resting HR, HRV &amp; sleep</span></div>
+        <div class="pmc-stat-pill" data-accent="amber"><span class="title" data-term="tsb">TSB &middot; Form</span><span class="val num" id="pmcValTsb">--</span><span class="desc"><span class="form-badge" id="pmcFormStatus">--</span></span></div>
+        <div class="pmc-stat-pill" data-accent="cyan"><span class="title" data-term="ctl">CTL &middot; Fitness</span><span class="val num" id="pmcValCtl">--</span><span class="desc" data-term-tip="atl">Recent strain (ATL) <b class="num" id="pmcValAtl">--</b></span></div>
+        <div class="pmc-stat-pill" data-accent="violet"><span class="title" data-term="ramp">Ramp rate &middot; 7 days</span><span class="val num" id="anaRampVal">--</span><span class="desc" id="anaRampNote">CTL change per week</span></div>
+        <div class="pmc-stat-pill" data-accent="rose"><span class="title" data-term="ftp">Active FTP</span><span class="val num" id="pmcValFtp">185 W</span><span class="desc num" id="pmcValWkg">2.47 W/kg (75 kg)</span></div>
       </div>
 
       <!-- PROGRESSION TILES -->
       <div class="tile-grid" id="anaTiles"></div>
 
       <!-- FITNESS & LOAD -->
-      <h3 class="ana-section">Fitness &amp; load</h3>
+      <h3 class="ana-section" id="ana-load">Fitness &amp; load</h3>
       <div class="card">
         <div class="card-title">
-          <span>Performance management chart</span>
+          <span data-term="pmc">Performance management chart</span>
           <div class="legend-inline legend-block">
-            <span><i class="lg lg-ctl"></i>CTL fitness</span><span><i class="lg lg-atl"></i>ATL fatigue</span><span><i class="lg lg-tsb"></i>TSB form</span><span><i class="lg lg-tss"></i>Daily TSS</span>
+            <span data-term-tip="ctl"><i class="lg lg-ctl"></i>Fitness (CTL)</span><span data-term-tip="atl"><i class="lg lg-atl"></i>Strain (ATL)</span><span data-term-tip="tsb"><i class="lg lg-tsb"></i>Freshness (TSB)</span><span data-term-tip="tss"><i class="lg lg-tss"></i>Daily load (TSS)</span>
           </div>
         </div>
         <div class="chart-box" style="height:300px;"><canvas id="pmcChartCanvas"></canvas></div>
       </div>
       <div class="card prog-card">
         <div class="card-title">
-          <span id="progWeeklyTitle">Weekly training load</span>
+          <span><span id="progWeeklyTitle">Weekly training load</span><span class="plain">Training done each week</span></span>
           <div class="segmented" id="progMetricPills" role="radiogroup" aria-label="Weekly metric">
-            <button type="button" class="prog-metric active" data-metric="tss">TSS</button>
+            <button type="button" class="prog-metric active" data-metric="tss" data-term-tip="tss">TSS</button>
             <button type="button" class="prog-metric" data-metric="hours">Hours</button>
-            <button type="button" class="prog-metric" data-metric="kj">kJ</button>
+            <button type="button" class="prog-metric" data-metric="kj" data-term-tip="kj">kJ</button>
             <button type="button" class="prog-metric" data-metric="rides">Rides</button>
+            <button type="button" class="prog-metric" data-metric="zones" title="Hours per power zone, from 1 Hz power">Zones</button>
           </div>
         </div>
         <div class="kpi-grid" id="progKpis"></div>
-        <div class="sub-title"><span>Consistency week by week</span><span class="hint">Click a week to list its rides</span></div>
+        <div class="sub-title"><span>Consistency week by week</span><span class="hint" id="progWeeklyHint">Click a week to list its rides</span></div>
         <div class="chart-box" style="height:230px;"><canvas id="progWeeklyChart"></canvas></div>
         <div class="week-rides" id="progWeekRides"></div>
       </div>
 
-      <!-- AEROBIC ENGINE -->
-      <h3 class="ana-section">Aerobic engine</h3>
+      <!-- POWER & CRITICAL POWER -->
+      <h3 class="ana-section" id="ana-power">Power &amp; critical power</h3>
       <div class="cockpit-grid">
-        <div class="col-span-6">
-          <div class="card">
-            <div class="card-title"><span>Efficiency factor (NP &divide; HR)</span><span class="chip chip-ghost num" id="efTrendLabel">--</span></div>
-            <div class="chart-box" style="height:220px;"><canvas id="efTrendCanvas"></canvas></div>
-            <p class="footnote">Steady aerobic rides only (Z2 to tempo, VI &le; 1.06, 20 min+). Dots = rides, line = 30-day average. Rising = more watts per heartbeat: your aerobic engine is growing.</p>
+        <div class="col-span-8">
+          <div class="card pdc-card">
+            <div class="card-title">
+              <span data-term="pdc">Power duration curve</span>
+              <div class="pdc-tools">
+                <span class="legend-inline" id="pdcLegend">
+                  <span><i class="lg lg-range"></i><span id="pdcRangeLegend">This period</span></span>
+                  <span><i class="lg lg-pr"></i>All-time best</span>
+                  <span id="pdcPrevLegendWrap"><i class="lg lg-prev"></i>Previous period</span>
+                  <span><i class="lg lg-model"></i>CP model</span>
+                  <span id="pdcLiveLegendWrap" hidden><i class="lg lg-session"></i>This session</span>
+                </span>
+                <div class="segmented segmented-sm" id="pdcUnitPills" role="radiogroup" aria-label="Power units">
+                  <button type="button" class="pdc-unit active" data-unit="w" aria-pressed="true">W</button>
+                  <button type="button" class="pdc-unit" data-unit="wkg" aria-pressed="false">W/kg</button>
+                </div>
+              </div>
+            </div>
+            <div class="chart-box" style="height:300px;"><canvas id="mmpChartCanvas" aria-label="Power duration curve: best average power for every duration from 1 second to 4 hours"></canvas></div>
+            <div class="mmp-scrub">
+              <input type="range" id="mmpScrubSlider" min="0" max="26" step="1" value="19" aria-label="Duration to inspect">
+              <div class="mmp-scrub-readout" id="mmpScrubReadout" aria-live="polite"></div>
+            </div>
+            <details class="table-view" id="pdcTableWrap"><summary>Show the curve as a table</summary><div class="table-scroll" id="pdcTable"></div></details>
           </div>
         </div>
-        <div class="col-span-6">
-          <div class="card">
-            <div class="card-title"><span>Aerobic decoupling (Pw:HR) trend</span><span class="chip chip-ghost num" id="driftTrendLabel">--</span></div>
-            <div class="chart-box" style="height:220px;"><canvas id="driftTrendCanvas"></canvas></div>
-            <p class="footnote" id="driftTrendNote">Each point is a steady ride (Zone 2, tempo, sweet spot) with heart rate: how much power per heartbeat dropped from the first to the second half. 3.5% or less = base consolidated, under 5% = coupled; a falling trend at the same power means your aerobic base is improving.</p>
+        <div class="col-span-4">
+          <div class="card cp-card" id="cpModelCard">
+            <div class="card-title"><span data-term="cpModel">Critical power model</span><span class="chip chip-ghost num" id="cpModelChip">90 days</span></div>
+            <div id="cpModelBody"></div>
           </div>
         </div>
       </div>
       <div class="card">
-        <div class="card-title"><span>Resting HR &amp; HRV</span><span class="chip chip-ghost num" id="recoveryTrendLabel">Apple Health</span></div>
-        <div class="chart-box" style="height:220px;"><canvas id="recoveryTrendCanvas"></canvas></div>
-        <p class="footnote" id="recoveryTrendNote">From your Apple Watch via Health Auto Export (Settings &rsaquo; Apple Health). Falling resting HR and rising HRV over months = adaptation. Lines are 7-day averages.</p>
-      </div>
-
-      <!-- POWER -->
-      <h3 class="ana-section">Power</h3>
-      <div class="card">
-        <div class="card-title"><span>Power profile &middot; last 90 days vs the 90 before</span><span class="hint">PR = your all-time best, set in the last 90 days</span></div>
+        <div class="card-title"><span data-term="profile">Power profile</span><span class="hint">PR = your all-time best, set in the last 90 days</span></div>
         <div class="power-profile" id="anaPowerProfile"></div>
       </div>
       <div class="cockpit-grid">
         <div class="col-span-7">
           <div class="card">
             <div class="card-title">
-              <span>Power duration curve</span>
-              <span class="legend-inline"><i class="lg lg-pr"></i>All-time PR <i class="lg lg-live"></i>This session</span>
+              <span data-term="cpHistory">Critical power &amp; W&prime; over time</span>
+              <span class="legend-inline"><span data-term-tip="cp"><i class="lg lg-range"></i>CP &middot; long-effort limit</span><span data-term-tip="ftp"><i class="lg lg-ftp"></i>FTP in use</span><span data-term-tip="wprime"><i class="lg lg-pr"></i>W&prime; &middot; burst energy</span></span>
             </div>
-            <div class="chart-box" style="height:260px;"><canvas id="mmpChartCanvas"></canvas></div>
-            <div class="mmp-scrub">
-              <input type="range" id="mmpScrubSlider" min="0" max="8" step="1" value="7" aria-label="Scrub duration">
-              <div class="mmp-scrub-readout" id="mmpScrubReadout"></div>
-            </div>
+            <div class="chart-box" style="height:280px;"><canvas id="cpHistoryCanvas" aria-label="Critical power and W prime over time"></canvas></div>
+            <p class="footnote" id="cpHistoryNote">Each point is the model fitted to the best efforts of the 90 days before it. CP rising = more sustainable power; W&prime; rising = more punch above CP.</p>
           </div>
         </div>
         <div class="col-span-5">
           <div class="card">
-            <div class="card-title"><span>FTP history &amp; monthly peak NP</span><span class="chip chip-ghost num" id="ftpDeltaLabel">--</span></div>
-            <div class="chart-box" style="height:260px;"><canvas id="ftpProgressChartCanvas"></canvas></div>
+            <div class="card-title"><span data-term="ftpHistory">FTP history &amp; monthly peak NP</span><span class="chip chip-ghost num" id="ftpDeltaLabel">--</span></div>
+            <div class="chart-box" style="height:280px;"><canvas id="ftpProgressChartCanvas"></canvas></div>
             <p class="footnote">Bars: highest Normalized Power ride per month. Amber line: the FTP your rides used (and your FTP updates). Green triangles: months where a ride tested your FTP - the FTP it proved (best 20 min x 0.95 or best 60 min), shown when it came within 5% of your FTP or beat it.</p>
           </div>
         </div>
       </div>
 
-      <!-- BALANCE -->
-      <h3 class="ana-section">Pedal balance</h3>
+      <!-- INTENSITY DISTRIBUTION -->
+      <h3 class="ana-section" id="ana-intensity">Intensity distribution</h3>
       <div class="card">
-        <div class="card-title"><span>Left / right balance per ride</span><span class="chip chip-ghost num" id="balanceTrendLabel">--</span></div>
+        <div class="card-title"><span>Where your training time went</span><span class="chip chip-ghost num" id="zoneDistLabel">--</span></div>
+        <div class="intensity-grid">
+          <div>
+            <div class="sub-title"><span data-term="zones">Time in power zones</span><span class="hint">vs the FTP of each ride</span></div>
+            <div class="zone-dist" id="anaZoneDist"></div>
+          </div>
+          <div>
+            <div class="sub-title"><span data-term="seiler">3-zone distribution</span><span class="hint">Low &lt; 75% &middot; moderate 75-105% &middot; high &gt; 105% FTP</span></div>
+            <div class="seiler" id="anaSeiler"></div>
+          </div>
+        </div>
+        <p class="footnote" id="zoneDistNote">From second-by-second power. Rides without power data are not included.</p>
+      </div>
+
+      <!-- AEROBIC ENGINE -->
+      <h3 class="ana-section" id="ana-aerobic">Aerobic engine</h3>
+      <div class="cockpit-grid">
+        <div class="col-span-6">
+          <div class="card">
+            <div class="card-title"><span data-term="ef">Efficiency factor (EF)</span><span class="chip chip-ghost num" id="efTrendLabel">--</span></div>
+            <div class="chart-box" style="height:220px;"><canvas id="efTrendCanvas"></canvas></div>
+            <p class="footnote">Steady aerobic rides only (Z2 to tempo, VI &le; 1.06, 20 min+). Dots = rides, line = 30-day average. Rising = more watts per heartbeat: your aerobic engine is growing.</p>
+          </div>
+        </div>
+        <div class="col-span-6">
+          <div class="card">
+            <div class="card-title"><span data-term="decoupling">Aerobic decoupling (Pw:HR)</span><span class="chip chip-ghost num" id="driftTrendLabel">--</span></div>
+            <div class="chart-box" style="height:220px;"><canvas id="driftTrendCanvas"></canvas></div>
+            <p class="footnote" id="driftTrendNote">Each point is a steady ride (Zone 2, tempo, sweet spot) with heart rate: how much power per heartbeat dropped from the first to the second half. 3.5% or less = base consolidated, under 5% = coupled; a falling trend at the same power means your aerobic base is improving.</p>
+          </div>
+        </div>
+      </div>
+      <div class="card">
+        <div class="card-title"><span data-term="recovery">Resting HR &amp; HRV</span><span class="chip chip-ghost num" id="recoveryTrendLabel">Apple Health</span></div>
+        <div class="chart-box" style="height:260px;"><canvas id="recoveryTrendCanvas"></canvas></div>
+        <p class="footnote" id="recoveryTrendNote">From your Apple Watch via Health Auto Export (Settings &rsaquo; Apple Health). Falling resting HR and rising HRV over months = adaptation. Lines are 7-day averages.</p>
+      </div>
+
+      <!-- BALANCE -->
+      <h3 class="ana-section" id="ana-balance">Pedal balance</h3>
+      <div class="card">
+        <div class="card-title"><span data-term="lr">Left / right balance per ride</span><span class="chip chip-ghost num" id="balanceTrendLabel">--</span></div>
         <div class="chart-box" style="height:200px;"><canvas id="balanceTrendCanvas"></canvas></div>
-        <p class="footnote">Average left-leg share per ride, measured by the pedals (50% = even). Within 48-52% is normal; a steady drift one way is worth watching.</p>
+        <p class="footnote">Average left-leg share per ride, measured by the pedals (50% = even). The shaded band is 48-52%, the usual range; the line is the 10-ride average - a steady drift one way is worth watching.</p>
       </div>
 
       <!-- EXPLORE -->
@@ -751,7 +818,7 @@
         <summary><span>Explore &middot; intensity mix, records and every ride</span><svg class="ic"><use href="#i-chevron"/></svg></summary>
         <div class="prog-grid">
           <div class="prog-side">
-            <div class="sub-title"><span>Intensity mix</span><span class="hint">hours by ride IF</span></div>
+            <div class="sub-title"><span data-term="intensityMix">Intensity mix</span><span class="hint">hours by ride IF</span></div>
             <div class="intensity-mix" id="progIntensityMix"></div>
           </div>
           <div class="prog-side">
@@ -864,11 +931,11 @@
                 <th class="sortable-th" data-sort="duration">Duration <span class="sort-icon" id="sortIcon-duration">&#8645;</span></th>
                 <th class="sortable-th" data-sort="distance">Distance <span class="sort-icon" id="sortIcon-distance">&#8645;</span></th>
                 <th class="sortable-th" data-sort="speed">Avg Speed <span class="sort-icon" id="sortIcon-speed">&#8645;</span></th>
-                <th class="sortable-th" data-sort="np">NP <span class="sort-icon" id="sortIcon-np">&#8645;</span></th>
-                <th class="sortable-th" data-sort="balance">L/R <span class="sort-icon" id="sortIcon-balance">&#8645;</span></th>
-                <th class="sortable-th" data-sort="tss">TSS <span class="sort-icon" id="sortIcon-tss">&#8645;</span></th>
-                <th class="sortable-th" data-sort="if">IF <span class="sort-icon" id="sortIcon-if">&#8645;</span></th>
-                <th class="sortable-th" data-sort="kj">Work <span class="sort-icon" id="sortIcon-kj">&#8645;</span></th>
+                <th class="sortable-th" data-sort="np" data-term-short="np">NP <span class="sort-icon" id="sortIcon-np">&#8645;</span></th>
+                <th class="sortable-th" data-sort="balance" data-term-short="lr">L/R <span class="sort-icon" id="sortIcon-balance">&#8645;</span></th>
+                <th class="sortable-th" data-sort="tss" data-term-short="tss">TSS <span class="sort-icon" id="sortIcon-tss">&#8645;</span></th>
+                <th class="sortable-th" data-sort="if" data-term-short="if">IF <span class="sort-icon" id="sortIcon-if">&#8645;</span></th>
+                <th class="sortable-th" data-sort="kj" data-term-short="kj">Work <span class="sort-icon" id="sortIcon-kj">&#8645;</span></th>
                 <th>Export</th>
               </tr>
             </thead>
@@ -897,16 +964,16 @@
             </div>
           </div>
           <div class="calendar-tss-rollup">
-            <div class="calendar-stat-group"><span class="calendar-stat-lbl" id="calRollupTssLbl">PERIOD TSS</span><span class="calendar-stat-val num" id="calWeeklyTss">0 TSS</span></div>
+            <div class="calendar-stat-group"><span class="calendar-stat-lbl" id="calRollupTssLbl">PERIOD TSS</span><span class="calendar-stat-val num" id="calWeeklyTss">0 TSS</span><span class="plain">Workout load score</span></div>
             <div class="calendar-stat-group"><span class="calendar-stat-lbl">In saddle</span><span class="calendar-stat-val num" id="calWeeklyHours">0h 00m</span></div>
             <div class="calendar-stat-group"><span class="calendar-stat-lbl">Work</span><span class="calendar-stat-val num" id="calWeeklyKj">0 kJ</span></div>
             <div class="calendar-stat-group"><span class="calendar-stat-lbl">Distance</span><span class="calendar-stat-val num" id="calPeriodDistance">0.0 km</span></div>
             <div class="calendar-stat-group"><span class="calendar-stat-lbl">Sessions</span><span class="calendar-stat-val num" id="calPeriodRides">0 Rides</span></div>
-            <div class="calendar-stat-group"><span class="calendar-stat-lbl">Avg intensity</span><span class="calendar-stat-val num" id="calPeriodAvgNp">0 W NP</span></div>
+            <div class="calendar-stat-group"><span class="calendar-stat-lbl">Avg intensity</span><span class="calendar-stat-val num" id="calPeriodAvgNp">0 W NP</span><span class="plain">Surge-weighted average</span></div>
           </div>
           <div class="calendar-recovery-rollup" id="calRecoveryRollup" hidden>
             <div class="calendar-stat-group"><span class="calendar-stat-lbl">&hearts; Resting HR</span><span class="calendar-stat-val num" id="calAvgRhr">--</span></div>
-            <div class="calendar-stat-group"><span class="calendar-stat-lbl">&#8767; HRV</span><span class="calendar-stat-val num" id="calAvgHrv">--</span></div>
+            <div class="calendar-stat-group"><span class="calendar-stat-lbl">&#8767; HRV</span><span class="calendar-stat-val num" id="calAvgHrv">--</span><span class="plain">Recovery sign from heartbeats</span></div>
             <div class="calendar-stat-group"><span class="calendar-stat-lbl">&#9790; Sleep</span><span class="calendar-stat-val num" id="calAvgSleep">--</span></div>
             <span class="hint" id="calRecoveryHint">period averages from Apple Health</span>
           </div>
@@ -960,6 +1027,15 @@
             <dt>Best sustained power <span>(MMP)</span></dt><dd><small>Mean Maximal Power</small>Your best average power over different effort lengths. This is the power curve: short efforts show bursts, longer efforts show staying power.</dd>
             <dt>Personal best <span>(PR)</span></dt><dd><small>Personal Record</small>Your best recorded result for a particular effort. It is a comparison with your own history.</dd>
             <dt>Hard-effort capacity <span>(VO2 max)</span></dt><dd><small>Maximum oxygen uptake</small>How much oxygen your body can use during very hard exercise. Workouts with this name aim to improve your ability to ride hard; the workout itself does not measure this value.</dd>
+            <dt>Best power for every duration <span>(power duration curve)</span></dt><dd>Your best average power for every effort length from 1 second to 4 hours, drawn as one curve. It shows your sprint, your punch and your staying power at a glance.</dd>
+            <dt>Long-effort limit <span>(CP)</span></dt><dd><small>Critical Power</small>The highest power you could keep up for a long time, worked out from your own best 3-20 minute efforts. It is usually a little above your FTP.</dd>
+            <dt>Burst energy <span>(W&prime;)</span></dt><dd><small>W prime</small>A limited reserve of energy for riding above your long-effort limit. Hard efforts drain it; easier riding refills it.</dd>
+            <dt>Burst energy left <span>(W&prime; balance)</span></dt><dd>How much of that reserve is left at each moment of a ride. When it reaches zero, you cannot keep going that hard.</dd>
+            <dt>Top sprint power <span>(Pmax)</span></dt><dd><small>Maximum power</small>The highest power you can produce for a moment, as modelled from your short bests.</dd>
+            <dt>Big hard surges <span>(matches)</span></dt><dd>Efforts that each used at least 2 kJ of your burst energy. More matches = a punchier, harder ride.</dd>
+            <dt>Heart-rate workload <span>(TRIMP)</span></dt><dd><small>Training Impulse</small>The ride's load from heart rate alone: minutes spent in each heart-rate band, harder bands counting more.</dd>
+            <dt>Pushing hard vs spinning fast <span>(quadrant analysis)</span></dt><dd>Sorts every pedal stroke by how hard you pushed and how fast you pedalled: grinding, sprinting, easy riding or spinning.</dd>
+            <dt>Easy-vs-hard balance <span>(polarization index)</span></dt><dd>Shows whether your training was mostly easy with some very hard work (polarized), or mostly in the middle. Above 2 = polarized.</dd>
             <dt>Effort bands <span>(Z1-Z7 / zones)</span></dt><dd>Groups ranging from very easy riding to short, maximum efforts. The app uses your sustainable power to set the bands. Easy rides should still feel easy.</dd>
           </dl>
         </details>
@@ -1070,9 +1146,10 @@
       </div>
       <div class="form-grid">
         <div class="form-group"><label for="profInputName">Rider name</label><input type="text" id="profInputName" class="form-input" placeholder="e.g. Divan - Road season"></div>
-        <div class="form-group"><label for="profInputFtp">FTP (W)</label><input type="number" id="profInputFtp" class="form-input" value="185" min="80" max="600"></div>
+        <div class="form-group"><label for="profInputFtp" data-term="ftp">FTP (W)</label><input type="number" id="profInputFtp" class="form-input" value="185" min="80" max="600"></div>
         <div class="form-group"><label for="profInputWeight">Weight (kg)</label><input type="number" id="profInputWeight" class="form-input" value="75.0" step="0.5" min="30" max="180"></div>
         <div class="form-group"><label for="profInputMaxHr">Max heart rate (bpm)</label><input type="number" id="profInputMaxHr" class="form-input" value="175" min="120" max="230"></div>
+        <div class="form-group"><label for="profInputCrank">Crank length (mm, optional)</label><input type="number" id="profInputCrank" class="form-input" placeholder="172.5" min="150" max="200" step="0.5" title="Your crank length. Used to turn power and cadence into pedal force and pedal speed for the quadrant analysis in the ride review. Blank = 172.5 mm."></div>
         <div class="form-group"><label for="profInputLthr">Threshold heart rate (bpm, optional)</label><input type="number" id="profInputLthr" class="form-input" placeholder="about 90% of max" min="100" max="220" title="Average heart rate of a 20-60 min all-out effort (or ~95% of your 20-min test average). Used for heart-rate TSS of rides without power."></div>
       </div>
       <div class="btn-row"><button type="button" class="btn btn-primary btn-grow" id="btnSaveNewProfile"><svg class="ic"><use href="#i-save"/></svg>Save profile</button></div>
@@ -1358,6 +1435,7 @@
   <div class="toast-container" aria-live="polite"></div>
 
   <script src="js/velo-metrics.js"></script>
+  <script src="js/velo-glossary.js"></script>
   <script src="js/velo-db.js"></script>
   <script src="js/velo-sound.js"></script>
   <script src="js/velo-pip.js"></script>
@@ -1378,8 +1456,11 @@
   <script src="js/velo-strava-sync.js"></script>
   <script src="js/velo-health.js"></script>
   <script src="js/velo-trends.js"></script>
+  <script src="js/velo-power.js"></script>
   <script src="js/app.js"></script>
   <script src="js/app-analytics.js"></script>
+  <script src="js/app-power.js"></script>
+  <script src="js/app-ride-analysis.js"></script>
   <script src="js/app-dashboard.js"></script>
   <script src="js/app-history.js"></script>
   <script src="js/app-coach.js"></script>
