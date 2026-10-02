@@ -182,6 +182,7 @@
         powerAverages: Object.fromEntries([3, 5, 7, 10].map(seconds => [seconds,
           this.isPlaying && this.powerBuffer && this.powerBuffer.length ? this.getSmoothedPower(seconds) : power])),
         powerAvgSec: PHONE_POWER_SEC,
+        wbal: this.liveWbalState ? this.liveWbalState() : null,
         zone5: { name: zone5.name, short: zone5.short, color: zone5.color },
         targetZone: tZone ? { name: tZone.name, short: tZone.short, color: tZone.color } : null,
         cadence: Number(this.lastCadence) || 0,

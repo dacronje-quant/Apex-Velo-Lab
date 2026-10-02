@@ -41,12 +41,13 @@ class VeloTrends {
     return { ef: Math.round((np / hr) * 100) / 100, np: Math.round(np), hr: Math.round(hr) };
   }
 
-  static efPoints(rides) {
+  /** efOf can be a cached version of VeloTrends.efOf (same result). */
+  static efPoints(rides, efOf = VeloTrends.efOf) {
     const out = [];
     (rides || []).forEach(r => {
       const t = VeloTrends.t(r);
       if (t === null) return;
-      const e = VeloTrends.efOf(r);
+      const e = efOf(r);
       if (e) out.push({ t, id: r.id, title: r.title, ...e });
     });
     return out.sort((a, b) => a.t - b.t);

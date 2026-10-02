@@ -12,13 +12,9 @@
   const ARCHIVE_INDEX = [0, 3, 5, 7, 8]; // MEDAL_DURATIONS -> VeloMetrics.MMP_DURATIONS
 
   Object.assign(VeloApp.prototype, {
-    /** Best powers for the medal durations; cached per ride (samples never change). */
+    /** Best powers for the medal durations, from the ride's cached power curve (js/app-power.js). */
     ridePeaks(r) {
-      if (!VeloInsight.hasSamples(r)) return null;
-      this._peaksCache = this._peaksCache || new Map();
-      const key = `${r.id}|${r.samples.length}`;
-      if (!this._peaksCache.has(key)) this._peaksCache.set(key, VeloInsight.peaksOf(r.samples));
-      return this._peaksCache.get(key);
+      return this.rideMedalPeaks(r);
     },
 
     medalHistory() {
@@ -103,8 +99,8 @@
       const dec = VeloInsight.decoupling(record.samples);
       const sug = this.ftpSuggestionFor(record);
       const decHtml = dec.status === 'ok'
-        ? `<span class="chip decoupling decoupling-${dec.level} decoupling-${dec.tier}" title="Power per heartbeat, first vs second half of ${dec.minutes} min after the warm-up. 3.5% or less = base consolidated, under 5% = coupled, 5-8% = mild drift, over 8% = decoupled.">Pw:HR drift ${dec.pct}% &middot; ${esc(dec.label)}</span>`
-        : dec.status === 'not-steady' ? '<span class="chip chip-ghost" title="Decoupling is measured on steady rides (Z2, tempo, sweet spot)">Pw:HR drift: not a steady ride - not measured</span>'
+        ? `<span class="chip decoupling decoupling-${dec.level} decoupling-${dec.tier}" title="Power per heartbeat, first vs second half of ${dec.minutes} min after the warm-up. 3.5% or less = base consolidated, under 5% = coupled, 5-8% = mild drift, over 8% = decoupled.">Heart-rate drift (Pw:HR) ${dec.pct}% &middot; ${esc(dec.label)}</span>`
+        : dec.status === 'not-steady' ? '<span class="chip chip-ghost" title="Decoupling is measured on steady rides (Z2, tempo, sweet spot)">Heart-rate drift (Pw:HR): not a steady ride - not measured</span>'
           : '';
       const ftpHtml = sug ? `
         <div class="ftp-suggest" id="ftpSuggestBanner" role="status">

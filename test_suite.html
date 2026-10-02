@@ -408,10 +408,13 @@
           // 24. MMP Power Curve Zero-Placeholder Verification
           app.resetWorkout(false);
           app.updateMmpChart();
-          const currentRideMmp = app.mmpChart.data.datasets[1].data;
-          const isMmpClean = Array.isArray(currentRideMmp) && currentRideMmp.length === 0;
-          const allTimePRs = app.mmpChart.data.datasets[0].data;
-          const hasAuthenticPRs = allTimePRs.length === 9 && allTimePRs[0] === 252 && allTimePRs[7] === 195;
+          // The power duration curve plots {x: seconds, y: W} points; the live-session line is empty at idle.
+          const currentRideMmp = app.mmpChart.data.datasets.find(d => d.pdcRole === 'live').data;
+          const isMmpClean = Array.isArray(currentRideMmp) && currentRideMmp.length === 0 && app.getCurrentRideMmp().length === 0;
+          const allTimePRs = app.getAllTimeMmpBests();
+          const allCurve = app.mmpChart.data.datasets.find(d => d.pdcRole === 'all').data;
+          const curveAt = (sec) => (allCurve.find(q => q.x === sec) || {}).y;
+          const hasAuthenticPRs = allTimePRs.length === 9 && allTimePRs[0] === 252 && allTimePRs[7] === 195 && curveAt(5) === 252 && curveAt(1200) === 195;
           log('MMP Power Curve Idle State Has Zero Placeholder Line & Authentic All-Time PRs', isMmpClean && hasAuthenticPRs, 
             `Current Ride Points: ${currentRideMmp.length}, 20m PR: ${allTimePRs[7]}W`);
 
@@ -1023,10 +1026,12 @@
             app.simulator.enabled = true;
             for (let i = 0; i < 75; i++) app.tick1Hz();
             app.updateMmpChart();
-            const live = app.mmpChart.data.datasets[1].data;
-            app.renderMmpScrub(3);
+            const live = app.getCurrentRideMmp();
+            const liveCurve = app.mmpChart.data.datasets.find(d => d.pdcRole === 'live').data;
+            app.renderMmpScrub(frame.contentWindow.VeloPower.gridIndex(60));
             const readout = D.getElementById('mmpScrubReadout').textContent;
-            const ok = live.length === 9 && live[0] > 0 && live[3] > 50 && live[0] >= live[3] && live[4] === null && readout.includes('1m') && readout.includes('228 W') && /\d+%/.test(readout);
+            const curveOk = liveCurve.length >= 5 && liveCurve.every(q => q.x <= 75) && (liveCurve.find(q => q.x === 60) || {}).y === live[3];
+            const ok = live.length === 9 && live[0] > 0 && live[3] > 50 && live[0] >= live[3] && live[4] === null && curveOk && readout.includes('1m') && readout.includes('228 W') && /\d+%/.test(readout);
             app.resetWorkout(false);
             return { ok, detail: `live 5s:${live[0]}W 1m:${live[3]}W 3m:${live[4]} | readout "${readout.replace(/\s+/g, ' ').trim()}"` };
           });
@@ -1579,6 +1584,66 @@
             app.switchTab('cockpit');
             const ok = ef && ef.ef === Math.round((140 / 130) * 100) / 100 && efV === null && ppOk && prOk && rampOk && tiles === 6 && profile === 4 && charts && rangeOk;
             return { ok, detail: `EF steady ${ef && ef.ef}, intervals ${efV} | profile:${ppOk} PR only when it beats older bests:${prOk} | ramp ${ramp}:${rampOk} | tiles ${tiles}, profile cells ${profile}, charts:${charts}, page range drives charts:${rangeOk}` };
+          });
+
+          // 46j. Power analytics: CP model, log-time power curve, intensity distribution, ride plot lanes, live W'bal
+          await suite('Power Analytics: CP Model Card, Log-Time Power Curve With Model, Zone Distribution, Ride Plot Lanes With W\u2032 Balance, Live W\u2032 in the Cockpit', async () => {
+            const W = frame.contentWindow, DAY = 86400000, now = Date.now();
+            const saved = { hist: app.completedWorkouts, ftp: app.activeProfile.ftp, kg: app.activeProfile.weightKg, tab: app.activeTab };
+            const ride = (id, daysAgo, blocks) => {
+              const t0 = now - daysAgo * DAY, samples = [];
+              blocks.forEach(([sec, w]) => { for (let i = 0; i < sec; i++) samples.push({ time: samples.length, timestamp: t0 + samples.length * 1000, power: w, hr: 120 + Math.round(w / 6), cadence: 90, target: 0 }); });
+              return { id, title: id, date: new W.Date(t0).toISOString(), duration: samples.length, samples, ftpAtRide: 200, np: 210, avgWatts: 190, tss: 70, source: 'test' };
+            };
+            const rides = [
+              ride('pa_sprint', 50, [[600, 150], [10, 800], [300, 120], [60, 420], [600, 150]]),
+              ride('pa_vo2', 30, [[600, 150], [240, 310], [300, 120], [180, 330], [600, 150]]),
+              ride('pa_ftp', 10, [[600, 150], [1200, 245], [600, 150]]),
+              ride('pa_tt', 5, [[600, 150], [720, 260], [600, 150]])
+            ];
+            try {
+              app.completedWorkouts = [...rides].reverse();
+              app.activeProfile.ftp = 200; app.activeProfile.weightKg = 75;
+              app.switchTab('analytics');
+              await sleep(150);
+              app.refreshAnalytics();
+              const m = app.powerModelAt(now);
+              const modelOk = m.ok && m.cp > 200 && m.cp <= 250 && m.w > 5000 && m.pmax > m.cp;
+              const ds = (role) => app.mmpChart.data.datasets.find(d => d.pdcRole === role).data;
+              const curveOk = app.mmpChart.options.scales.x.type === 'logarithmic' && (ds('range').find(q => q.x === 1200) || {}).y === 245 && (ds('range').find(q => q.x === 1) || {}).y === 800 && ds('model').length > 20 && ds('live').length === 0;
+              const card = D.getElementById('cpModelBody').textContent;
+              const cardOk = card.includes(String(m.cp)) && /VO2max/.test(card) && D.querySelectorAll('#cpModelBody .cp-pace-cell').length === 5;
+              const zonesOk = D.querySelectorAll('#anaZoneDist .zd-row').length === 7 && /Polarization index/.test(D.getElementById('anaSeiler').textContent);
+              D.querySelector('#pdcUnitPills [data-unit="wkg"]').click();
+              const wkgOk = Math.abs((ds('range').find(q => q.x === 1200) || {}).y - 245 / 75) < 0.01 && app.mmpChart.options.scales.y.title.text === 'W/kg';
+              D.querySelector('#pdcUnitPills [data-unit="w"]').click();
+              const histOk = app.cpHistoryChart && app.cpHistoryChart.data.datasets[0].data.some(q => q.y > 0);
+              D.querySelector('#progMetricPills [data-metric="zones"]').click();
+              const zoneWeeks = app.progWeeklyChart.data.datasets.length === 7 && app.progWeeklyChart.options.scales.y.stacked === true;
+              D.querySelector('#progMetricPills [data-metric="tss"]').click();
+              const tssBack = app.progWeeklyChart.data.datasets.length === 2;
+              app.showRideSummary(rides[1]);
+              await sleep(250);
+              const ch = app.currentScrubChart;
+              const lanesOk = !!ch && ['yP', 'yW', 'yH', 'yC'].every(k => ch.options.scales[k]) && ch.data.datasets.some(d => d.label === 'W\u2032 balance');
+              const text = D.getElementById('modalRideDetails').textContent;
+              const reviewOk = /Matches/.test(text) && /Big hard surges/.test(text) && /Variability \(VI\)/.test(text) && /How steady the pacing was/.test(text) && /quadrant analysis/i.test(text) && (app._reviewCharts || []).length === 3;
+              app.closeModal('rideSummaryModal');
+              const closedOk = app.currentScrubChart === null && (app._reviewCharts || []).length === 0;
+              app.switchTab('cockpit');
+              app.resetWorkout(false);
+              app.resetLiveWbal();
+              const full = app.liveWbal && app.liveWbal.bal === m.w;
+              for (let i = 0; i < 60; i++) app.updateLiveWbal(m.cp + 100, false);
+              const liveOk = full && Math.round(app.liveWbal.bal) === m.w - 6000 && /CP \d+ W/.test(D.getElementById('wbalCpChip').textContent) && app.buildRemoteSnapshot().wbal.kj === Math.round((m.w - 6000) / 100) / 10;
+              app.resetWorkout(false);
+              const ok = modelOk && curveOk && cardOk && zonesOk && wkgOk && histOk && zoneWeeks && tssBack && lanesOk && reviewOk && closedOk && liveOk;
+              return { ok, detail: `model CP ${m.cp} W W' ${m.w} J Pmax ${m.pmax}:${modelOk} | log curve + model:${curveOk} | CP card:${cardOk} | zones + PI:${zonesOk} | W/kg:${wkgOk} | CP history:${histOk} | weekly zones:${zoneWeeks}/${tssBack} | ride lanes:${lanesOk} review:${reviewOk} closed:${closedOk} | live W'bal:${liveOk}` };
+            } finally {
+              app.completedWorkouts = saved.hist; app.activeProfile.ftp = saved.ftp; app.activeProfile.weightKg = saved.kg;
+              app.refreshAnalytics();
+              app.switchTab(saved.tab || 'cockpit');
+            }
           });
 
           // 46k. Settings screen + readiness in the AI coach
