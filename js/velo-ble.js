@@ -519,20 +519,35 @@ class VeloBle {
         slot.manualDisconnect = true; // a failed first connect must not start the reconnect loop
         this._setState(kind, 'disconnected');
         // Failed replacement: keep the prior remembered device reconnectable.
-        if (slot.replacedDevice?.device) {
-          if (slot.device && slot.onGattDisconnected) slot.device.removeEventListener('gattserverdisconnected', slot.onGattDisconnected);
-          const previous = slot.replacedDevice;
-          slot.device = null; slot.onGattDisconnected = null;
-          this._adopt(kind, previous.device);
-          slot.name = previous.name;
+        if (this._restoreReplaced(kind)) {
           slot.lastError = new Error('Replacement failed. Your previous device is still saved; reconnect it or choose another device.');
         }
-        slot.replacedDevice = null;
       }
       return false;
     } finally {
       slot.connecting = false;
+      // Stopped (or otherwise ended) before the new device connected: the previous device stays
+      // assigned, so Reconnect targets the device that is still saved - never the abandoned one.
+      if (slot.replacedDevice) this._restoreReplaced(kind);
     }
+  }
+
+  /** Puts back the device a replacement was meant to supersede. Returns true when one was restored. */
+  _restoreReplaced(kind) {
+    const slot = this.slots[kind];
+    const previous = slot.replacedDevice;
+    slot.replacedDevice = null;
+    if (!previous || !previous.device) return false;
+    const abandoned = slot.device;
+    if (abandoned && abandoned !== previous.device) {
+      if (slot.onGattDisconnected) abandoned.removeEventListener('gattserverdisconnected', slot.onGattDisconnected);
+      try { if (abandoned.gatt && abandoned.gatt.connected) abandoned.gatt.disconnect(); } catch (e) { /* ignore */ }
+    }
+    slot.device = null; slot.onGattDisconnected = null;
+    this._adopt(kind, previous.device);
+    slot.name = previous.name;
+    if (this.permitted) this.permitted[kind] = previous.device;
+    return true;
   }
 
   _handleLinkLoss(kind) {
