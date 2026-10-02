@@ -82,6 +82,26 @@ $systemPrompt = "You are an elite cycling coach and exercise physiologist. You p
     "do not repeat training scores, percentages, or tables of statistics in prose. Keep numeric workout fields and schema keys exact. " +
     "Treat calculated scores as estimates, not proof of illness, overtraining, or full recovery. Be respectful and concise."
 
+# Ask: a separate data analyst for free questions about the rider's own training (the coach above builds workouts).
+# Kept identical to ASK_SYSTEM_PROMPT in server.js.
+$askSystemPrompt = "You are the rider's personal cycling data analyst inside the Apex Velo Lab app. " +
+    "Answer questions about their training using only the TRAINING DATA block and what the rider tells you in this conversation. " +
+    "Never invent rides, numbers or dates. If the data cannot answer the question, say exactly what is missing and how the rider could get it " +
+    "(for example: ride with the heart-rate strap, or pick a longer period). " +
+    "Start with the direct answer in one or two sentences. Then give the evidence as up to five short bullet points with the actual numbers and dates. " +
+    "End with one practical takeaway when it helps. Keep the whole answer short unless the rider asks for detail. " +
+    "Use plain English for someone who is not a sports scientist. The first time you use an acronym, add its plain meaning in brackets, " +
+    "for example TSS (workout load score), CTL (fitness base), ATL (recent strain), TSB (freshness), NP (surge-weighted average power), " +
+    "CP (long-effort limit) or W' (burst energy reserve). " +
+    "Treat calculated scores as estimates, not proof of illness, overtraining or full recovery, and do not diagnose health problems: suggest a professional for health worries. " +
+    "For a full workout or a training plan, point the rider to the Coach tab. " +
+    "Format with short markdown: bold the key numbers, use bullet lists, and keep any table to four columns or fewer."
+$askMaxMessages = 40
+$askMaxMessageChars = 20000
+$askMaxContextChars = 150000
+# Server-side refusal fallback (Claude Opus 5.5): a declined request is re-run on Anthropic's recommended model.
+$fallbackBeta = 'server-side-fallback-2026-07-01'
+
 # HTTP client for the Claude and Gemini APIs (TLS 1.2+ is required; older .NET defaults may not enable it).
 Add-Type -AssemblyName System.Net.Http
 try { [System.Net.ServicePointManager]::SecurityProtocol = [System.Net.ServicePointManager]::SecurityProtocol -bor [System.Net.SecurityProtocolType]::Tls12 } catch { }
@@ -638,6 +658,176 @@ function Invoke-Coach($request, $response) {
     return Send-Json $response 200 ([ordered]@{ text = $outText; thinking = ($thinking -join "`n`n"); provider = $provider; model = $modelOut; effort = $shownEffort; stopReason = $stop; usage = $usage })
 }
 
+# --------------------------------------------------------------------- Ask --
+# The rider's data goes in a second system block marked for prompt caching (identical on every follow-up).
+function New-ClaudeAskMessage($messages, [string]$context, [string]$model, [string]$effort, [bool]$fallback) {
+    $ctx = if ($context -ne '') { $context } else { '(no data for this period)' }
+    $list = @()
+    foreach ($m in $messages) { $list += [ordered]@{ role = $m.role; content = $m.content } }
+    $req = [ordered]@{
+        model      = $model
+        max_tokens = 16000
+        system     = @(
+            [ordered]@{ type = 'text'; text = $askSystemPrompt },
+            [ordered]@{ type = 'text'; text = "TRAINING DATA`n$ctx"; cache_control = @{ type = 'ephemeral' } }
+        )
+        messages   = $list
+    }
+    if ($models[$model].adaptive) {
+        $req.thinking = [ordered]@{ type = 'adaptive'; display = 'summarized' }
+        $req.output_config = @{ effort = $effort }
+    } else {
+        $req.thinking = [ordered]@{ type = 'enabled'; budget_tokens = 4000 }
+    }
+    if ($fallback -and $model -eq 'claude-opus-5-5') { $req.fallbacks = 'default' }
+    $msg = New-Object System.Net.Http.HttpRequestMessage([System.Net.Http.HttpMethod]::Post, "$apiBase/v1/messages")
+    $msg.Headers.Add('x-api-key', $apiKey)
+    $msg.Headers.Add('anthropic-version', '2023-06-01')
+    if ($req.Contains('fallbacks')) { $msg.Headers.Add('anthropic-beta', $fallbackBeta) }
+    $msg.Content = New-Object System.Net.Http.StringContent(($req | ConvertTo-Json -Depth 10 -Compress), $utf8, 'application/json')
+    return $msg
+}
+
+# Gemini answers Ask in plain text (no JSON response type); assistant turns are role "model".
+function New-GeminiAskMessage($messages, [string]$context, [string]$model, [string]$effort) {
+    $ctx = if ($context -ne '') { $context } else { '(no data for this period)' }
+    $contents = @()
+    foreach ($m in $messages) {
+        $role = if ($m.role -eq 'assistant') { 'model' } else { 'user' }
+        $contents += [ordered]@{ role = $role; parts = @(@{ text = $m.content }) }
+    }
+    $req = [ordered]@{
+        systemInstruction = @{ parts = @(@{ text = $askSystemPrompt }, @{ text = "TRAINING DATA`n$ctx" }) }
+        contents          = $contents
+        generationConfig  = [ordered]@{
+            maxOutputTokens = 16000
+            thinkingConfig  = [ordered]@{ thinkingLevel = $effort; includeThoughts = $true }
+        }
+    }
+    $url = "$geminiBase/v1beta/models/$([System.Uri]::EscapeDataString($model)):generateContent"
+    $msg = New-Object System.Net.Http.HttpRequestMessage([System.Net.Http.HttpMethod]::Post, $url)
+    $msg.Headers.Add('x-goog-api-key', $geminiKey)
+    $msg.Content = New-Object System.Net.Http.StringContent(($req | ConvertTo-Json -Depth 10 -Compress), $utf8, 'application/json')
+    return $msg
+}
+
+# 1-40 messages, user / assistant alternating, starting and ending with the rider; each 1-20000 characters;
+# the data block at most 150000 characters. Returns @{ messages; context } or @{ error }.
+function Test-AskInput($payload) {
+    $raw = @($payload.messages)
+    if ($null -eq $payload.messages -or $raw.Count -lt 1 -or $raw.Count -gt $askMaxMessages) { return @{ error = "Send 1-$askMaxMessages messages." } }
+    $list = @()
+    for ($i = 0; $i -lt $raw.Count; $i++) {
+        $m = $raw[$i]
+        $role = $null
+        if ($m -and $m.role -eq 'assistant') { $role = 'assistant' } elseif ($m -and $m.role -eq 'user') { $role = 'user' }
+        $content = if ($m -and $m.content -is [string]) { $m.content.Trim() } else { '' }
+        if (-not $role -or $content -eq '' -or $content.Length -gt $askMaxMessageChars) { return @{ error = "Each message needs a role (user or assistant) and 1-$askMaxMessageChars characters." } }
+        $expected = if ($i % 2 -eq 0) { 'user' } else { 'assistant' }
+        if ($role -ne $expected) { return @{ error = 'Messages must alternate, starting with the rider.' } }
+        $list += [pscustomobject]@{ role = $role; content = $content }
+    }
+    if ($list[$list.Count - 1].role -ne 'user') { return @{ error = "The last message must be the rider's question." } }
+    $context = if ($payload.context -is [string]) { $payload.context } else { '' }
+    if ($context.Length -gt $askMaxContextChars) { return @{ error = "The training data is too long (over $askMaxContextChars characters): pick a shorter period." } }
+    return @{ messages = $list; context = $context }
+}
+
+# Sends one prepared request; returns @{ code; data; ok } or @{ failed; timedOut; message }.
+function Send-AiRequest($msg) {
+    try {
+        $upstream = $http.SendAsync($msg).GetAwaiter().GetResult()
+        $text = $utf8.GetString($upstream.Content.ReadAsByteArrayAsync().GetAwaiter().GetResult())
+    } catch {
+        $inner = $_.Exception
+        while ($inner.InnerException) { $inner = $inner.InnerException }
+        $timedOut = ($inner -is [System.Threading.Tasks.TaskCanceledException]) -or ($inner -is [System.TimeoutException])
+        return @{ failed = $true; timedOut = $timedOut; message = $inner.Message }
+    } finally { $msg.Dispose() }
+    $data = $null
+    try { $data = $text | ConvertFrom-Json } catch { }
+    return @{ failed = $false; ok = $upstream.IsSuccessStatusCode; code = [int]$upstream.StatusCode; data = $data }
+}
+
+function Invoke-Ask($request, $response) {
+    if (-not (Test-LocalRequest $request)) { return Send-Json $response 403 @{ error = 'Requests are only accepted from the app on localhost.' } }
+    if ($request.ContentType -notmatch '^application/json\b') { return Send-Json $response 415 @{ error = 'Content-Type must be application/json.' } }
+    if ($request.ContentLength64 -gt $maxBodyBytes) { return Send-Json $response 413 @{ error = 'Request too large' } }
+    $reader = New-Object System.IO.StreamReader($request.InputStream, $utf8)
+    $bodyText = $reader.ReadToEnd(); $reader.Close()
+    if ($utf8.GetByteCount($bodyText) -gt $maxBodyBytes) { return Send-Json $response 413 @{ error = 'Request too large' } }
+    try { $payload = $bodyText | ConvertFrom-Json } catch { return Send-Json $response 400 @{ error = 'Invalid JSON.' } }
+    if ($null -eq $payload) { return Send-Json $response 400 @{ error = 'Invalid JSON.' } }
+    $v = Test-AskInput $payload
+    if ($v.error) { return Send-Json $response 400 @{ error = $v.error } }
+    # The model decides the provider; without a (known) model, use the requested or default provider's default model.
+    $knownModel = ($payload.model -is [string]) -and $models.Contains($payload.model)
+    if ($knownModel) { $model = $payload.model; $provider = $models[$model].provider }
+    else {
+        $provider = if ($payload.provider -is [string] -and $providers.Contains($payload.provider)) { $payload.provider } else { $defaultProvider }
+        $model = $defaultModels[$provider]
+    }
+    $effort = if ($payload.effort -is [string] -and $efforts -contains $payload.effort) { $payload.effort } else { $defaultEffort }
+    $adaptive = $models[$model].adaptive
+    $pLabel = $providers[$provider].label
+    if ($keys[$provider] -eq '') { return Send-Json $response 503 @{ error = "No $pLabel API key. Add $($providers[$provider].keyName) to the .env file and restart Launch-Apex-Velo.bat." } }
+
+    $sw = [System.Diagnostics.Stopwatch]::StartNew()
+    if ($provider -eq 'gemini') { $r = Send-AiRequest (New-GeminiAskMessage $v.messages $v.context $model $effort) }
+    else {
+        $r = Send-AiRequest (New-ClaudeAskMessage $v.messages $v.context $model $effort $true)
+        # An account or gateway that does not accept the fallback option gets the same question without it.
+        $errText = if (-not $r.failed -and $r.data -and $r.data.error -and $r.data.error.message) { [string]$r.data.error.message } else { '' }
+        if (-not $r.failed -and $r.code -eq 400 -and $errText -match 'fallback') { $r = Send-AiRequest (New-ClaudeAskMessage $v.messages $v.context $model $effort $false) }
+    }
+    if ($r.failed) {
+        Write-Host "[ask] $model $(if ($r.timedOut) { 'timed out' } else { 'request failed: ' + $r.message })" -ForegroundColor Yellow
+        if ($r.timedOut) { return Send-Json $response 504 @{ error = "$pLabel did not answer in time." } }
+        return Send-Json $response 502 @{ error = "Could not reach the $pLabel API ($($r.message))." }
+    }
+    $data = $r.data
+    if (-not $r.ok) {
+        $err = if ($data -and $data.error -and $data.error.message) { $data.error.message } else { "HTTP $($r.code)" }
+        Write-Host "[ask] $model failed: $($r.code) $err" -ForegroundColor Yellow
+        return Send-Json $response 502 @{ error = "$pLabel API error $($r.code): $err"; upstreamStatus = $r.code }
+    }
+
+    $outText = ''; $cacheRead = 0
+    if ($provider -eq 'gemini') {
+        $cand = if ($data -and $data.candidates) { @($data.candidates)[0] } else { $null }
+        if (-not $cand) {
+            $why = if ($data -and $data.promptFeedback -and $data.promptFeedback.blockReason) { $data.promptFeedback.blockReason } else { 'no answer' }
+            Write-Host "[ask] $model returned no candidates ($why)" -ForegroundColor Yellow
+            return Send-Json $response 502 @{ error = "Gemini returned no answer ($why)." }
+        }
+        foreach ($part in @($cand.content.parts)) {
+            if ($null -eq $part -or -not ($part.text -is [string]) -or $part.thought) { continue }
+            $outText += $part.text
+        }
+        $um = $data.usageMetadata
+        $inTok = if ($um -and $um.promptTokenCount) { [int]$um.promptTokenCount } else { 0 }
+        $outTok = 0
+        if ($um -and $um.candidatesTokenCount) { $outTok += [int]$um.candidatesTokenCount }
+        if ($um -and $um.thoughtsTokenCount) { $outTok += [int]$um.thoughtsTokenCount }
+        $stop = if ($cand.finishReason -eq 'MAX_TOKENS') { 'max_tokens' } else { ([string]$cand.finishReason).ToLower() }
+        $modelOut = if ($data.modelVersion) { $data.modelVersion } else { $model }
+    } else {
+        foreach ($b in @($data.content)) { if ($b -and $b.type -eq 'text') { $outText += $b.text } }
+        $inTok = if ($data.usage -and $data.usage.input_tokens) { [int]$data.usage.input_tokens } else { 0 }
+        $outTok = if ($data.usage -and $data.usage.output_tokens) { [int]$data.usage.output_tokens } else { 0 }
+        $cacheRead = if ($data.usage -and $data.usage.cache_read_input_tokens) { [int]$data.usage.cache_read_input_tokens } else { 0 }
+        $stop = $data.stop_reason
+        $modelOut = if ($data.model) { $data.model } else { $model }
+    }
+    $refused = ($stop -eq 'refusal') -and ($outText.Trim() -eq '')
+    if ($refused) { $outText = "I can't answer that one. Try asking it another way, or about a specific part of your training." }
+    $usage = [ordered]@{ input_tokens = $inTok; output_tokens = $outTok; cache_read_input_tokens = $cacheRead }
+    $shownEffort = if ($adaptive) { $effort } else { $null }
+    $mode = if ($adaptive) { $effort } else { 'budget' }
+    Write-Host ("[ask] {0} ({1}) {2:N1} s, {3} in ({4} cached) / {5} out tokens, stop={6}" -f $modelOut, $mode, $sw.Elapsed.TotalSeconds, $inTok, $cacheRead, $outTok, $stop)
+    return Send-Json $response 200 ([ordered]@{ text = $outText; refused = $refused; provider = $provider; model = $modelOut; effort = $shownEffort; stopReason = $stop; usage = $usage })
+}
+
 # ------------------------------------------------------------------ Strava --
 # Personal Strava API application: STRAVA_CLIENT_ID / STRAVA_CLIENT_SECRET in .env.
 # Tokens are kept in .strava-tokens.json next to this script (a dot-file, never served).
@@ -1133,6 +1323,9 @@ try {
             } elseif ($path -eq '/api/coach') {
                 if ($request.HttpMethod -ne 'POST') { Send-Json $response 405 @{ error = 'Method not allowed' } }
                 else { Invoke-Coach $request $response }
+            } elseif ($path -eq '/api/ask') {
+                if ($request.HttpMethod -ne 'POST') { Send-Json $response 405 @{ error = 'Method not allowed' } }
+                else { Invoke-Ask $request $response }
             } elseif ($path -eq '/api/strava/status') {
                 if (-not (Test-LocalRequest $request)) { Send-Json $response 403 @{ error = 'Forbidden' } }
                 else { Send-Json $response 200 (Get-StravaStatus) }

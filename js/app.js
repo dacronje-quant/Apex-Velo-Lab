@@ -122,6 +122,7 @@ class VeloApp {
     this.initKeyboardShortcuts();
     this.initCalendarEvents();
     this.initAiCoachUi();
+    if (this.initAskUi) this.initAskUi();
     if (this.initStravaUi) this.initStravaUi();
     if (this.initStravaSyncUi) this.initStravaSyncUi();
     if (this.bindInsightActions) this.bindInsightActions(document.getElementById('modalRideDetails'));
@@ -2195,6 +2196,7 @@ class VeloApp {
   handleTabSwitched(tabKey) {
     if (tabKey === 'calendar') this.renderCalendarView();
     else if (tabKey === 'ai-coach') { this.updateAiCoachTelemetry(); if (this.renderTrainingBlock) this.renderTrainingBlock(); }
+    else if (tabKey === 'ask') { if (this.onAskTab) this.onAskTab(); }
     else if (tabKey === 'analytics') {
       requestAnimationFrame(() => {
         this.refreshAnalytics();

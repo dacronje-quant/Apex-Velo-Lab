@@ -85,6 +85,26 @@ const SYSTEM_PROMPT = 'You are an elite cycling coach and exercise physiologist.
   'do not repeat training scores, percentages, or tables of statistics in prose. Keep numeric workout fields and schema keys exact. ' +
   'Treat calculated scores as estimates, not proof of illness, overtraining, or full recovery. Be respectful and concise.';
 
+// Ask: a separate data analyst for free questions about the rider's own training (the coach above builds workouts).
+// Kept identical in start_server.ps1 (ASCII only, so Windows PowerShell 5.1 reads it unchanged).
+const ASK_SYSTEM_PROMPT = 'You are the rider\'s personal cycling data analyst inside the Apex Velo Lab app. ' +
+  'Answer questions about their training using only the TRAINING DATA block and what the rider tells you in this conversation. ' +
+  'Never invent rides, numbers or dates. If the data cannot answer the question, say exactly what is missing and how the rider could get it ' +
+  '(for example: ride with the heart-rate strap, or pick a longer period). ' +
+  'Start with the direct answer in one or two sentences. Then give the evidence as up to five short bullet points with the actual numbers and dates. ' +
+  'End with one practical takeaway when it helps. Keep the whole answer short unless the rider asks for detail. ' +
+  'Use plain English for someone who is not a sports scientist. The first time you use an acronym, add its plain meaning in brackets, ' +
+  'for example TSS (workout load score), CTL (fitness base), ATL (recent strain), TSB (freshness), NP (surge-weighted average power), ' +
+  'CP (long-effort limit) or W\' (burst energy reserve). ' +
+  'Treat calculated scores as estimates, not proof of illness, overtraining or full recovery, and do not diagnose health problems: suggest a professional for health worries. ' +
+  'For a full workout or a training plan, point the rider to the Coach tab. ' +
+  'Format with short markdown: bold the key numbers, use bullet lists, and keep any table to four columns or fewer.';
+const ASK_MAX_MESSAGES = 40;
+const ASK_MAX_MESSAGE_CHARS = 20000;
+const ASK_MAX_CONTEXT_CHARS = 150000;
+// Server-side refusal fallback (Claude Opus 5.5): a declined request is re-run on Anthropic's recommended model.
+const FALLBACK_BETA = 'server-side-fallback-2026-07-01';
+
 // ------------------------------------------------------------------ static --
 const MIME = {
   '.html': 'text/html; charset=utf-8', '.js': 'text/javascript; charset=utf-8', '.css': 'text/css; charset=utf-8',
@@ -206,12 +226,57 @@ function buildGeminiRequest(prompt, model, effort) {
   };
 }
 
-/** Calls Claude and returns the app's common reply shape. */
-async function callClaude(prompt, model, effort, signal) {
+/** Thinking settings shared by the coach and Ask: adaptive with effort, or a fixed budget (Haiku 4.5). */
+function claudeThinking(body, model, effort) {
+  if (MODELS[model].adaptive) {
+    body.thinking = { type: 'adaptive', display: 'summarized' };
+    body.output_config = { effort };
+  } else {
+    body.thinking = { type: 'enabled', budget_tokens: 4000 };
+  }
+  return body;
+}
+
+/**
+ * Ask request: the analyst prompt, then the rider's data as a second system block marked for prompt caching
+ * (it is identical on every follow-up question, so later turns read it from the cache), then the conversation.
+ */
+function buildClaudeAskRequest(messages, context, model, effort, fallback = true) {
+  const body = {
+    model,
+    max_tokens: 16000,
+    system: [
+      { type: 'text', text: ASK_SYSTEM_PROMPT },
+      { type: 'text', text: `TRAINING DATA\n${context || '(no data for this period)'}`, cache_control: { type: 'ephemeral' } }
+    ],
+    messages: messages.map(m => ({ role: m.role, content: m.content }))
+  };
+  claudeThinking(body, model, effort);
+  if (fallback && model === 'claude-opus-5-5') body.fallbacks = 'default';
+  return body;
+}
+
+/** Ask request for Gemini: plain text answers (no JSON response type), assistant turns as role "model". */
+function buildGeminiAskRequest(messages, context, effort) {
+  return {
+    systemInstruction: { parts: [{ text: ASK_SYSTEM_PROMPT }, { text: `TRAINING DATA\n${context || '(no data for this period)'}` }] },
+    contents: messages.map(m => ({ role: m.role === 'assistant' ? 'model' : 'user', parts: [{ text: m.content }] })),
+    generationConfig: {
+      maxOutputTokens: 16000,
+      thinkingConfig: { thinkingLevel: effort, includeThoughts: true }
+    }
+  };
+}
+
+/** Calls Claude with a request body and returns the app's common reply shape. */
+async function callClaude(reqBody, signal) {
+  const headers = { 'content-type': 'application/json', 'x-api-key': API_KEY, 'anthropic-version': '2023-06-01' };
+  if (reqBody.fallbacks) headers['anthropic-beta'] = FALLBACK_BETA;
+  const model = reqBody.model;
   const upstream = await fetch(`${API_BASE}/v1/messages`, {
     method: 'POST',
-    headers: { 'content-type': 'application/json', 'x-api-key': API_KEY, 'anthropic-version': '2023-06-01' },
-    body: JSON.stringify(buildClaudeRequest(prompt, model, effort)),
+    headers,
+    body: JSON.stringify(reqBody),
     signal
   });
   const data = await upstream.json().catch(() => ({}));
@@ -226,16 +291,16 @@ async function callClaude(prompt, model, effort, signal) {
     thinking: blocks.filter(b => b.type === 'thinking' && b.thinking).map(b => b.thinking).join('\n\n'),
     model: data.model || model,
     stopReason: data.stop_reason,
-    usage: { input_tokens: usage.input_tokens || 0, output_tokens: usage.output_tokens || 0 }
+    usage: { input_tokens: usage.input_tokens || 0, output_tokens: usage.output_tokens || 0, cache_read_input_tokens: usage.cache_read_input_tokens || 0 }
   };
 }
 
-/** Calls Gemini (generateContent) and returns the app's common reply shape. */
-async function callGemini(prompt, model, effort, signal) {
+/** Calls Gemini (generateContent) with a request body and returns the app's common reply shape. */
+async function callGemini(reqBody, model, signal) {
   const upstream = await fetch(`${GEMINI_BASE}/v1beta/models/${encodeURIComponent(model)}:generateContent`, {
     method: 'POST',
     headers: { 'content-type': 'application/json', 'x-goog-api-key': GEMINI_API_KEY },
-    body: JSON.stringify(buildGeminiRequest(prompt, model, effort)),
+    body: JSON.stringify(reqBody),
     signal
   });
   const data = await upstream.json().catch(() => ({}));
@@ -259,19 +324,27 @@ async function callGemini(prompt, model, effort, signal) {
   };
 }
 
-async function handleCoach(req, res) {
-  if (!isLocalRequest(req)) return sendJson(res, 403, { error: 'Requests are only accepted from the app on localhost.' });
-  if (!/^application\/json\b/i.test(req.headers['content-type'] || '')) return sendJson(res, 415, { error: 'Content-Type must be application/json.' });
-
-  let input;
-  try { input = JSON.parse(await readBody(req)); } catch (e) { return sendJson(res, e.status || 400, { error: e.status ? e.message : 'Invalid JSON.' }); }
-  const prompt = typeof input.prompt === 'string' ? input.prompt : '';
-  if (!prompt.trim() || prompt.length > 100000) return sendJson(res, 400, { error: 'A prompt of 1-100000 characters is required.' });
-  // The model decides the provider; without a (known) model, use the requested or default provider's default model.
+/** The model decides the provider; without a (known) model, use the requested or default provider's default model. */
+function resolveEngine(input) {
   const provider = MODELS[input.model] ? MODELS[input.model].provider : (PROVIDERS[input.provider] ? input.provider : DEFAULT_PROVIDER);
   const model = MODELS[input.model] ? input.model : DEFAULT_MODELS[provider];
   const effort = EFFORTS.includes(input.effort) ? input.effort : DEFAULT_EFFORT;
-  const p = PROVIDERS[provider];
+  return { provider, model, effort, p: PROVIDERS[provider] };
+}
+
+/** Reads and checks a JSON request from the app (local only); returns the parsed body or sends the error. */
+async function readAppJson(req, res) {
+  if (!isLocalRequest(req)) { sendJson(res, 403, { error: 'Requests are only accepted from the app on localhost.' }); return null; }
+  if (!/^application\/json\b/i.test(req.headers['content-type'] || '')) { sendJson(res, 415, { error: 'Content-Type must be application/json.' }); return null; }
+  try { return JSON.parse(await readBody(req)); } catch (e) { sendJson(res, e.status || 400, { error: e.status ? e.message : 'Invalid JSON.' }); return null; }
+}
+
+async function handleCoach(req, res) {
+  const input = await readAppJson(req, res);
+  if (!input) return;
+  const prompt = typeof input.prompt === 'string' ? input.prompt : '';
+  if (!prompt.trim() || prompt.length > 100000) return sendJson(res, 400, { error: 'A prompt of 1-100000 characters is required.' });
+  const { provider, model, effort, p } = resolveEngine(input);
   if (!KEYS[provider]) return sendJson(res, 503, { error: `No ${p.label} API key. Add ${p.keyName} to the .env file and restart the server.` });
 
   const ac = new AbortController();
@@ -279,7 +352,9 @@ async function handleCoach(req, res) {
   req.on('close', () => { if (!res.writableEnded) ac.abort(); });
   const t0 = Date.now();
   try {
-    const out = await (provider === 'gemini' ? callGemini : callClaude)(prompt, model, effort, ac.signal);
+    const out = provider === 'gemini'
+      ? await callGemini(buildGeminiRequest(prompt, model, effort), model, ac.signal)
+      : await callClaude(buildClaudeRequest(prompt, model, effort), ac.signal);
     if (out.error) {
       console.warn(`[coach] ${model} failed: ${out.log}`);
       return sendJson(res, 502, { error: out.error, upstreamStatus: out.upstreamStatus });
@@ -296,6 +371,67 @@ async function handleCoach(req, res) {
   }
 }
 
+
+/**
+ * Checks an Ask conversation: 1-40 messages, user / assistant alternating, starting and ending with the
+ * rider; each message 1-20000 characters; the data block at most 150000 characters.
+ * Returns { messages, context } or { error }.
+ */
+function validateAsk(input) {
+  const list = Array.isArray(input.messages) ? input.messages : null;
+  if (!list || !list.length || list.length > ASK_MAX_MESSAGES) return { error: `Send 1-${ASK_MAX_MESSAGES} messages.` };
+  const messages = [];
+  for (let i = 0; i < list.length; i++) {
+    const m = list[i] || {};
+    const role = m.role === 'assistant' ? 'assistant' : m.role === 'user' ? 'user' : null;
+    const content = typeof m.content === 'string' ? m.content.trim() : '';
+    if (!role || !content || content.length > ASK_MAX_MESSAGE_CHARS) return { error: `Each message needs a role (user or assistant) and 1-${ASK_MAX_MESSAGE_CHARS} characters.` };
+    if (role !== (i % 2 === 0 ? 'user' : 'assistant')) return { error: 'Messages must alternate, starting with the rider.' };
+    messages.push({ role, content });
+  }
+  if (messages[messages.length - 1].role !== 'user') return { error: 'The last message must be the rider\'s question.' };
+  const context = typeof input.context === 'string' ? input.context : '';
+  if (context.length > ASK_MAX_CONTEXT_CHARS) return { error: `The training data is too long (over ${ASK_MAX_CONTEXT_CHARS} characters): pick a shorter period.` };
+  return { messages, context };
+}
+
+/** POST /api/ask - free questions about the rider's own training data, answered by Claude or Gemini. */
+async function handleAsk(req, res) {
+  const input = await readAppJson(req, res);
+  if (!input) return;
+  const v = validateAsk(input);
+  if (v.error) return sendJson(res, 400, { error: v.error });
+  const { provider, model, effort, p } = resolveEngine(input);
+  if (!KEYS[provider]) return sendJson(res, 503, { error: `No ${p.label} API key. Add ${p.keyName} to the .env file and restart the server.` });
+
+  const ac = new AbortController();
+  const timer = setTimeout(() => ac.abort(), UPSTREAM_TIMEOUT_MS);
+  req.on('close', () => { if (!res.writableEnded) ac.abort(); });
+  const t0 = Date.now();
+  try {
+    let out;
+    if (provider === 'gemini') out = await callGemini(buildGeminiAskRequest(v.messages, v.context, effort), model, ac.signal);
+    else {
+      out = await callClaude(buildClaudeAskRequest(v.messages, v.context, model, effort), ac.signal);
+      // An account or gateway that does not accept the fallback option gets the same question without it.
+      if (out.error && out.upstreamStatus === 400 && /fallback/i.test(out.log || '')) out = await callClaude(buildClaudeAskRequest(v.messages, v.context, model, effort, false), ac.signal);
+    }
+    if (out.error) {
+      console.warn(`[ask] ${model} failed: ${out.log}`);
+      return sendJson(res, 502, { error: out.error, upstreamStatus: out.upstreamStatus });
+    }
+    const refused = out.stopReason === 'refusal' && !out.text.trim();
+    const text = refused ? 'I can\'t answer that one. Try asking it another way, or about a specific part of your training.' : out.text;
+    console.log(`[ask] ${out.model} (${MODELS[model].adaptive ? effort : 'budget'}) ${((Date.now() - t0) / 1000).toFixed(1)} s, ${out.usage.input_tokens} in (${out.usage.cache_read_input_tokens || 0} cached) / ${out.usage.output_tokens} out tokens, stop=${out.stopReason}`);
+    return sendJson(res, 200, { text, refused, provider, model: out.model, effort: MODELS[model].adaptive ? effort : null, stopReason: out.stopReason, usage: out.usage });
+  } catch (err) {
+    const aborted = err.name === 'AbortError';
+    console.warn(`[ask] ${model} ${aborted ? 'timed out / cancelled' : 'request failed: ' + err.message}`);
+    return sendJson(res, aborted ? 504 : 502, { error: aborted ? `${p.label} did not answer in time.` : `Could not reach the ${p.label} API (${err.message}).` });
+  } finally {
+    clearTimeout(timer);
+  }
+}
 
 // ------------------------------------------------------------------ Strava --
 // Personal Strava API application: STRAVA_CLIENT_ID / STRAVA_CLIENT_SECRET in .env.
@@ -884,6 +1020,10 @@ function createServer() {
       if (req.method !== 'POST') return sendJson(res, 405, { error: 'Method not allowed' });
       return handleCoach(req, res).catch((e) => { if (!res.headersSent) sendJson(res, 500, { error: e.message }); });
     }
+    if (urlPath === '/api/ask') {
+      if (req.method !== 'POST') return sendJson(res, 405, { error: 'Method not allowed' });
+      return handleAsk(req, res).catch((e) => { if (!res.headersSent) sendJson(res, 500, { error: e.message }); });
+    }
     if (urlPath.startsWith('/api/strava/')) {
       const query = new URL(req.url, 'http://localhost').searchParams;
       return handleStrava(req, res, urlPath, query).catch((e) => { if (!res.headersSent) sendJson(res, 500, { error: e.message }); });
@@ -936,4 +1076,4 @@ if (require.main === module) {
   });
 }
 
-module.exports = { createServer, buildClaudeRequest, buildGeminiRequest, loadDotEnv, slimActivity, MODELS, PROVIDERS };
+module.exports = { createServer, buildClaudeRequest, buildGeminiRequest, buildClaudeAskRequest, buildGeminiAskRequest, validateAsk, ASK_SYSTEM_PROMPT, loadDotEnv, slimActivity, MODELS, PROVIDERS };
