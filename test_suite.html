@@ -2282,7 +2282,7 @@
                   detail: `preview wrote nothing:${untouched} only GET /api/strava/sync (${calls.length} calls):${onlyGet} layer1 id skip:${l1} layer2 link (tz-mislabelled HealthFit):${l2} same ride 3 h later not matched:${threeH} (and 2 h apart on Strava) layer3 Motra/watch merge:${l3} possible not auto-imported:${possible} new=${ids(planA.new)} strength record:${strengthOk} estimated TSS:${tssOk} dialog + review buttons:${dialog}` };
               });
 
-              await suite('Strava Sync: Apply Backs Up First & Writes Once; App Rides Unchanged; Calendar Same; Undo Restores Byte-Identical', async () => {
+              await suite('Strava Sync: Apply Backs Up First & Writes Once; Local Recordings and Load Kept; Calendar Same; Undo Restores Byte-Identical', async () => {
                 let dbWrites = 0, lsHistoryWrites = 0;
                 const origApply = W.VeloDB.applyRideChanges;
                 W.VeloDB.applyRideChanges = (...a) => { dbWrites++; return origApply.apply(W.VeloDB, a); };
@@ -2293,11 +2293,17 @@
                 const once = res && res.ok && dbWrites === 1 && lsHistoryWrites === 1;
                 const bks = await backups();
                 const backupOk = bks.length === 1 && bks[0].local.history !== null && bks[0].idb.some(r => r.id === 'ride_fx_hf' && r.samples && r.samples.__samplesRef === 90);
-                const nativeSame = nativeJson() === native0;
+                const originalNative = JSON.parse(native0);
+                const nativeSame = originalNative.every(before => {
+                  const after = app.completedWorkouts.find(r => r.id === before.id);
+                  return after && ['id', 'source', 'date', 'title', 'samples', 'np', 'tss'].every(k => JSON.stringify(before[k]) === JSON.stringify(after[k]))
+                    && (!(before.avgWatts > 0) || before.avgWatts === after.avgWatts);
+                });
                 const hf = app.completedWorkouts.find(r => r.id === 'ride_fx_hf');
                 const linkOk = hf.strava && hf.strava.activityId === '100' && hf.samples.length === 90;
                 const ck = app.completedWorkouts.find(r => r.id === 'ride_fx_ck');
-                const ckOk = ck.strava.state === 'sent' && ck.strava.activityId === '900' && ck.strava.sentAt === 1;
+                const ckOk = ck.strava.state === 'sent' && ck.strava.activityId === '900' && ck.strava.sentAt === 1
+                  && ck.avgWatts === W.VeloMetrics.avgPower(ck.samples.map(s => s.power));
                 const calSame = calendarNativeIds() === cal0;
                 const idsNow = app.completedWorkouts.map(r => r.id);
                 const imported = ['strava_101', 'strava_102', 'strava_200', 'strava_300', 'strava_400'].every(id => idsNow.includes(id)) && !idsNow.includes('strava_201') && !idsNow.includes('strava_100') && !idsNow.includes('strava_900') && !idsNow.includes('strava_500');
@@ -2308,7 +2314,7 @@
                 const S2 = await snapshot();
                 const identical = u.ok && S2 === S0 && nativeJson() === native0 && app.completedWorkouts.length === 5 && (await backups()).length === 0;
                 return { ok: once && backupOk && nativeSame && linkOk && ckOk && calSame && imported && idbOk && identical,
-                  detail: `apply ok, 1 IndexedDB transaction + 1 history write:${once} (${dbWrites}/${lsHistoryWrites}) restore point with sample refs:${backupOk} app rides unchanged:${nativeSame} link added (samples kept):${linkOk} sent ride untouched:${ckOk} calendar renders same app rides:${calSame} imported 101/102/200/300/400 only:${imported} IndexedDB:${idbOk} undo byte-identical:${identical}` };
+                  detail: `apply ok, 1 IndexedDB transaction + 1 history write:${once} (${dbWrites}/${lsHistoryWrites}) restore point with sample refs:${backupOk} local identity, recordings and load kept:${nativeSame} link added (samples kept):${linkOk} sent link kept:${ckOk} calendar renders same app rides:${calSame} imported 101/102/200/300/400 only:${imported} IndexedDB:${idbOk} undo byte-identical:${identical}` };
               });
 
               await suite('Strava Sync: Refresh Semantics - Second Sync = No Changes, Strava Edit Updates, Strava Delete Removes Only That, Out-of-Range Untouched', async () => {

@@ -164,6 +164,7 @@
         sentAt: Date.now(),
         cmdAck: this._remoteCmdSeen || 0,
         state,
+        completedRide: state === 'finished' ? this._remoteFinishedRide || null : null,
         title: w.title || 'Workout',
         ftp: p.ftp || null,
         rider: p.name || null,
@@ -350,7 +351,48 @@
       this.publishSoon();
     },
 
+    /** Encode the saved ride once; the server holds only the latest file in memory. */
+    preparePhoneFit(record) {
+      if (!this._remoteEnabled) return;
+      this._remoteFinishedRide = { id: record.id, title: record.title, duration: record.duration, fitError: null };
+      try {
+        this._remoteFitUpload = {
+          id: record.id, filename: VeloExport.fileStem(record) + '.fit',
+          bytes: VeloExport.buildFit(record, record.samples), ready: false, busy: false, retryAt: 0,
+        };
+      } catch (e) {
+        this._remoteFitUpload = null;
+        this._remoteFinishedRide.fitError = 'Could not create the FIT file. Export it from History on the PC.';
+      }
+      this.publishSoon();
+    },
+
+    async publishPhoneFit() {
+      const file = this._remoteFitUpload;
+      if (!file || file.ready || file.busy || Date.now() < file.retryAt) return;
+      file.busy = true;
+      const ctl = new AbortController();
+      const timer = setTimeout(() => ctl.abort(), 10000);
+      try {
+        const res = await fetch('api/live/fit?id=' + encodeURIComponent(file.id) + '&filename=' + encodeURIComponent(file.filename), {
+          method: 'POST', headers: { 'Content-Type': 'application/octet-stream' },
+          body: file.bytes, cache: 'no-store', signal: ctl.signal,
+        });
+        if (!res.ok) throw new Error('FIT ' + res.status);
+        file.ready = true;
+        if (this._remoteFitUpload === file) this._remoteFinishedRide.fitError = null;
+      } catch (e) {
+        file.retryAt = Date.now() + BACKOFF_MS;
+        if (this._remoteFitUpload === file) this._remoteFinishedRide.fitError = 'FIT download unavailable. Retrying automatically; keep the PC app open.';
+      } finally {
+        clearTimeout(timer);
+        file.busy = false;
+        if (this._remoteFitUpload === file) this.publishSoon();
+      }
+    },
+
     async publishRemoteSnapshot() {
+      this.publishPhoneFit(); // binary transfer never delays the live controls
       const res = await fetch('api/live', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -358,7 +400,10 @@
         cache: 'no-store',
       });
       if (!res.ok) throw new Error('live ' + res.status);
-      this.takeRemoteCommands(await res.json());
+      const data = await res.json();
+      // A restarted server lost its in-memory file. Send it again without re-encoding.
+      if (this._remoteFitUpload?.ready && data.fitId !== this._remoteFitUpload.id) this._remoteFitUpload.ready = false;
+      this.takeRemoteCommands(data);
     },
 
     /** Applies each phone command once: ids already applied (repeated until confirmed) are skipped. */

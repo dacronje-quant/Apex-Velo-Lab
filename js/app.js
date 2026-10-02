@@ -40,6 +40,7 @@ class VeloApp {
     this.totalElapsedSeconds = 0;
     this.ergBiasMultiplier = 1.0;
     this.ergModeEnabled = true;
+    this.ergResponse = 'auto';
     this.isPlaying = false;
     this.isWorkoutCompleted = false;
     this.sessionStartedAt = null;
@@ -600,12 +601,39 @@ class VeloApp {
     this.updateHudTitles();
   }
 
+  getErgProfile() {
+    const step = this.currentWorkout?.intervals?.[this.intervalIndex] || {};
+    return VeloErg.describe(this.currentWorkout || {}, step, this.ergResponse || 'auto');
+  }
+
+  configureErg() {
+    return this.erg.configure(this.currentWorkout || {},
+      this.currentWorkout?.intervals?.[this.intervalIndex] || {}, this.ergResponse || 'auto');
+  }
+
+  updateErgResponseUi() {
+    const profile = this.getErgProfile();
+    const select = this.$('ergResponse');
+    if (select) select.value = this.ergResponse || 'auto';
+    this.setText('ergResponseSummary', `${profile.label}: ${profile.reason}`);
+  }
+
+  setErgResponse(value) {
+    if (!['auto', 'steady', 'responsive'].includes(value)) return;
+    this.ergResponse = value;
+    try { localStorage.setItem('apex_erg_response', value); } catch (e) { /* optional preference */ }
+    this.configureErg();
+    this.updateErgResponseUi();
+    this.ergApplyNow(false);
+  }
+
   /**
    * Sends the ERG target right away (between ticks). With `soft`, a soft start is armed first,
    * so Start, Resume, Skip, Jump and a trainer reconnect never hit a standing flywheel at full load.
    */
   ergApplyNow(soft = false) {
     if (!this.ergModeEnabled || !this.isPlaying) return;
+    this.configureErg();
     const target = this.getCurrentTargetWatts();
     if (soft) {
       // Live readings, not the last tick's: after a pause the cranks may have stopped.
@@ -620,9 +648,10 @@ class VeloApp {
         power: src ? Math.max(0, src.watts || 0) : 0,
         cadence: cad ?? 0,
         cadenceKnown: Number.isFinite(cad),
+        targetCadence: this.getCurrentTargetCadence(),
       });
     }
-    const watts = this.erg.now(target);
+    const watts = this.erg.now(target, this.intervalIndex);
     this.ble.setTrainerErgPower(watts, true);
     if (this.ble.isTrainerConnected()) this.lastCommandedErgWatts = watts;
   }
@@ -647,6 +676,7 @@ class VeloApp {
   /** Out-of-the-saddle break: eases ERG for 30 s (tap again to end early). */
   toggleStand() {
     if (!this.isPlaying) { this.showToast('Stand works during a ride.', 'info'); return; }
+    if (this.getErgProfile().test) { this.showToast('Keep the prescribed load during a ramp test. Pause or finish if you cannot continue.', 'info'); return; }
     const on = this.erg.stand();
     this.ergApplyNow(false);
     this.updateStandUi();
@@ -742,6 +772,8 @@ class VeloApp {
 
   resetWorkout(confirmPrompt = true) {
     if (confirmPrompt && this.totalElapsedSeconds > 10 && !confirm('Reset to step 1? Live telemetry for this session will be discarded.')) return;
+    this._remoteFinishedRide = null;
+    this._remoteFitUpload = null;
     this._easySpinOffer = null;
     this.renderEasySpinOffer();
     // Easy-spin extensions belong to one ride only.
@@ -882,6 +914,7 @@ class VeloApp {
     const pmOn = this.powerMatchEnabled && pedalAlive && trainerConnected && this.ergModeEnabled;
     const ivs = this.currentWorkout.intervals;
     const nextIv = ivs[this.intervalIndex + 1];
+    this.configureErg();
     const erg = this.erg.tick({
       target: targetPower,
       nextTarget: nextIv ? Math.round(this.activeProfile.ftp * (nextIv.pctFtp / 100) * this.ergBiasMultiplier) : null,
@@ -893,14 +926,20 @@ class VeloApp {
       targetCadence: this.getCurrentTargetCadence(),
       ftp: this.activeProfile.ftp,
       pedalPower: pmOn ? power : null,
+      stepKey: this.intervalIndex,
     });
     this.powerMatchOffset = this.erg.offset;
     this.updateStandUi();
     if (this.ergModeEnabled) {
-      this.ble.setTrainerErgPower(erg.watts);
-      this.lastCommandedErgWatts = trainerConnected ? erg.watts : null;
-      if (erg.event === 'stall' && trainerConnected) {
-        this.showToast(`Low cadence - ERG eased to ${erg.watts} W. Spin up and it ramps back to target.`, 'info');
+      if (erg.event === 'test-stop') {
+        this.togglePlayPause();
+        this.showToast('Ramp test paused: cadence and power fell. Finish the test at failure; resuming at an easier load changes the result.', 'info');
+      } else {
+        this.ble.setTrainerErgPower(erg.watts);
+        this.lastCommandedErgWatts = trainerConnected ? erg.watts : null;
+        if (erg.event === 'stall' && trainerConnected) {
+          this.showToast(`Low cadence - ERG eased to ${erg.watts} W. Spin up and it ramps back to target.`, 'info');
+        }
       }
     }
 
@@ -970,6 +1009,7 @@ class VeloApp {
     this.updateTelemetryChart(this.totalElapsedSeconds, power, cadence, hr, targetPower);
     this.updatePowerSourceBadge();
     if (this.totalElapsedSeconds % 5 === 0 && this.activeTab === 'analytics') this.updateMmpChart();
+    if (this.ergModeEnabled && erg.event === 'test-stop') return;
 
     if (this.intervalSecondsRemaining <= 0) {
       this.intervalIndex++;
@@ -981,6 +1021,7 @@ class VeloApp {
       }
       this.intervalSecondsRemaining = this.currentWorkout.intervals[this.intervalIndex].duration;
       this.updateHudTitles();
+      this.ergApplyNow(false);
     }
     if (this._easySpinOffer && Date.now() >= this._easySpinOffer.until) this.declineEasySpin();
     else if (this._easySpinOffer) this.renderEasySpinOffer();
@@ -1131,6 +1172,7 @@ class VeloApp {
     };
     this.completedWorkouts.unshift(record);
     this.saveHistory();
+    if (this.preparePhoneFit) this.preparePhoneFit(record);
     this.renderHistoryTable();
     this.recalculatePmc();
     this.refreshAnalytics();
@@ -1370,7 +1412,7 @@ class VeloApp {
       }
       else if (trainerConnected && this.erg.mode !== 'normal') {
         const cmd = this.lastCommandedErgWatts != null ? this.lastCommandedErgWatts : targetW;
-        text = { 'soft-start': `ERG SOFT START ${cmd}W - SPIN UP`, stall: `ERG EASED ${cmd}W - SPIN UP`, ramp: `ERG RAMP ${cmd}/${targetW}W`, stand: `ERG STAND ${cmd}W - ${this.erg.standLeft}s` }[this.erg.mode];
+        text = { 'soft-start': `ERG SOFT START ${cmd}W - SPIN UP`, stall: `ERG EASED ${cmd}W - SPIN UP`, ramp: `ERG RAMP ${cmd}/${targetW}W`, stand: `ERG STAND ${cmd}W - ${this.erg.standLeft}s`, 'test-stop': 'ERG · TEST PAUSED AT FAILURE' }[this.erg.mode];
         pc = 'erg-status-pill erg-active';
       }
       else if (trainerConnected) { text = pmActive ? `ERG MATCH ${targetW}W (${trim})` : `ERG ${targetW}W`; pc = 'erg-status-pill erg-active'; }
@@ -1536,6 +1578,7 @@ class VeloApp {
 
   // ---------------------------------------------------------------- HUD --
   updateHudTitles() {
+    this.updateErgResponseUi();
     const iv = this.currentWorkout.intervals[this.intervalIndex];
     if (!iv) return;
     const targetW = this.getCurrentTargetWatts();
@@ -2310,6 +2353,11 @@ class VeloApp {
     this.on(this.$('hudErgStatusPill'), 'click', () => this.toggleErgMode());
 
     // ERG bias
+    try {
+      const saved = localStorage.getItem('apex_erg_response');
+      if (['auto', 'steady', 'responsive'].includes(saved)) this.ergResponse = saved;
+    } catch (e) { /* optional preference */ }
+    this.on(this.$('ergResponse'), 'change', (e) => this.setErgResponse(e.target.value));
     [['btnBiasMinus5', -0.05], ['btnBiasMinus1', -0.01], ['btnBiasPlus1', 0.01], ['btnBiasPlus5', 0.05],
      ['btnZenBiasMinus5', -0.05], ['btnZenBiasMinus1', -0.01], ['btnZenBiasPlus1', 0.01], ['btnZenBiasPlus5', 0.05]]
       .forEach(([id, d]) => this.on(this.$(id), 'click', () => this.setErgBias(d)));

@@ -342,6 +342,7 @@ $liveMaxWaiters = 8
 $liveCmdTtlMs = 10000
 $script:liveSnapshotJson = 'null'
 $script:liveAt = $null
+$script:liveFit = $null
 $script:liveSeq = 0
 $script:liveCmds = New-Object System.Collections.ArrayList
 $script:liveWaiters = New-Object System.Collections.ArrayList
@@ -350,7 +351,51 @@ $script:liveCmdId = [DateTimeOffset]::UtcNow.ToUnixTimeMilliseconds() # ids keep
 
 function Get-LiveJson {
     $age = if ($script:liveAt) { [int]((Get-Date) - $script:liveAt).TotalMilliseconds } else { 'null' }
-    return '{"snapshot":' + $script:liveSnapshotJson + ',"ageMs":' + $age + ',"pending":' + $script:liveCmds.Count + ',"seq":' + $script:liveSeq + '}'
+    $fitJson = 'null'
+    if ($null -ne $script:liveFit) {
+        $fitJson = @{ id = $script:liveFit.Id; filename = $script:liveFit.Filename; url = '/api/live/fit?id=' + $script:liveFit.Id } | ConvertTo-Json -Compress
+    }
+    return '{"snapshot":' + $script:liveSnapshotJson + ',"ageMs":' + $age + ',"pending":' + $script:liveCmds.Count + ',"seq":' + $script:liveSeq + ',"fit":' + $fitJson + '}'
+}
+
+# A normal attachment URL works in phone browsers over plain home-Wi-Fi HTTP.
+# Only the PC may publish; the latest completed ride is kept in memory, never on disk.
+function Invoke-LiveFit($request, $response) {
+    if (-not (Test-LocalRequest $request)) { return Send-Json $response 403 @{ error = 'Forbidden' } }
+    $id = [string]$request.QueryString['id']
+    if ($request.HttpMethod -eq 'GET' -or $request.HttpMethod -eq 'HEAD') {
+        if ($null -eq $script:liveFit -or $script:liveFit.Id -cne $id) { return Send-Json $response 404 @{ error = 'This FIT file is no longer available. Keep the PC app open until downloaded.' } }
+        $response.Headers['Content-Disposition'] = 'attachment; filename="' + $script:liveFit.Filename + '"'
+        if ($request.HttpMethod -eq 'HEAD') {
+            $response.StatusCode = 200
+            $response.ContentType = 'application/octet-stream'
+            $response.Headers['Cache-Control'] = 'no-store'
+            $response.Headers['X-Content-Type-Options'] = 'nosniff'
+            $response.ContentLength64 = $script:liveFit.Bytes.Length
+            return $response.Close()
+        }
+        return Send-Bytes $response 200 $script:liveFit.Bytes 'application/octet-stream'
+    }
+    if ($request.HttpMethod -ne 'POST') { return Send-Json $response 405 @{ error = 'Method not allowed' } }
+    if (-not (Test-PcRequest $request)) { return Send-Json $response 403 @{ error = 'Only the app on this PC can publish FIT files.' } }
+    $filename = [string]$request.QueryString['filename']
+    if ($id -cnotmatch '^[a-zA-Z0-9_-]{1,80}$' -or $filename -cnotmatch '^[a-zA-Z0-9_-]{1,120}\.fit$') { return Send-Json $response 400 @{ error = 'Invalid FIT file name or ride id.' } }
+    $limit = 16MB
+    if ($request.ContentLength64 -gt $limit) { return Send-Json $response 413 @{ error = 'FIT file too large' } }
+    $ms = New-Object System.IO.MemoryStream
+    try {
+        $buf = New-Object byte[] 8192
+        while (($n = $request.InputStream.Read($buf, 0, $buf.Length)) -gt 0) {
+            if ($ms.Length + $n -gt $limit) { return Send-Json $response 413 @{ error = 'FIT file too large' } }
+            $ms.Write($buf, 0, $n)
+        }
+        $bytes = $ms.ToArray()
+    } finally { $ms.Dispose() }
+    if ($bytes.Length -lt 14 -or $bytes[0] -notin @(12, 14) -or [System.Text.Encoding]::ASCII.GetString($bytes, 8, 4) -cne '.FIT' -or ([long]$bytes[0] + [System.BitConverter]::ToUInt32($bytes, 4) + 2) -ne $bytes.Length) { return Send-Json $response 400 @{ error = 'Invalid FIT activity file.' } }
+    $script:liveFit = @{ Id = $id; Filename = $filename; Bytes = $bytes }
+    $script:liveSeq++
+    Send-Json $response 200 @{ ok = $true }
+    Send-LiveWaiters
 }
 # Commands newer than $after (expired ones are dropped), as the reply JSON.
 function Get-LiveCmdsJson([long]$after) {
@@ -432,6 +477,8 @@ function Invoke-Live($request, $response) {
         $json = Get-LiveCmdsJson 0   # no ack: an older app, hand over once
         $script:liveCmds.Clear()
     }
+    $fitIdJson = if ($null -ne $script:liveFit) { '"' + $script:liveFit.Id + '"' } else { 'null' }
+    $json = $json.Substring(0, $json.Length - 1) + ',"fitId":' + $fitIdJson + '}'
     Send-RawJson $response 200 $json
     Send-LiveWaiters
 }
@@ -1073,6 +1120,8 @@ try {
                 Invoke-Health $request $response $path
             } elseif ($path -eq '/api/live') {
                 Invoke-Live $request $response
+            } elseif ($path -eq '/api/live/fit') {
+                Invoke-LiveFit $request $response
             } elseif ($path -eq '/api/live/cmd') {
                 Invoke-LiveCmd $request $response
             } elseif ($path -eq '/api/live/cmds') {

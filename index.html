@@ -213,6 +213,15 @@
             <button type="button" class="btn btn-ghost btn-focus" id="btnToggleFocusMode" title="Focus layout"><svg class="ic"><use href="#i-focus"/></svg><span>Focus</span></button>
           </div>
         </div>
+        <div class="erg-response-control">
+          <label class="ctrl-label" for="ergResponse">ERG response</label>
+          <select class="input-field" id="ergResponse" aria-describedby="ergResponseSummary">
+            <option value="auto">Auto · match each interval</option>
+            <option value="steady">Steady · gentle corrections</option>
+            <option value="responsive">Responsive · faster corrections</option>
+          </select>
+          <p class="hint" id="ergResponseSummary" aria-live="polite"></p>
+        </div>
 
         <canvas id="pipCanvas" width="360" height="200" hidden></canvas>
         <video id="pipVideo" autoplay muted playsinline hidden></video>
@@ -1315,7 +1324,7 @@
           <label class="toggle">
             <input type="checkbox" id="chkEnablePowerMatch" checked>
             <span class="toggle-ui"></span>
-            <span><strong>PowerMatch</strong><span class="hw-sub">Trims KICKR resistance so pedal power hits the target (&plusmn;45 W, 2 W/s)</span></span>
+            <span><strong>PowerMatch</strong><span class="hw-sub">Matches trainer resistance to pedal power. Auto adapts corrections to each interval (&plusmn;45 W, up to 2 W/s).</span></span>
           </label>
           <span class="chip chip-violet num" id="hwPowerMatchTrimBadge">Inactive</span>
         </div>
