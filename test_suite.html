@@ -1646,6 +1646,59 @@
             }
           });
 
+          // 46l. Ask: period summary for the AI, conversation turns, chat thread, mocked /api/ask
+          await suite('Ask Your Data: Period Summary, Alternating Conversation, Chat Thread and Failed Questions Returned to the Box', async () => {
+            const W = frame.contentWindow, DAY = 86400000, now = Date.now(), realFetch = W.fetch;
+            const saved = { hist: app.completedWorkouts, msgs: app.askMessages, period: app.askPeriod, tab: app.activeTab, store: W.localStorage.getItem('apex_ask_v1') };
+            const ride = (id, daysAgo, sec, w) => {
+              const t0 = now - daysAgo * DAY, samples = [];
+              for (let i = 0; i < sec; i++) samples.push({ time: i, timestamp: t0 + i * 1000, power: w, hr: 120 + Math.round(w / 6), cadence: 90, target: 0 });
+              return { id, title: id, date: new W.Date(t0).toISOString(), duration: sec, samples, ftpAtRide: 200, np: w, avgWatts: w, tss: 60, source: 'test' };
+            };
+            const sent = [];
+            try {
+              app.completedWorkouts = [ride('ask_new', 2, 1800, 230), ride('ask_mid', 20, 2400, 200), ride('ask_old', 60, 3600, 180)];
+              app.askMessages = [];
+              app.switchTab('ask');
+              app.setAskPeriod('4w');
+              const ctx = app.askContext();
+              const ctxOk = /PERIOD ASKED ABOUT: Last 4 weeks/.test(ctx) && ctx.includes('ask_new') && ctx.includes('ask_mid') && !ctx.includes('ask_old') && /PERIOD TOTALS/.test(ctx) && /MEANINGS:/.test(ctx);
+              const scopeOk = /^2 rides/.test(D.getElementById('askScope').textContent.trim());
+              const chips = D.querySelectorAll('#askThread [data-suggest]').length;
+              W.fetch = async (u, o = {}) => {
+                if (!String(u).includes('api/ask')) return realFetch(u, o);
+                const body = JSON.parse(o.body);
+                sent.push(body);
+                if (sent.length === 3) return new W.Response(JSON.stringify({ error: 'Claude is busy - try again.' }), { status: 503, headers: { 'Content-Type': 'application/json' } });
+                return new W.Response(JSON.stringify({ text: `**Answer ${sent.length}**`, model: body.model }), { status: 200, headers: { 'Content-Type': 'application/json' } });
+              };
+              await app.sendAsk('How is my fitness?');
+              app.setAskPeriod('6w');
+              await app.sendAsk('And over 6 weeks?');
+              await app.sendAsk('One more?');
+              const roles = sent[1].messages.map(m => m.role).join(',');
+              const turnsOk = sent.length === 3 && sent[0].messages.length === 1 && roles === 'user,assistant,user' && sent[0].context === ctx && /Last 6 weeks/.test(sent[1].context) && sent[1].context.includes('ask_old') === false;
+              const thread = D.getElementById('askThread');
+              const bubbles = thread.querySelectorAll('.ask-msg.ask-ai').length;
+              const noteOk = /Now looking at: Last 6 weeks/.test(thread.textContent);
+              const renderOk = bubbles === 2 && !!thread.querySelector('.ask-ai strong') && thread.querySelectorAll('.ask-user').length === 2;
+              const failOk = /Claude is busy/.test(thread.textContent) && D.getElementById('askInput').value === 'One more?' && app.askMessages.filter(m => m.role === 'user').length === 2;
+              const stored = JSON.parse(W.localStorage.getItem('apex_ask_v1'));
+              const storeOk = stored.period === '6w' && !stored.messages.some(m => m.role === 'error');
+              app.newAskChat();
+              const clearOk = app.askMessages.length === 0 && D.querySelectorAll('#askThread [data-suggest]').length === chips;
+              const ok = ctxOk && scopeOk && chips >= 4 && turnsOk && noteOk && renderOk && failOk && storeOk && clearOk;
+              return { ok, detail: `summary:${ctxOk} (${ctx.length} chars) | scope:${scopeOk} | ${chips} suggestions | turns ${roles}:${turnsOk} | period note:${noteOk} | bubbles ${bubbles}:${renderOk} | failed question back in box:${failOk} | saved:${storeOk} | new chat:${clearOk}` };
+            } finally {
+              W.fetch = realFetch;
+              app.completedWorkouts = saved.hist; app.askMessages = saved.msgs; app.askPeriod = saved.period;
+              if (saved.store === null) W.localStorage.removeItem('apex_ask_v1'); else W.localStorage.setItem('apex_ask_v1', saved.store);
+              D.getElementById('askInput').value = '';
+              app.renderAskPeriod(); app.renderAskThread();
+              app.switchTab(saved.tab || 'cockpit');
+            }
+          });
+
           // 46k. Settings screen + readiness in the AI coach
           await suite('Settings Screen (Rider, AI Engine, Apple Health, Backups, Phone) and Readiness Steering the Coach', async () => {
             const W = frame.contentWindow;

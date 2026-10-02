@@ -193,6 +193,7 @@
     },
 
     updateCoachEngineStatus() {
+      if (this.updateAskEngine) this.updateAskEngine();
       const bl = document.getElementById('btnBuildBlockLabel');
       if (bl) bl.textContent = this.aiCoach.isLive ? `Build block with ${VeloAiCoach.labelFor(this.aiCoach.model)}` : 'Build block (built-in engine)';
       const el = document.getElementById('aiCoachEngineStatus');
