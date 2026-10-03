@@ -62,7 +62,7 @@ const root = path.resolve(__dirname, '..');
       app.updateHudTitles(); app.renderIntervalTrack();
     });
     assert.match(await page.locator('#ergResponseSummary').textContent(), /Responsive/);
-    await page.screenshot({ path: path.join(root, 'proposals/erg-adaptive-desktop.png') });
+    await page.screenshot({ path: path.join(root, 'test-output/erg-adaptive-desktop.png') });
     await page.setViewportSize({ width: 390, height: 844 });
     const fit = await page.locator('.erg-response-control').evaluate(el => {
       const r = el.getBoundingClientRect();
@@ -70,7 +70,7 @@ const root = path.resolve(__dirname, '..');
     });
     assert.ok(fit, 'ERG controls fit the phone viewport');
     await page.locator('.erg-response-control').scrollIntoViewIfNeeded();
-    await page.screenshot({ path: path.join(root, 'proposals/erg-adaptive-mobile.png') });
+    await page.screenshot({ path: path.join(root, 'test-output/erg-adaptive-mobile.png') });
     assert.deepEqual(errors, []);
     console.log('Passed: Auto and manual choices, preference persistence, every interval stays in ERG, per-step updates, desktop/mobile layout, no runtime errors.');
     if (process.argv.includes('--suite')) {
