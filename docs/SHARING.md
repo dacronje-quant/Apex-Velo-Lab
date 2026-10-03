@@ -18,10 +18,12 @@ Existing installations retain browser profiles, rides, device settings and healt
 
 ## GitHub donations
 
-The repository's [funding configuration](../.github/FUNDING.yml) selects GitHub Sponsors for `dacronje-quant`. It prepares the Sponsor button; it does not create a payment account. Activation requires:
+The repository's [funding configuration](../.github/FUNDING.yml) points the Sponsor button to [PayPal.Me](https://paypal.me/divanquant). The README also links directly to PayPal. Donations through this link are handled by PayPal and do not require a GitHub Sponsors profile or approval.
 
-1. Open [GitHub Sponsors setup](https://github.com/sponsors/accounts) while signed in as `dacronje-quant`. Complete the profile, payout and tax details, enable two-factor authentication and submit the profile for approval. GitHub's [personal account guide](https://docs.github.com/en/sponsors/receiving-sponsorships-through-github-sponsors/setting-up-github-sponsors-for-your-personal-account) explains these steps.
-2. Once approved, check [your public Sponsors page](https://github.com/sponsors/dacronje-quant). GitHub supports one-time and monthly contributions; donation tiers are optional.
-3. Merge the prepared funding file into the repository's default branch when ready. In repository **Settings > General > Features**, enable **Sponsorships**, then check the Sponsor button. GitHub reads `.github/FUNDING.yml` from the default branch; a local development branch alone cannot enable the live button. See [GitHub's Sponsor button guide](https://docs.github.com/en/repositories/managing-your-repositorys-settings-and-features/customizing-your-repository/displaying-a-sponsor-button-in-your-repository).
+1. Merge the prepared funding file into the repository's default branch when ready. GitHub reads `.github/FUNDING.yml` from the default branch; a local development branch alone cannot enable the live button.
+2. In repository **Settings > General > Features**, enable **Sponsorships**.
+3. Check the Sponsor button and confirm it opens `https://paypal.me/divanquant`. See [GitHub's Sponsor button guide](https://docs.github.com/en/repositories/managing-your-repositorys-settings-and-features/customizing-your-repository/displaying-a-sponsor-button-in-your-repository).
 
-No hosted app, payment code or API key is needed. Payments are handled by GitHub. Keep donations voluntary; using and modifying the app does not require payment. To use an existing external donation account instead, replace or extend the funding configuration with that account's verified platform handle or URL using GitHub's supported syntax.
+No hosted app, payment code or API key is needed. Keep donations voluntary; using and modifying the app does not require payment.
+
+Native GitHub Sponsors is optional. Its `github: [dacronje-quant]` setting is retained as a comment in the funding file. To enable it later, complete [GitHub Sponsors setup](https://github.com/sponsors/accounts), get the profile approved, then uncomment that setting. GitHub's [personal account guide](https://docs.github.com/en/sponsors/receiving-sponsorships-through-github-sponsors/setting-up-github-sponsors-for-your-personal-account) explains the account setup.

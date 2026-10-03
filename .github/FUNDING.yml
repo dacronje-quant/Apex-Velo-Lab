@@ -1,3 +1,6 @@
-# Activate the maintainer's GitHub Sponsors profile before accepting donations.
+# PayPal donations do not require GitHub Sponsors enrollment.
+custom: ["https://paypal.me/divanquant"]
+
+# Optional: uncomment after the maintainer's GitHub Sponsors profile is approved.
 # Setup: https://github.com/sponsors/accounts
-github: [dacronje-quant]
+# github: [dacronje-quant]

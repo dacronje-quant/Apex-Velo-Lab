@@ -418,4 +418,4 @@ Apex Velo Lab is available under the [MIT licence](LICENSE). You can use, modify
 
 ## Support development
 
-Donations are optional. Funding links appear in the repository's **Sponsor** menu when available. All features remain free to use under the MIT licence. See [donation setup](docs/SHARING.md#github-donations) for maintainer activation steps.
+If you would like to support development, you can [donate via PayPal](https://paypal.me/divanquant). The same link is configured for the repository's **Sponsor** menu. Donations are optional; all features remain free to use under the MIT licence. See [donation setup](docs/SHARING.md#github-donations) for maintainer activation steps.
