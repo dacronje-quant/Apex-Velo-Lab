@@ -1826,6 +1826,7 @@ main { max-width: 1640px; padding-top: 22px; }
 
 /* Left: the current step */
 .ss-now { display: flex; flex-direction: column; gap: 14px; padding: 26px; }
+.ss-now { container-type: inline-size; }
 .ss-now-top { display: flex; justify-content: space-between; align-items: center; gap: 8px; }
 .ss-now .interval-name { font-size: 26px; line-height: 1.15; white-space: normal; overflow: visible; margin: 0; text-wrap: balance; }
 .ss-now .countdown { font-size: 92px; font-weight: 300; line-height: 0.95; letter-spacing: -0.06em; }
@@ -2129,4 +2130,49 @@ select.input-field option, .header-profile-dropdown option { background: #10142a
 @media (prefers-reduced-motion: reduce) {
   body::before { animation: none; }
   .tab-view.active { animation: none; }
+}
+
+/* Slipstream text must fit the card, including narrow screens and long names. */
+.ss-now .countdown { font-size: clamp(36px, 24cqw, 76px); }
+.ss-now .interval-name, .workout-overview-name h3, .w-card-title,
+.section-title, .modal-header h3, .ask-bubble, .device-error { overflow-wrap: anywhere; }
+.ss-next { flex-wrap: wrap; }
+.ss-next b { flex: 1 1 120px; white-space: normal; overflow-wrap: anywhere; }
+.ss-next-info { flex: 0 0 auto; }
+.upcoming-card-name { white-space: normal; overflow: visible; overflow-wrap: anywhere; }
+.mix-row { grid-template-columns: 96px minmax(0, 1fr) max-content; }
+.mix-val { min-width: max-content; }
+#anaRangePills { flex-wrap: wrap; max-width: 100%; }
+.readiness-chip { max-width: 100%; height: auto; min-height: 26px; white-space: normal; overflow-wrap: anywhere; }
+.inspector-header-stats .plain, .metrics-row .plain, .kpi .plain, .tile .plain {
+  white-space: normal; overflow: visible; overflow-wrap: anywhere;
+}
+.kpi { min-width: 0; container-type: inline-size; }
+.kpi-val { font-size: clamp(16px, 21cqw, 22px); }
+.zen-cockpit-overlay { overflow: hidden; gap: 12px; }
+.zen-cockpit-overlay > * { flex-shrink: 0; min-width: 0; max-width: 100%; }
+.zen-top-strip { flex-wrap: wrap; }
+.zen-top-left { min-width: 0; flex: 1 1 220px; }
+.zen-top-right { flex: 0 1 auto; flex-wrap: wrap; }
+.zen-workout-title, .zen-next-text { white-space: normal; overflow: visible; overflow-wrap: anywhere; }
+.zen-center-hero { width: 100%; min-width: 0; }
+.zen-cockpit-overlay .zen-center-hero { flex: 1 1 auto; min-height: 0; overflow-y: auto; overflow-x: hidden; padding: 4px; }
+.zen-center-hero > * { flex-shrink: 0; max-width: 100%; }
+.zen-step-name { overflow-wrap: anywhere; max-width: 100%; text-align: center; }
+.zen-power-card { width: min(680px, 100%); min-width: 0; container-type: inline-size; }
+.zen-power-number { min-width: 0; font-size: clamp(52px, 24cqw, 136px); }
+.zen-hero-power, .zen-smoothing-bar { max-width: 100%; }
+.zen-smoothing-bar .segmented { flex-wrap: wrap; }
+.zen-secondary-strip { width: min(900px, 100%); }
+.zen-up-next-banner { max-width: 100%; flex-wrap: wrap; border-radius: 18px; }
+.zen-next-text { min-width: 0; flex: 1 1 180px; }
+.zen-diff-pill { height: auto; min-height: 26px; }
+.zen-bias-group, .zen-bias-group .segmented { flex-wrap: wrap; }
+@media (max-width: 560px) {
+  .ss-now-top { flex-wrap: wrap; }
+  .section-head > div, .ana-head > div, .ask-head > div { min-width: 0; max-width: 100%; }
+  .zen-top-right { flex: 1 1 100%; justify-content: space-between; }
+  .zen-secondary-strip { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .zen-sec-tile { min-height: 104px; }
+  .zen-mini-canvas-wrap { display: none; }
 }
