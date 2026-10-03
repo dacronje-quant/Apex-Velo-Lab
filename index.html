@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <meta name="theme-color" content="#090d16">
+  <meta name="theme-color" content="#060812">
   <meta name="color-scheme" content="dark">
   <link rel="manifest" href="manifest.json">
   <link rel="icon" type="image/x-icon" href="apex-velo-icon.ico">
@@ -266,6 +266,7 @@
               </div>
             </div>
             <div class="hud-hero-value" id="hudHeroValue">
+              <svg class="ss-ring" viewBox="0 0 400 400" aria-hidden="true"><circle class="ss-ring-track" cx="200" cy="200" r="160"/><circle class="ss-ring-band" id="ssRingBand" cx="200" cy="200" r="160"/><circle class="ss-ring-arc" id="ssRingArc" cx="200" cy="200" r="160"/><line class="ss-ring-tick" id="ssRingTick" x1="200" y1="200" x2="200" y2="200"/></svg>
               <span class="num" id="valInstantPower">0</span>
               <span class="hud-hero-unit">W</span>
             </div>
@@ -336,6 +337,7 @@
 
         <div class="col-span-4 stack">
           <div class="card wbal-card" id="wbalCard" data-state="none">
+            <div class="ss-liquid" id="ssWbalLiquid" aria-hidden="true"><svg class="ss-wave" viewBox="0 0 800 14" preserveAspectRatio="none"><path d="M0 7 Q50 0 100 7 T200 7 T300 7 T400 7 T500 7 T600 7 T700 7 T800 7 V14 H0Z"/></svg></div>
             <div class="card-title">
               <span data-term="wbal">W&prime; balance</span>
               <span class="chip chip-ghost num" id="wbalCpChip">NO MODEL</span>
@@ -1537,5 +1539,6 @@
   <script src="js/app-remote.js"></script>
   <script src="js/app-health.js"></script>
   <script src="js/app-settings.js"></script>
+  <script src="js/app-slipstream.js"></script>
 </body>
 </html>
