@@ -1996,11 +1996,22 @@ body.focus-mode .ss-hero #valInstantPower { font-size: clamp(100px, 9vw, 150px);
    ========================================================================== */
 
 /* The zone light drifts very slowly, like air moving over the bike */
-body::before { inset: -12%; will-change: transform; animation: ssDrift 46s ease-in-out infinite alternate; }
+/* The pools of light move, not the layer: the layer stays exactly screen-sized, so it can never
+   make the page scrollable (iOS Safari counts oversized fixed layers as scrollable area). */
+@property --ss-dx { syntax: '<percentage>'; inherits: false; initial-value: 0%; }
+@property --ss-dy { syntax: '<percentage>'; inherits: false; initial-value: 0%; }
+body::before {
+  inset: 0;
+  background:
+    radial-gradient(1100px 760px at calc(4% + var(--ss-dx)) calc(-14% + var(--ss-dy)), color-mix(in srgb, var(--zone-a) 52%, transparent), transparent 70%),
+    radial-gradient(980px 760px at calc(104% - var(--ss-dx)) calc(6% + var(--ss-dy)), color-mix(in srgb, var(--zone-b) 38%, transparent), transparent 70%),
+    radial-gradient(1200px 800px at calc(40% + var(--ss-dx)) calc(120% - var(--ss-dy)), rgba(61, 99, 255, 0.26), transparent 70%);
+  animation: ssDrift 46s ease-in-out infinite alternate;
+}
 @keyframes ssDrift {
-  0% { transform: translate3d(0, 0, 0) scale(1); }
-  50% { transform: translate3d(3%, 2%, 0) scale(1.06); }
-  100% { transform: translate3d(-2%, 4%, 0) scale(1.03); }
+  0% { --ss-dx: 0%; --ss-dy: 0%; }
+  50% { --ss-dx: 6%; --ss-dy: 5%; }
+  100% { --ss-dx: -4%; --ss-dy: 9%; }
 }
 
 /* Page entrance */
