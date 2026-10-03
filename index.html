@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <meta name="theme-color" content="#090d16">
+  <meta name="theme-color" content="#060812">
   <meta name="color-scheme" content="dark">
   <link rel="manifest" href="manifest.json">
   <link rel="icon" type="image/x-icon" href="apex-velo-icon.ico">
@@ -141,46 +141,163 @@
     <!-- ============================== COCKPIT ============================== -->
     <section class="tab-view active" id="view-cockpit">
 
-      <div class="card session-card timeline-runner">
-        <div class="workout-overview" role="group" aria-label="Loaded workout summary">
-          <div class="workout-overview-name">
-            <span class="eyebrow">Loaded workout</span>
-            <h3 id="hudWorkoutTitle">--</h3>
+      <!-- Slipstream stage: the current step (left), power ring and ride controls (centre), body signals (right) -->
+      <div class="ss-stage">
+        <div class="card ss-now">
+          <div class="ss-now-top">
+            <span class="eyebrow" id="ssZoneLabel">Now</span>
+            <span class="workout-status-pill status-ready" id="hudWorkoutStatusPill">READY TO START</span>
           </div>
-          <dl class="workout-overview-stats">
-            <div>
-              <dt>Total duration</dt>
-              <dd class="num" id="hudWorkoutDuration">--</dd>
-            </div>
-            <div title="Average of all step targets weighted by their duration, including warmup, recoveries and cooldown. Uses your FTP and ERG bias.">
-              <dt>Expected avg power</dt>
-              <dd class="num" id="hudWorkoutAvgPower">--</dd>
-            </div>
-          </dl>
+          <h2 class="interval-name" id="hudIntervalName">Interval 1: Warmup</h2>
+          <span class="countdown num" id="hudIntervalCountdown">05:00</span>
+          <div class="ss-step-progress" aria-hidden="true"><i id="ssStepProgress"></i></div>
+          <div class="tag-row">
+            <span class="chip chip-accent interval-target-tag num" id="hudIntervalTargetTag">Target: 93W (50%)</span>
+            <span class="chip chip-amber cadence-target-badge num" id="hudCadenceTargetTag" title="Recommended cadence for this step">90 RPM Target</span>
+            <span class="compliance-pill compliance-idle num" id="hudCompliancePill">TARGET --</span>
+            <button type="button" class="readiness-chip" id="cockpitReadinessChip" data-level="none" hidden title="Today's readiness from Apple Health">Readiness --</button>
+          </div>
+          <div class="ss-next" id="ssNext" hidden>
+            <span class="ss-next-lbl">Next</span>
+            <b id="ssNextName"></b>
+            <span class="ss-next-info num" id="ssNextInfo"></span>
+          </div>
+          <button type="button" class="chip chip-ghost cockpit-rider-badge" id="cockpitRiderBadge" title="Active rider - click to manage">
+            <svg class="ic ic-xs"><use href="#i-user"/></svg>
+            <span id="hudProfileAvatarText" hidden></span>
+            <span id="hudRiderProfileName">Divan (185W)</span>
+          </button>
         </div>
-        <div class="timeline-header">
-          <div class="interval-info">
-            <h2 class="interval-name" id="hudIntervalName">Interval 1: Warmup</h2>
-            <div class="tag-row">
-              <span class="chip chip-accent interval-target-tag num" id="hudIntervalTargetTag">Target: 93W (50%)</span>
-              <span class="chip chip-amber cadence-target-badge num" id="hudCadenceTargetTag" title="Recommended cadence for this step">90 RPM Target</span>
-              <button type="button" class="chip chip-ghost cockpit-rider-badge" id="cockpitRiderBadge" title="Active rider - click to manage">
-                <svg class="ic ic-xs"><use href="#i-user"/></svg>
-                <span id="hudProfileAvatarText" hidden></span>
-                <span id="hudRiderProfileName">Divan (185W)</span>
-              </button>
-              <button type="button" class="readiness-chip" id="cockpitReadinessChip" data-level="none" hidden title="Today's readiness from Apple Health">Readiness --</button>
-              <span class="workout-status-pill status-ready" id="hudWorkoutStatusPill">READY TO START</span>
-              <span class="compliance-pill compliance-idle num" id="hudCompliancePill">TARGET --</span>
+
+        <div class="hud-hero-box ss-hero">
+          <div class="hud-hero-header">
+            <div class="hero-left">
+              <span class="eyebrow" id="hudPowerHeroLabel">3s SMOOTHED POWER</span>
+              <div class="power-smoothing-pills segmented" id="powerSmoothingPills" role="radiogroup" aria-label="Power smoothing window">
+                <button type="button" class="smooth-pill" data-sec="1" title="Instantaneous (1 s)">1s</button>
+                <button type="button" class="smooth-pill active" data-sec="3" title="3 s rolling average">3s</button>
+                <button type="button" class="smooth-pill" data-sec="5" title="5 s rolling average">5s</button>
+                <button type="button" class="smooth-pill" data-sec="10" title="10 s rolling average">10s</button>
+                <button type="button" class="smooth-pill" data-sec="30" title="30 s rolling average">30s</button>
+                <button type="button" class="smooth-pill" data-sec="60" title="1 min rolling average">1m</button>
+              </div>
+            </div>
+            <div class="hud-power-badges">
+              <span class="power-source-badge src-sim" id="hudPowerSourceBadge" title="Authoritative power source"><span class="badge-dot"></span>SIMULATOR</span>
+              <span class="erg-status-pill" id="hudErgStatusPill" title="Smart trainer ERG status">ERG READY</span>
             </div>
           </div>
-          <div class="interval-timer-wrap">
-            <span class="countdown num" id="hudIntervalCountdown">05:00</span>
-            <div class="session-meta">
-              <span><small>Elapsed</small><b class="num" id="hudTotalElapsed">00:00</b></span>
-              <span><small>Distance</small><b class="num" id="hudTotalDistance">0.00 km</b></span>
-              <span><small>Speed</small><b class="num" id="hudCurrentSpeed">0.0 km/h</b></span>
+          <div class="hud-hero-value" id="hudHeroValue">
+            <svg class="ss-ring" viewBox="0 0 400 400" aria-hidden="true"><circle class="ss-ring-track" cx="200" cy="200" r="160"/><circle class="ss-ring-band" id="ssRingBand" cx="200" cy="200" r="160"/><circle class="ss-ring-arc" id="ssRingArc" cx="200" cy="200" r="160"/><line class="ss-ring-tick" id="ssRingTick" x1="200" y1="200" x2="200" y2="200"/></svg>
+            <span class="num" id="valInstantPower">0</span>
+            <span class="hud-hero-unit">W</span>
+            <span class="ss-ring-target num" id="ssRingTarget" aria-hidden="true"></span>
+          </div>
+          <div class="target-band" aria-hidden="true">
+            <div class="target-band-track"><div class="target-band-ok"></div><div class="target-band-marker" id="targetBandMarker"></div></div>
+            <div class="target-band-scale num"><span>&minus;20%</span><span>target &plusmn;5%</span><span>+20%</span></div>
+          </div>
+          <div class="hud-hero-sub">
+            <span class="hero-stat-badge"><small>1s</small><strong class="num" id="val1sPower">0W</strong></span>
+            <span class="hero-stat-badge"><small>3s</small><strong class="num" id="val3sPower">0W</strong></span>
+            <span class="hero-stat-badge"><small>30s</small><strong class="num" id="val30sPower">0W</strong></span>
+            <span class="hero-stat-badge hero-stat-target"><small>Target</small><strong class="num" id="valTargetPower">93W</strong></span>
+            <span class="hero-stat-badge" data-term-tip="wkg"><small>W/kg</small><strong class="num" id="valWkg">0.00</strong></span>
+          </div>
+          <div class="ss-dock">
+            <div class="bias-stepper segmented ss-dock-bias">
+              <button type="button" id="btnBiasMinus5" title="ERG bias -5%">&minus;5%</button>
+              <div class="bias-val-display num" id="biasValueDisplay">100%</div>
+              <button type="button" id="btnBiasPlus5" title="ERG bias +5%">+5%</button>
             </div>
+            <button type="button" class="btn btn-start" id="btnPlayPause"><svg class="ic"><use id="btnPlayPauseIcon" href="#i-play"/></svg><span id="btnPlayPauseText">START WORKOUT</span></button>
+            <button type="button" class="btn btn-step" id="btnSkipInterval" title="Skip to the next step (&rarr;)"><svg class="ic"><use href="#i-skip"/></svg><span>Next step</span></button>
+            <button type="button" class="btn btn-stop" id="btnEndWorkout" title="Finish and save this session"><svg class="ic"><use href="#i-stop"/></svg><span>STOP &amp; SAVE</span></button>
+          </div>
+        </div>
+
+        <div class="ss-right">
+          <div class="metric-cell ss-orb" data-accent="rose">
+            <div class="metric-cell-top"><span class="metric-cell-lbl" data-term="gap">Heart rate</span><span class="ss-orb-note">last 60 s</span></div>
+            <span class="metric-cell-val num" id="valHeartRate">0</span>
+            <span class="metric-cell-sub" id="valHrZone">--</span>
+            <svg class="ss-spark" viewBox="0 0 240 36" preserveAspectRatio="none" aria-hidden="true"><polyline id="ssSparkHr"/></svg>
+          </div>
+          <div class="metric-cell ss-orb" data-accent="amber" id="metricCellCadence">
+            <div class="metric-cell-top"><span class="metric-cell-lbl" data-term="cadence">Cadence</span><span class="ss-orb-note">last 60 s</span></div>
+            <span class="metric-cell-val num" id="valCadence">0</span>
+            <span class="metric-cell-sub num" id="valCadenceSub">TGT: 90 RPM</span>
+            <svg class="ss-spark" viewBox="0 0 240 36" preserveAspectRatio="none" aria-hidden="true"><polyline id="ssSparkCad"/></svg>
+          </div>
+          <div class="card wbal-card" id="wbalCard" data-state="none">
+            <div class="ss-liquid" id="ssWbalLiquid" aria-hidden="true"><svg class="ss-wave" viewBox="0 0 800 14" preserveAspectRatio="none"><path d="M0 7 Q50 0 100 7 T200 7 T300 7 T400 7 T500 7 T600 7 T700 7 T800 7 V14 H0Z"/></svg></div>
+            <div class="card-title">
+              <span data-term="wbal">W&prime; balance</span>
+              <span class="chip chip-ghost num" id="wbalCpChip">NO MODEL</span>
+            </div>
+            <div class="wbal-main"><span class="wbal-value num" id="wbalValue">--</span><span class="wbal-unit">kJ</span><span class="wbal-pct num" id="wbalPct"></span></div>
+            <div class="wbal-track" aria-hidden="true"><div class="wbal-fill" id="wbalFill"></div></div>
+            <div class="wbal-foot"><span id="wbalNote">Your anaerobic reserve above critical power.</span><span class="wbal-matches">Matches <b class="num" id="wbalMatches">0</b></span></div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Timeline: ride totals, the whole workout profile, the step queue and the finer controls -->
+      <div class="card session-card timeline-runner ss-timeline">
+        <div class="ss-tl-head">
+          <div class="workout-overview" role="group" aria-label="Loaded workout summary">
+            <div class="workout-overview-name">
+              <span class="eyebrow">Loaded workout</span>
+              <h3 id="hudWorkoutTitle">--</h3>
+            </div>
+            <dl class="workout-overview-stats">
+              <div>
+                <dt>Total duration</dt>
+                <dd class="num" id="hudWorkoutDuration">--</dd>
+              </div>
+              <div title="Average of all step targets weighted by their duration, including warmup, recoveries and cooldown. Uses your FTP and ERG bias.">
+                <dt>Expected avg power</dt>
+                <dd class="num" id="hudWorkoutAvgPower">--</dd>
+              </div>
+            </dl>
+          </div>
+          <div class="session-meta">
+            <span><small>Elapsed</small><b class="num" id="hudTotalElapsed">00:00</b></span>
+            <span><small>Distance</small><b class="num" id="hudTotalDistance">0.00 km</b></span>
+            <span><small>Speed</small><b class="num" id="hudCurrentSpeed">0.0 km/h</b></span>
+          </div>
+        </div>
+
+        <div class="metrics-row ss-stats">
+          <div class="metric-cell" data-accent="cyan">
+            <div class="metric-cell-top"><span class="metric-cell-lbl" data-term="gap">Speed</span><span class="metric-src" id="speedSourceTag">SIM</span></div>
+            <span class="metric-cell-val num" id="valSpeed">0.0</span>
+            <span class="metric-cell-sub">km/h</span>
+          </div>
+          <div class="metric-cell" data-accent="violet">
+            <div class="metric-cell-top"><span class="metric-cell-lbl" data-term="gap">Distance</span><span class="metric-src" id="distSourceTag">SIM</span></div>
+            <span class="metric-cell-val num" id="valDistance">0.00</span>
+            <span class="metric-cell-sub">km</span>
+          </div>
+          <div class="metric-cell" data-accent="cyan">
+            <div class="metric-cell-top"><span class="metric-cell-lbl" data-term="gap">Avg power</span></div>
+            <span class="metric-cell-val num" id="valAvgPower">0</span>
+            <span class="metric-cell-sub">Watts</span>
+          </div>
+          <div class="metric-cell" data-accent="violet">
+            <div class="metric-cell-top"><span class="metric-cell-lbl" data-term="np">Norm power (NP)</span></div>
+            <span class="metric-cell-val num" id="valNormPower">0</span>
+            <span class="metric-cell-sub">Watts</span>
+          </div>
+          <div class="metric-cell" data-accent="cyan">
+            <div class="metric-cell-top"><span class="metric-cell-lbl" data-term="if">Intensity (IF)</span></div>
+            <span class="metric-cell-val num" id="valIntensityFactor">0.00</span>
+            <span class="metric-cell-sub">1.00 = your FTP</span>
+          </div>
+          <div class="metric-cell" data-accent="lime">
+            <div class="metric-cell-top"><span class="metric-cell-lbl" data-term="tss">TSS</span></div>
+            <span class="metric-cell-val num" id="valTss">0</span>
+            <span class="metric-cell-sub num" id="valTotalKj">0 kJ</span>
           </div>
         </div>
 
@@ -202,12 +319,7 @@
 
         <div class="timeline-controls">
           <div class="control-btn-group">
-            <button type="button" class="btn btn-start" id="btnPlayPause"><svg class="ic"><use id="btnPlayPauseIcon" href="#i-play"/></svg><span id="btnPlayPauseText">START WORKOUT</span></button>
-            <button type="button" class="btn btn-stop" id="btnEndWorkout" title="Finish and save this session"><svg class="ic"><use href="#i-stop"/></svg><span>STOP &amp; SAVE</span></button>
             <button type="button" class="btn btn-reset" id="btnResetWorkout" title="Reset to step 1"><svg class="ic"><use href="#i-reset"/></svg><span>RESET</span></button>
-          </div>
-          <div class="control-btn-group">
-            <button type="button" class="btn btn-step" id="btnSkipInterval" title="Skip to the next step (&rarr;)"><svg class="ic"><use href="#i-skip"/></svg><span>Next step</span></button>
             <button type="button" class="btn btn-step" id="btnStand" title="Out of the saddle: eases ERG 5% for 30 s, then ramps back (S). Tap again to end early."><span id="btnStandText">Stand 30s</span></button>
             <div class="segmented">
               <button type="button" id="btnShortenInterval" title="Shorten current step by 30 s">&minus;30s</button>
@@ -215,13 +327,10 @@
             </div>
           </div>
           <div class="control-btn-group">
-            <span class="ctrl-label">ERG bias</span>
-            <div class="bias-stepper segmented">
-              <button type="button" id="btnBiasMinus5">&minus;5%</button>
+            <span class="ctrl-label">Fine ERG bias</span>
+            <div class="segmented">
               <button type="button" id="btnBiasMinus1">&minus;1%</button>
-              <div class="bias-val-display num" id="biasValueDisplay">100%</div>
               <button type="button" id="btnBiasPlus1">+1%</button>
-              <button type="button" id="btnBiasPlus5">+5%</button>
             </div>
             <button type="button" class="btn btn-ghost btn-sm" id="btnBiasReset" title="Reset ERG bias to 100%">Reset</button>
           </div>
@@ -245,86 +354,9 @@
         <video id="pipVideo" autoplay muted playsinline hidden></video>
       </div>
 
-      <div class="cockpit-grid">
-        <div class="col-span-8 stack">
-          <div class="card hud-hero-box">
-            <div class="hud-hero-header">
-              <div class="hero-left">
-                <span class="eyebrow" id="hudPowerHeroLabel">3s SMOOTHED POWER</span>
-                <div class="power-smoothing-pills segmented" id="powerSmoothingPills" role="radiogroup" aria-label="Power smoothing window">
-                  <button type="button" class="smooth-pill" data-sec="1" title="Instantaneous (1 s)">1s</button>
-                  <button type="button" class="smooth-pill active" data-sec="3" title="3 s rolling average">3s</button>
-                  <button type="button" class="smooth-pill" data-sec="5" title="5 s rolling average">5s</button>
-                  <button type="button" class="smooth-pill" data-sec="10" title="10 s rolling average">10s</button>
-                  <button type="button" class="smooth-pill" data-sec="30" title="30 s rolling average">30s</button>
-                  <button type="button" class="smooth-pill" data-sec="60" title="1 min rolling average">1m</button>
-                </div>
-              </div>
-              <div class="hud-power-badges">
-                <span class="power-source-badge src-sim" id="hudPowerSourceBadge" title="Authoritative power source"><span class="badge-dot"></span>SIMULATOR</span>
-                <span class="erg-status-pill" id="hudErgStatusPill" title="Smart trainer ERG status">ERG READY</span>
-              </div>
-            </div>
-            <div class="hud-hero-value" id="hudHeroValue">
-              <span class="num" id="valInstantPower">0</span>
-              <span class="hud-hero-unit">W</span>
-            </div>
-            <div class="target-band" aria-hidden="true">
-              <div class="target-band-track"><div class="target-band-ok"></div><div class="target-band-marker" id="targetBandMarker"></div></div>
-              <div class="target-band-scale num"><span>&minus;20%</span><span>target &plusmn;5%</span><span>+20%</span></div>
-            </div>
-            <div class="hud-hero-sub">
-              <span class="hero-stat-badge"><small>1s</small><strong class="num" id="val1sPower">0W</strong></span>
-              <span class="hero-stat-badge"><small>3s</small><strong class="num" id="val3sPower">0W</strong></span>
-              <span class="hero-stat-badge"><small>30s</small><strong class="num" id="val30sPower">0W</strong></span>
-              <span class="hero-stat-badge hero-stat-target"><small>Target</small><strong class="num" id="valTargetPower">93W</strong></span>
-              <span class="hero-stat-badge" data-term-tip="wkg"><small>W/kg</small><strong class="num" id="valWkg">0.00</strong></span>
-            </div>
-          </div>
-
-          <div class="metrics-row">
-            <div class="metric-cell" data-accent="cyan">
-              <div class="metric-cell-top"><span class="metric-cell-lbl" data-term="gap">Speed</span><span class="metric-src" id="speedSourceTag">SIM</span></div>
-              <span class="metric-cell-val num" id="valSpeed">0.0</span>
-              <span class="metric-cell-sub">km/h</span>
-            </div>
-            <div class="metric-cell" data-accent="violet">
-              <div class="metric-cell-top"><span class="metric-cell-lbl" data-term="gap">Distance</span><span class="metric-src" id="distSourceTag">SIM</span></div>
-              <span class="metric-cell-val num" id="valDistance">0.00</span>
-              <span class="metric-cell-sub">km</span>
-            </div>
-            <div class="metric-cell" data-accent="amber" id="metricCellCadence">
-              <div class="metric-cell-top"><span class="metric-cell-lbl" data-term="cadence">Cadence</span></div>
-              <span class="metric-cell-val num" id="valCadence">0</span>
-              <span class="metric-cell-sub num" id="valCadenceSub">TGT: 90 RPM</span>
-            </div>
-            <div class="metric-cell" data-accent="rose">
-              <div class="metric-cell-top"><span class="metric-cell-lbl" data-term="gap">Heart rate</span></div>
-              <span class="metric-cell-val num" id="valHeartRate">0</span>
-              <span class="metric-cell-sub" id="valHrZone">--</span>
-            </div>
-            <div class="metric-cell" data-accent="cyan">
-              <div class="metric-cell-top"><span class="metric-cell-lbl" data-term="gap">Avg power</span></div>
-              <span class="metric-cell-val num" id="valAvgPower">0</span>
-              <span class="metric-cell-sub">Watts</span>
-            </div>
-            <div class="metric-cell" data-accent="violet">
-              <div class="metric-cell-top"><span class="metric-cell-lbl" data-term="np">Norm power (NP)</span></div>
-              <span class="metric-cell-val num" id="valNormPower">0</span>
-              <span class="metric-cell-sub">Watts</span>
-            </div>
-            <div class="metric-cell" data-accent="cyan">
-              <div class="metric-cell-top"><span class="metric-cell-lbl" data-term="if">Intensity (IF)</span></div>
-              <span class="metric-cell-val num" id="valIntensityFactor">0.00</span>
-              <span class="metric-cell-sub">1.00 = your FTP</span>
-            </div>
-            <div class="metric-cell" data-accent="lime">
-              <div class="metric-cell-top"><span class="metric-cell-lbl" data-term="tss">TSS</span></div>
-              <span class="metric-cell-val num" id="valTss">0</span>
-              <span class="metric-cell-sub num" id="valTotalKj">0 kJ</span>
-            </div>
-          </div>
-
+      <!-- Details: the live trace, pedal balance and time in zone -->
+      <div class="cockpit-grid ss-details">
+        <div class="col-span-6 stack">
           <div class="card">
             <div class="card-title">
               <span>Live telemetry &middot; last 2 min</span>
@@ -333,17 +365,7 @@
             <div class="chart-container-hud"><canvas id="liveTelemetryChart"></canvas></div>
           </div>
         </div>
-
-        <div class="col-span-4 stack">
-          <div class="card wbal-card" id="wbalCard" data-state="none">
-            <div class="card-title">
-              <span data-term="wbal">W&prime; balance</span>
-              <span class="chip chip-ghost num" id="wbalCpChip">NO MODEL</span>
-            </div>
-            <div class="wbal-main"><span class="wbal-value num" id="wbalValue">--</span><span class="wbal-unit">kJ</span><span class="wbal-pct num" id="wbalPct"></span></div>
-            <div class="wbal-track" aria-hidden="true"><div class="wbal-fill" id="wbalFill"></div></div>
-            <div class="wbal-foot"><span id="wbalNote">Your anaerobic reserve above critical power.</span><span class="wbal-matches">Matches <b class="num" id="wbalMatches">0</b></span></div>
-          </div>
+        <div class="col-span-3 stack">
           <div class="card polar-card">
             <div class="card-title">
               <span>Left / right balance</span>
@@ -378,7 +400,8 @@
               </div>
             </div>
           </div>
-
+        </div>
+        <div class="col-span-3 stack">
           <div class="card zone-distribution-wrap">
             <div class="card-title">
               <span data-term="zones">Time in zone</span>
@@ -1010,6 +1033,13 @@
     <!-- ============================== CALENDAR ============================== -->
     <section class="tab-view" id="view-calendar">
       <div class="calendar-container">
+        <div class="section-head ss-page-head">
+          <div>
+            <span class="eyebrow">Calendar</span>
+            <h2 class="section-title">Your training, day by day</h2>
+            <p class="section-sub">Rides, load and recovery for the week, the month, the year or your whole history.</p>
+          </div>
+        </div>
         <div class="card calendar-header-strip">
           <div class="cal-toolbar">
             <div class="cal-preset-pills segmented" id="calPresetPills">
@@ -1187,7 +1217,7 @@
       </section>
 
       <section class="settings-section" data-sec="phone">
-        <p class="field-help">Open this address on your phone (same Wi-Fi) for the live screen and remote: Focus, Session, Balance and Pedal. One-time setup: run <code>Enable-Phone-View.bat</code> on this PC.</p>
+        <p class="field-help">Open this address on your phone (same Wi-Fi) for the live screen and remote: Ride, Pedaling (Balance and Stroke model), and Devices. One-time setup: run <code>Enable-Phone-View.bat</code> on this PC.</p>
         <div class="settings-kv" id="phoneViewAddress"><span class="dim">Checking the local server...</span></div>
       </section>
     </div>
@@ -1537,5 +1567,6 @@
   <script src="js/app-remote.js"></script>
   <script src="js/app-health.js"></script>
   <script src="js/app-settings.js"></script>
+  <script src="js/app-slipstream.js"></script>
 </body>
 </html>

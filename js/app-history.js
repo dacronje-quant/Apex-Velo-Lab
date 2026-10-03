@@ -605,18 +605,18 @@
         data: {
           labels: pts.map(s => this.fmtTime(s.time)),
           datasets: [
-            { label: 'Power', data: pts.map(s => s.power), borderColor: '#0891b2', backgroundColor: 'rgba(8,145,178,0.14)', fill: true, borderWidth: 1.5, tension: 0.1, yAxisID: 'y' },
+            { label: 'Power', data: pts.map(s => s.power), borderColor: '#4aa8ff', backgroundColor: 'rgba(74,168,255,0.14)', fill: true, borderWidth: 1.5, tension: 0.1, yAxisID: 'y' },
             { label: 'Target', data: pts.map(s => s.target || null), borderColor: 'rgba(230,237,247,0.45)', borderDash: [4, 4], borderWidth: 1, stepped: true, yAxisID: 'y' },
-            { label: 'Heart rate', data: pts.map(s => s.hr || null), borderColor: '#e11d48', borderWidth: 1.2, tension: 0.1, yAxisID: 'y1' },
-            { label: 'Cadence', data: pts.map(s => s.cadence || null), borderColor: '#d97706', borderWidth: 1.2, tension: 0.1, yAxisID: 'y2' }
+            { label: 'Heart rate', data: pts.map(s => s.hr || null), borderColor: '#ff5c86', borderWidth: 1.2, tension: 0.1, yAxisID: 'y1' },
+            { label: 'Cadence', data: pts.map(s => s.cadence || null), borderColor: '#ffae3d', borderWidth: 1.2, tension: 0.1, yAxisID: 'y2' }
           ]
         },
         options: {
           responsive: true, maintainAspectRatio: false, animation: false, normalized: true,
           interaction: { mode: 'index', intersect: false },
           scales: {
-            x: { grid: { color: 'rgba(148,163,184,0.08)' }, ticks: { color: '#6b778c', maxTicksLimit: 8, maxRotation: 0 } },
-            y: { position: 'left', grid: { color: 'rgba(148,163,184,0.08)' }, ticks: { color: '#6b778c' }, title: { display: true, text: 'W', color: '#6b778c' } },
+            x: { grid: { color: 'rgba(255,255,255,0.06)' }, ticks: { color: '#6f7894', maxTicksLimit: 8, maxRotation: 0 } },
+            y: { position: 'left', grid: { color: 'rgba(255,255,255,0.06)' }, ticks: { color: '#6f7894' }, title: { display: true, text: 'W', color: '#6f7894' } },
             y1: { display: false, min: 50, max: 200 },
             y2: { display: false, min: 40, max: 130 }
           },

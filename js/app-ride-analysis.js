@@ -15,7 +15,7 @@
   const PDC_TICKS = [1, 5, 15, 30, 60, 120, 300, 600, 1200, 3600, 7200, 14400];
   const PDC_TICKS_NARROW = [1, 10, 60, 300, 1200, 3600, 14400];
   const HR_ZONES = ['Z1 Recovery', 'Z2 Aerobic', 'Z3 Tempo', 'Z4 Threshold', 'Z5 Max'];
-  const HR_SHADES = ['rgba(225,29,72,0.35)', 'rgba(225,29,72,0.5)', 'rgba(225,29,72,0.65)', 'rgba(225,29,72,0.82)', '#e11d48'];
+  const HR_SHADES = ['rgba(255,92,134,0.35)', 'rgba(255,92,134,0.5)', 'rgba(255,92,134,0.65)', 'rgba(255,92,134,0.82)', '#ff5c86'];
   const SURFACE = '#0d1424';
 
   Object.assign(VeloApp.prototype, {

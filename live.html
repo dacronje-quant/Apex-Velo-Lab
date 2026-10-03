@@ -2,16 +2,17 @@
 <html lang="en">
 <head>
 <meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, user-scalable=no">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="apple-mobile-web-app-title" content="Apex Live">
-<meta name="theme-color" content="#07090d">
+<meta name="theme-color" content="#060812">
 <link rel="icon" type="image/x-icon" href="apex-velo-icon.ico">
 <link rel="icon" type="image/png" sizes="32x32" href="apex-velo-icon.png">
 <link rel="apple-touch-icon" href="apex-velo-icon.png">
 <title>Apex Live</title>
+<link href="css/fonts.css" rel="stylesheet">
 <style>
   :root {
     --bg: #07090d; --panel: #10141b; --line: #1d2430; --text: #eef2f7; --muted: #8a95a6; --dim: #566174;
@@ -29,6 +30,10 @@
   .pill.running { background: rgba(163,230,53,.15); color: var(--lime); }
   .pill.paused { background: rgba(251,191,36,.15); color: var(--amber); }
   .pill.offline { background: rgba(248,113,113,.15); color: var(--red); }
+  /* Keep-awake indicator: dim when the screen may sleep, lit when it is being held on */
+  .awake { display: grid; place-items: center; width: 26px; height: 26px; border-radius: 50%; color: var(--dim); background: rgba(255,255,255,.06); }
+  .awake svg { width: 15px; height: 15px; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; }
+  .awake[data-on="true"] { color: #ffd166; background: rgba(255,209,102,.16); box-shadow: 0 0 10px rgba(255,209,102,.35); }
   .devs { display: flex; gap: 5px; padding: 8px 6px; margin: -8px -6px; border: 0; background: transparent; border-radius: 8px; }
   .dev { width: 8px; height: 8px; border-radius: 50%; background: var(--dim); }
   .dev.on { background: var(--lime); }
@@ -261,95 +266,208 @@
   #btnStopConnections { min-height: 44px; }
   .hub { flex-wrap: wrap; }
 </style>
+<style>
+  /* Slipstream: night glass over a light that takes the colour of the current zone, the power
+     ring as the centrepiece of Ride and Focus, and the controls as a floating dock.
+     Visual only - every control and id keeps its behaviour. */
+  @property --zone-a { syntax: '<color>'; inherits: true; initial-value: #2a86ff; }
+  @property --zone-b { syntax: '<color>'; inherits: true; initial-value: #1fd1b2; }
+  :root {
+    --bg: #060812; --panel: rgba(255,255,255,.06); --line: rgba(255,255,255,.1); --text: #f1f4ff; --muted: #a4acc6; --dim: #6f7894;
+    --cyan: #7cc8ff; --lime: #4be3a6; --amber: #ffbe4a; --red: #ff6b8a;
+    --zone-a: #2a86ff; --zone-b: #1fd1b2;
+    --glass: linear-gradient(160deg, rgba(255,255,255,.09), rgba(255,255,255,.03));
+    --display: 'Unbounded', 'Figtree', -apple-system, sans-serif;
+  }
+  html, body { font-family: 'Figtree', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; }
+  /* html keeps the night colour; body is see-through so the zone light behind it shows */
+  body { background: transparent; transition: --zone-a 1.6s ease, --zone-b 1.6s ease; gap: 10px; }
+  /* The screen never scrolls: the page is exactly one screen tall. The light layer below is
+     screen-sized and drifts inside that frame, so it cannot push the page (iOS counts oversized
+     fixed layers as scrollable area, which slid the header under the status bar). */
+  html { height: var(--app-h, 100%); overflow: hidden; overscroll-behavior: none; }
+  /* --app-h: the real screen height when installed on the Home Screen (set below); iOS reports
+     100dvh short by the status bar there, which left a gap under the controls. */
+  body { height: var(--app-h, 100dvh); padding-bottom: max(8px, calc(env(safe-area-inset-bottom) - 12px)); }
+  body::before { content: ""; position: fixed; inset: 0; z-index: -1; pointer-events: none; will-change: transform;
+    /* Static (no drift) to save the phone's battery; the colours still follow the zone. */
+    background: radial-gradient(60% 45% at 8% 0%, color-mix(in srgb, var(--zone-a) 40%, transparent), transparent 72%),
+                radial-gradient(55% 50% at 100% 35%, color-mix(in srgb, var(--zone-b) 26%, transparent), transparent 72%),
+                radial-gradient(70% 45% at 45% 105%, rgba(61,99,255,.2), transparent 72%); }
+
+  /* Header and screen switcher */
+  header .title { font-family: var(--display); font-weight: 500; font-size: 15px; letter-spacing: -.02em; }
+  .pill { background: rgba(255,255,255,.08); border-radius: 999px; padding: 6px 11px; }
+  .pill.running { background: color-mix(in srgb, var(--lime) 18%, transparent); }
+  .dev { width: 9px; height: 9px; }
+  .dev.on { box-shadow: 0 0 8px var(--lime); }
+  .tabs { background: rgba(255,255,255,.07); border: 1px solid rgba(255,255,255,.1); border-radius: 999px; padding: 4px;
+    -webkit-backdrop-filter: blur(18px); backdrop-filter: blur(18px); }
+  .tabs button { border-radius: 999px; padding: 8px 2px; font-weight: 600; color: rgba(241,244,255,.6); transition: background .25s, color .2s; }
+  .tabs button[aria-selected="true"] { background: rgba(255,255,255,.16); color: #fff; box-shadow: inset 0 1px 0 rgba(255,255,255,.22); }
+
+  /* Glass everywhere */
+  .card, .m, .tr-tile, .dcard, .spin-offer, .ride-download { background: var(--glass); border: 1px solid rgba(255,255,255,.1);
+    -webkit-backdrop-filter: blur(18px) saturate(150%); backdrop-filter: blur(18px) saturate(150%);
+    box-shadow: inset 0 1px 0 rgba(255,255,255,.08); }
+  .card, .dcard, .spin-offer, .ride-download { border-radius: 26px; }
+  .m, .tr-tile { border-radius: 20px; }
+  .lbl, .m .l, .tr-tile .tl, .split .side .l { letter-spacing: .13em; color: rgba(241,244,255,.58); font-weight: 600; }
+  .countdown, .power .big, .hero .big, .split .side .big, .tr-tile .tv, .m .v, #pedL, #pedCad, #pedR {
+    font-family: var(--display); font-weight: 500; letter-spacing: -.05em; font-variant-numeric: tabular-nums; }
+  .note { color: rgba(241,244,255,.5); }
+
+  /* Power ring shared by Ride and Focus */
+  .ss-ring { position: absolute; left: 50%; transform: translateX(-50%); pointer-events: none; overflow: visible; }
+  .ss-ring circle { fill: none; transform: rotate(135deg); transform-origin: 200px 200px; }
+  .ss-ring .t { stroke: rgba(255,255,255,.09); stroke-width: 20; stroke-linecap: round; stroke-dasharray: 754 1005.3; }
+  .ss-ring .b { stroke: rgba(255,255,255,.22); stroke-width: 34; stroke-dasharray: 0 1005.3; transition: stroke-dasharray .6s, stroke-dashoffset .6s; }
+  .ss-ring .a { stroke: var(--zone-a); stroke-width: 20; stroke-linecap: round; stroke-dasharray: 0 1005.3; filter: drop-shadow(0 0 12px var(--zone-a)); transition: stroke-dasharray .35s ease; }
+
+  /* Ride: the ring on top, five compact tiles, then the workout graph */
+  .tr-page { gap: 8px; }
+  .tr-tiles { grid-template-columns: repeat(5, 1fr); gap: 6px; }
+  .tr-tile { padding: 8px 2px 6px; }
+  .tr-tile .tv { font-size: 19px; }
+  .tr-tile .tv small { font-size: 10px; }
+  .tr-tile .tl { font-size: 8.5px; letter-spacing: .1em; }
+  .tr-tile .ts { font-size: 10.5px; min-height: 13px; }
+  .tr-tile .tl, .tr-tile .ts { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; padding: 0 3px; }
+  .tr-tile.hr .tv { color: #fff; }
+  button.tr-tile.pw { grid-column: 1 / -1; order: -1; position: relative; height: 204px; display: flex; flex-direction: column; align-items: center; justify-content: center;
+    background: none; border: 0; box-shadow: none; -webkit-backdrop-filter: none; backdrop-filter: none; padding: 0; }
+  .tr-tile.pw .ss-ring { top: 2px; width: 200px; height: 200px; }
+  .tr-tile.pw .tv { position: relative; font-size: 64px; font-weight: 600; color: #fff; text-shadow: 0 0 30px color-mix(in srgb, var(--zone-a) 55%, transparent); margin-top: 6px; }
+  .tr-tile.pw .tl { position: relative; font-size: 9.5px; }
+  .tr-tile.pw .ts { position: relative; font-size: 13px; font-weight: 700; }
+  .tr-graph { background: rgba(3,5,14,.45); border: 1px solid rgba(255,255,255,.08); border-radius: 22px; min-height: 130px; }
+  .tr-graph-mode { background: rgba(14,18,38,.85); border-color: rgba(255,255,255,.12); }
+  .tr-next { font-size: 13.5px; }
+
+  /* Focus: step card and the ring */
+  .countdown { font-weight: 300; font-size: 60px; }
+  .bar { height: 8px; border-radius: 99px; background: rgba(255,255,255,.08); }
+  .bar > i { border-radius: 99px; background: linear-gradient(90deg, var(--zone-a), var(--zone-b)); box-shadow: 0 0 12px var(--zone-a); }
+  .zb { border-radius: 999px; padding: 4px 9px; color: #fff; background: linear-gradient(135deg, var(--zone-a), var(--zone-b)); }
+  .card.power { position: relative; padding-top: 14px; overflow: hidden; }
+  .card.power .ss-ring { top: 6px; width: 228px; height: 228px; }
+  .card.power .lbl, .card.power .big, .card.power .tgt { position: relative; }
+  .card.power .lbl { margin-top: 52px; }
+  .power .big { font-size: 74px; font-weight: 600; color: #fff !important; text-shadow: 0 0 34px color-mix(in srgb, var(--zone-a) 55%, transparent); }
+  .power .big small { font-family: 'Figtree', sans-serif; font-size: 22px; }
+  .power .tgt { font-size: 15px; }
+  #trace { margin-top: 44px; }
+
+  /* Session */
+  .hero .big { font-weight: 300; font-size: 72px; }
+  #ribbon, #balTrace, #zoneBar { border-radius: 10px; }
+
+  /* Controls: a floating glass dock */
+  .controls { padding: 8px; gap: 6px; border-radius: 30px; background: var(--glass); border: 1px solid rgba(255,255,255,.12);
+    -webkit-backdrop-filter: blur(20px) saturate(150%); backdrop-filter: blur(20px) saturate(150%);
+    box-shadow: inset 0 1px 0 rgba(255,255,255,.1), 0 20px 40px -24px rgba(0,0,0,.9); }
+  button { border-radius: 20px; background: rgba(255,255,255,.07); border-color: rgba(255,255,255,.1); font-weight: 600;
+    transition: transform .3s cubic-bezier(.34,1.4,.64,1), background .2s; }
+  button:active { transform: scale(.96); }
+  .controls button { border-radius: 22px; }
+  .controls button.primary { border-radius: 24px; }
+  button.primary { background: linear-gradient(135deg, var(--zone-a), var(--zone-b)); color: #fff; border: 0; box-shadow: 0 12px 28px -12px var(--zone-a); }
+  button.primary.pause { background: linear-gradient(135deg, #ffbe4a, #ff8a3d); color: #1a1102; box-shadow: 0 12px 28px -14px #ff8a3d; }
+  .biasv div { font-family: var(--display); font-weight: 500; letter-spacing: -.03em; }
+  .hub button, .dacts button.go, .dacts button.pair, .ride-download a { background: linear-gradient(135deg, var(--zone-a), var(--zone-b)); color: #fff; }
+
+  /* Overlay and toast */
+  .overlay { background: rgba(6,8,18,.82); -webkit-backdrop-filter: blur(14px); backdrop-filter: blur(14px); }
+  .overlay h2 { font-family: var(--display); font-weight: 500; letter-spacing: -.03em; }
+  .toast { background: rgba(16,20,42,.92); border: 1px solid rgba(255,255,255,.12); border-radius: 18px; -webkit-backdrop-filter: blur(16px); backdrop-filter: blur(16px); }
+
+  /* Phone on its side (bike mount): back to one row of tiles, no ring */
+  @media (orientation: landscape) and (max-height: 560px) {
+    .tr-tiles { grid-template-columns: repeat(6, 1fr); }
+    button.tr-tile.pw { grid-column: auto; order: 0; height: auto; padding: 4px 2px 3px; background: var(--glass); border: 1px solid rgba(255,255,255,.1); }
+    .tr-tile.pw .ss-ring { display: none; }
+    .tr-tile.pw .tv { font-size: 26px; margin-top: 0; }
+    .tr-tile .tv { font-size: 22px; }
+    .controls { border-radius: 22px; padding: 6px; }
+  }
+  @media (max-height: 700px) and (orientation: portrait) {
+    button.tr-tile.pw { height: 170px; }
+    .tr-tile.pw .ss-ring { width: 168px; height: 168px; }
+    .tr-tile.pw .tv { font-size: 52px; }
+  }
+  @media (prefers-reduced-motion: reduce) { body { transition: none; } body::before { animation: none; } }
+
+  /* Keep workout names and telemetry labels readable at phone widths. */
+  header { align-items: flex-start; }
+  header .title { white-space: normal; overflow: visible; overflow-wrap: anywhere; line-height: 1.3; }
+  @media (max-width: 560px) {
+    header { display: grid; grid-template-columns: minmax(0, 1fr) auto auto; gap: 6px 8px; }
+    header .title { grid-column: 1 / -1; }
+  }
+  .step { flex-wrap: wrap; }
+  .step .name { white-space: normal; overflow: visible; overflow-wrap: anywhere; }
+  .tr-step-name { color: var(--muted); font-size: 12px; line-height: 1.4; text-align: center; overflow-wrap: anywhere; }
+  .tr-tile .tl, .tr-tile .ts { white-space: normal; overflow: visible; overflow-wrap: anywhere; }
+  .tr-tiles { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+  .tr-tile .tl { font-size: 10px; letter-spacing: .05em; }
+  button.tr-tile.pw { height: 160px; }
+  .tr-tile.pw .ss-ring { width: 160px; height: 160px; }
+  .tr-tile.pw .tv { font-size: 52px; }
+  .controls button { min-width: 0; white-space: normal; overflow: visible; overflow-wrap: anywhere; line-height: 1.2; padding: 8px 4px; }
+  @media (orientation: landscape) and (max-height: 560px) {
+    .tr-tiles { grid-template-columns: repeat(6, minmax(0, 1fr)); }
+    button.tr-tile.pw { height: auto; }
+    .tr-tile.pw .tv { font-size: 26px; }
+  }
+</style>
+<link rel="stylesheet" href="css/phone-layout.css">
 </head>
 <body>
+<script>
+  // Home Screen app on iPhone: size the page to the physical screen. With a see-through status bar,
+  // iOS reports the viewport (100dvh, innerHeight) shorter than the screen by the status bar height.
+  (function () {
+    var standalone = window.navigator.standalone === true || (window.matchMedia && matchMedia('(display-mode: standalone)').matches);
+    if (!standalone || !window.screen) return;
+    var fit = function () {
+      var portrait = window.matchMedia ? matchMedia('(orientation: portrait)').matches : innerHeight >= innerWidth;
+      var h = portrait ? Math.max(screen.width, screen.height) : Math.min(screen.width, screen.height);
+      if (h > innerHeight) document.documentElement.style.setProperty('--app-h', h + 'px');
+      else document.documentElement.style.removeProperty('--app-h');
+    };
+    fit();
+    addEventListener('resize', fit);
+    addEventListener('orientationchange', function () { setTimeout(fit, 250); });
+  })();
+</script>
   <header>
     <div class="title" id="title">Apex Live</div>
     <button class="devs" id="devDots" title="Trainer / pedals / heart rate - tap for devices" aria-label="Devices">
       <i class="dev" id="devTrainer"></i><i class="dev" id="devPedals"></i><i class="dev" id="devHr"></i><i class="dev" id="devFan" title="HEADWIND fan"></i>
     </button>
+    <span class="awake" id="awakeDot" data-on="false" title="Screen keep-awake: off until you tap once" aria-label="Screen keep-awake off"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"/></svg></span>
     <div class="pill" id="state">CONNECTING</div>
   </header>
 
-  <nav class="tabs" role="tablist" id="tabs">
-    <button role="tab" aria-selected="true" data-page="0">Ride</button>
-    <button role="tab" aria-selected="false" data-page="1">Focus</button>
-    <button role="tab" aria-selected="false" data-page="2">Session</button>
-    <button role="tab" aria-selected="false" data-page="3">Balance</button>
-    <button role="tab" aria-selected="false" data-page="4">Pedal</button>
-    <button role="tab" aria-selected="false" data-page="5" id="tabDevices">Devices</button>
-  </nav>
+  <nav class="tabs" role="tablist" id="tabs" aria-label="Phone views"><button role="tab" aria-selected="true" data-page="0">Ride</button><button role="tab" aria-selected="false" data-page="3">Pedaling</button><button role="tab" aria-selected="false" data-page="5" id="tabDevices">Devices</button></nav>
 
-  <main class="pages" id="pages">
-    <!-- 0. Ride: big numbers over the whole workout with your power, HR and cadence traced on it -->
-    <section class="page tr-page" id="pageRide" aria-label="Ride">
+  <main class="pages" id="pages"><section class="page" id="pageRide" aria-label="Ride"><div class="mode-panel tr-page" id="rideWorkout">
       <div class="tr-tiles">
         <div class="tr-tile"><div class="tv num" id="trTarget">--</div><div class="tl">TARGET W</div><div class="ts num" id="trTargetSub">&nbsp;</div></div>
-        <button type="button" class="tr-tile pw" id="btnPowerView" aria-label="Power view: Current. Tap to change averaging."><div class="tv num" id="trPower">--</div><div class="tl" id="trPowerLabel">POWER · CURRENT</div><div class="ts num" id="trPowerSub">&nbsp;</div></button>
+        <button type="button" class="tr-tile pw" id="btnPowerView" aria-label="Power view: Current. Tap to change averaging."><svg class="ss-ring" viewBox="0 0 400 400" aria-hidden="true"><circle class="t" cx="200" cy="200" r="160"/><circle class="b" id="ssRideBand" cx="200" cy="200" r="160"/><circle class="a" id="ssRideArc" cx="200" cy="200" r="160"/></svg><div class="tv num" id="trPower">--</div><div class="tl" id="trPowerLabel">POWER · CURRENT</div><div class="ts num" id="trPowerSub">&nbsp;</div></button>
         <div class="tr-tile"><div class="tv num" id="trIntLeft">--:--</div><div class="tl">INTERVAL</div><div class="ts num" id="trIntSub">&nbsp;</div></div>
         <div class="tr-tile hr"><div class="tv num" id="trHr">--</div><div class="tl">HEART RATE</div><div class="ts" id="trHrSub">&nbsp;</div></div>
         <div class="tr-tile"><div class="tv num" id="trCad">--</div><div class="tl">CADENCE</div><div class="ts num" id="trCadSub">&nbsp;</div></div>
         <div class="tr-tile"><div class="tv num" id="trLeft">--:--</div><div class="tl">TIME LEFT</div><div class="ts num" id="trElapsed">&nbsp;</div></div>
       </div>
+      <div class="ride-totals" aria-label="Session totals"><span><b id="rideAvg">--</b><small>AVG W</small></span><span><b id="rideDist">--</b><small>DISTANCE KM</small></span><span id="rideBurstCell" hidden><b id="rideBurst">--</b><small>W&prime; LEFT</small></span></div><div class="tr-step-name" id="trStepName"></div>
       <div class="tr-graph" id="rideGraphView" role="button" tabindex="0" aria-pressed="false" aria-label="Full workout graph. Tap to follow the current intervals.">
         <canvas id="trGraph" aria-label="Workout targets with measured power, heart rate and cadence"></canvas>
         <div class="tr-graph-tools" aria-hidden="true"><span class="tr-graph-mode" id="rideGraphMode">Full workout</span><span id="rideGraphHint">Tap to follow</span></div>
       </div>
-      <div class="tr-legend"><span><i style="background:#2d7ff9"></i>Workout</span><span><i style="background:#facc15"></i>Power</span><span><i style="background:#fb7185"></i>Heart rate</span><span><i style="background:#34d399"></i>Cadence</span></div>
+      <div class="tr-legend"><span><i style="background:linear-gradient(90deg,#2a86ff,#ffb21f,#ff5a36)"></i>Workout</span><span><i style="background:#ffffff"></i>Power</span><span><i style="background:#ff5c86"></i>Heart rate</span><span><i style="background:#3ddc97"></i>Cadence</span></div>
       <div class="tr-next" id="trNext">&nbsp;</div>
-    </section>
-
-    <!-- 1. Focus: the current step and target power -->
-    <section class="page" id="pageFocus" aria-label="Focus">
-      <div class="card">
-        <div class="step">
-          <span class="zb" id="zoneBadge">--</span>
-          <span class="name" id="stepName">Waiting for the PC...</span>
-          <span class="idx num" id="stepIdx"></span>
-        </div>
-        <div class="countdown num" id="countdown">--:--</div>
-        <div class="bar"><i id="stepProgress"></i></div>
-      </div>
-
-      <div class="card power">
-        <div class="lbl" id="powerLbl">POWER (5s)</div>
-        <div class="big num" id="power">--<small>W</small></div>
-        <div class="tgt num" id="target">Target --</div>
-        <canvas id="trace"></canvas>
-      </div>
-
-      <div class="grid">
-        <div class="m" id="mHr"><div class="v num" id="hr">--</div><div class="l">HEART RATE</div><div class="s" id="hrZone">&nbsp;</div></div>
-        <div class="m" id="mCad"><div class="v num" id="cad">--</div><div class="l">CADENCE</div><div class="s num" id="cadTgt">pedal turns per minute</div></div>
-      </div>
-
-      <div class="next" id="next">&nbsp;</div>
-    </section>
-
-    <!-- 2. Session: the whole workout and % remaining -->
-    <section class="page" id="pageSession" aria-label="Session">
-      <div class="card hero">
-        <div class="lbl">SESSION COMPLETE</div>
-        <div class="big num" id="pctDone">--<small>%</small></div>
-        <div class="left num" id="remainingTotal">&nbsp;</div>
-        <canvas id="ribbon"></canvas>
-        <div class="sub num"><span id="elapsed">0:00</span><span id="sessionStep"></span><span id="totalDur"></span></div>
-      </div>
-
-      <div class="grid">
-        <div class="m"><div class="v num" id="avg">--</div><div class="l">AVG W</div><div class="s">average power</div></div>
-        <div class="m"><div class="v num" id="sHr">--</div><div class="l">HEART RATE</div><div class="s">beats per minute</div></div>
-        <div class="m"><div class="v num" id="sCad">--</div><div class="l">CADENCE</div><div class="s">pedal turns per minute</div></div>
-        <div class="m"><div class="v num" id="dist">--</div><div class="l">DISTANCE KM</div><div class="s">&nbsp;</div></div>
-        <div class="m" id="mWbal" hidden><div class="v num" id="wbal">--</div><div class="l">W&prime; LEFT KJ</div><div class="s">burst energy left</div></div>
-        <div class="m" id="mWbalPct" hidden><div class="v num" id="wbalPctPh">--</div><div class="l">W&prime; LEFT %</div><div class="s" id="wbalSub">of your burst energy</div></div>
-      </div>
-
-      <div class="next" id="nextSession">&nbsp;</div>
-    </section>
-
-    <!-- 3. Balance: measured L/R split from the pedals -->
-    <section class="page" id="pageBalance" aria-label="Balance">
+    </div></section><section class="page" id="pageBalance" aria-label="Pedaling" hidden><nav class="pedaling-views" aria-label="Pedaling display"><button type="button" data-pedal-view="0" aria-pressed="true">Balance</button><button type="button" data-pedal-view="1" aria-pressed="false">Stroke model</button></nav><div class="mode-panel" id="balanceView">
       <div class="card">
         <div class="lbl">PEDAL BALANCE</div>
         <div class="split">
@@ -372,10 +490,7 @@
       </div>
 
       <div class="note" id="balNote">Balance comes from the Assioma pedals. They don't report torque effectiveness or pedal smoothness, so those aren't shown.</div>
-    </section>
-
-    <!-- 4. Pedal: pedal-stroke polar view. Shape is a model; L/R split, size and speed are measured. -->
-    <section class="page" id="pagePedal" aria-label="Pedal">
+    </div><div class="mode-panel" id="pagePedal" hidden>
       <div class="card">
         <div class="sub" style="margin-top:0"><span class="lbl">PEDAL STROKE</span><span class="model-tag">MODEL</span></div>
         <div class="polar-wrap"><canvas id="pedalPolar"></canvas></div>
@@ -386,10 +501,7 @@
         </div>
       </div>
       <div class="note">Split, size and rotation are measured (balance, power, cadence); the lobe shape is a model.</div>
-    </section>
-
-    <!-- 5. Devices: see and connect the PC's Bluetooth sensors from the phone -->
-    <section class="page" id="pageDevices" aria-label="Devices">
+    </div></section><section class="page" id="pageDevices" aria-label="Devices" hidden>
       <div class="card hub">
         <svg class="ring" viewBox="0 0 54 54" aria-hidden="true">
           <circle cx="27" cy="27" r="22" stroke="#1d2430"></circle>
@@ -402,8 +514,7 @@
       </div>
       <div id="devList" style="display:flex;flex-direction:column;gap:8px"></div>
       <div class="note" id="devNote">Bluetooth runs on the PC - the phone is its remote. A device you have connected before connects from here with one tap. A brand-new one needs a single click on the PC the first time (browser security); after that the phone can do it on its own.</div>
-    </section>
-  </main>
+    </section></main><dialog id="fanSettings" aria-labelledby="fanSettingsTitle"><div class="fan-dialog-head"><strong id="fanSettingsTitle">HEADWIND airflow</strong><button id="closeFanSettings" type="button">Done</button></div><div id="fanSettingsControls"></div></dialog>
 
   <section class="spin-offer" id="spinOffer" hidden>
     <div class="so-title">Workout complete - nice work!</div>
@@ -428,10 +539,24 @@
     <button id="btnDown" disabled>&minus;5 W</button>
     <button class="biasv num" id="btnReset" disabled title="ERG change from the plan - tap to go back to the plan"><span>ERG</span><div id="bias">&plusmn;0 W</div></button>
     <button id="btnUp" disabled>+5 W</button>
-    <button id="btnStand" disabled>Stand 30s</button>
+    <button id="btnZen" type="button" aria-pressed="false">Zen</button>
     <button id="btnSkip" disabled style="grid-column: span 2">Skip step</button>
   </section>
 
+<section id="phoneZen" class="phone-zen" hidden aria-label="Zen ride view">
+  <div class="zen-top"><span id="zenState">READY</span><button id="zenExit" type="button">Exit Zen</button></div>
+  <div class="zen-dashboard"><div class="zen-left">
+    <button id="zenPowerView" class="zen-meter" type="button" aria-label="Change power averaging">
+      <svg class="ss-ring zen-ring" viewBox="-22 -22 444 444" aria-hidden="true"><circle class="t" cx="200" cy="200" r="160"/><circle class="b" id="zenBand" cx="200" cy="200" r="160"/><circle class="a" id="zenArc" cx="200" cy="200" r="160"/><line id="zenFtpTick" class="zen-ftp-tick"/><text id="zenFtpText" class="zen-ftp-text" text-anchor="middle" dominant-baseline="middle"></text></svg>
+      <div class="zen-reading"><div><span id="zenPower">--</span><small>W</small></div><div id="zenPowerLabel">Power &middot; Current</div><div id="zenTarget">No target</div><span id="zenZone">POWER</span></div>
+    </button>
+    <div class="zen-actions" aria-label="Ride controls"><button id="zenDown" type="button" aria-label="Reduce target by 5 watts">&minus;5 W</button><button id="zenToggle" type="button" aria-label="Start ride">START</button><button id="zenUp" type="button" aria-label="Increase target by 5 watts">+5 W</button><button id="zenSkip" type="button">Skip</button></div>
+  </div><div class="zen-metrics">
+    <div class="zen-card"><div class="zen-card-label"><span>HEART RATE</span><span>LAST 60 S</span></div><div class="zen-metric"><span id="zenHr">--</span><small>bpm</small></div><canvas id="zenHrTrace" role="img" aria-label="Heart rate over the last sixty seconds"></canvas></div>
+    <div class="zen-card"><div class="zen-card-label"><span>CADENCE</span><span id="zenCadenceTarget">LAST 60 S</span></div><div class="zen-metric"><span id="zenCadence">--</span><small>rpm</small></div><canvas id="zenCadTrace" role="img" aria-label="Cadence over the last sixty seconds"></canvas></div>
+    <div class="zen-card zen-reserve" id="zenReserve"><div class="zen-card-label"><span>W&prime; BALANCE</span><span>BURST RESERVE</span></div><div id="zenLiquid"></div><div class="zen-reserve-value"><div id="zenWbal">--</div><div id="zenWbalSub">No CP model</div></div></div>
+  </div></div>
+</section>
   <div class="overlay" id="overlay">
     <h2 id="ovTitle">Can't reach your PC</h2>
     <p id="ovText">Make sure Apex Velo Lab is running on the PC and your phone is on the same Wi-Fi.</p>
@@ -441,6 +566,7 @@
 <script src="js/velo-metrics.js"></script>
 <script src="js/velo-live-graph.js"></script>
 <script src="js/velo-biomech.js"></script>
+<script src="js/phone-zen.js"></script>
 <script>
 (function () {
   'use strict';
@@ -450,8 +576,9 @@
     const h = Math.floor(s / 3600), m = Math.floor((s % 3600) / 60), x = s % 60;
     return (h ? h + ':' + String(m).padStart(2, '0') : m) + ':' + String(x).padStart(2, '0');
   };
-  // Zone colours come from the app's shared Coggan table; a neutral grey if the script failed to load.
-  const zoneColor = (pct) => (window.VeloMetrics ? VeloMetrics.zoneForPct(pct).color : '#566174');
+  // Zone colours come from the app's shared Coggan table, drawn in the Slipstream zone light; a neutral grey if the script failed to load.
+  const ZONE_LIGHT = { Z1: '#3d63ff', Z2: '#2a86ff', Z3: '#16c08d', Z4: '#ffb21f', Z5: '#ff5a36', Z6: '#ff2e63', Z7: '#9b4dff' };
+  const zoneColor = (pct) => { const z = window.VeloMetrics ? VeloMetrics.zoneForPct(pct) : null; return z ? (ZONE_LIGHT[z.short] || z.color) : '#566174'; };
   const BAL_LEN = 120; // seconds of L/R balance kept for the Balance screen
   let snap = null, snapAt = 0, lastOkAt = 0, failures = 0, sending = false, skipArmedUntil = 0;
   const rideViewport = new VeloLiveGraph.Viewport({ reduceMotion: matchMedia('(prefers-reduced-motion: reduce)').matches });
@@ -513,34 +640,36 @@
     if (text) $('ovText').textContent = text;
   }
 
-  // ---- Screens ---------------------------------------------------------------------------
+  // ---- Screens: direct views, without nested navigation ----------------------------------
   const pages = $('pages');
   const tabs = Array.from(document.querySelectorAll('#tabs button'));
-  let page = 0;
-  try { page = Math.min(5, Math.max(0, parseInt(localStorage.getItem('apexLivePage3'), 10) || 0)); } catch (e) { /* storage blocked */ }
-
-  function setPage(i, smooth) {
-    page = Math.min(tabs.length - 1, Math.max(0, i));
-    pages.scrollTo({ left: page * pages.clientWidth, behavior: smooth ? 'smooth' : 'auto' });
-    markTab();
-  }
+  const destinations = [0, 3, 5];
+  let page = 0, pedalView = 0;
+  try { const old = Number(localStorage.getItem('apexLivePage3')) || 0; page = old === 4 ? 3 : destinations.includes(old) ? old : 0; pedalView = Number(localStorage.getItem('apexLivePedalMode') ?? (old === 4 ? 1 : 0)) === 1 ? 1 : 0; } catch (e) { /* storage blocked */ }
+  function setPage(i) { page = destinations.includes(i) ? i : 0; markTab(); }
   function markTab() {
-    tabs.forEach((b, i) => b.setAttribute('aria-selected', String(i === page)));
+    tabs.forEach(b => b.setAttribute('aria-selected', String(Number(b.dataset.page) === page)));
+    [$('pageRide'), $('pageBalance'), $('pageDevices')].forEach((el,i) => { el.hidden = destinations[i] !== page; });
+    $('balanceView').hidden = pedalView !== 0; $('pagePedal').hidden = pedalView !== 1;
+    document.querySelectorAll('[data-pedal-view]').forEach(b => b.setAttribute('aria-pressed', String(Number(b.dataset.pedalView) === pedalView)));
     document.body.classList.toggle('devpage', page === 5);
-    try { localStorage.setItem('apexLivePage3', String(page)); } catch (e) { /* storage blocked */ }
+    try { localStorage.setItem('apexLivePage3', String(page)); localStorage.setItem('apexLivePedalMode', String(pedalView)); } catch (e) { /* storage blocked */ }
     if (snap) drawAll(snap);
   }
-  tabs.forEach((b) => b.addEventListener('click', () => setPage(Number(b.dataset.page), true)));
-  pages.addEventListener('scroll', () => {
-    const i = Math.round(pages.scrollLeft / Math.max(1, pages.clientWidth));
-    if (i !== page) { page = i; markTab(); }
-  }, { passive: true });
-  document.addEventListener('keydown', (e) => {
+  tabs.forEach(b => b.addEventListener('click', () => setPage(Number(b.dataset.page))));
+  document.querySelectorAll('[data-pedal-view]').forEach(b => b.addEventListener('click', () => { pedalView = Number(b.dataset.pedalView); markTab(); }));
+  function movePage(delta) { setPage(destinations[Math.max(0, Math.min(2, destinations.indexOf(page) + delta))]); }
+  document.addEventListener('keydown', e => {
+    if (PhoneZen.active) return;
     if (['INPUT','SELECT','TEXTAREA'].includes(e.target?.tagName) || e.target?.isContentEditable) return;
-    if (e.key === 'ArrowRight') setPage(page + 1, true);
-    if (e.key === 'ArrowLeft') setPage(page - 1, true);
+    if (e.key === 'ArrowRight') movePage(1);
+    if (e.key === 'ArrowLeft') movePage(-1);
   });
-  window.addEventListener('resize', () => { setPage(page, false); if (snap) drawAll(snap); });
+  let swipeStart = null;
+  pages.addEventListener('touchstart', e => { if (e.touches.length === 1 && !e.target.closest('button,select,input')) swipeStart = {x:e.touches[0].clientX,y:e.touches[0].clientY}; }, {passive:true});
+  pages.addEventListener('touchend', e => { if (!swipeStart || !e.changedTouches.length) return; const dx=e.changedTouches[0].clientX-swipeStart.x,dy=e.changedTouches[0].clientY-swipeStart.y; swipeStart=null; if (Math.abs(dx)>70 && Math.abs(dx)>Math.abs(dy)*1.5) movePage(dx<0?1:-1); }, {passive:true});
+  pages.addEventListener('touchcancel', () => { swipeStart=null; });
+  window.addEventListener('resize', markTab);
 
   // ---- Data ------------------------------------------------------------------------------
   // Long-poll: the server answers as soon as the PC publishes a newer snapshot (right after each
@@ -632,15 +761,12 @@
     tb.classList.toggle('pause', riding);
     ['btnUp', 'btnDown', 'btnReset'].forEach((id) => { $(id).disabled = !live || sending; });
     $('btnSkip').disabled = !riding || sending;
-    $('btnStand').disabled = !riding || sending;
+    $('btnZen').disabled = false;
     const offer = !!(s && s.easySpinOffer != null);
     $('spinOffer').hidden = !offer;
     if (offer) $('spinLeft').textContent = `(${s.easySpinOffer})`;
-    const standing = !!(s && s.standLeft > 0);
-    $('btnStand').textContent = standing ? `Stand ${s.standLeft}s` : 'Stand 30s'; // cyan = standing, counting down
-    $('btnStand').classList.toggle('standing', standing);
     if (Date.now() > skipArmedUntil) { $('btnSkip').classList.remove('armed'); $('btnSkip').textContent = 'Skip step'; }
-    if (!s) return;
+    if (!s) { PhoneZen.syncControls(); return; }
 
     recordBalance(s);
     const pw = s.power5 != null ? s.power5 : s.power; // big number: 5 s average
@@ -651,12 +777,12 @@
     $('bias').textContent = dW === null ? `${s.bias || 100}%` : dW === 0 ? '\u00b10 W' : `${dW > 0 ? '+' : '\u2212'}${Math.abs(dW)} W`;
     $('btnReset').classList.toggle('biased', (s.bias || 100) !== 100);
     renderRide(s, riding);
-    renderFocus(s, riding, finished);
-    renderSession(s);
+    renderRideTotals(s);
     renderBalance(s);
     renderPedal(s);
     drawAll(s);
     applyOptimistic(s);
+    PhoneZen.syncControls();
   }
 
   // ---- Instant feedback ------------------------------------------------------------------
@@ -665,7 +791,7 @@
   // every snapshot, so the prediction is dropped exactly when the real state arrives - no flicker,
   // no double counting. If the PC never applies it (error, 4 s timeout) the screen falls back.
   let pending = [];
-  const PREDICT = new Set(['watts-up', 'watts-down', 'toggle', 'stand']);
+  const PREDICT = new Set(['watts-up', 'watts-down', 'toggle']);
   function livePending(s) {
     const now = Date.now(), ack = s && typeof s.cmdAck === 'number' ? s.cmdAck : null;
     pending = pending.filter((p) => now < p.until && !(ack !== null && ack >= (p.id != null ? p.id : p.guessId)));
@@ -689,62 +815,18 @@
       $('state').textContent = willRide ? 'RIDING' : 'PAUSED';
       $('state').className = 'pill ' + (willRide ? 'running' : 'paused');
     }
-    if (ps.some((p) => p.cmd === 'stand')) $('btnStand').textContent = s.standLeft > 0 ? 'Stand 30s' : 'Stand 30s \u2713';
   }
 
-  function renderFocus(s, riding, finished) {
-    const step = s.step;
-    $('stepName').textContent = step ? step.name : (finished ? 'Workout complete' : 'No workout loaded');
-    $('stepIdx').textContent = step ? `${step.index}/${step.count}` : '';
-    $('countdown').textContent = step ? fmt(step.remaining) : '--:--';
-    const zb = $('zoneBadge');
-    zb.textContent = s.targetZone ? s.targetZone.short : '--';
-    zb.style.setProperty('--zc', s.targetZone ? s.targetZone.color : '');
-    const stepDone = step && step.duration ? 1 - (step.remaining || 0) / step.duration : (finished ? 1 : 0);
-    $('stepProgress').style.width = Math.round(Math.min(1, Math.max(0, stepDone)) * 1000) / 10 + '%';
-
-    const pw = s.power5 != null ? s.power5 : s.power; // 5 s average (older PC app: its own smoothing)
-    const pz = s.power5 != null && s.zone5 ? s.zone5 : s.zone;
-    $('powerLbl').textContent = `POWER (${s.powerAvgSec || 5}s)`;
-    $('power').innerHTML = `${pw}<small>W</small>`;
-    $('power').style.color = pw > 0 && pz ? pz.color : '';
-    const t = $('target');
-    if (s.target > 0) {
-      const diff = pw - s.target, pct = Math.abs(diff) / s.target * 100;
-      t.textContent = `Target ${s.target}W${s.targetPct != null ? ` (${s.targetPct}%)` : ''}${riding ? `  ${diff >= 0 ? '+' : ''}${diff}` : ''}`;
-      t.className = 'tgt num ' + (!riding || pw === 0 ? '' : pct <= 5 ? 'on' : pct <= 10 ? 'close' : 'off');
-    } else { t.textContent = 'Target --'; t.className = 'tgt num'; }
-
-    $('hr').textContent = s.hr || '--';
-    $('hrZone').textContent = s.hrZone || ' ';
-    $('cad').textContent = s.cadence || '--';
-    $('cadTgt').textContent = s.targetCadence ? `target ${s.targetCadence} pedal turns/min` : 'pedal turns per minute';
-    const cd = s.cadence && s.targetCadence ? Math.abs(s.cadence - s.targetCadence) : null;
-    $('mCad').className = 'm' + (cd == null ? '' : cd <= 4 ? ' good' : ' warn');
-    $('next').innerHTML = nextLine(s);
-  }
-
-  function renderSession(s) {
-    const pct = Math.round((s.progress || 0) * 100);
-    $('pctDone').innerHTML = s.totalDuration ? `${pct}<small>%</small>` : '--<small>%</small>';
-    $('remainingTotal').textContent = s.totalDuration ? fmt(Math.max(0, s.totalDuration * (1 - (s.progress || 0)))) + ' left' : ' ';
-    $('elapsed').textContent = fmt(s.elapsed);
-    $('sessionStep').textContent = s.step ? `step ${s.step.index}/${s.step.count}` : '';
-    $('totalDur').textContent = s.totalDuration ? fmt(s.totalDuration) : '';
-    $('avg').textContent = s.avgPower || '--';
-    $('sHr').textContent = s.hr || '--';
-    $('sCad').textContent = s.cadence || '--';
-    $('dist').textContent = s.distanceKm ? s.distanceKm.toFixed(2) : '--';
-    // W' balance (sent only when the PC has a CP model): what is left of the anaerobic reserve above CP.
-    const wb = s.wbal || null;
-    $('mWbal').hidden = $('mWbalPct').hidden = !wb;
+  function renderRideTotals(s) {
+    $('rideAvg').textContent = s.avgPower || '--';
+    $('rideDist').textContent = s.distanceKm ? s.distanceKm.toFixed(1) : '--';
+    const wb = s.wbal;
+    $('rideBurstCell').hidden = !wb;
     if (wb) {
-      $('wbal').textContent = wb.kj.toFixed(1);
-      $('wbalPctPh').textContent = wb.pct + '%';
-      $('mWbalPct').className = 'm' + (wb.pct < 25 ? ' warn' : '');
-      $('wbalSub').textContent = wb.state === 'empty' ? 'empty - ease off' : wb.state === 'burning' && wb.tte != null ? `empty in ${fmt(wb.tte)}` : 'of your burst energy';
+      $('rideBurst').textContent = wb.pct + '%';
+      $('rideBurstCell').setAttribute('aria-label', 'Burst energy remaining: ' + wb.pct + '% (' + wb.kj.toFixed(1) + ' kJ)' + (wb.state === 'burning' && wb.tte != null ? ', empty in ' + fmt(wb.tte) : ''));
+      $('rideBurstCell').title = wb.kj.toFixed(1) + ' kJ remaining' + (wb.state === 'burning' && wb.tte != null ? ' · empty in ' + fmt(wb.tte) : '');
     }
-    $('nextSession').innerHTML = nextLine(s);
   }
 
   function renderBalance(s) {
@@ -825,7 +907,9 @@
         controls.innerHTML = '<label>Cooling mode <select aria-label="Fan cooling mode"><option value="manual">Manual</option><option value="hr">Follow heart rate</option><option value="power">Follow power</option></select></label><div class="dacts fan-presets">' + [0,25,50,75,100].map(v => `<button type="button" data-speed="${v}">${v === 0 ? 'Off' : v + '%'}</button>`).join('') + '</div>';
         controls.querySelector('select').addEventListener('change', e => send('fan-mode-' + e.target.value));
         controls.querySelectorAll('[data-speed]').forEach(b => b.addEventListener('click', () => send('fan-' + b.dataset.speed, 'Sending airflow command...')));
-        el.appendChild(controls);
+        $('fanSettingsControls').appendChild(controls);
+        const settings = document.createElement('button'); settings.type = 'button'; settings.className = 'fan-settings-button'; settings.textContent = 'Airflow';
+        settings.addEventListener('click', () => $('fanSettings').showModal()); el.querySelector('.dacts').appendChild(settings);
       }
       list.appendChild(el);
       devCards[kind] = {
@@ -863,6 +947,9 @@
       send('disconnect-' + kind);
     }
   }
+
+  $('closeFanSettings').addEventListener('click', () => $('fanSettings').close());
+  $('fanSettings').addEventListener('click', e => { if (e.target === $('fanSettings')) $('fanSettings').close(); });
 
   const fmtAgo = (sec) => (sec >= 3600 ? Math.floor(sec / 3600) + ' h ' + Math.floor((sec % 3600) / 60) + ' min' : sec >= 60 ? Math.floor(sec / 60) + ' min' : Math.max(0, sec) + ' s');
 
@@ -987,7 +1074,7 @@
       c.main.className = armed && main === 'disconnect' ? 'armed' : main === 'connect' ? 'go' : main === 'pair' ? 'pair' : '';
       c.main.disabled = noBt || sending || main === 'busy';
       if (kind === 'fan') {
-        const controls = c.el.querySelector('.fan-phone-controls');
+        const controls = $('fanSettingsControls').querySelector('.fan-phone-controls');
         controls.querySelectorAll('button,select').forEach(el => { el.disabled = noBt || sending || st !== 'connected' || !!r.busy; });
         const select = controls.querySelector('select');
         if (document.activeElement !== select) select.value = r.mode || 'manual';
@@ -1046,11 +1133,9 @@
   }
 
   function drawAll(s) {
-    drawZoneBar(s, s.progress || 0);
     if (page === 0) drawRideGraph(s, graphProgress());
-    if (page === 1) drawTrace(s);
-    if (page === 2) drawRibbon(s, s.progress || 0);
-    if (page === 3) drawBalance();
+    else drawZoneBar(s, s.progress || 0);
+    if (page === 3 && pedalView === 0) drawBalance();
   }
 
   /**
@@ -1058,6 +1143,9 @@
    * current step outlined), your power (yellow), heart rate (red, own scale) and cadence
    * (green, own scale) traced over it, and the playhead at `progress`.
    */
+  // Zone light colours for workout steps (match the PC cockpit profile).
+  const STEP_LIGHT = { Z1: '#3d63ff', Z2: '#2a86ff', Z3: '#16c08d', Z4: '#ffb21f', Z5: '#ff5a36', Z6: '#ff2e63', Z7: '#9b4dff' };
+  const stepLight = (pct) => { const z = window.VeloMetrics ? VeloMetrics.zoneForPct(pct) : null; return (z && STEP_LIGHT[z.short]) || '#2a86ff'; };
   function drawRideGraph(s, progress, now = performance.now()) {
     const cv = ctx2d($('trGraph')); if (!cv) return;
     const { g, w, h } = cv;
@@ -1077,8 +1165,7 @@
     const ftp = s.ftp || 200, bias = (s.bias || 100) / 100;
     const hist = s.hist || { p: [], h: [], c: [], bin: 1 };
     const recent = hist.recent;
-    const zoomAmount = total > 360 ? Math.max(0, Math.min(1, (total - span) / (total - 360))) : 0;
-    const top = 32, bottom = h - 22 - 26 * zoomAmount;
+    const top = 32, bottom = h - 22;
     // Keep the vertical scales the same in both views so zooming never distorts the effort.
     const pw = (hist.p || []).concat(recent?.p || []).filter((v) => v != null);
     const maxW = Math.max(ftp * 1.2, ...prof.map((p) => ftp * p[1] / 100 * bias), ...pw) * 1.08;
@@ -1098,13 +1185,20 @@
     // Grid: FTP line + 100 W steps
     g.lineWidth = 1;
     for (let v = 100; v < maxW; v += 100) { g.strokeStyle = 'rgba(148,163,184,.08)'; g.beginPath(); g.moveTo(0, yW(v)); g.lineTo(w, yW(v)); g.stroke(); }
-    // Steps
+    // Steps, each in its zone light: soft ahead of the playhead, full colour behind it
     let seconds = 0;
     prof.forEach(([dur, pct], i) => {
       const x = xOf(seconds), bw = dur / span * w, yT = yW(ftp * pct / 100 * bias);
-      g.fillStyle = 'rgba(45,127,249,.28)';
+      const zc = stepLight(pct * bias);
+      g.globalAlpha = .26; g.fillStyle = zc;
       g.fillRect(x, yT, Math.max(1, bw - 1), bottom - yT);
-      if (px > x) { g.fillStyle = 'rgba(45,127,249,.72)'; g.fillRect(x, yT, Math.max(0, Math.min(bw - 1, px - x)), bottom - yT); }
+      if (px > x) {
+        const fade = g.createLinearGradient(0, yT, 0, bottom);
+        fade.addColorStop(0, zc); fade.addColorStop(1, zc + '55');
+        g.globalAlpha = .9; g.fillStyle = fade;
+        g.fillRect(x, yT, Math.max(0, Math.min(bw - 1, px - x)), bottom - yT);
+      }
+      g.globalAlpha = 1;
       if (s.step && i === s.step.index - 1) { g.strokeStyle = 'rgba(238,242,247,.85)'; g.lineWidth = 1.5; g.strokeRect(x + .75, yT + .75, Math.max(1, bw - 2.5), bottom - yT - 1.5); }
       seconds += dur;
     });
@@ -1137,9 +1231,9 @@
     const times = hist.t || (hist.p || []).map((_, i) => Math.min(hist.seconds || total, (i + .5) * hist.bin));
     const recentStart = recent?.t?.length ? recent.t[0] : Infinity;
     const streams = [
-      ['c', (v) => bottom - (v / 150) * (bottom - top), '#34d399', 1.5],
-      ['h', (v) => bottom - ((v - hrLo) / (hrHi - hrLo)) * (bottom - top), '#fb7185', 1.8],
-      ['p', yW, '#facc15', 2]
+      ['c', (v) => bottom - (v / 150) * (bottom - top), '#3ddc97', 1.5],
+      ['h', (v) => bottom - ((v - hrLo) / (hrHi - hrLo)) * (bottom - top), '#ff5c86', 1.8],
+      ['p', yW, '#ffffff', 2]
     ];
     for (const [key, yOf, color, width] of streams) {
       line(hist[key] || [], times, null, hist.bin * 2, yOf, color, width, recentStart, !recent);
@@ -1148,24 +1242,8 @@
     // Playhead
     g.fillStyle = '#eef2f7'; g.fillRect(px - .75, top, 1.5, bottom - top);
     g.restore();
-    // A miniature full workout keeps the following window in context.
-    if (zoomAmount > .001) {
-      g.save(); g.globalAlpha = zoomAmount;
-      const my = h - 20, mh = 14;
-      let t = 0;
-      g.fillStyle = '#10141b'; g.fillRect(0, my, w, mh);
-      for (const [dur, pct] of prof) {
-        const height = Math.max(2, (ftp * pct / 100 * bias) / maxW * mh);
-        g.fillStyle = 'rgba(45,127,249,.6)';
-        g.fillRect(t / total * w, my + mh - height, Math.max(1, dur / total * w - 1), height);
-        t += dur;
-      }
-      const left = view.start / total * w, width = span / total * w;
-      g.fillStyle = 'rgba(34,211,238,.16)'; g.fillRect(left, my, width, mh);
-      g.strokeStyle = '#22d3ee'; g.lineWidth = 1; g.strokeRect(left + .5, my + .5, Math.max(1, width - 1), mh - 1);
-      g.fillStyle = '#eef2f7'; g.fillRect(view.position / total * w - .75, my, 1.5, mh);
-      g.restore();
-    }
+    // Reuse the existing workout strip for camera context; keep the graph's full plot height.
+    drawZoneBar(s, progress);
   }
 
   function renderRide(s, riding) {
@@ -1176,6 +1254,7 @@
     set('trTargetSub', s.targetPct ? `${s.targetPct}% FTP` : ' ');
     const power = selectedPower(s);
     set('trPower', power != null && (power > 0 || riding) ? power : '--');
+    $('trPower').classList.toggle('four-digits', $('trPower').textContent.length > 3);
     const ps = $('trPowerSub');
     if (ps) {
       if (riding && s.target > 0 && power > 0) {
@@ -1185,7 +1264,8 @@
       } else { ps.textContent = ' '; ps.className = 'ts num'; }
     }
     set('trIntLeft', stepLeft != null ? fmt(stepLeft) : '--:--');
-    set('trIntSub', s.step ? `${s.step.index}/${s.step.count} ${s.step.name || ''}` : ' ');
+    set('trIntSub', s.step ? `${s.step.index}/${s.step.count} steps` : ' ');
+    set('trStepName', s.step ? (s.step.name || '') : '');
     set('trHr', s.hr || '--');
     set('trHrSub', s.hrZone || ' ');
     set('trCad', s.cadence || '--');
@@ -1196,64 +1276,9 @@
     if (nx) nx.innerHTML = s.next && stepLeft != null
       ? `Next in <b class="num">${fmt(stepLeft)}</b>: <b>${esc(s.next.name)}</b> &middot; <span class="num">${fmt(s.next.duration)} @ ${s.next.watts} W</span>`
       : (s.step ? 'Final step &mdash; bring it home.' : '&nbsp;');
+    PhoneZen.update(s, power, powerViewLabel());
   }
 
-  function drawTrace(s) {
-    const cv = ctx2d($('trace')); if (!cv) return;
-    const { g, w, h } = cv;
-    const tr = s.trace || [];
-    const max = Math.max(s.target * 1.4 || 0, (s.ftp || 200) * 1.2, ...tr) || 1;
-    const y = (v) => h - 2 - (v / max) * (h - 4);
-    if (s.target > 0) {
-      g.strokeStyle = 'rgba(238,242,247,.35)'; g.setLineDash([4, 4]); g.lineWidth = 1;
-      g.beginPath(); g.moveTo(0, y(s.target)); g.lineTo(w, y(s.target)); g.stroke(); g.setLineDash([]);
-    }
-    if (tr.length < 2) return;
-    const step = w / 119;
-    const x0 = w - (tr.length - 1) * step;
-    g.beginPath();
-    tr.forEach((v, i) => { const x = x0 + i * step; i ? g.lineTo(x, y(v)) : g.moveTo(x, y(v)); });
-    g.strokeStyle = s.zone && s.zone.color ? s.zone.color : '#22d3ee';
-    g.lineWidth = 2; g.lineJoin = 'round'; g.stroke();
-  }
-
-  /** The whole workout as zone-coloured blocks; done blocks at full colour, a playhead at `progress`. */
-  function drawRibbon(s, progress) {
-    const cv = ctx2d($('ribbon')); if (!cv) return;
-    const { g, w, h } = cv;
-    const prof = (s.profile || []).filter((p) => p[0] > 0);
-    const total = prof.reduce((a, p) => a + p[0], 0);
-    if (!total) return;
-    const top = 10, maxPct = Math.max(120, ...prof.map((p) => p[1])) * 1.05;
-    const px = progress * w;
-    let x = 0;
-    prof.forEach(([dur, pct], i) => {
-      const bw = (dur / total) * w, bh = Math.max(4, (pct / maxPct) * (h - top));
-      g.fillStyle = zoneColor(pct);
-      g.globalAlpha = 0.4;
-      g.fillRect(x, h - bh, Math.max(1, bw - 1), bh);
-      if (px > x) { g.globalAlpha = 1; g.fillRect(x, h - bh, Math.max(0, Math.min(bw - 1, px - x)), bh); }
-      if (s.step && i === s.step.index - 1) {
-        g.globalAlpha = 1; g.strokeStyle = 'rgba(238,242,247,.8)'; g.lineWidth = 1.5;
-        g.strokeRect(x + .75, h - bh + .75, Math.max(1, bw - 2.5), bh - 1.5);
-      }
-      x += bw;
-    });
-    g.globalAlpha = 1;
-    // FTP reference line
-    const yF = h - (100 / maxPct) * (h - top);
-    g.strokeStyle = 'rgba(238,242,247,.3)'; g.setLineDash([3, 4]); g.lineWidth = 1;
-    g.beginPath(); g.moveTo(0, yF); g.lineTo(w, yF); g.stroke(); g.setLineDash([]);
-    // Playhead
-    g.fillStyle = '#eef2f7';
-    g.fillRect(Math.round(px) - 1, top - 2, 2, h - top + 2);
-    g.beginPath(); g.moveTo(px - 5, 0); g.lineTo(px + 5, 0); g.lineTo(px, top - 1); g.closePath(); g.fill();
-  }
-
-  /**
-   * Workout bar above the controls: a rounded bar of every step in its zone colour, sized by
-   * length, with the ridden part dimmed and a needle at `progress`.
-   */
   function drawZoneBar(s, progress) {
     const cv = ctx2d($('zoneBar')); if (!cv) return;
     const { g, w, h } = cv;
@@ -1276,6 +1301,18 @@
     g.fillStyle = 'rgba(7,9,13,.55)';
     g.fillRect(pad, top, px - pad, bh);
     g.restore();
+    const view = page === 0 && rideViewport.mode === 'follow' ? rideViewport.current : null;
+    const bar = $('zoneBar');
+    bar.dataset.view = view ? 'follow' : 'full';
+    bar.dataset.start = view ? view.start.toFixed(2) : '0';
+    bar.dataset.end = view ? view.end.toFixed(2) : String(total);
+    if (view) {
+      const left = pad + view.start / total * inner;
+      const width = (view.end - view.start) / total * inner;
+      g.fillStyle = 'rgba(124,200,255,.24)'; g.fillRect(left, top - 1, width, bh + 2);
+      g.strokeStyle = '#7cc8ff'; g.lineWidth = 1;
+      g.strokeRect(left + .5, top - 1.5, Math.max(1, width - 1), bh + 3);
+    }
     // Needle: a white line with a dark edge so it reads over any zone colour.
     g.fillStyle = '#07090d'; g.fillRect(px - 2.5, 0, 5, h);
     g.fillStyle = '#eef2f7'; g.fillRect(px - 1.5, 0, 3, h);
@@ -1310,7 +1347,7 @@
   function drawPedal(now) {
     const dt = lastFrame ? Math.min(0.1, (now - lastFrame) / 1000) : 0;
     lastFrame = now;
-    if (page !== 4 || !snap) return;
+    if (page !== 3 || pedalView !== 1 || !snap) return;
     if (!polar && window.VeloBiomechanicsRenderer) polar = new VeloBiomechanicsRenderer('pedalPolar');
     if (!polar) return;
     const cad = snap.cadence || 0;
@@ -1338,8 +1375,7 @@
     if (snap && snap.state === 'running' && snap.totalDuration && document.visibilityState === 'visible') {
       const ahead = Math.min(1.5, (Date.now() - snapAt) / 1000) / snap.totalDuration;
       const prog = Math.min(1, (snap.progress || 0) + ahead);
-      drawZoneBar(snap, prog);
-      if (page === 2) drawRibbon(snap, prog);
+      if (page !== 0) drawZoneBar(snap, prog);
     }
     requestAnimationFrame(glide);
   }
@@ -1386,7 +1422,6 @@
   $('btnReset').addEventListener('click', () => { if (snap && (snap.bias || 100) !== 100) send('bias-reset', 'ERG back to the plan'); });
   $('btnSpinMore').addEventListener('click', () => send('spin-more', '+5 min easy spin'));
   $('btnSpinFinish').addEventListener('click', () => send('spin-finish', 'Finishing the ride'));
-  $('btnStand').addEventListener('click', () => send('stand', snap && snap.standLeft > 0 ? 'Ending stand' : 'Stand - ERG eased for 30 s'));
   $('btnSkip').addEventListener('click', () => {
     const b = $('btnSkip');
     if (Date.now() < skipArmedUntil) { skipArmedUntil = 0; send('skip', 'Skipping step'); return; }
@@ -1403,11 +1438,26 @@
   async function keepAwake() {
     if (document.visibilityState !== 'visible') return;
     if ('wakeLock' in navigator && window.isSecureContext) {
-      try { if (!wakeSentinel || wakeSentinel.released) wakeSentinel = await navigator.wakeLock.request('screen'); return; } catch (e) { /* fall back to the video */ }
+      try {
+        if (!wakeSentinel || wakeSentinel.released) {
+          wakeSentinel = await navigator.wakeLock.request('screen');
+          wakeSentinel.addEventListener('release', showAwake);
+        }
+        showAwake();
+        return;
+      } catch (e) { /* fall back to the video */ }
     }
     if (!awakeVideo) {
       awakeVideo = document.createElement('video');
-      awakeVideo.muted = true; awakeVideo.loop = true; awakeVideo.playsInline = true;
+      // No loop: Safari does not keep the screen on for looping media, so rewind just before the end.
+      awakeVideo.muted = true; awakeVideo.loop = false; awakeVideo.playsInline = true;
+      awakeVideo.addEventListener('timeupdate', () => {
+        const d = awakeVideo.duration;
+        if (Number.isFinite(d) && d > 0 && awakeVideo.currentTime > Math.max(0.1, d - 0.35)) awakeVideo.currentTime = 0;
+      });
+      awakeVideo.addEventListener('ended', () => { awakeVideo.currentTime = 0; awakeVideo.play().catch(() => {}); });
+      awakeVideo.addEventListener('playing', showAwake);
+      awakeVideo.addEventListener('pause', () => { showAwake(); if (document.visibilityState === 'visible') setTimeout(keepAwake, 400); });
       ['muted', 'playsinline', 'webkit-playsinline'].forEach((a) => awakeVideo.setAttribute(a, ''));
       awakeVideo.setAttribute('aria-hidden', 'true');
       awakeVideo.style.cssText = 'position:fixed;left:0;bottom:0;width:1px;height:1px;opacity:0.01;pointer-events:none;';
@@ -1415,7 +1465,18 @@
       document.body.appendChild(awakeVideo);
     }
     try { if (awakeVideo.paused) await awakeVideo.play(); } catch (e) { /* needs a tap first */ }
+    showAwake();
   }
+  function showAwake() {
+    const dot = $('awakeDot');
+    if (!dot) return;
+    const on = !!(wakeSentinel && !wakeSentinel.released) || !!(awakeVideo && !awakeVideo.paused);
+    dot.dataset.on = String(on);
+    dot.title = on ? 'Screen keep-awake: on' : 'Screen keep-awake: off - tap anywhere to turn it on';
+    dot.setAttribute('aria-label', on ? 'Screen keep-awake on' : 'Screen keep-awake off');
+  }
+  // iOS can pause the keep-awake video on its own (another app's audio, a call); check every 15 s.
+  setInterval(() => { if (document.visibilityState === 'visible') keepAwake(); }, 15000);
   window.__apexKeepAwake = () => ({ secure: window.isSecureContext, lock: !!(wakeSentinel && !wakeSentinel.released), video: !!(awakeVideo && !awakeVideo.paused) });
   document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') { keepAwake(); restartPoll(); } });
   // Back from the app switcher / Wi-Fi back: reconnect at once instead of waiting for a stale request.
@@ -1425,10 +1486,36 @@
   document.addEventListener('touchend', keepAwake, { passive: true });
   if (!window.isSecureContext) setTimeout(() => toast('Tap anywhere once to keep the screen on'), 1500);
 
+  $('btnZen').addEventListener('click', () => setPage(0, false));
+  PhoneZen.init();
   setPage(page, false);
   restartPoll();
   requestAnimationFrame(glide);
 })();
+</script>
+<script>
+  // The Ride ring mirrors the displayed power and target, including optimistic target changes.
+  (function () {
+    var C = 2 * Math.PI * 160, ARC = C * 0.75, TARGET_AT = 0.625;
+    var $ = function (id) { return document.getElementById(id); };
+    var num = function (t) { var n = parseFloat(String(t || '').replace(/[^\d.-]/g, '')); return isFinite(n) ? n : 0; };
+    if (!window.MutationObserver) return;
+    var watch = function (el, fn) { if (!el) return; fn(); new MutationObserver(fn).observe(el, { childList: true, characterData: true, subtree: true }); };
+
+    function ring(arcId, bandId, power, target) {
+      var arc = $(arcId), band = $(bandId);
+      if (!arc || !band) return;
+      var max = target > 0 ? target / TARGET_AT : 400;
+      arc.style.strokeDasharray = (Math.max(0, Math.min(1, power / max)) * ARC).toFixed(1) + ' ' + C.toFixed(1);
+      if (target > 0) {
+        var a = target * 0.95 / max * ARC, b = target * 1.05 / max * ARC;
+        band.style.strokeDasharray = (b - a).toFixed(1) + ' ' + C.toFixed(1);
+        band.style.strokeDashoffset = (-a).toFixed(1);
+      } else band.style.strokeDasharray = '0 ' + C.toFixed(1);
+    }
+    var ride = function () { ring('ssRideArc', 'ssRideBand', num($('trPower') && $('trPower').textContent), num($('trTarget') && $('trTarget').textContent)); };
+    watch($('trPower'), ride); watch($('trTarget'), ride);
+  })();
 </script>
 </body>
 </html>

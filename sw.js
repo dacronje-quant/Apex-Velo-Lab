@@ -1,16 +1,19 @@
 // APEX VELO // LAB service worker - network-first for app files so updates are never
 // masked by a stale cache; the cache is only a fallback when offline.
-const CACHE_NAME = 'apex-velo-cache-v37';
+const CACHE_NAME = 'apex-velo-cache-v46';
 const CORE = [
+  './js/phone-zen.js',
+  './css/phone-layout.css',
   './js/app-devices.js',
   './', './index.html', './live.html', './manifest.json', './apex-velo-icon.png', './apex-velo-icon-192.png', './apex-velo-icon.ico', './css/style.css', './css/fonts.css', './vendor/chart.umd.min.js',
   './vendor/fonts/inter-latin-400-normal.woff2', './vendor/fonts/inter-latin-500-normal.woff2', './vendor/fonts/inter-latin-600-normal.woff2', './vendor/fonts/inter-latin-700-normal.woff2', './vendor/fonts/inter-latin-800-normal.woff2',
   './vendor/fonts/jetbrains-mono-latin-400-normal.woff2', './vendor/fonts/jetbrains-mono-latin-500-normal.woff2', './vendor/fonts/jetbrains-mono-latin-600-normal.woff2', './vendor/fonts/jetbrains-mono-latin-700-normal.woff2', './vendor/fonts/jetbrains-mono-latin-800-normal.woff2',
+  './vendor/fonts/unbounded-latin-300-normal.woff2', './vendor/fonts/unbounded-latin-400-normal.woff2', './vendor/fonts/unbounded-latin-500-normal.woff2', './vendor/fonts/unbounded-latin-600-normal.woff2', './vendor/fonts/unbounded-latin-700-normal.woff2', './vendor/fonts/figtree-latin-400-normal.woff2', './vendor/fonts/figtree-latin-500-normal.woff2', './vendor/fonts/figtree-latin-600-normal.woff2', './vendor/fonts/figtree-latin-700-normal.woff2', './vendor/fonts/figtree-latin-800-normal.woff2',
   './data/divan_cycling_history.js',
   './js/velo-metrics.js', './js/velo-glossary.js', './js/velo-db.js', './js/velo-sound.js', './js/velo-pip.js', './js/velo-folder-sync.js',
   './js/velo-biomech.js', './js/velo-live-graph.js', './js/velo-analytics.js', './js/velo-workouts.js',
   './js/velo-ai-coach.js', './js/velo-block-planner.js', './js/velo-sim.js', './js/velo-ble.js', './js/velo-erg.js', './js/velo-insight.js', './js/velo-importer.js', './js/velo-export.js',
-  './js/velo-clock.js', './js/velo-progress.js', './js/velo-dedupe.js', './js/velo-strava-sync.js', './js/velo-health.js', './js/velo-trends.js', './js/velo-power.js', './js/velo-ask.js', './js/app.js', './js/app-analytics.js', './js/app-power.js', './js/app-ride-analysis.js', './js/app-ask.js', './js/app-dashboard.js', './js/app-history.js', './js/app-coach.js', './js/app-block.js', './js/app-strava.js', './js/app-strava-sync.js', './js/app-insight.js', './js/app-backup.js', './js/app-remote.js', './js/app-health.js', './js/app-settings.js'
+  './js/velo-clock.js', './js/velo-progress.js', './js/velo-dedupe.js', './js/velo-strava-sync.js', './js/velo-health.js', './js/velo-trends.js', './js/velo-power.js', './js/velo-ask.js', './js/app.js', './js/app-analytics.js', './js/app-power.js', './js/app-ride-analysis.js', './js/app-ask.js', './js/app-dashboard.js', './js/app-history.js', './js/app-coach.js', './js/app-block.js', './js/app-strava.js', './js/app-strava-sync.js', './js/app-insight.js', './js/app-backup.js', './js/app-remote.js', './js/app-health.js', './js/app-settings.js', './js/app-slipstream.js'
 ];
 
 self.addEventListener('install', (e) => {

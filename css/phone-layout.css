@@ -1,0 +1,250 @@
+[hidden] { display: none !important; }
+/* Zen is a full-screen display choice on Ride, not another navigation category. */
+body.zen-active > header, body.zen-active > .tabs, body.zen-active > .pages,
+body.zen-active > .controls, body.zen-active > #zoneBar { display: none !important; }
+body.zen-active > #spinOffer, body.zen-active > #rideDownload { position: fixed; bottom: 10px; left: 10px; right: 10px; z-index: 4; }
+.phone-zen { position: fixed; inset: max(8px,env(safe-area-inset-top)) max(8px,env(safe-area-inset-right)) max(8px,env(safe-area-inset-bottom)) max(8px,env(safe-area-inset-left)); z-index: 3; display: flex; flex-direction: column; gap: 8px; overflow: hidden; }
+.zen-top { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex: none; min-height: 40px; }
+#zenState { font-size: 10px; letter-spacing: .1em; color: var(--muted); }
+#zenExit { min-height: 40px; padding: 7px 16px; font-size: 12px; border-radius: 99px; }
+.zen-dashboard { display: grid; grid-template-columns: minmax(0,1.6fr) minmax(0,1fr); gap: 16px; flex: 1; min-height: 0; }
+.zen-left { display: flex; flex-direction: column; align-items: stretch; min-height: 0; min-width: 0; }
+button.zen-meter { flex: 1; min-height: 0; position: relative; display: flex; align-items: center; justify-content: center; background: none; border: 0; padding: 0; box-shadow: none; }
+.zen-meter .zen-ring { inset: 0; width: 100%; height: 100%; transform: none; }
+.zen-ring .zen-ftp-tick { stroke: var(--muted); stroke-width: 2; }
+.zen-ring .zen-ftp-text { fill: var(--muted); font-size: 11px; font-family: Figtree,sans-serif; }
+.zen-reading { position: relative; text-align: center; max-width: 72%; }
+#zenPower { font-family: var(--display); font-weight: 600; font-size: clamp(36px,8vw,96px); letter-spacing: -.05em; line-height: 1.05; }
+#zenPower.four-digits { font-size: clamp(28px,6.5vw,72px); }
+.zen-reading small { font-size: 15px; color: var(--muted); margin-left: 3px; }
+#zenPowerLabel { font-size: 9px; color: var(--muted); margin-top: 5px; }
+#zenTarget { font-size: 11px; margin: 9px 0; }
+#zenZone { display: inline-block; font-size: 9px; padding: 5px 9px; border: 1px solid color-mix(in srgb,var(--zone-a) 45%,transparent); border-radius: 99px; background: color-mix(in srgb,var(--zone-a) 14%,transparent); }
+.zen-metrics { display: grid; grid-template-rows: repeat(3,minmax(0,1fr)); gap: 10px; min-height: 0; min-width: 0; }
+.zen-card { background: var(--glass); border: 1px solid rgba(255,255,255,.1); border-radius: 24px; padding: 14px; display: flex; flex-direction: column; min-height: 0; overflow: hidden; backdrop-filter: blur(18px) saturate(150%); }
+.zen-card-label { display: flex; justify-content: space-between; gap: 8px; font-size: 8px; font-weight: 650; letter-spacing: .06em; color: var(--muted); }
+.zen-metric { margin-top: 6px; }
+.zen-metric > span { font-family: var(--display); font-size: clamp(24px,4.5vw,46px); font-weight: 600; letter-spacing: -.05em; }
+.zen-metric small { font-size: 10px; margin-left: 4px; color: var(--muted); }
+.zen-card canvas { flex: 1; min-height: 14px; width: 100%; height: 34px; margin-top: 6px; }
+.zen-reserve { position: relative; justify-content: space-between; }
+#zenLiquid { position: absolute; bottom: 0; left: 0; right: 0; background: linear-gradient(180deg,color-mix(in srgb,var(--zone-a) 35%,#a4acc6),color-mix(in srgb,var(--zone-b) 28%,#3d63ff)); opacity: .45; transition: height .6s ease; pointer-events: none; }
+.zen-reserve .zen-card-label,.zen-reserve-value { position: relative; }
+#zenWbal { font-family: var(--display); font-size: clamp(28px,5vw,50px); font-weight: 600; letter-spacing: -.05em; }
+#zenWbalSub { font-size: 11px; color: var(--muted); }
+.zen-actions { display: flex; justify-content: center; gap: 7px; flex: none; align-self: center; padding: 7px; border: 1px solid rgba(255,255,255,.12); border-radius: 99px; background: var(--glass); }
+.zen-actions button { min-width: 52px; min-height: 52px; border-radius: 99px; padding: 6px 10px; font-size: 12px; }
+#zenToggle { background: linear-gradient(135deg,#ff5a36,#ff2d7a); min-width: 58px; font-size: 19px; color: #fff; }
+#zenToggle.paused { font-size: 12px; background: linear-gradient(135deg,var(--zone-a),var(--zone-b)); }
+.zen-actions button:focus-visible,#zenExit:focus-visible,.zen-meter:focus-visible { outline: 2px solid var(--cyan); outline-offset: 2px; }
+@media (orientation:portrait) {
+  .zen-dashboard { grid-template-columns: 1fr; grid-template-rows: minmax(0,1fr) minmax(180px,.8fr); gap: 12px; }
+  .zen-left { position: relative; }
+  .zen-metrics { grid-template-columns: 1fr 1fr; grid-template-rows: minmax(0,1fr) minmax(0,.85fr); gap: 8px; }
+  .zen-reserve { grid-column: 1 / -1; }
+  .zen-card { padding: 12px; border-radius: 20px; }
+  #zenPower { font-size: clamp(42px,13vw,72px); }
+  #zenPower.four-digits { font-size: clamp(34px,10vw,56px); }
+  .zen-metric > span { font-size: 30px; }
+  #zenWbal { font-size: 34px; }
+}
+@media (max-height:620px) and (orientation:portrait) {
+  .zen-dashboard { grid-template-rows: minmax(0,1fr) 188px; gap: 8px; }
+  .zen-top { min-height: 32px; }
+  #zenExit { min-height: 32px; padding: 5px 12px; }
+  .zen-card { padding: 8px 10px; }
+  .zen-metric > span { font-size: 24px; }
+  #zenPower { font-size: 40px; }
+  #zenPower.four-digits { font-size: 31px; }
+  #zenTarget { margin: 4px 0; font-size: 10px; }
+  #zenZone { padding: 3px 7px; font-size: 8px; }
+  .zen-actions button { min-width: 48px; min-height: 44px; }
+}
+@media (orientation:landscape) and (max-height:560px) {
+  .phone-zen { gap: 3px; }
+  .zen-dashboard { gap: 12px; }
+  .zen-card { padding: 9px 12px; border-radius: 18px; }
+  .zen-metrics { gap: 8px; }
+  .zen-metric > span { font-size: 28px; line-height: 1; }
+  .zen-card-label { font-size: 7px; }
+  #zenWbal { font-size: 30px; }
+  #zenWbalSub { font-size: 9px; }
+  #zenPower { font-size: clamp(40px,10vh,64px); }
+  #zenPower.four-digits { font-size: clamp(32px,8vh,52px); }
+  .zen-actions button { min-height: 44px; min-width: 48px; }
+}
+@media (prefers-reduced-motion:reduce) { #zenLiquid { transition: none; } }
+.tabs { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+.pedaling-views { display: flex; gap: 6px; flex: none; }
+.pedaling-views button { flex: 1; min-height: 34px; padding: 6px; font-size: 11px; border-radius: 99px; }
+.pedaling-views button[aria-pressed="true"] { background: rgba(255,255,255,.16); }
+.pages { overflow: hidden; display: block; }
+.page { height: 100%; overflow: hidden; min-height: 0; }
+.mode-panel { display: flex; flex-direction: column; flex: 1; min-height: 0; gap: 7px; overflow: hidden; }
+#rideWorkout .tr-tiles { display: grid; grid-template-columns: minmax(0,1fr) 146px minmax(0,1fr); grid-template-rows: 70px 70px 30px; gap: 8px; flex: none; }
+#rideWorkout .tr-tile:not(.pw) { display: flex; flex-direction: column; justify-content: center; padding: 6px 3px; }
+#rideWorkout .tr-tile:nth-child(1) { grid-column: 1; grid-row: 1; border-radius: 24px 24px 8px 24px; }
+#rideWorkout .tr-tile:nth-child(3) { grid-column: 3; grid-row: 1; border-radius: 24px 24px 24px 8px; }
+#rideWorkout .tr-tile:nth-child(4) { grid-column: 1; grid-row: 2; border-radius: 24px 8px 24px 24px; }
+#rideWorkout .tr-tile:nth-child(5) { grid-column: 3; grid-row: 2; border-radius: 8px 24px 24px 24px; }
+#rideWorkout button.tr-tile.pw { grid-column: 2; grid-row: 1 / 3; order: 0; height: 148px; padding: 0; }
+#rideWorkout .tr-tile.pw .ss-ring { top: 0; width: 148px; height: 148px; }
+#rideWorkout .tr-tile.pw .tv { font-size: 34px; line-height: 1; margin-top: 0; }
+#rideWorkout .tr-tile.pw .tv.four-digits { font-size: 26px; }
+#rideWorkout .tr-tile.pw .tl { font-size: 8px; margin-top: 8px; letter-spacing: .02em; }
+#rideWorkout .tr-tile.pw .ts { font-size: 11px; margin-top: 5px; }
+#rideWorkout .tr-tile:not(.pw) .tv { font-size: 22px; }
+#rideWorkout .tr-tile:not(.pw) .tl { font-size: 8px; letter-spacing: .035em; margin-top: 4px; }
+#rideWorkout .tr-tile:not(.pw) .ts { font-size: 9px; min-height: 11px; }
+#rideWorkout .tr-tile:nth-child(6) { grid-column: 1 / -1; grid-row: 3; flex-direction: row; align-items: center; justify-content: space-between; gap: 6px; padding: 5px 10px; border-radius: 12px; }
+#rideWorkout .tr-tile:nth-child(6) .tv { order: 1; font-size: 16px; }
+#rideWorkout .tr-tile:nth-child(6) .tl { order: 0; margin: 0; font-size: 8px; }
+#rideWorkout .tr-tile:nth-child(6) .ts { order: 2; margin: 0; font-size: 9px; }
+#rideWorkout .tr-graph { min-height: 70px; flex: 1; }
+.tr-step-name { flex: none; font-size: 11px; line-height: 1.25; }
+.tr-next, .next { font-size: 11px; line-height: 1.3; }
+.tr-legend { font-size: 9px; gap: 9px; }
+.tr-next, .next, .step .name, header .title { display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; overflow: hidden; }
+#balanceView .card:nth-child(2) { flex: 1; min-height: 75px; }
+#balanceView #balTrace { height: calc(100% - 24px); min-height: 25px; }
+#balanceView .split .big { font-size: 46px; }
+#balanceView .note { font-size: 10px; line-height: 1.3; }
+#pagePedal .card { flex: 1; min-height: 0; display: flex; flex-direction: column; }
+#pagePedal .polar-wrap { flex: 1; height: auto; min-height: 60px; }
+#pagePedal .polar-wrap canvas { height: 100%; }
+#pagePedal .note { font-size: 10px; }
+#pageDevices .hub { padding: 10px 12px; }
+#pageDevices .hub-sub { font-size: 10px; }
+#pageDevices #devList { flex: 1; min-height: 0; }
+#pageDevices .dcard { padding: 12px; gap: 7px; }
+#pageDevices .note { font-size: 10px; line-height: 1.3; }
+body.devpage .controls { grid-template-columns: 1fr; }
+@media (max-width: 350px) {
+  #rideWorkout .tr-tiles { grid-template-columns: minmax(0,1fr) 126px minmax(0,1fr); gap: 6px; }
+  #rideWorkout .tr-tile.pw .ss-ring { width: 130px; height: 130px; top: 9px; }
+  #rideWorkout .tr-tile.pw .tv { font-size: 29px; }
+  #rideWorkout .tr-tile.pw .tv.four-digits { font-size: 22px; }
+  #rideWorkout .tr-tile:not(.pw) .tv { font-size: 18px; }
+  #rideWorkout .tr-tile:not(.pw) .tl { font-size: 7px; }
+  #rideWorkout .tr-tile:not(.pw) .ts { font-size: 8px; }
+}
+@media (max-height: 740px) {
+  body { gap: 6px; }
+  .mode-panel { gap: 5px; }
+  #rideWorkout .tr-tiles { grid-template-rows: 55px 55px 26px; gap: 5px; }
+  #rideWorkout button.tr-tile.pw { height: 115px; }
+  #rideWorkout .tr-tile.pw .ss-ring { width: 120px; height: 120px; top: -2px; }
+  #rideWorkout .tr-tile.pw .tv { font-size: 27px; }
+  #rideWorkout .tr-tile.pw .tv.four-digits { font-size: 21px; }
+  #rideWorkout .tr-tile:not(.pw) .tv { font-size: 18px; }
+  #rideWorkout .tr-tile.pw .tl { margin-top: 5px; }
+  #rideWorkout .tr-tile.pw .ts { margin-top: 2px; }
+  #rideWorkout .tr-graph { min-height: 55px; }
+  .tr-legend { display: none; }
+  #trace { display: none; }
+  #balanceView .card { padding: 8px 12px; }
+  #balanceView .card:nth-child(2) { min-height: 65px; }
+  #balanceView .split .big { font-size: 36px; }
+  #balanceView .note, #devNote { display: none; }
+  #pageDevices .dcard { padding: 9px; gap: 5px; }
+  #pageDevices .fan-phone-controls { margin-top: 5px; }
+}
+@media (max-height: 620px) and (orientation: portrait) {
+  body { padding-top: max(6px,env(safe-area-inset-top)); padding-bottom: max(6px,env(safe-area-inset-bottom)); gap: 5px; }
+  header .title { -webkit-line-clamp: 1; font-size: 11px; }
+  header { gap: 3px 6px; }
+  .pill { padding: 4px 8px; }
+  .tabs button { padding: 5px 2px; }
+  .controls { padding: 6px; }
+  .controls button { min-height: 40px; font-size: 16px; padding: 5px; }
+  .controls button.primary { min-height: 48px; }
+  #zoneBar { height: 12px; }
+  #rideWorkout .tr-step-name, .tr-next, .next { -webkit-line-clamp: 1; font-size: 10px; }
+  #rideWorkout .tr-graph { min-height: 45px; }
+  #balanceView .card { padding: 6px 9px; }
+  #balanceView .split .big { font-size: 28px; }
+  #balanceView .balbar { height: 8px; margin-top: 6px; }
+  #balanceView .verdict { font-size: 12px; margin-top: 5px; }
+  #balanceView .m { padding: 5px; }
+  #balanceView .m .v { font-size: 22px; }
+  #balanceView .m .s { display: none; }
+  #pagePedal .note { -webkit-line-clamp: 1; display: -webkit-box; -webkit-box-orient: vertical; overflow: hidden; }
+  #pageDevices .dicon { width: 30px; height: 30px; }
+  #pageDevices .dname b { font-size: 12px; }
+  #pageDevices .dchip { font-size: 8px; padding: 4px; }
+  #pageDevices .dline { font-size: 11px; }
+  #pageDevices .dacts button { min-height: 36px; padding: 5px; font-size: 12px; }
+  #pageDevices .fan-phone-controls label { gap: 4px; font-size: 11px; }
+  #pageDevices .fan-phone-controls select { min-height: 34px; padding: 5px; }
+  #pageDevices .fan-presets { display: grid; grid-template-columns: repeat(5,minmax(0,1fr)); }
+  #pageDevices .fan-presets button { min-width: 0; min-height: 36px; padding: 4px; font-size: 11px; }
+}
+@media (orientation: landscape) and (max-height: 560px) {
+  #rideWorkout .tr-tiles { grid-template-columns: repeat(6,minmax(0,1fr)); grid-template-rows: 55px; }
+  #rideWorkout .tr-tile:nth-child(n) { grid-column: auto; grid-row: auto; border-radius: 12px; }
+  #rideWorkout button.tr-tile.pw { height: 55px; background: var(--glass); border: 1px solid rgba(255,255,255,.1); }
+  #rideWorkout .tr-tile.pw .ss-ring { display: none; }
+  #rideWorkout .tr-tile:nth-child(6) { flex-direction: column; justify-content: center; }
+  #rideWorkout .tr-tile:nth-child(6) .tv { order: 0; }
+  #rideWorkout .tr-tile:nth-child(6) .tl { order: 1; }
+  #rideWorkout .tr-step-name, .tr-legend, .tr-next { display: none; }
+  #balanceView { display: grid; grid-template-columns: 1fr 1fr 1fr; }
+  #balanceView .note { display: none; }
+  #pagePedal .card { display: grid; grid-template-columns: 1.5fr 1fr; }
+  #pagePedal .sub { grid-column: 1 / -1; }
+  #pagePedal .split { align-items: center; }
+  #pageDevices { display: grid; grid-template-columns: 1fr 2fr; grid-template-rows: 30px minmax(0,1fr); }
+  #pageDevices .note { display: none; }
+  #pageDevices .dcard { display: grid; grid-template-columns: 1fr 1fr; }
+  #pageDevices .fan-phone-controls { grid-column: 2; grid-row: 1 / 5; }
+  #pageDevices .fan-presets { display: grid; grid-template-columns: repeat(5,minmax(0,1fr)); }
+  #pageDevices .fan-presets button { min-width: 0; padding: 3px; font-size: 11px; }
+  #pageDevices .dline { font-size: 11px; }
+  #pageDevices .dacts button { font-size: 12px; min-height: 36px; padding: 5px; }
+  #pagePedal .note { -webkit-line-clamp: 1; display: -webkit-box; -webkit-box-orient: vertical; overflow: hidden; }
+}
+
+/* Phone consolidation: one screen per mode, with controls kept in reach. */
+.ride-totals { display: flex; justify-content: space-around; align-items: center; gap: 8px; flex: none; padding: 5px 8px; }
+.ride-totals span { display: flex; align-items: baseline; gap: 5px; }
+.ride-totals b { font-size: 13px; font-variant-numeric: tabular-nums; }
+.ride-totals small { font-size: 8px; color: var(--muted); }
+#pageDevices #devList { display: flex; flex-direction: column; gap: 6px !important; }
+#pageDevices .dcard { display: grid; grid-template-columns: minmax(0,1fr) auto; grid-template-areas: "top actions" "reading actions" "line line"; padding: 8px 10px; gap: 4px 8px; }
+#pageDevices .dtop { grid-area: top; gap: 6px; }
+#pageDevices .dicon { width: 26px; height: 26px; border-radius: 8px; }
+#pageDevices .dicon svg { width: 18px; height: 18px; }
+#pageDevices .dname b { font-size: 12px; }
+#pageDevices .dname span { font-size: 9px; }
+#pageDevices .dchip { font-size: 8px; padding: 3px 5px; }
+#pageDevices .dmid { grid-area: reading; }
+#pageDevices .dread, #pageDevices .dread.idle { font-size: 16px; }
+#pageDevices .dread small { font-size: 9px; margin-right: 4px; }
+#pageDevices .dmeta { font-size: 9px; gap: 6px; }
+#pageDevices .dline { grid-area: line; font-size: 10px; line-height: 1.2; }
+#pageDevices .dacts { grid-area: actions; flex-direction: column; align-self: center; gap: 4px; }
+#pageDevices .dacts button { min-height: 32px; padding: 5px 7px; font-size: 11px; }
+#pageDevices .note { display: none; }
+#fanSettings { color: var(--text); background: #101421; border: 1px solid var(--line); border-radius: 24px; padding: 18px; width: min(92vw,440px); max-height: 90dvh; overflow: hidden; }
+#fanSettings::backdrop { background: rgba(6,8,18,.8); backdrop-filter: blur(12px); }
+.fan-dialog-head { display: flex; align-items: center; justify-content: space-between; gap: 14px; }
+#closeFanSettings { min-height: 44px; padding: 8px 15px; }
+#fanSettings .fan-presets { display: grid; grid-template-columns: repeat(5,minmax(0,1fr)); }
+#fanSettings .fan-presets button { min-width: 0; }
+
+#pageDevices { display:flex; flex-direction:column; }
+@media (max-height:620px) {
+  #pageDevices .hub { padding: 5px 9px; gap: 8px; }
+  #pageDevices .hub svg.ring { width: 32px; height: 32px; }
+  #pageDevices .hub-title { font-size: 12px; }
+  #pageDevices .hub-sub { font-size: 9px; }
+  #pageDevices .dcard { padding: 6px 8px; gap: 3px 5px; }
+  #pageDevices .dname span { display: none; }
+  #pageDevices .dname b { font-size: 10px; }
+  #pageDevices .dicon { width: 22px; height: 22px; }
+  #pageDevices .dacts { flex-direction: row; }
+  #pageDevices .dacts button { min-height: 32px; font-size: 9px; padding: 4px; }
+  #pageDevices .dchip { font-size: 7px; padding: 3px; }
+  #pageDevices .dline { font-size: 9px; }
+}
+@media (orientation:landscape) and (max-height:560px) { #pageDevices #devList { display:grid !important; grid-template-columns:1fr 1fr; grid-template-rows:1fr 1fr; } #pageDevices .hub { padding:6px 10px; } #pageDevices .hub svg.ring { width:32px;height:32px; } #pageDevices .hub-title { font-size:13px; } #pageDevices .dcard { padding:6px 9px; } }
