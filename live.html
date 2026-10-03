@@ -278,12 +278,17 @@
   html, body { font-family: 'Figtree', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; }
   /* html keeps the night colour; body is see-through so the zone light behind it shows */
   body { background: transparent; transition: --zone-a 1.6s ease, --zone-b 1.6s ease; gap: 10px; }
-  body::before { content: ""; position: fixed; inset: -15%; z-index: -1; pointer-events: none; will-change: transform;
+  /* The screen never scrolls: the page is exactly one screen tall. The light layer below is
+     screen-sized and drifts inside that frame, so it cannot push the page (iOS counts oversized
+     fixed layers as scrollable area, which slid the header under the status bar). */
+  html { overflow: hidden; overscroll-behavior: none; }
+  body { padding-bottom: max(8px, calc(env(safe-area-inset-bottom) - 12px)); }
+  body::before { content: ""; position: fixed; inset: 0; z-index: -1; pointer-events: none; will-change: transform;
     background: radial-gradient(60% 45% at 8% 0%, color-mix(in srgb, var(--zone-a) 48%, transparent), transparent 72%),
                 radial-gradient(55% 50% at 100% 35%, color-mix(in srgb, var(--zone-b) 32%, transparent), transparent 72%),
                 radial-gradient(70% 45% at 45% 105%, rgba(61,99,255,.26), transparent 72%);
     animation: ssDrift 40s ease-in-out infinite alternate; }
-  @keyframes ssDrift { 50% { transform: translate3d(3%, 2%, 0) scale(1.06); } 100% { transform: translate3d(-2%, 4%, 0) scale(1.03); } }
+  @keyframes ssDrift { 0% { transform: scale(1.18); } 50% { transform: translate3d(3%, 2%, 0) scale(1.24); } 100% { transform: translate3d(-2%, 4%, 0) scale(1.21); } }
 
   /* Header and screen switcher */
   header .title { font-family: var(--display); font-weight: 500; font-size: 15px; letter-spacing: -.02em; }
