@@ -2008,97 +2008,155 @@ class VeloApp {
     if (this.isPlaying && cur) progress += this.clock.subSecondProgress(); // sub-second interpolation -> smooth motion
     const x = Math.min(w - 1, Math.max(1, (progress / total) * w));
 
+    // Ridden part of the profile in full colour: the bright layer, clipped at the playhead.
+    const layer = this.trackCache.canvas;
+    if (layer._bright) {
+      ctx.save();
+      ctx.setTransform(1, 0, 0, 1, 0, 0);
+      ctx.beginPath(); ctx.rect(0, 0, Math.round(x * dpr), canvas.height); ctx.clip();
+      ctx.drawImage(layer._bright, 0, 0);
+      ctx.restore();
+    }
+
+    const step = layer._steps && layer._steps[Math.min(this.intervalIndex, layer._steps.length - 1)];
+    const glow = step ? step.color : '#7cc8ff';
     ctx.save();
-    ctx.fillStyle = 'rgba(255,255,255,0.05)';
-    ctx.fillRect(0, 0, x, h);
-    ctx.strokeStyle = '#ffffff';
+    ctx.strokeStyle = 'rgba(255,255,255,0.9)';
     ctx.lineWidth = 2;
-    ctx.shadowColor = 'rgba(34, 211, 238, 0.9)';
-    ctx.shadowBlur = 10;
-    ctx.beginPath(); ctx.moveTo(x, 0); ctx.lineTo(x, h); ctx.stroke();
-    ctx.shadowBlur = 0;
-    ctx.fillStyle = '#ffffff';
-    ctx.beginPath(); ctx.moveTo(x - 5, 0); ctx.lineTo(x + 5, 0); ctx.lineTo(x, 6); ctx.closePath(); ctx.fill();
+    ctx.shadowColor = glow;
+    ctx.shadowBlur = 14;
+    ctx.beginPath(); ctx.moveTo(x, 4); ctx.lineTo(x, h); ctx.stroke();
+    if (step) {
+      ctx.fillStyle = '#ffffff';
+      ctx.shadowColor = 'rgba(255,255,255,0.9)';
+      ctx.shadowBlur = 12;
+      ctx.beginPath(); ctx.arc(x, step.y, 5, 0, Math.PI * 2); ctx.fill();
+    }
     ctx.restore();
   }
 
   buildIntervalLayer(w, h, dpr) {
-    const layer = document.createElement('canvas');
-    layer.width = Math.round(w * dpr);
-    layer.height = Math.round(h * dpr);
-    const ctx = layer.getContext('2d');
-    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    // Slipstream profile: one smooth curve through the steps, filled with each step's zone light.
+    // Two layers are built: dim (still to ride) and bright (ridden); drawIntervalTrack clips the
+    // bright one at the playhead. Hit boxes are the same step rectangles as before.
+    const ZONE_LIGHT = { Z1: '#3d63ff', Z2: '#2a86ff', Z3: '#16c08d', Z4: '#ffb21f', Z5: '#ff5a36', Z6: '#ff2e63', Z7: '#9b4dff' };
+    const make = () => {
+      const c = document.createElement('canvas');
+      c.width = Math.round(w * dpr);
+      c.height = Math.round(h * dpr);
+      const g = c.getContext('2d');
+      g.setTransform(dpr, 0, 0, dpr, 0, 0);
+      return [c, g];
+    };
+    const [layer, ctx] = make();
+    const [bright, bctx] = make();
     const intervals = this.currentWorkout.intervals;
     const total = intervals.reduce((a, iv) => a + iv.duration, 0) || 1;
     const maxPct = Math.max(...intervals.map(iv => iv.pctFtp * this.ergBiasMultiplier));
     const scaleMax = Math.max(140, Math.min(220, maxPct * 1.12));
-    const plotH = h - 4;
+    const top = 10, plotH = h - top - 2;
+    const yOf = (pct) => h - 2 - Math.max(3, Math.min(plotH, (pct / scaleMax) * plotH));
 
-    ctx.strokeStyle = 'rgba(148, 163, 184, 0.08)';
+    ctx.strokeStyle = 'rgba(255, 255, 255, 0.05)';
     ctx.lineWidth = 1;
     [50, 75, 125].forEach(p => {
-      const y = Math.round(h - (p / scaleMax) * plotH) + 0.5;
+      const y = Math.round(yOf(p)) + 0.5;
       ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(w, y); ctx.stroke();
     });
 
     let x = 0;
+    const steps = [];
     this._trackHitboxes = [];
     intervals.forEach((iv, idx) => {
       const bw = (iv.duration / total) * w;
       const pct = iv.pctFtp * this.ergBiasMultiplier;
-      const bh = Math.max(3, Math.min(plotH, (pct / scaleMax) * plotH));
-      const y = h - bh;
-      const color = VeloMetrics.zoneForPct(pct).color;
-      const gap = bw > 4 ? 1.5 : 0;
-      const isCur = idx === this.intervalIndex;
-      ctx.globalAlpha = idx < this.intervalIndex ? 0.28 : (isCur ? 1 : 0.72);
-      const grad = ctx.createLinearGradient(0, y, 0, h);
-      grad.addColorStop(0, color);
-      grad.addColorStop(1, color + '55');
-      ctx.fillStyle = grad;
-      const r = Math.max(0, Math.min(3, bw / 2 - gap));
-      this.roundRectTop(ctx, x + gap / 2, y, Math.max(0.5, bw - gap), bh, r);
-      ctx.fill();
-      if (isCur) {
-        ctx.globalAlpha = 1;
-        ctx.strokeStyle = 'rgba(255,255,255,0.9)';
-        ctx.lineWidth = 1.5;
-        this.roundRectTop(ctx, x + gap / 2 + 0.75, y + 0.75, Math.max(0.5, bw - gap - 1.5), bh - 0.75, r);
-        ctx.stroke();
-      }
+      const z = VeloMetrics.zoneForPct(pct);
+      steps.push({ x0: x, x1: x + bw, y: yOf(pct), color: ZONE_LIGHT[z.short] || z.color });
       this._trackHitboxes.push({ x0: x, x1: x + bw, idx });
       x += bw;
     });
+
+    const line = new Path2D();
+    steps.forEach((st, i) => {
+      if (i === 0) line.moveTo(st.x0, st.y);
+      const nx = steps[i + 1];
+      if (!nx) { line.lineTo(st.x1, st.y); return; }
+      const r = Math.max(0, Math.min(9, (st.x1 - st.x0) / 2, (nx.x1 - nx.x0) / 2));
+      line.lineTo(st.x1 - r, st.y);
+      line.quadraticCurveTo(st.x1, st.y, st.x1, (st.y + nx.y) / 2);
+      line.quadraticCurveTo(st.x1, nx.y, st.x1 + r, nx.y);
+    });
+    const area = new Path2D(line);
+    area.lineTo(w, h); area.lineTo(0, h); area.closePath();
+
+    const zoneFill = (g) => {
+      const grad = g.createLinearGradient(0, 0, w, 0);
+      steps.forEach(st => {
+        grad.addColorStop(Math.min(1, Math.max(0, st.x0 / w)), st.color);
+        grad.addColorStop(Math.min(1, Math.max(0, st.x1 / w)), st.color);
+      });
+      return grad;
+    };
+
+    // Still to ride: soft fill and a faint outline; the current step a little brighter.
+    ctx.globalAlpha = 0.2;
+    ctx.fillStyle = zoneFill(ctx);
+    ctx.fill(area);
+    const curStep = steps[this.intervalIndex];
+    if (curStep) {
+      ctx.save();
+      ctx.beginPath(); ctx.rect(curStep.x0, 0, curStep.x1 - curStep.x0, h); ctx.clip();
+      ctx.globalAlpha = 0.22;
+      ctx.fill(area);
+      ctx.restore();
+    }
+    ctx.globalAlpha = 0.55;
+    ctx.strokeStyle = zoneFill(ctx);
+    ctx.lineWidth = 1.5;
+    ctx.stroke(line);
     ctx.globalAlpha = 1;
 
-    const ftpY = Math.round(h - (100 / scaleMax) * plotH) + 0.5;
-    ctx.setLineDash([5, 4]);
-    ctx.strokeStyle = 'rgba(251, 191, 36, 0.85)';
-    ctx.lineWidth = 1;
-    ctx.beginPath(); ctx.moveTo(0, ftpY); ctx.lineTo(w, ftpY); ctx.stroke();
-    ctx.setLineDash([]);
-    const label = `FTP ${Math.round(this.activeProfile.ftp * this.ergBiasMultiplier)}W`;
-    ctx.font = '600 10px "JetBrains Mono", ui-monospace, monospace';
-    const lw = ctx.measureText(label).width + 10;
-    ctx.fillStyle = 'rgba(9, 13, 22, 0.9)';
-    ctx.fillRect(w - lw - 6, ftpY - 8, lw, 16);
-    ctx.strokeStyle = 'rgba(251, 191, 36, 0.6)';
-    ctx.strokeRect(w - lw - 5.5, ftpY - 7.5, lw - 1, 15);
-    ctx.fillStyle = '#fbbf24';
-    ctx.textBaseline = 'middle';
-    ctx.fillText(label, w - lw - 1, ftpY);
-    return layer;
-  }
+    // Ridden: full colour fading downwards, with a glowing outline.
+    bctx.fillStyle = zoneFill(bctx);
+    bctx.globalAlpha = 0.9;
+    bctx.fill(area);
+    bctx.globalAlpha = 1;
+    bctx.globalCompositeOperation = 'destination-in';
+    const fade = bctx.createLinearGradient(0, top, 0, h);
+    fade.addColorStop(0, 'rgba(0,0,0,1)');
+    fade.addColorStop(1, 'rgba(0,0,0,0.3)');
+    bctx.fillStyle = fade;
+    bctx.fillRect(0, 0, w, h);
+    bctx.globalCompositeOperation = 'source-over';
+    bctx.strokeStyle = zoneFill(bctx);
+    bctx.lineWidth = 2.2;
+    bctx.shadowColor = 'rgba(255,255,255,0.35)';
+    bctx.shadowBlur = 10;
+    bctx.stroke(line);
+    bctx.shadowBlur = 0;
 
-  roundRectTop(ctx, x, y, w, h, r) {
-    ctx.beginPath();
-    ctx.moveTo(x, y + h);
-    ctx.lineTo(x, y + r);
-    ctx.quadraticCurveTo(x, y, x + r, y);
-    ctx.lineTo(x + w - r, y);
-    ctx.quadraticCurveTo(x + w, y, x + w, y + r);
-    ctx.lineTo(x + w, y + h);
-    ctx.closePath();
+    const ftpY = Math.round(yOf(100)) + 0.5;
+    const label = `FTP ${Math.round(this.activeProfile.ftp * this.ergBiasMultiplier)}W`;
+    [ctx, bctx].forEach(g => {
+      g.setLineDash([4, 5]);
+      g.strokeStyle = 'rgba(255, 255, 255, 0.32)';
+      g.lineWidth = 1;
+      g.beginPath(); g.moveTo(0, ftpY); g.lineTo(w, ftpY); g.stroke();
+      g.setLineDash([]);
+      g.font = '600 10px "Figtree", system-ui, sans-serif';
+      const lw = g.measureText(label).width + 14;
+      g.fillStyle = 'rgba(12, 16, 34, 0.85)';
+      g.beginPath();
+      if (g.roundRect) g.roundRect(w - lw - 6, ftpY - 9, lw, 18, 9); else g.rect(w - lw - 6, ftpY - 9, lw, 18);
+      g.fill();
+      g.fillStyle = 'rgba(241, 244, 255, 0.85)';
+      g.textBaseline = 'middle';
+      g.fillText(label, w - lw + 1, ftpY + 0.5);
+    });
+
+    layer._bright = bright;
+    layer._steps = steps;
+    return layer;
   }
 
   intervalAtCanvasX(clientX) {

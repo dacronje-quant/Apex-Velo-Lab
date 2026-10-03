@@ -141,7 +141,7 @@
     initDriftChart() {
       const cv = document.getElementById('driftTrendCanvas');
       if (!cv || typeof Chart === 'undefined') return;
-      const color = { good: '#65a30d', mild: '#d97706', high: '#e11d48' };
+      const color = { good: '#3ddc97', mild: '#ffae3d', high: '#ff5c86' };
       const ink = getComputedStyle(document.documentElement).getPropertyValue('--text-2').trim() || '#94a3b8';
       const grid = 'rgba(148,163,184,0.12)';
       this.driftChart = new Chart(cv.getContext('2d'), {
