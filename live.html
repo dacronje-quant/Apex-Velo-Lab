@@ -281,8 +281,10 @@
   /* The screen never scrolls: the page is exactly one screen tall. The light layer below is
      screen-sized and drifts inside that frame, so it cannot push the page (iOS counts oversized
      fixed layers as scrollable area, which slid the header under the status bar). */
-  html { overflow: hidden; overscroll-behavior: none; }
-  body { padding-bottom: max(8px, calc(env(safe-area-inset-bottom) - 12px)); }
+  html { height: var(--app-h, 100%); overflow: hidden; overscroll-behavior: none; }
+  /* --app-h: the real screen height when installed on the Home Screen (set below); iOS reports
+     100dvh short by the status bar there, which left a gap under the controls. */
+  body { height: var(--app-h, 100dvh); padding-bottom: max(8px, calc(env(safe-area-inset-bottom) - 12px)); }
   body::before { content: ""; position: fixed; inset: 0; z-index: -1; pointer-events: none; will-change: transform;
     background: radial-gradient(60% 45% at 8% 0%, color-mix(in srgb, var(--zone-a) 48%, transparent), transparent 72%),
                 radial-gradient(55% 50% at 100% 35%, color-mix(in srgb, var(--zone-b) 32%, transparent), transparent 72%),
@@ -394,6 +396,23 @@
 </style>
 </head>
 <body>
+<script>
+  // Home Screen app on iPhone: size the page to the physical screen. With a see-through status bar,
+  // iOS reports the viewport (100dvh, innerHeight) shorter than the screen by the status bar height.
+  (function () {
+    var standalone = window.navigator.standalone === true || (window.matchMedia && matchMedia('(display-mode: standalone)').matches);
+    if (!standalone || !window.screen) return;
+    var fit = function () {
+      var portrait = window.matchMedia ? matchMedia('(orientation: portrait)').matches : innerHeight >= innerWidth;
+      var h = portrait ? Math.max(screen.width, screen.height) : Math.min(screen.width, screen.height);
+      if (h > innerHeight) document.documentElement.style.setProperty('--app-h', h + 'px');
+      else document.documentElement.style.removeProperty('--app-h');
+    };
+    fit();
+    addEventListener('resize', fit);
+    addEventListener('orientationchange', function () { setTimeout(fit, 250); });
+  })();
+</script>
   <header>
     <div class="title" id="title">Apex Live</div>
     <button class="devs" id="devDots" title="Trainer / pedals / heart rate - tap for devices" aria-label="Devices">
