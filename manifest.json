@@ -4,8 +4,8 @@
   "description": "Elite Cycling Telemetry, Biomechanics, Interval Runner and Physiological Analytics",
   "start_url": "./index.html",
   "display": "standalone",
-  "background_color": "#090d16",
-  "theme_color": "#090d16",
+  "background_color": "#060812",
+  "theme_color": "#060812",
   "icons": [
     {
       "src": "apex-velo-icon-192.png",
