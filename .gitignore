@@ -22,3 +22,6 @@ data/*history*
 *_backup*/
 Thumbs.db
 desktop.ini
+
+# Screenshots written by the browser test scripts in tests/
+test-output/
