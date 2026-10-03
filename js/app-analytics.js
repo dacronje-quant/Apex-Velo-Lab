@@ -3,21 +3,21 @@
  * curve with scrub tool, monthly peak NP and the weekly progression charts.
  */
 (function () {
-  // Categorical series colours validated for the dark surface (CVD-safe, >=3:1 contrast).
-  const VIZ = { cyan: '#0891b2', amber: '#d97706', rose: '#e11d48', violet: '#7c3aed', lime: '#65a30d', grey: '#64748b' };
-  const INK = { primary: '#e6edf7', secondary: '#9aa7bd', muted: '#6b778c', grid: 'rgba(148,163,184,0.10)' };
+  // Categorical series colours for the Slipstream night surface (distinct hues, >=3:1 contrast).
+  const VIZ = { cyan: '#4aa8ff', amber: '#ffae3d', rose: '#ff5c86', violet: '#9b7bff', lime: '#3ddc97', grey: '#7a85a3' };
+  const INK = { primary: '#f1f4ff', secondary: '#a4acc6', muted: '#6f7894', grid: 'rgba(255,255,255,0.06)' };
 
   function applyChartDefaults() {
     if (typeof Chart === 'undefined' || !Chart.defaults) return;
     try {
-      Chart.defaults.font.family = "'Inter', system-ui, sans-serif";
+      Chart.defaults.font.family = "'Figtree', system-ui, sans-serif";
       Chart.defaults.font.size = 11;
       Chart.defaults.color = INK.secondary;
       Chart.defaults.borderColor = INK.grid;
       Chart.defaults.plugins.legend.display = false;
       Object.assign(Chart.defaults.plugins.tooltip, {
-        backgroundColor: 'rgba(11, 17, 30, 0.96)', borderColor: 'rgba(148,163,184,0.25)', borderWidth: 1,
-        titleColor: INK.primary, bodyColor: INK.secondary, padding: 10, cornerRadius: 8, boxPadding: 4,
+        backgroundColor: 'rgba(12, 16, 34, 0.94)', borderColor: 'rgba(255,255,255,0.14)', borderWidth: 1,
+        titleColor: INK.primary, bodyColor: INK.secondary, padding: 12, cornerRadius: 14, boxPadding: 4,
         titleFont: { weight: '600' }, bodyFont: { family: "'JetBrains Mono', ui-monospace, monospace", size: 11 }
       });
       Chart.defaults.elements.line.borderWidth = 2;
