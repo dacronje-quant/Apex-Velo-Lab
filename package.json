@@ -2,6 +2,7 @@
   "name": "apex-velo-lab",
   "version": "3.0.0",
   "private": true,
+  "license": "MIT",
   "description": "Local indoor cycling cockpit and training analytics",
   "engines": { "node": ">=18" },
   "scripts": {

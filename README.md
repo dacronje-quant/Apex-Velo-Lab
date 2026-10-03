@@ -411,3 +411,11 @@ Run `npm test` for Node checks. For browser checks, install optional development
 - `npm run check:share`: scan tracked release contents for common private files and credentials. Historical commits need a separate review.
 
 See [development setup](docs/LOCAL-SETUP.md#development-checks). The checks simulate sensors and services; they do not certify physical hardware or third-party account permissions.
+
+## Licence
+
+Apex Velo Lab is available under the [MIT licence](LICENSE). You can use, modify and share it, including commercially, while retaining the copyright and licence notice. Bundled libraries and fonts retain their own notices in `vendor/`.
+
+## Support development
+
+Donations are optional. Funding links appear in the repository's **Sponsor** menu when available. All features remain free to use under the MIT licence. See [donation setup](docs/SHARING.md#github-donations) for maintainer activation steps.
