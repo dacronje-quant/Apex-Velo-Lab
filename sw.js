@@ -1,6 +1,6 @@
 // APEX VELO // LAB service worker - network-first for app files so updates are never
 // masked by a stale cache; the cache is only a fallback when offline.
-const CACHE_NAME = 'apex-velo-cache-v46';
+const CACHE_NAME = 'apex-velo-cache-v47';
 const CORE = [
   './js/phone-zen.js',
   './css/phone-layout.css',
@@ -9,7 +9,7 @@ const CORE = [
   './vendor/fonts/inter-latin-400-normal.woff2', './vendor/fonts/inter-latin-500-normal.woff2', './vendor/fonts/inter-latin-600-normal.woff2', './vendor/fonts/inter-latin-700-normal.woff2', './vendor/fonts/inter-latin-800-normal.woff2',
   './vendor/fonts/jetbrains-mono-latin-400-normal.woff2', './vendor/fonts/jetbrains-mono-latin-500-normal.woff2', './vendor/fonts/jetbrains-mono-latin-600-normal.woff2', './vendor/fonts/jetbrains-mono-latin-700-normal.woff2', './vendor/fonts/jetbrains-mono-latin-800-normal.woff2',
   './vendor/fonts/unbounded-latin-300-normal.woff2', './vendor/fonts/unbounded-latin-400-normal.woff2', './vendor/fonts/unbounded-latin-500-normal.woff2', './vendor/fonts/unbounded-latin-600-normal.woff2', './vendor/fonts/unbounded-latin-700-normal.woff2', './vendor/fonts/figtree-latin-400-normal.woff2', './vendor/fonts/figtree-latin-500-normal.woff2', './vendor/fonts/figtree-latin-600-normal.woff2', './vendor/fonts/figtree-latin-700-normal.woff2', './vendor/fonts/figtree-latin-800-normal.woff2',
-  './data/divan_cycling_history.js',
+  './js/velo-demo.js', './js/velo-local-history.js',
   './js/velo-metrics.js', './js/velo-glossary.js', './js/velo-db.js', './js/velo-sound.js', './js/velo-pip.js', './js/velo-folder-sync.js',
   './js/velo-biomech.js', './js/velo-live-graph.js', './js/velo-analytics.js', './js/velo-workouts.js',
   './js/velo-ai-coach.js', './js/velo-block-planner.js', './js/velo-sim.js', './js/velo-ble.js', './js/velo-erg.js', './js/velo-insight.js', './js/velo-importer.js', './js/velo-export.js',
@@ -33,7 +33,7 @@ self.addEventListener('fetch', (e) => {
   if (req.method !== 'GET') return;
   const url = new URL(req.url);
   // Never cache the local coach API (/api/*) or cross-origin calls other than the Chart.js / font CDNs.
-  if (url.origin === self.location.origin && url.pathname.startsWith('/api/')) return;
+  if (url.origin === self.location.origin && (url.pathname.startsWith('/api/') || url.pathname.startsWith('/data/') || url.pathname.startsWith('/.private-review/'))) return;
   const cacheableCdn = /cdn\.jsdelivr\.net|fonts\.(googleapis|gstatic)\.com/.test(url.hostname);
   if (url.origin !== self.location.origin && !cacheableCdn) return;
   e.respondWith(

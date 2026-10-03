@@ -229,6 +229,7 @@ class VeloBle {
   }
 
   async _request(kind, filters, optionalServices, acceptAll = false) {
+    if (typeof window !== 'undefined' && window.__APEX_DEMO_MODE__) throw new Error('Bluetooth pairing is disabled in the demo. Return to your app to connect devices.');
     const opts = acceptAll ? { acceptAllDevices: true, optionalServices } : { filters, optionalServices };
     const old = this.slots[kind];
     if (old.connecting || old.choosing) throw new Error('A connection is already in progress');
@@ -303,6 +304,7 @@ class VeloBle {
 
   /** Looks up the devices Chrome still has permission for; resolves to { kind: BluetoothDevice }. */
   async refreshPermitted() {
+    if (typeof window !== 'undefined' && window.__APEX_DEMO_MODE__) return;
     const found = {};
     const bt = typeof navigator !== 'undefined' ? navigator.bluetooth : null;
     if (bt && typeof bt.getDevices === 'function') {
@@ -351,6 +353,7 @@ class VeloBle {
    * to be paired once on the PC.
    */
   async reconnect(kind) {
+    if (typeof window !== 'undefined' && window.__APEX_DEMO_MODE__) throw new Error('Device connections are disabled in the demo.');
     const slot = this.slots[kind];
     if (slot.state === 'connecting' || slot.connecting || slot.choosing) return false;
     if (slot.device && slot.device.gatt && slot.device.gatt.connected && slot.state === 'connected') return true;

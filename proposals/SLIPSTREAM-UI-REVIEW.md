@@ -1,6 +1,6 @@
 # Slipstream UI review — Apex Velo Lab
 
-Reviewed 3 October 2026 in `C:\Users\dacro\Documents\Apex-Velo-Lab`, on the local `slipstream-redesign` branch. The starting commit was `d2a1e6f`. This review covers the working app and phone interface. The separate three-direction design study was excluded after scope was clarified.
+Reviewed 3 October 2026 in the local project checkout, on the local `slipstream-redesign` branch. The starting commit was `d2a1e6f`. This review covers the working app and phone interface. The separate three-direction design study was excluded after scope was clarified.
 
 The redesign gives Apex a coherent visual identity: the power ring, zone lighting, translucent surfaces and consistent controls make the riding screen immediately recognisable. Its main weakness is how the large display typography and spacious desktop composition behave in small containers. Several confirmed text-fit problems have been corrected. The next improvements should focus on navigation, riding priorities and keyboard access, while retaining the Slipstream appearance.
 
@@ -121,11 +121,10 @@ The text-fit corrections are implemented in the working tree. The broader workfl
 
 ## Evidence and reproduction
 
-- Layout audit: [audit.json](ui-review/audit.json), with the initial findings in [audit-before.json](ui-review/audit-before.json).
-- Phone graph audit: [phone-follow-audit.json](ui-review/phone-follow-audit.json).
-- Representative renders: [desktop cockpit](ui-review/app-cockpit-1440.png), [phone Ride](ui-review/phone-0-390.png), [six-minute phone view](ui-review/phone-follow-390.png), [landscape six-minute view](ui-review/phone-follow-844.png), [mobile Zen](ui-review/zen-390.png), [landscape Zen](ui-review/zen-844.png).
 - Reproduce the full rendering review: `node tests/ui-responsive-review.cjs`.
 - Reproduce the targeted phone check: `node tests/ui-responsive-review.cjs --phone-only`.
 - The 19 focused unit tests for phone rendering, graph camera, power averaging, workout overview and glossary passed. Run them with `node --test tests/phone-ride-strip.test.js tests/phone-ride-graph.test.js tests/phone-power-averages.test.js tests/workout-overview.test.js tests/glossary.test.js`.
 
 The layout audit records findings for review; it is not an accessibility certification or a complete integration suite. Live services and physical trainer behaviour were outside this UI review.
+
+Review images are preserved locally in the ignored `.private-review` folder. New browser checks generate synthetic screenshots under `test-output`.

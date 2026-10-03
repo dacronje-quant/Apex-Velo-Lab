@@ -1,5 +1,5 @@
 // Isolated rendering audit: never contacts the rider's server or physical devices.
-const { chromium } = require('C:/Users/dacro/.cache/codex-runtimes/codex-primary-runtime/dependencies/node/node_modules/playwright');
+const { chromium } = require('playwright');
 const fs = require('node:fs');
 const path = require('node:path');
 const root = path.resolve(__dirname, '..');
@@ -41,7 +41,7 @@ function audit() {
   return {pageWidth:innerWidth,scrollWidth:document.documentElement.scrollWidth,issues};
 }
 (async()=>{
- const browser=await chromium.launch({headless:true,channel:'msedge'});
+ const browser=await chromium.launch(require('./browser-options.cjs'));
  try {
   const context=await browser.newContext({reducedMotion:'reduce'});
   const errors=[];

@@ -1,5 +1,5 @@
 // Isolated UI verification: no real rider storage, server or Bluetooth connection.
-const { chromium } = require('C:/Users/dacro/.cache/codex-runtimes/codex-primary-runtime/dependencies/node/node_modules/playwright');
+const { chromium } = require('playwright');
 const fs = require('node:fs');
 const path = require('node:path');
 const assert = require('node:assert/strict');
@@ -11,7 +11,7 @@ const root = path.resolve(__dirname, '..');
     await new Promise(resolve => backend.listen(0, '127.0.0.1', resolve));
     backendUrl = `http://127.0.0.1:${backend.address().port}`;
   }
-  const browser = await chromium.launch({ headless: true, channel: 'msedge' });
+  const browser = await chromium.launch(require('./browser-options.cjs'));
   try {
     const page = await browser.newPage({ viewport: { width: 1440, height: 1000 } });
     const errors = [];
@@ -79,7 +79,7 @@ const root = path.resolve(__dirname, '..');
       const result = await page.evaluate(() => ({ passed: document.querySelectorAll('#results .pass').length,
         failed: [...document.querySelectorAll('#results .fail')].map(el => el.textContent) }));
       console.log(JSON.stringify(result, null, 2));
-      assert.ok(!result.failed.some(f => /ERG|PowerMatch|Cadence Targets|Ride-Time UX|Test Suite Execution/.test(f)), 'related browser regressions');
+      assert.deepEqual(result.failed, [], 'all browser suite checks pass with synthetic fixtures');
     }
   } finally {
     await browser.close();

@@ -9,7 +9,8 @@
  * - The test suite runs the app with ?apexTest=1 and gets its own database.
  */
 class VeloDB {
-  static dbName = (typeof window !== 'undefined' && window.__APEX_TEST_MODE__) ? 'ApexVeloDB_test' : 'ApexVeloDB';
+  static dbName = typeof window !== 'undefined' && window.__APEX_DEMO_MODE__ ? 'ApexVeloDB_demo'
+    : (typeof window !== 'undefined' && window.__APEX_TEST_MODE__) ? 'ApexVeloDB_test' : 'ApexVeloDB';
   static version = 1;
   static dbInstance = null;
   static OPEN_TIMEOUT_MS = 5000;

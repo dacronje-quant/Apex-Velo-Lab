@@ -62,11 +62,11 @@
               `Structure: ${structureOk}, History visible: ${visibility[0]}, Calendar visible: ${visibility[1]}`);
           }
 
-          // 1. Check Profiles: Divan should be sole default profile
+          // 1. The suite explicitly loads synthetic fixtures in isolated storage.
           const profiles = app.profiles;
-          const hasDivan = profiles.some(p => p.id === 'prof_divan' && p.ftp === 185);
+          const hasDemo = profiles.some(p => p.id === 'prof_demo' && p.ftp === 185);
           const hasOldDemo = profiles.some(p => p.id === 'prof_1' || p.id === 'prof_2');
-          log('Default Profile Divan (185W FTP, 75kg, 175 HR)', hasDivan && !hasOldDemo, `Count: ${profiles.length}`);
+          log('Isolated Synthetic Fixture Profile', hasDemo && !hasOldDemo, `Count: ${profiles.length}`);
 
           // 2. Check Virtual Speed Calculation
           const speed185W = app.calcVirtualSpeedKmh(185, 75);
@@ -171,8 +171,8 @@
           log('Hard-Start Category Filter Pill Renders Only Hard-Start Workouts', renderedCards.length >= 15 && allHaveBadge, `Rendered: ${renderedCards.length} cards`);
           app.renderWorkoutCatalog('all', '');
 
-          // 13. Check HealthFit Initial Sync (104 authentic rides)
-          log('HealthFit Initial Sync (104 Authentic Sessions)', app.completedWorkouts.length === 104, `Count: ${app.completedWorkouts.length}`);
+          // 13. Check HealthFit Initial Sync (104 synthetic rides)
+          log('HealthFit Initial Sync (104 Synthetic Sessions)', app.completedWorkouts.length === 104, `Count: ${app.completedWorkouts.length}`);
           const hfTotalRidesEl = frame.contentDocument.getElementById('hfTotalRides');
           log('HealthFit Hero Total Rides Counter (104)', hfTotalRidesEl && hfTotalRidesEl.textContent === '104', `Value: ${hfTotalRidesEl?.textContent}`);
 
@@ -439,15 +439,17 @@
           const allTimePRs = app.getAllTimeMmpBests();
           const allCurve = app.mmpChart.data.datasets.find(d => d.pdcRole === 'all').data;
           const curveAt = (sec) => (allCurve.find(q => q.x === sec) || {}).y;
-          const hasAuthenticPRs = allTimePRs.length === 9 && allTimePRs[0] === 252 && allTimePRs[7] === 195 && curveAt(5) === 252 && curveAt(1200) === 195;
-          log('MMP Power Curve Idle State Has Zero Placeholder Line & Authentic All-Time PRs', isMmpClean && hasAuthenticPRs, 
+          const fixturePRs = frame.contentWindow.APEX_LOCAL_HISTORY.allTimeMmp.watts;
+          const hasAuthenticPRs = allTimePRs.length === 9 && allTimePRs[0] === fixturePRs[0] && allTimePRs[7] === fixturePRs[7] && curveAt(5) === fixturePRs[0] && curveAt(1200) === fixturePRs[7];
+          log('MMP Idle State Has No Live Points and Preserves Synthetic Archive Bests', isMmpClean && hasAuthenticPRs,
             `Current Ride Points: ${currentRideMmp.length}, 20m PR: ${allTimePRs[7]}W`);
 
           // 25. FTP Progression Monthly NP Aggregation
           const ftpProg = app.getFtpProgressionData();
-          const hasAugPeak = ftpProg.labels.some(l => l.includes('Aug') || l.includes('08')) && ftpProg.data.includes(184);
+          const expectedPeak = Math.max(...app.completedWorkouts.map(r => Number(r.np) || 0));
+          const hasAugPeak = ftpProg.data.includes(expectedPeak);
           const isFtpProgReal = ftpProg.labels.length >= 8 && hasAugPeak;
-          log('FTP Progression Dynamically Aggregates Authentic Monthly Peak NP (184W Peak in Aug 26)', isFtpProgReal, 
+          log('FTP Progression Aggregates Monthly Peak NP from Synthetic Fixture Rides', isFtpProgReal,
             `Months: ${ftpProg.labels.join(', ')} | Max: ${Math.max(...ftpProg.data)}W`);
 
           // 26. No modelled biomechanics in the app: no Biomech tab, no simulated smoothness / torque tiles
@@ -847,7 +849,7 @@
             const fileOk = E.fitCrcOf(bytes) === 0; // CRC over data + trailing CRC is zero
             const dataSize = bytes[4] | (bytes[5] << 8) | (bytes[6] << 16) | (bytes[7] << 24);
             const sizeOk = dataSize === bytes.length - 16;
-            const parsed = W.VeloRideImporter.parseFit(bytes.buffer, 'Divan', 185);
+            const parsed = W.VeloRideImporter.parseFit(bytes.buffer, 'Test rider', 185);
             const s = parsed.samples;
             const rt = s.length === 120 && s.every((x, i) => x.power === samples[i].power && x.hr === samples[i].hr && x.cadence === samples[i].cadence) &&
               Math.abs(s[119].dist - samples[119].dist) < 0.001 && s[0].leftBal === 48 && s[0].rightBal === 52 &&
@@ -905,13 +907,13 @@
             const samples = makeSamples(90);
             const ride = { id: 't_tcx', title: 'TCX <Roundtrip> & Co', date: new W.Date(samples[0].timestamp - 1000).toISOString(), duration: 90, samples };
             const tcx = W.VeloExport.buildTcx(ride, samples);
-            const t = W.VeloRideImporter.parseTcx(tcx, 185, 'Divan');
+            const t = W.VeloRideImporter.parseTcx(tcx, 185, 'Test rider');
             const tcxOk = t.samples.length === 90 && t.samples.every((x, i) => x.power === samples[i].power && x.hr === samples[i].hr && x.cadence === samples[i].cadence) &&
               (tcx.match(/<Trackpoint>/g) || []).length === 90 && tcx.includes('TCX &lt;Roundtrip&gt; &amp; Co');
             const csv = W.VeloExport.buildCsv(ride, samples);
-            const c = W.VeloRideImporter.parseCsv(csv, 'Divan', 185);
+            const c = W.VeloRideImporter.parseCsv(csv, 'Test rider', 185);
             const csvOk = c.samples.length === 90 && c.samples[5].power === samples[5].power && c.samples[5].hr === samples[5].hr && c.leftBal === 48;
-            const bare = W.VeloRideImporter.parseTcx('<TrainingCenterDatabase><Activities><Activity><Id>2026-09-01T10:00:00Z</Id><Lap><Track><Trackpoint><Time>2026-09-01T10:00:01Z</Time></Trackpoint><Trackpoint><Time>2026-09-01T10:00:02Z</Time></Trackpoint></Track></Lap></Activity></Activities></TrainingCenterDatabase>', 185, 'Divan');
+            const bare = W.VeloRideImporter.parseTcx('<TrainingCenterDatabase><Activities><Activity><Id>2026-09-01T10:00:00Z</Id><Lap><Track><Trackpoint><Time>2026-09-01T10:00:01Z</Time></Trackpoint><Trackpoint><Time>2026-09-01T10:00:02Z</Time></Trackpoint></Track></Lap></Activity></Activities></TrainingCenterDatabase>', 185, 'Test rider');
             const honest = bare.samples.every(x => x.hr === 0 && x.cadence === 0 && x.power === 0) && bare.leftBal === null && bare.tss === 0;
             return { ok: tcxOk && csvOk && honest, detail: `TCX:${tcxOk} CSV:${csvOk} emptyChannelsStayEmpty:${honest}` };
           });
@@ -1056,7 +1058,7 @@
             app.renderMmpScrub(frame.contentWindow.VeloPower.gridIndex(60));
             const readout = D.getElementById('mmpScrubReadout').textContent;
             const curveOk = liveCurve.length >= 5 && liveCurve.every(q => q.x <= 75) && (liveCurve.find(q => q.x === 60) || {}).y === live[3];
-            const ok = live.length === 9 && live[0] > 0 && live[3] > 50 && live[0] >= live[3] && live[4] === null && curveOk && readout.includes('1m') && readout.includes('228 W') && /\d+%/.test(readout);
+            const ok = live.length === 9 && live[0] > 0 && live[3] > 50 && live[0] >= live[3] && live[4] === null && curveOk && readout.includes('1m') && readout.includes(frame.contentWindow.APEX_LOCAL_HISTORY.allTimeMmp.watts[3] + ' W') && /\d+%/.test(readout);
             app.resetWorkout(false);
             return { ok, detail: `live 5s:${live[0]}W 1m:${live[3]}W 3m:${live[4]} | readout "${readout.replace(/\s+/g, ' ').trim()}"` };
           });
@@ -2816,7 +2818,7 @@
     frame.onload = () => {
       setTimeout(runAllTests, 100);
     };
-    frame.src = 'index.html?apexTest=1'; // isolated storage: the tests never touch your real rides
+    frame.src = 'index.html?apexTest=1&apexFixture=1'; // isolated storage: the tests never touch your real rides
   </script>
 </body>
 </html>

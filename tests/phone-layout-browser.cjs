@@ -1,5 +1,5 @@
 // Isolated UI regression: commands are intercepted; no trainer or live server is contacted.
-const { chromium } = require('C:/Users/dacro/.cache/codex-runtimes/codex-primary-runtime/dependencies/node/node_modules/playwright');
+const { chromium } = require('playwright');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
@@ -12,7 +12,7 @@ const snapshot = { state:'running', title:'Threshold progression — sustained c
   targetZone:{short:'Z4',color:'#fbbf24'},zone:{color:'#fbbf24'},balanceLeft:49.4,wbal:{kj:10.2,pct:68,state:'burning',tte:180},
   hw:{bluetooth:true,list:['trainer','pedals','hr','fan'].map(kind=>({kind,label:kind,state:'connected',known:true,battery:82,canCalibrate:kind==='pedals',reading:kind==='fan'?{mode:'hr',speed:62}:{watts:178,cadence:91,hr:153,left:49.4}}))} };
 (async()=>{
- const browser=await chromium.launch({headless:true,channel:'msedge'});
+ const browser=await chromium.launch(require('./browser-options.cjs'));
  try {
   const context=await browser.newContext({reducedMotion:'reduce'});
   const errors=[],commands=[];let seq=1;

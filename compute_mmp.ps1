@@ -1,4 +1,4 @@
-# Calculate true MMP curve for Divan from FIT files
+# Calculate an MMP curve from local FIT files
 $healthFitDir = if ($env:HEALTHFIT_DIR) { $env:HEALTHFIT_DIR } else { Join-Path $env:USERPROFILE 'Downloads\HealthFit\HealthFit' }
 $fitFiles = Get-ChildItem -Path $healthFitDir -Filter "*Cycling*.fit"
 
@@ -37,7 +37,7 @@ foreach ($file in $fitFiles) {
     }
 }
 
-Write-Host "Divan's True All-Time MMP Curve (W):"
+Write-Host "Local All-Time MMP Curve (W):"
 foreach ($d in $durations) {
     Write-Host "${d}s: $($mmpRecords[$d])W"
 }

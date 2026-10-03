@@ -10,6 +10,16 @@
   Object.assign(VeloApp.prototype, {
     initSettings() {
       const on = (id, fn) => this.on(document.getElementById(id), 'click', fn);
+      const welcome = document.getElementById('firstRunHelp');
+      if (welcome) welcome.hidden = !(window.__APEX_DEMO_MODE__ || (this.isNewInstallation && !window.__APEX_TEST_MODE__ && !localStorage.getItem('apex_setup_dismissed')));
+      on('btnSetupProfile', () => { this.openModal('profileManagerModal'); this.populateEditProfile(this.activeProfileId); });
+      on('btnDismissSetup', () => { localStorage.setItem('apex_setup_dismissed', '1'); welcome.hidden = true; });
+      if (window.__APEX_DEMO_MODE__) {
+        document.getElementById('firstRunTitle').textContent = 'Demo playground';
+        document.getElementById('firstRunText').textContent = 'These rides are synthetic. Demo storage is separate from your real rides; server connections and Bluetooth pairing are disabled.';
+        const link = document.getElementById('btnOpenDemo'); link.href = location.pathname; link.removeAttribute('target'); link.textContent = 'Return to my app';
+        const hardware = document.getElementById('btnOpenHardwareModal'); if (hardware) hardware.disabled = true;
+      }
       on('btnOpenSettings', () => this.openSettings());
       document.querySelectorAll('[data-training-guide]').forEach(b => this.on(b, 'click', () => this.openSettings('guide')));
       on('btnCloseSettings', () => this.closeModal('settingsModal'));

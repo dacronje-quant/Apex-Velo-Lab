@@ -242,7 +242,7 @@
         return `
           <tr data-id="${esc(r.id)}">
             <td class="num nowrap">${dateStr}</td>
-            <td class="muted">${esc(r.profileName || 'Divan (HealthFit)')}</td>
+            <td class="muted">${esc(r.profileName || 'Imported rider')}</td>
             <td><div class="cell-title">${z ? `<i class="zone-dot" style="--zc:${z.color}" title="${z.label}"></i>` : ''}<b>${esc(r.title)}</b>${hasSamples ? '<span class="chip chip-ghost chip-xs">1 Hz</span>' : ''}${VeloMetrics.isCycling(r) ? '' : `<span class="chip chip-xs act-chip act-${esc(r.activityType)}">${actOf(r).label}</span>`}${r.tssEstimated ? `<span class="chip chip-ghost chip-xs" title="TSS estimated from ${esc(r.tssMethod)}">est.</span>` : ''}${this.medalChips && medalHist ? this.medalChips(this.rideMedals(r, medalHist), r.date, true) : ''}${this.stravaChip ? this.stravaChip(r) : ''}</div></td>
             <td class="num">${this.fmtTime(r.duration)}</td>
             <td class="num">${dist > 0 ? dist + ' km' : '--'}</td>
@@ -297,24 +297,23 @@
     },
 
     async resyncHealthFitHistory(silent = false) {
-      this.completedWorkouts = [];
-      try { localStorage.removeItem('apex_velo_history'); } catch (e) { /* ignore */ }
-      await VeloDB.clearAllRides();
-      if (typeof DIVAN_HEALTHFIT_DATA !== 'undefined' && Array.isArray(DIVAN_HEALTHFIT_DATA.rides) && DIVAN_HEALTHFIT_DATA.rides.length) {
-        this.completedWorkouts = DIVAN_HEALTHFIT_DATA.rides.map(r => ({ ...r, profileName: 'Divan (HealthFit)' }));
-        if (DIVAN_HEALTHFIT_DATA.estimatedFtp) this.activeProfile.ftp = DIVAN_HEALTHFIT_DATA.estimatedFtp;
-        if (DIVAN_HEALTHFIT_DATA.maxHeartRate) this.activeProfile.maxHr = DIVAN_HEALTHFIT_DATA.maxHeartRate;
-        this.analytics.ftp = this.activeProfile.ftp;
-        this.saveProfiles();
-        this.updateProfileUi();
+      if (!APEX_LOCAL_HISTORY || !Array.isArray(APEX_LOCAL_HISTORY.rides) || !APEX_LOCAL_HISTORY.rides.length) {
+        if (!silent) this.showToast('No local archive found. Import FIT, TCX, CSV or a backup in History instead.', 'info');
+        return false;
       }
+      // Archive refreshes must never delete independently recorded or imported rides.
+      const current = window.__APEX_TEST_MODE__ && silent ? [] : this.completedWorkouts;
+      const merged = new Map(current.map(r => [r.id, r]));
+      for (const r of APEX_LOCAL_HISTORY.rides) if (!merged.has(r.id)) merged.set(r.id, { ...r, profileName: r.profileName || APEX_LOCAL_HISTORY.riderName || this.activeProfile.name });
+      this.completedWorkouts = [...merged.values()];
       this.persistHistoryLocal();
       try { localStorage.setItem('apex_velo_healthfit_resynced_v4', 'true'); } catch (e) { /* ignore */ }
       await VeloDB.saveRidesBatch(this.completedWorkouts);
       this.renderHistoryTable();
       this.renderCalendarView();
       this.refreshAnalytics();
-      if (!silent) this.showToast(`Re-synced ${this.completedWorkouts.length} HealthFit rides.`, 'success');
+      if (!silent) this.showToast(`Local archive merged. ${this.completedWorkouts.length} rides retained.`, 'success');
+      return true;
     },
 
     /** History header: ride count and the date span of the history. */

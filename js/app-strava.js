@@ -552,7 +552,7 @@
         g.fillStyle = '#94a3b8'; g.font = `700 16px ${FONT}`; g.fillText('L / R BALANCE', W - 64, 890);
         g.fillStyle = '#f8fafc'; g.font = `700 30px ${MONO}`; g.fillText(`${ride.leftBal} / ${ride.rightBal}`, W - 64, 934);
       }
-      g.fillStyle = '#475569'; g.font = `500 15px ${FONT}`; g.fillText('Assioma DUO-Shi  ·  Wahoo KICKR SHIFT', W - 64, 972);
+      g.fillStyle = '#475569'; g.font = `500 15px ${FONT}`; g.fillText('Recorded with Apex Velo Lab', W - 64, 972);
       g.textAlign = 'left';
       return c;
     },

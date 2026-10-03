@@ -51,7 +51,9 @@
 
     saveHealthStore() {
       VeloHealth.compact(this.healthStore, localDay());
-      try { localStorage.setItem(STORE_KEY, JSON.stringify(this.healthStore)); } catch (e) { /* storage full - kept in memory */ }
+      // A failed write must stop inbox acknowledgement: retain payloads for the next attempt.
+      localStorage.setItem(STORE_KEY, JSON.stringify(this.healthStore));
+      return true;
     },
 
     /** Recomputes the per-day records and everything that shows them. */
@@ -96,18 +98,26 @@
           const j = await r.json();
           const list = Array.isArray(j.files) ? j.files : [];
           if (!list.length) break;
+          const accepted = [];
           for (const f of list) {
-            if (f && f.body) added += this.ingestHealthPayload(f.body).added;
+            if (!f || !f.body) throw new Error('A health export could not be read. Its server copy has been retained.');
+            const result = this.ingestHealthPayload(f.body);
+            if (!result.found) throw new Error('An export contains no supported health readings. Its server copy has been retained.');
+            added += result.added;
+            accepted.push(f.name);
             files++;
           }
           this.saveHealthStore();   // stored before the server deletes anything
-          await fetch('api/health/ack', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ names: list.map(f => f.name) }), cache: 'no-store' });
+          const ack = await fetch('api/health/ack', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ names: accepted }), cache: 'no-store' });
+          if (!ack.ok) throw new Error('The server could not acknowledge the saved export. It will be retried.');
           if (!j.remaining) break;
         }
         this._healthError = null;
       } catch (e) {
         this._healthError = e.status === 404 || e.status === 405 ? 'Restart Launch-Apex-Velo.bat to enable Apple Health sync.'
-          : e.status === 403 ? 'Apple Health data can only be read by the app on this PC.' : 'Local server not reachable.';
+          : e.status === 403 ? 'Apple Health data can only be read by the app on this PC.'
+          : e.name === 'QuotaExceededError' ? 'Browser storage is full. Health exports are retained on the server; free space or export a backup before retrying.'
+          : e.message && !/^inbox /.test(e.message) ? e.message : 'Local server not reachable.';
       } finally {
         this._healthBusy = false;
       }
@@ -208,10 +218,10 @@
       const noLan = !(st.urls && st.urls.length);
       steps.innerHTML = [
         noLan ? '<li class="backup-warn">Phone access is off: run <code>Enable-Phone-View.bat</code> once on this PC, then restart the launcher.</li>' : '',
-        '<li>On the iPhone install <b>Health Auto Export</b> and allow it to read <b>Resting Heart Rate</b>, <b>Heart Rate Variability</b> and <b>Sleep Analysis</b>. Automations need its Premium tier.</li>',
+        '<li>On the iPhone install <b>Health Auto Export</b> and allow it to read <b>Heart Rate</b>, <b>Resting Heart Rate</b>, <b>Heart Rate Variability</b> and <b>Sleep Analysis</b>. Automations need its Premium tier.</li>',
         `<li>In Health Auto Export: <b>Automations &rsaquo; New automation &rsaquo; REST API</b>. URL: <code>${esc(url)}</code></li>`,
         `<li>Add a header - key <code>Authorization</code>, value <code>Bearer ${esc(st.token)}</code></li>`,
-        '<li>Data type <b>Health Metrics</b>; select Resting Heart Rate, Heart Rate Variability and Sleep Analysis. Export format <b>JSON</b>, version 2. Date range: <b>Since last sync</b> (first time: last 60 days, so readiness has a baseline straight away). Sleep: aggregated is fine.</li>',
+        '<li>Data type <b>Health Metrics</b>; select Heart Rate, Resting Heart Rate, Heart Rate Variability and Sleep Analysis. Export format <b>JSON</b>, version 2. Date range: <b>Since last sync</b> (first time: last 60 days, so readiness has a baseline straight away). Sleep: aggregated is fine.</li>',
         '<li>Sync cadence: <b>every hour</b>, and turn the automation on. If iOS asks to find devices on your local network, tap <b>Allow</b>.</li>',
         '<li>Tap <b>Manual export</b> once, then <b>Check now</b> here - "Last received" should update.</li>'
       ].join('');

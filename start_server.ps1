@@ -164,7 +164,8 @@ $backupPrefix = '{"app":"APEX VELO LAB"'
 function Test-PcRequest($request) {
     $h = [string]$request.Headers['Host']
     $origin = $request.Headers['Origin']
-    return (($h -match '^(localhost|127\.0\.0\.1|\[::1\])(:\d+)?$') -and ([string]::IsNullOrEmpty($origin) -or ($origin -match '^http://(localhost|127\.0\.0\.1|\[::1\])(:\d+)?$')))
+    $ip = ([string]$request.RemoteEndPoint.Address) -replace '^::ffff:', ''
+    return (($ip -eq '::1' -or $ip -match '^127\.') -and ($h -match '^(localhost|127\.0\.0\.1|\[::1\])(:\d+)?$') -and ([string]::IsNullOrEmpty($origin) -or ($origin -match '^http://(localhost|127\.0\.0\.1|\[::1\])(:\d+)?$')))
 }
 
 function Get-BackupFiles {
@@ -292,6 +293,7 @@ function Invoke-Health($request, $response, [string]$path) {
         if ($bytes.Length -gt $healthMaxBytes) { return Send-Json $response 413 @{ error = 'Over 50 MB - export a shorter date range.' } }
         try { $body = $utf8.GetString($bytes) | ConvertFrom-Json } catch { return Send-Json $response 400 @{ error = 'Invalid JSON.' } }
         if ($null -eq $body -or -not ($body.data -or $body.metrics)) { return Send-Json $response 400 @{ error = 'Not a Health Auto Export payload (no "data").' } }
+        if (@(Get-HealthInboxFiles).Count -ge $healthInboxKeep) { return Send-Json $response 429 @{ error = 'Health inbox is full. Open the app on this computer to collect existing exports, then retry.' } }
         $rb = New-Object byte[] 3
         [System.Security.Cryptography.RandomNumberGenerator]::Create().GetBytes($rb)
         $name = 'hae_' + (Get-Date).ToString('yyyyMMdd_HHmmss') + '_' + (-join ($rb | ForEach-Object { $_.ToString('x2') })) + '.json'
@@ -300,8 +302,6 @@ function Invoke-Health($request, $response, [string]$path) {
             $tmp = Join-Path $healthInbox ('.' + $name + '.tmp')
             [System.IO.File]::WriteAllBytes($tmp, $bytes)
             Move-Item -LiteralPath $tmp -Destination (Join-Path $healthInbox $name) -Force
-            $files = Get-HealthInboxFiles
-            if ($files.Count -gt $healthInboxKeep) { $files | Select-Object -First ($files.Count - $healthInboxKeep) | ForEach-Object { Remove-Item -LiteralPath $_.FullName -Force -ErrorAction SilentlyContinue } }
             $prev = 0
             if (Test-Path -LiteralPath $healthMetaFile) { try { $prev = [int](([System.IO.File]::ReadAllText($healthMetaFile) | ConvertFrom-Json).received) } catch { $prev = 0 } }
             $meta = [ordered]@{ lastReceived = (Get-Date).ToUniversalTime().ToString('yyyy-MM-ddTHH:mm:ss.fffZ'); lastBytes = $bytes.Length; received = $prev + 1 }
@@ -1206,7 +1206,7 @@ function Send-StaticFile($request, $response) {
     if ($file -ne $root -and -not $file.StartsWith($root + [System.IO.Path]::DirectorySeparatorChar, [System.StringComparison]::OrdinalIgnoreCase)) { return Send-Text $response 403 'Forbidden' }
     # Never serve dot-files (.env), the servers, or helper scripts.
     $relative = $file.Substring($root.Length).TrimStart('\', '/')
-    if ($relative -match '(^|[\\/])\.' -or $relative -match '^server\.js$' -or $relative -match '\.(ps1|cmd|bat|sh)$' -or $relative -match '^data[\\/](backups|health)([\\/]|$)') { return Send-Text $response 404 'Not found' }
+    if ($relative -match '(^|[\\/])\.' -or $relative -match '^server\.js$' -or $relative -match '\.(ps1|cmd|bat|sh)$' -or $relative -match '^data[\\/](?!sample_sweetspot_ride\.tcx$|README\.md$)') { return Send-Text $response 404 'Not found' }
     if (Test-Path $file -PathType Container) { $file = Join-Path $file 'index.html' }
     if (-not (Test-Path $file -PathType Leaf)) { return Send-Text $response 404 'Not found' }
     $ext = [System.IO.Path]::GetExtension($file).ToLower()
@@ -1305,6 +1305,26 @@ try {
             $path = $request.Url.AbsolutePath
             if (-not (Test-AllowedClient $request)) {
                 Send-Text $response 403 'Forbidden'
+            } elseif ($path -eq '/api/local-history') {
+                if ($request.HttpMethod -ne 'GET') { Send-Json $response 405 @{ error = 'Method not allowed' } }
+                elseif (-not (Test-PcRequest $request)) { Send-Json $response 403 @{ error = 'Local archives can only be read on this computer.' } }
+                else {
+                    $archive = $null
+                    foreach ($archiveName in @('local-history.json', 'divan_cycling_history.json', 'local-history.js', 'divan_cycling_history.js')) {
+                        $candidate = Join-Path $root ('data/' + $archiveName)
+                        if (Test-Path $candidate -PathType Leaf) { $archive = $candidate; break }
+                    }
+                    if (-not $archive) { Send-RawJson $response 200 'null' }
+                    else {
+                        try {
+                            $raw = [System.IO.File]::ReadAllText($archive).Trim().TrimStart([char]0xFEFF)
+                            if ($archive.EndsWith('.js')) { $raw = $raw -replace '^(?:window\.)?(?:APEX_LOCAL_HISTORY|DIVAN_HEALTHFIT_DATA)\s*=\s*', '' -replace ';\s*$', '' }
+                            $archiveData = $raw | ConvertFrom-Json
+                            if (-not $archiveData -or $null -eq $archiveData.rides) { throw 'Invalid archive' }
+                            Send-Json $response 200 $archiveData
+                        } catch { Send-Json $response 500 @{ error = 'Could not read the local archive. The file has been left untouched.' } }
+                    }
+                }
             } elseif ($path -eq '/api/backup') {
                 Invoke-Backup $request $response
             } elseif ($path -eq '/api/health' -or $path.StartsWith('/api/health/')) {

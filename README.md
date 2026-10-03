@@ -1,14 +1,16 @@
 # APEX VELO LAB v3
 
 > Indoor cycling cockpit, AI workout builder and training-analytics dashboard in one HTML app, served by a small local server that also holds your Claude and/or Gemini API key.
-> Built for Divan (185 W FTP baseline, 75 kg, 175 max HR) with Favero Assioma DUO-Shi pedals and a Wahoo KICKR SHIFT.
+> Run it on your own computer, explore the simulator, or connect supported cycling sensors. No hosted account or API key is required to get started.
 
 ## Quick start
 
 1. Double-click **`Launch-Apex-Velo.bat`**. It needs no installs; it runs `start_server.ps1` with Windows PowerShell.
-2. On the first run it creates `.env` and opens it in Notepad. Paste your Anthropic API key after `ANTHROPIC_API_KEY=` and/or your Google Gemini key after `GEMINI_API_KEY=`, save, and close Notepad. Chrome then opens at `http://localhost:8080`. Web Bluetooth needs localhost or HTTPS, so use Chrome or Edge.
+2. The launcher creates `.env` only if absent and opens the app at `http://localhost:8080`. Leave the keys blank to use local workouts and planning. Use **Set up my rider** to replace placeholder values, or **Explore a demo** for synthetic history in isolated storage. Web Bluetooth requires a compatible desktop Chrome/Edge browser at localhost.
 3. Open **Devices** in the header. Choose a device type under **Add or replace a device**, then **Pair device**. After pairing once, use **Connect saved devices** before a ride.
-4. To run the test suite, open `http://localhost:8080/test_suite.html`. It should end with `COMPLETED`; the only check expected to fail is *Banister PMC*, which compares against fixed values from your HealthFit archive and drifts as days pass (see *Tests*). The tests run the app in an isolated test mode (in-memory settings and a separate test database), so they never touch your recorded rides.
+4. Import your own FIT, TCX, CSV or Apex backup in **History**. New installations contain no personal ride history. The bundled `data/sample_sweetspot_ride.tcx` is a synthetic, opt-in example.
+
+On macOS/Linux or with Node.js, run `node server.js --open` (Node 18+, no runtime dependencies). See [local setup and troubleshooting](docs/LOCAL-SETUP.md) and [local data/privacy](docs/PRIVACY.md). This project is intended for local use, including a phone remote on trusted Wi-Fi.
 
 Keep the port at 8080. The browser stores your rides and settings per address, so a different port starts with an empty history.
 
@@ -16,11 +18,10 @@ Keep the port at 8080. The browser stores your rides and settings per address, s
 
 ### Updating
 
-Your app folder is a Git checkout of `main`. To get the latest version:
+If you cloned the repository, run this inside your checkout to update your current branch:
 
 ```
-cd C:\Users\dacro\Documents\Apex-Velo-Lab
-git -c core.autocrlf=true pull origin main
+git pull
 ```
 
 Then restart `Launch-Apex-Velo.bat` (the server only reads its code at start) and press **Ctrl+F5** in Chrome. Your `.env`, `.strava-tokens.json` and `data/` ride history are not in Git, so an update never touches them.
@@ -34,7 +35,7 @@ Then restart `Launch-Apex-Velo.bat` (the server only reads its code at start) an
 - **History look-back** (Coach > Session request: 7, 14, 28, 42 or 90 days) sets how far back the coach reviews rides, volume and intensity mix. Each ride in the window is listed (the 30 most recent at most), so the prompt stays small. Fitness, fatigue and form (CTL/ATL/TSB) are always computed on your PC from your full history.
 - **Plain-language coaching.** New AI session advice, block summaries and ride reviews explain what to do and why in everyday words, using numbers mainly for actionable durations or targets. The offline coach uses the same approach. Existing saved AI answers are kept; ask again to get a new explanation. Open **Coach > Training terms explained**, or **Settings > Training guide**, to review proposed simple names alongside the acronyms.
 - **AI chooses weekly ride time.** In Coach > Training block, leave **Hours per week** blank to let the connected AI choose weekly allowances from recent riding and recovery. The app bounds the choice using the recent four-week average, recent-week volume, recovery signals and selected days, limits increases between build-week allowances, and shortens recovery/test weeks. These are planning estimates, not a measured optimum. If AI is unavailable or does not choose hours for every week, no new plan is saved: enter hours or try again. Entered hours preserve the existing planning behavior; re-planning keeps your choice to delegate hours to AI.
-- The server listens on localhost only. It accepts API calls only from pages it served (it checks Host and Origin and requires a JSON content type), so other websites cannot use your key.
+- The server validates client addresses, Host and Origin. Localhost and permitted private-LAN addresses can use the app; the phone remote may be available on trusted Wi-Fi. Private health/archive and backup management is PC-only. This is not a login system: do not expose the server publicly. See [privacy](docs/PRIVACY.md).
 - Without a key, the coach falls back to the offline engine and says so in the status pill.
 - `server.js` is an equivalent Node.js server (`node server.js --open`) for machines without Windows PowerShell. It reads the same `.env` and exposes the same API.
 
@@ -79,7 +80,7 @@ The **gear icon** in the header opens Settings - everything you set up once:
 
 ## Apple Health: resting HR, HRV and sleep (Health Auto Export)
 
-Your Apple Watch's **resting heart rate**, **HRV** (Apple's SDNN, in ms) and **sleep** reach the app through the **Health Auto Export** iPhone app, which posts them to this PC. They drive the daily **readiness**, the **calendar recovery strip** and the resting HR / HRV trends in Analytics. Nothing is uploaded anywhere else.
+Your Apple Watch's **resting heart rate**, **HRV** (Apple's SDNN, in ms) and **sleep** reach the app through the optional **Health Auto Export** iPhone app, which posts them to this PC. They drive daily **readiness**, the **calendar recovery strip** and recovery trends. Optional AI requests may include recovery summaries; ordinary health import stays local.
 
 **Setup (about 2 minutes, once):**
 1. Phone view must be enabled (`Enable-Phone-View.bat`, see below) - the iPhone talks to the PC over your home Wi-Fi. Tip: give the PC a fixed address in your router (DHCP reservation) so the URL never changes.
@@ -210,7 +211,7 @@ A thin zone-coloured bar of the whole workout sits above the controls on every s
 - **The server only answers this PC and devices on your private home network** (10.x, 172.16-31.x, 192.168.x, link-local). This is checked on the real client address of every request, which a client cannot fake, so even on a public Wi-Fi nothing outside answers. Every page and data file, not just the API, also refuses requests made through another website's address (DNS rebinding), so no website can read your ride history. Open the app as `http://localhost:8080` on the PC and by the numbered address the launcher prints on the phone; a PC name such as `http://DESKTOP-ABC:8080` is refused. Do **not** forward port 8080 on your router - the app is not meant to be reachable from the internet.
 - `Enable-Phone-View.bat` opens the port in Windows Firewall for **Private** networks only; `Enable-Phone-View.bat remove` undoes it.
 - Strava sync data stays in the browser (history, restore points in IndexedDB); besides `.strava-tokens.json`, the server only writes the automatic backups in `data\backups` (this PC only, never served, git-ignored).
-- Personal ride history (`data/divan_cycling_history.*`) is git-ignored; run `parse_healthfit.ps1` to build your own from HealthFit `.fit` exports (set `HEALTHFIT_DIR` if they are not in `Downloads\HealthFit\HealthFit`).
+- Personal ride history (`data/local-history.*`) is git-ignored; run `parse_healthfit.ps1` to build your own from HealthFit `.fit` exports (set `HEALTHFIT_DIR` if they are not in `Downloads\HealthFit\HealthFit`).
 
 ## Data integrity rules
 
@@ -304,7 +305,7 @@ css/style.css         Design system (obsidian/slate tokens, glass surfaces, resp
 css/fonts.css         Local Inter / JetBrains Mono fonts (no internet needed)
 vendor/               Chart.js 4.4.1 (MIT) and the font files (SIL OFL), with their licences
 sw.js                 Network-first service worker (bump CACHE_NAME when files change; never caches /api/)
-data/                 divan_cycling_history.json/.js - HealthFit archive + all-time MMP; backups/ - automatic backups; health/ - Health Auto Export token + inbox
+data/                 local-history.json/.js - HealthFit archive + all-time MMP; backups/ - automatic backups; health/ - Health Auto Export token + inbox
 js/
   velo-metrics.js     Pure maths: zones, NP/IF/TSS, MMP, form bands, backoff, compliance
   velo-db.js          IndexedDB persistence
@@ -351,7 +352,7 @@ Enable-Phone-View.bat One-time firewall/URL setup for the phone view (`remove` u
 ```
 
 **Helper scripts** (run by hand in PowerShell, not by the app):
-- `parse_healthfit.ps1` - builds `data/divan_cycling_history.json` from your HealthFit `.fit` exports; `create_js_data.ps1` wraps that JSON into the `.js` file the app loads.
+- `parse_healthfit.ps1` - builds `data/local-history.json` from your HealthFit `.fit` exports; `create_js_data.ps1` wraps that JSON into the `.js` file the app loads.
 - `compute_mmp.ps1` - computes the all-time power curve (MMP) from the same `.fit` files.
 
 The mixins extend `VeloApp.prototype` with `Object.assign` and load after `app.js`. The app keeps one `requestAnimationFrame` loop, which pauses while the page is hidden. `destroy()` removes every listener, chart, observer and timer.
@@ -403,12 +404,10 @@ The mixins extend `VeloApp.prototype` with `Object.assign` and load after `app.j
 
 ## Tests
 
-Open `test_suite.html`. It covers metrics, a FIT CRC round-trip, TCX/CSV round-trips, summary-only exports, the CPS 0x0C command, BLE reconnect with a fake device, write serialisation, PMC ranges, progression, the MMP scrub, the AI goals and week plan, Zen thresholds, resource lifecycle, the clock, calendar bucketing and the device badges. It also checks the Claude path with a mocked `/api/coach` (request shape, reasoning parsing, fallback), switching between Claude and Gemini, auto session duration, the history look-back window, training blocks (3:1 structure, 48 h between key sessions, hours respected, calendar cards, post-ride adjustments), the ERG governor (soft start, anti-stall, HIIT-safe step lead, PowerMatch), and that no API key is stored in the browser. It also checks Polar H10 contact handling, first-connect retries, that a real ride never falls back to simulator data, and that the tests leave your real storage untouched. It also checks the Send to Strava flow with a mocked Strava (upload, processing, sent link, failure, history chip, workout image, and matching rides that already exist on Strava). It also checks **Sync from Strava** with Strava mocked (nothing leaves the machine): the preview writes nothing; only GET requests go out; Apply writes a restore point first and then writes once; Undo restores byte-identical storage; app-recorded rides are unchanged and the Calendar renders the same rides before and after; the three dedupe layers (id skip, fuzzy link, Motra/watch merge), possible matches never auto-imported, decisions remembered; refresh (Strava edit updates, Strava delete removes only that record, out-of-range records untouched, second sync = no changes); custom ranges; a timezone-mislabelled HealthFit ride matched while the same ride 3 h later is not; strength on the Calendar but excluded from power analytics and counted in fatigue; the training block and coach prompts; a simulated failure at every stage of Apply leaves storage unchanged; and the real-storage-untouched check. It also checks the power streams: 1 Hz conversion (short gaps held, pauses dropped), TSS from the stream, streams fetched only for power-meter rides, a rate-limited sync adding them later, exact Undo after streams were added or removed, imports never sent back to Strava; the background check (read-only, no streams, badge, off switch); and a real threshold HR replacing the estimate. It also checks the ride-time extras (Stand break without tripping anti-stall, exact +/-5 W from the phone, the +5 min easy spin offer - accept, finish, timeout - with the library workout untouched, and the server accepting the new phone commands), connecting sensors from the phone (a known sensor reconnects without the Bluetooth chooser, a new one raises the Pair now banner, disconnect keeps it reconnectable; a sensor Chrome has forgotten is found by a short scan - a dead advertisement watch cleared first - and connects once the scan has stopped, a silent one ends as *not found* after one scan, Stop ends a scan at once, and a browser that cannot scan asks for Pair now) and the post-ride insight (decoupling only on steady rides, gold/silver/bronze medals against earlier rides, the FTP suggestion rules and its one-click update, and the AI interval breakdown asking at low effort with the step table only and saving the answer). It also checks the automatic backup (gzipped with samples and profiles, sent to a mocked server - the test page never writes to your `data\backups` - skipped when nothing changed, restored from a `.json.gz` on the Import zone), that the page loads no internet URLs and Chart.js and both fonts come from the app folder, the FTP history chart (FTP line and change log, proven FTP only when a ride tested it), the drift trend (steady rides only), and the recent-ride insight in the coach prompt and offline advice. It also covers the debugging fixes: a 5-second TCX becomes 1 Hz with its pause kept and a true 1-minute peak, the KICKR distance through a counter reset and a pause, live NP equal to post-ride NP, the interval track redrawn only when the step changes, and a delete triggering the backup. It also checks the power analytics end to end: the CP model from test rides, the log-time power curve with its model line and the W/kg toggle, the CP model card, the zone distribution and polarization index, the CP history, the weekly zones view, the ride plot lanes with W′ balance, the review charts being released on close, and live W′ balance in the cockpit and the phone snapshot. It also checks the Ask page with a mocked `/api/ask`: the period summary (only rides in the period), alternating conversation turns, the period-change note, rendered answers, a failed question put back in the box, the saved chat and New chat. The suite has 108 checks. The calendar checks open the week and month of your latest ride, so they do not depend on today's date; the *Banister PMC* check compares against fixed values from the HealthFit archive, so it drifts as days pass and is the one expected failure.
+Run `npm test` for Node checks. For browser checks, install optional development dependencies with `npm install`; install bundled Chromium with `npx playwright install chromium` if needed. Windows uses installed Edge by default.
 
-`node --test tests/power-model.test.js` checks the power maths on its own: the 1 s-4 h curve equals the existing peak maths exactly (pauses, smart recording and gaps included), zone seconds, the CP model on model curves, on realistic rider curves (CP at 90-98 % of the 20-min best) and with submaximal efforts mixed in, W′ balance (depletion, recovery, pauses, matches), TRIMP, the power histogram, quadrant analysis, the 3-zone split and the model history. `node --test tests/ask-context.test.js` checks the Ask period windows (presets, all history, custom dates swapped when reversed) and the summary text (every section, "-" for missing values, titles that cannot break the table, trimming the oldest rides under the size limit). `node tests/ask-servers.test.js` runs both local servers against a mock Claude / Gemini and checks `/api/ask`: the analyst prompt and cached data block, the conversation, thinking and effort, the Opus 5.5 fallback (and the retry when it is rejected), refusals, Gemini plain-text answers, input checks, that `/api/coach` is unchanged, and identical requests from both servers. Run every Node test with `node --test tests/*.test.js`.
+- `npm run test:browser`: fresh installation, preservation of existing profiles/rides/health data, local archive loading and demo isolation.
+- `npm run test:suite`: the comprehensive browser suite with generated synthetic fixtures and isolated storage. No personal archive or expected failing checks.
+- `npm run check:share`: scan tracked release contents for common private files and credentials. Historical commits need a separate review.
 
-`node tests/strava-sync-servers.test.js` starts both local servers (from a temporary copy, with a fake token file - your real `.env` and tokens are never used) against a mock Strava and checks `/api/strava/sync`: paging, detail batches, power streams (data, deleted, rate-limited, bad ids), the `activity:read_all` check, errors, identical answers from both servers, that the sync path only ever sends GET requests to Strava, the backup endpoint (written and read back, non-Apex / non-gzip / wrong type / other websites refused, never served, newest 14 kept, no temp files), and who may connect (pages load on localhost, another site's Host is refused, a client outside the home network is refused even when it claims to be localhost) - 43 checks. The PowerShell part runs when `pwsh` or `powershell` is on the PATH.
-
-## License
-
-Personal use.
+See [development setup](docs/LOCAL-SETUP.md#development-checks). The checks simulate sensors and services; they do not certify physical hardware or third-party account permissions.

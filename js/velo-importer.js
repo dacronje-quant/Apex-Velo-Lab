@@ -59,7 +59,7 @@ class VeloRideImporter {
   }
 
   // -------------------------------------------------------------------- TCX --
-  static parseTcx(tcxXmlString, riderFtp = 185, profileName = 'Divan (HealthFit)') {
+  static parseTcx(tcxXmlString, riderFtp = 185, profileName = 'Imported rider') {
     const xmlDoc = new DOMParser().parseFromString(tcxXmlString, 'text/xml');
     const trackpoints = xmlDoc.getElementsByTagName('Trackpoint');
     if (!trackpoints.length) throw new Error('No trackpoints found in TCX file.');
@@ -114,7 +114,7 @@ class VeloRideImporter {
    * Accepts APEX VELO's own export (named header) as well as generic
    * "time,target,power,cadence,hr,left,right" files. Missing columns stay empty.
    */
-  static parseCsv(csvString, profileName = 'Divan (HealthFit)', riderFtp = 185) {
+  static parseCsv(csvString, profileName = 'Imported rider', riderFtp = 185) {
     const lines = csvString.replace(/\r/g, '').trim().split('\n').filter(Boolean);
     if (lines.length < 2) throw new Error('Invalid CSV file.');
     const header = lines[0].split(',').map(h => h.trim().toLowerCase());
@@ -172,7 +172,7 @@ class VeloRideImporter {
   }
 
   // -------------------------------------------------------------------- FIT --
-  static parseFit(arrayBuffer, profileName = 'Divan (HealthFit)', riderFtp = 185) {
+  static parseFit(arrayBuffer, profileName = 'Imported rider', riderFtp = 185) {
     const dv = new DataView(arrayBuffer);
     if (dv.byteLength < 14) throw new Error('File too short for FIT format.');
     const headerSize = dv.getUint8(0);

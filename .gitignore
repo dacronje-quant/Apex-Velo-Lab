@@ -18,6 +18,17 @@ data/backups/
 data/health/
 data/*history*
 
+# All local imports are private. Only the documented synthetic sample is distributed.
+data/**
+!data/README.md
+!data/sample_sweetspot_ride.tcx
+.private-review/
+node_modules/
+playwright-report/
+test-results/
+release-output/
+*.log
+
 # Local backups / OS clutter
 *_backup*/
 Thumbs.db

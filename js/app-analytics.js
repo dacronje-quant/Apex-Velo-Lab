@@ -282,8 +282,8 @@
     // ------------------------------------------------------------------ MMP --
     /** HealthFit archive bests at VeloMetrics.MMP_DURATIONS (from before the app), or null. */
     archiveMmp() {
-      return (typeof DIVAN_HEALTHFIT_DATA !== 'undefined' && DIVAN_HEALTHFIT_DATA.allTimeMmp && Array.isArray(DIVAN_HEALTHFIT_DATA.allTimeMmp.watts))
-        ? DIVAN_HEALTHFIT_DATA.allTimeMmp.watts : null;
+      return (typeof APEX_LOCAL_HISTORY !== 'undefined' && APEX_LOCAL_HISTORY && APEX_LOCAL_HISTORY.allTimeMmp && Array.isArray(APEX_LOCAL_HISTORY.allTimeMmp.watts))
+        ? APEX_LOCAL_HISTORY.allTimeMmp.watts : null;
     },
 
     /** All-time bests at VeloMetrics.MMP_DURATIONS: archive plus every recorded ride (cached curves). */

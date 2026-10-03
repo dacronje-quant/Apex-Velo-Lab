@@ -1,6 +1,7 @@
-# Full Garmin FIT binary parser in PowerShell for Divan's HealthFit Cycling workouts
+# Garmin FIT parser for an optional local HealthFit archive
+param([string]$RiderName = 'Rider', [string]$OutputPath = (Join-Path $PSScriptRoot 'data/local-history.json'))
 $healthFitDir = if ($env:HEALTHFIT_DIR) { $env:HEALTHFIT_DIR } else { Join-Path $env:USERPROFILE 'Downloads\HealthFit\HealthFit' }
-$outputJson = Join-Path $PSScriptRoot 'data\divan_cycling_history.json'
+$outputJson = $OutputPath
 
 Write-Host "Scanning $healthFitDir for cycling FIT files..."
 
@@ -337,7 +338,7 @@ foreach ($r in $processedRides) {
 }
 
 $summaryData = @{
-    riderName = "Divan"
+    riderName = $RiderName
     estimatedFtp = $calculatedFtp
     peak20mPower = $peak20mPowerOverall
     maxHeartRate = $maxHrOverall
@@ -348,4 +349,4 @@ $summaryData = @{
 $jsonStr = $summaryData | ConvertTo-Json -Depth 5
 [System.IO.File]::WriteAllText($outputJson, $jsonStr)
 
-Write-Host "Successfully exported Divan's cycling history to $outputJson!"
+Write-Host "Successfully exported local cycling history to $outputJson!"

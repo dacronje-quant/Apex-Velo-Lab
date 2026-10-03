@@ -17,13 +17,6 @@ Analysis for riders with a power meter: critical-power modelling, W′ balance, 
 | Live W′ balance | Burst energy left, in kJ and %, with *empty in m:ss at this power* and matches. Also on the phone's Session screen. | Cockpit, phone |
 | Plain English | A short meaning under every acronym and metric (*TSS - workout load score*, *NP - surge-weighted average*), with the full name on hover. It comes from one glossary that matches Settings › Training terms explained. | Everywhere |
 
-![Power duration curve and CP model](power-curve-cp-model.png)
-![CP and W′ over time](power-cp-history.png)
-![Intensity distribution](power-intensity-distribution.png)
-![Ride review: power analysis](power-ride-power-analysis.png)
-![Ride plot with W′ balance](power-ride-plot-wbal.png)
-![Quadrant analysis](power-ride-quadrants.png)
-![Live W′ balance in the cockpit](power-cockpit-wbal.png)
 
 *Screenshots use synthetic test rides, not real rider data.*
 
@@ -89,3 +82,5 @@ Ordered by value for an indoor power-meter rider.
 - **Not verified:**
   - real Bluetooth devices or a real phone;
   - the rider's real ride archive.
+
+Review images are preserved locally in the ignored `.private-review` folder. New browser checks generate synthetic screenshots under `test-output`.

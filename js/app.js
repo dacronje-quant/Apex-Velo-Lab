@@ -81,6 +81,7 @@ class VeloApp {
     this.pip = new VeloPip(this);
     this.folderSync = new VeloFolderSync(this);
     this.simulator = new VeloSimulator();
+    if (window.__APEX_DEMO_MODE__) this.simulator.enabled = true;
     this.analytics = new VeloAnalytics(this.activeProfile.ftp, this.activeProfile.weightKg);
     this.ble = new VeloBle((d) => this.handleBleTelemetry(d));
     this.aiCoach = new VeloAiCoach(this);
@@ -219,11 +220,13 @@ class VeloApp {
       const raw = localStorage.getItem('apex_velo_profiles');
       if (raw) loaded = JSON.parse(raw);
     } catch (e) { /* ignore */ }
-    if (Array.isArray(loaded)) loaded = loaded.filter(p => p.id !== 'prof_1' && p.id !== 'prof_2');
-    if (!loaded || !loaded.length || !loaded.some(p => p.id === 'prof_divan')) {
-      const divan = { id: 'prof_divan', name: 'Divan (HealthFit)', ftp: 185, weightKg: 75.0, maxHr: 175 };
-      loaded = [divan, ...(loaded || []).filter(p => p.id !== 'prof_divan')];
+    // Existing rider profiles, including legacy IDs, must survive updates unchanged.
+    if (!Array.isArray(loaded) || !loaded.length) {
+      this.isNewInstallation = true;
+      loaded = [window.__APEX_DEMO_MODE__ || (window.__APEX_TEST_MODE__ && APEX_LOCAL_HISTORY)
+        ? { ...VeloDemo.profile } : { id: 'prof_rider', name: 'Rider', ftp: 200, weightKg: 75, maxHr: 180, needsSetup: true }];
     }
+    if (loaded.some(p => p.needsSetup)) this.isNewInstallation = true;
     try { localStorage.setItem('apex_velo_profiles', JSON.stringify(loaded)); } catch (e) { /* ignore */ }
     return loaded;
   }
@@ -239,7 +242,7 @@ class VeloApp {
   loadActiveProfileId() {
     let saved = null;
     try { saved = localStorage.getItem('apex_velo_active_prof_id'); } catch (e) { /* ignore */ }
-    return (!saved || saved === 'prof_1' || saved === 'prof_2') ? 'prof_divan' : saved;
+    return this.profiles.some(p => p.id === saved) ? saved : this.profiles[0].id;
   }
 
   getActiveProfile() {
@@ -360,6 +363,7 @@ class VeloApp {
       if (p) {
         if (p === this.activeProfile && Number(p.ftp) !== ftp && this.logFtpChange) this.logFtpChange(p.ftp, ftp, 'manual');
         Object.assign(p, { name, ftp, weightKg, maxHr }); if (lthr) p.lthr = lthr; else delete p.lthr;
+        delete p.needsSetup;
         if (crankMm) p.crankMm = crankMm; else delete p.crankMm;
       }
       this.showToast(`Updated "${name}" (${ftp} W FTP)`, 'success');
@@ -371,6 +375,10 @@ class VeloApp {
     }
     this.cancelEditProfile();
     this.applyProfileChange();
+    if (this.isNewInstallation) {
+      try { localStorage.setItem('apex_setup_dismissed', '1'); } catch (e) { /* profile is already saved */ }
+      const help = this.$('firstRunHelp'); if (help && !window.__APEX_DEMO_MODE__) help.hidden = true;
+    }
     this.closeModal('profileManagerModal');
   }
 
@@ -2599,17 +2607,15 @@ class VeloApp {
   // --------------------------------------------------------- persistence --
   loadHistory() {
     try {
-      if (localStorage.getItem('apex_velo_healthfit_resynced_v4')) {
-        const raw = localStorage.getItem('apex_velo_history');
-        if (raw !== null) {
-          const parsed = JSON.parse(raw);
-          if (Array.isArray(parsed)) return parsed;
-        }
+      const raw = localStorage.getItem('apex_velo_history');
+      if (raw !== null) {
+        const parsed = JSON.parse(raw);
+        if (Array.isArray(parsed)) return parsed;
       }
     } catch (e) { /* ignore */ }
     try { localStorage.setItem('apex_velo_healthfit_resynced_v4', 'true'); } catch (e) { /* ignore */ }
-    if (typeof DIVAN_HEALTHFIT_DATA !== 'undefined' && Array.isArray(DIVAN_HEALTHFIT_DATA.rides) && DIVAN_HEALTHFIT_DATA.rides.length) {
-      const synced = DIVAN_HEALTHFIT_DATA.rides.map(r => ({ ...r, profileName: 'Divan (HealthFit)' }));
+    if (typeof APEX_LOCAL_HISTORY !== 'undefined' && APEX_LOCAL_HISTORY && Array.isArray(APEX_LOCAL_HISTORY.rides) && APEX_LOCAL_HISTORY.rides.length) {
+      const synced = APEX_LOCAL_HISTORY.rides.map(r => ({ ...r, profileName: r.profileName || APEX_LOCAL_HISTORY.riderName || this.activeProfile.name }));
       try { localStorage.setItem('apex_velo_history', JSON.stringify(synced)); } catch (e) { /* ignore */ }
       return synced;
     }
@@ -2690,8 +2696,10 @@ class VeloApp {
 }
 
 let app = null;
-window.addEventListener('DOMContentLoaded', () => {
+window.addEventListener('DOMContentLoaded', async () => {
+  await window.loadLocalHistory();
   window.app = app = new VeloApp();
+  if (window.__APEX_ARCHIVE_ERROR__) app.showToast(window.__APEX_ARCHIVE_ERROR__, 'warning');
 });
 
 // PWA: network-first service worker; reload once when a new version takes control (never mid-ride).

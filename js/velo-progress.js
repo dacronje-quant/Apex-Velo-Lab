@@ -187,7 +187,7 @@ class VeloProgress {
 
     // Power profile ratios (from the authentic all-time MMP when available)
     let profileType = null;
-    const mmp = (typeof DIVAN_HEALTHFIT_DATA !== 'undefined' && DIVAN_HEALTHFIT_DATA.allTimeMmp) ? DIVAN_HEALTHFIT_DATA.allTimeMmp.watts : null;
+    const mmp = (typeof APEX_LOCAL_HISTORY !== 'undefined' && APEX_LOCAL_HISTORY && APEX_LOCAL_HISTORY.allTimeMmp) ? APEX_LOCAL_HISTORY.allTimeMmp.watts : null;
     if (mmp && mmp.length === 9 && ftp > 0) {
       const p5s = mmp[0], p1m = mmp[3], p5m = mmp[5], p20 = mmp[7];
       const r5m = p5m / ftp, r1m = p1m / ftp, r5s = p5s / ftp;

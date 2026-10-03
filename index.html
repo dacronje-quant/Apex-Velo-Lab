@@ -16,7 +16,9 @@
     // Test isolation: test_suite.html loads the app with ?apexTest=1. In that mode the app gets an
     // in-memory localStorage and its own IndexedDB, so running the tests can never touch your rides.
     (function () {
-      if (!/[?&]apexTest=1(&|$)/.test(location.search)) return;
+      var params = new URLSearchParams(location.search);
+      var demo = params.get('apexDemo') === '1';
+      if (!demo && params.get('apexTest') !== '1') return;
       var mem = {};
       var store = {
         getItem: function (k) { k = String(k); return Object.prototype.hasOwnProperty.call(mem, k) ? mem[k] : null; },
@@ -28,10 +30,21 @@
       };
       Object.defineProperty(window, 'localStorage', { configurable: true, get: function () { return store; } });
       window.__APEX_TEST_MODE__ = true;
+      window.__APEX_DEMO_MODE__ = demo;
+      if (demo) {
+        // Playground actions cannot reach this installation's API or physical devices.
+        var realFetch = window.fetch.bind(window);
+        window.fetch = function (input, options) {
+          var url = new URL(typeof input === 'string' ? input : input.url, location.href);
+          if (url.pathname.indexOf('/api/') === 0) return Promise.resolve(new Response(JSON.stringify({ error: 'Connections and server writes are disabled in the demo.' }), { status: 403, headers: { 'Content-Type': 'application/json' } }));
+          return realFetch(input, options);
+        };
+      }
     })();
   </script>
   <script src="vendor/chart.umd.min.js"></script>
-  <script src="data/divan_cycling_history.js"></script>
+  <script src="js/velo-demo.js"></script>
+  <script src="js/velo-local-history.js"></script>
   <link rel="stylesheet" href="css/style.css">
 </head>
 <body>
@@ -140,6 +153,11 @@
   <main>
     <!-- ============================== COCKPIT ============================== -->
     <section class="tab-view active" id="view-cockpit">
+      <div class="card welcome-card" id="firstRunHelp" hidden>
+        <h2 id="firstRunTitle">Welcome to Apex Velo Lab</h2>
+        <p id="firstRunText">Start with your rider profile, then try a simulated workout or connect your trainer. The initial FTP, weight and heart-rate values are placeholders. AI, Strava and Apple Health are optional.</p>
+        <div class="btn-row"><button type="button" class="btn btn-primary" id="btnSetupProfile">Set up my rider</button><a class="btn" href="?apexDemo=1" target="_blank" rel="noopener" id="btnOpenDemo">Explore a demo</a><button type="button" class="btn btn-ghost" id="btnDismissSetup">Dismiss</button></div>
+      </div>
 
       <!-- Slipstream stage: the current step (left), power ring and ride controls (centre), body signals (right) -->
       <div class="ss-stage">
@@ -165,7 +183,7 @@
           <button type="button" class="chip chip-ghost cockpit-rider-badge" id="cockpitRiderBadge" title="Active rider - click to manage">
             <svg class="ic ic-xs"><use href="#i-user"/></svg>
             <span id="hudProfileAvatarText" hidden></span>
-            <span id="hudRiderProfileName">Divan (185W)</span>
+            <span id="hudRiderProfileName">Rider</span>
           </button>
         </div>
 
@@ -312,7 +330,7 @@
               <span class="upcoming-strip-badge">Interval queue</span>
               <span class="upcoming-queue-count num" id="upcomingQueueCount">0 Steps</span>
             </div>
-            <div class="strip-meta">Reference FTP <strong class="num"><span id="upcomingProfileFtp">185</span>W</strong><span class="dot-sep"></span>Click a step to jump</div>
+            <div class="strip-meta">Reference FTP <strong class="num"><span id="upcomingProfileFtp">200</span>W</strong><span class="dot-sep"></span>Click a step to jump</div>
           </div>
           <div class="upcoming-cards-scroll" id="upcomingCardsContainer"></div>
         </div>
@@ -470,7 +488,7 @@
         <div class="table-scroll">
           <table class="interval-table data-table">
             <thead>
-              <tr><th>#</th><th>Step name</th><th>% FTP</th><th>Target (<span id="tableFtpDisplay">185W</span>)</th><th>Duration (s)</th><th></th></tr>
+              <tr><th>#</th><th>Step name</th><th>% FTP</th><th>Target (<span id="tableFtpDisplay">200W</span>)</th><th>Duration (s)</th><th></th></tr>
             </thead>
             <tbody id="customIntervalTableBody"></tbody>
           </table>
@@ -755,7 +773,7 @@
         <div class="pmc-stat-pill" data-accent="amber"><span class="title" data-term="tsb">TSB &middot; Form</span><span class="val num" id="pmcValTsb">--</span><span class="desc"><span class="form-badge" id="pmcFormStatus">--</span></span></div>
         <div class="pmc-stat-pill" data-accent="cyan"><span class="title" data-term="ctl">CTL &middot; Fitness</span><span class="val num" id="pmcValCtl">--</span><span class="desc" data-term-tip="atl">Recent strain (ATL) <b class="num" id="pmcValAtl">--</b></span></div>
         <div class="pmc-stat-pill" data-accent="violet"><span class="title" data-term="ramp">Ramp rate &middot; 7 days</span><span class="val num" id="anaRampVal">--</span><span class="desc" id="anaRampNote">CTL change per week</span></div>
-        <div class="pmc-stat-pill" data-accent="rose"><span class="title" data-term="ftp">Active FTP</span><span class="val num" id="pmcValFtp">185 W</span><span class="desc num" id="pmcValWkg">2.47 W/kg (75 kg)</span></div>
+        <div class="pmc-stat-pill" data-accent="rose"><span class="title" data-term="ftp">Active FTP</span><span class="val num" id="pmcValFtp">200 W</span><span class="desc num" id="pmcValWkg">2.67 W/kg (75 kg)</span></div>
       </div>
 
       <!-- PROGRESSION TILES -->
@@ -938,7 +956,7 @@
             <div><h4>HealthFit folder</h4><p class="dim">Reads the HealthFit export folder on this PC and adds new rides.</p></div>
             <div class="btn-row btn-row-tight">
               <button type="button" class="btn btn-sm btn-primary" id="btnConnectHealthFitFolder" title="Read a HealthFit folder with the File System Access API"><svg class="ic"><use href="#i-folder"/></svg>Connect folder</button>
-              <button type="button" class="btn btn-sm" id="btnSyncHealthFitHistory"><svg class="ic"><use href="#i-refresh"/></svg>Re-sync archive</button>
+              <button type="button" class="btn btn-sm" id="btnSyncHealthFitHistory">Merge local archive</button>
             </div>
             <div id="folderSyncStatus" class="folder-sync-pill" hidden></div>
           </div>
@@ -1166,6 +1184,7 @@
         <p class="field-help">FTP, weight and heart-rate limits drive every zone, target and W/kg in the app.</p>
         <div class="settings-kv" id="settingsRiderSummary"></div>
         <div class="btn-row"><button type="button" class="btn btn-primary" id="btnSettingsEditRider"><svg class="ic"><use href="#i-user"/></svg>Edit rider profiles</button></div>
+        <p class="field-help">New installations start with placeholder values and no rides. <a href="?apexDemo=1" target="_blank" rel="noopener">Explore the synthetic demo</a> in isolated storage, or import your own rides in History. <a href="docs/LOCAL-SETUP.md" target="_blank" rel="noopener">Local setup guide</a>.</p>
       </section>
 
       <section class="settings-section" data-sec="ai" id="aiCoachConfigCard">
@@ -1237,10 +1256,10 @@
         <button type="button" class="btn btn-ghost btn-sm" id="btnCancelEditProfile" style="display:none;">Cancel edit</button>
       </div>
       <div class="form-grid">
-        <div class="form-group"><label for="profInputName">Rider name</label><input type="text" id="profInputName" class="form-input" placeholder="e.g. Divan - Road season"></div>
-        <div class="form-group"><label for="profInputFtp" data-term="ftp">FTP (W)</label><input type="number" id="profInputFtp" class="form-input" value="185" min="80" max="600"></div>
+        <div class="form-group"><label for="profInputName">Rider name</label><input type="text" id="profInputName" class="form-input" placeholder="e.g. Rider - Road season"></div>
+        <div class="form-group"><label for="profInputFtp" data-term="ftp">FTP (W)</label><input type="number" id="profInputFtp" class="form-input" value="200" min="80" max="600"></div>
         <div class="form-group"><label for="profInputWeight">Weight (kg)</label><input type="number" id="profInputWeight" class="form-input" value="75.0" step="0.5" min="30" max="180"></div>
-        <div class="form-group"><label for="profInputMaxHr">Max heart rate (bpm)</label><input type="number" id="profInputMaxHr" class="form-input" value="175" min="120" max="230"></div>
+        <div class="form-group"><label for="profInputMaxHr">Max heart rate (bpm)</label><input type="number" id="profInputMaxHr" class="form-input" value="180" min="120" max="230"></div>
         <div class="form-group"><label for="profInputCrank">Crank length (mm, optional)</label><input type="number" id="profInputCrank" class="form-input" placeholder="172.5" min="150" max="200" step="0.5" title="Your crank length. Used to turn power and cadence into pedal force and pedal speed for the quadrant analysis in the ride review. Blank = 172.5 mm."></div>
         <div class="form-group"><label for="profInputLthr">Threshold heart rate (bpm, optional)</label><input type="number" id="profInputLthr" class="form-input" placeholder="about 90% of max" min="100" max="220" title="Average heart rate of a 20-60 min all-out effort (or ~95% of your 20-min test average). Used for heart-rate TSS of rides without power."></div>
       </div>
@@ -1278,7 +1297,7 @@
         <div class="zen-halo" aria-hidden="true"></div>
         <div class="zen-target-row">
           <span class="zen-target-lbl">Target</span>
-          <span class="zen-target-val num" id="zenTargetWatts">185W</span>
+          <span class="zen-target-val num" id="zenTargetWatts">200W</span>
           <span class="zen-target-pct num" id="zenTargetPct">(100% FTP)</span>
           <span class="zen-diff-pill pill-on num" id="zenDiffPill">ON TARGET</span>
         </div>
@@ -1514,7 +1533,7 @@
           <li><strong style="color:var(--text);">Polar H10:</strong> Wet the electrodes and wear the strap (it only wakes on skin contact). If it was ever paired in Windows Settings &gt; Bluetooth, remove it there, then connect from here. Failed first attempts are retried automatically.</li>
           <li><strong style="color:var(--text);">Windows Bluetooth:</strong> Ensure Bluetooth is toggled <strong>ON</strong> in Windows Settings / Action Center.</li>
           <li><strong style="color:var(--text);">Browser Popup:</strong> When you click Connect, look for the device popup at the <strong>top-left</strong> under the address bar and click <strong>Pair</strong>.</li>
-          <li><strong style="color:var(--text);">Use Launcher:</strong> For guaranteed permissions, double-click <code style="color:var(--cyan);">Launch-Apex-Velo.bat</code> in your folder.</li>
+          <li><strong style="color:var(--text);">Use localhost:</strong> Start the local server and open the app in desktop Chrome or Edge. Pairing still needs your permission in the browser prompt.</li>
         </ul>
       </div>
 

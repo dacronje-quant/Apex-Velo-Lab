@@ -113,7 +113,7 @@ const MIME = {
   '.fit': 'application/octet-stream', '.tcx': 'application/xml', '.csv': 'text/csv; charset=utf-8', '.md': 'text/markdown; charset=utf-8'
 };
 // Only app files are served: never dot-files (.env), this script, or the helper scripts.
-const BLOCKED = /(^|[\\/])\.|^server\.js$|\.(ps1|cmd|bat|sh)$|^data[\\/](backups|health)([\\/]|$)/i;
+const BLOCKED = /(^|[\\/])\.|^server\.js$|\.(ps1|cmd|bat|sh)$|^data[\\/](?!sample_sweetspot_ride\.tcx$|README\.md$)/i;
 
 function serveStatic(req, res, urlPath) {
   let rel;
@@ -759,7 +759,8 @@ const BACKUP_PREFIX = '{"app":"APEX VELO LAB"';
 function isPcRequest(req) {
   const host = req.headers.host || '';
   const origin = req.headers.origin;
-  return /^(localhost|127\.0\.0\.1|\[::1\])(:\d+)?$/i.test(host) && (!origin || /^http:\/\/(localhost|127\.0\.0\.1|\[::1\])(:\d+)?$/i.test(origin));
+  const ip = String((req.socket && req.socket.remoteAddress) || '').replace(/^::ffff:/, '');
+  return (ip === '::1' || /^127\./.test(ip)) && /^(localhost|127\.0\.0\.1|\[::1\])(:\d+)?$/i.test(host) && (!origin || /^http:\/\/(localhost|127\.0\.0\.1|\[::1\])(:\d+)?$/i.test(origin));
 }
 
 function readRaw(req, limit) {
@@ -868,6 +869,7 @@ async function handleHealth(req, res, urlPath, query) {
     let body;
     try { body = JSON.parse(buf.toString('utf8')); } catch (e) { return sendJson(res, 400, { error: 'Invalid JSON.' }); }
     if (!body || typeof body !== 'object' || !(body.data || body.metrics)) return sendJson(res, 400, { error: 'Not a Health Auto Export payload (no "data").' });
+    if (healthInboxFiles().length >= HEALTH_INBOX_KEEP) return sendJson(res, 429, { error: 'Health inbox is full. Open the app on this computer to collect existing exports, then retry.' });
     const d = new Date();
     const p2 = (n) => String(n).padStart(2, '0');
     const name = `hae_${d.getFullYear()}${p2(d.getMonth() + 1)}${p2(d.getDate())}_${p2(d.getHours())}${p2(d.getMinutes())}${p2(d.getSeconds())}_${require('crypto').randomBytes(3).toString('hex')}.json`;
@@ -876,8 +878,6 @@ async function handleHealth(req, res, urlPath, query) {
       const tmp = path.join(HEALTH_INBOX, `.${name}.tmp`);
       fs.writeFileSync(tmp, buf);
       fs.renameSync(tmp, path.join(HEALTH_INBOX, name));
-      const files = healthInboxFiles();
-      files.slice(0, Math.max(0, files.length - HEALTH_INBOX_KEEP)).forEach(f => { try { fs.unlinkSync(path.join(HEALTH_INBOX, f)); } catch (e) { /* ignore */ } });
       let meta = {};
       try { meta = JSON.parse(fs.readFileSync(HEALTH_META_FILE, 'utf8')) || {}; } catch (e) { /* first */ }
       fs.writeFileSync(HEALTH_META_FILE, JSON.stringify({ lastReceived: d.toISOString(), lastBytes: buf.length, received: (meta.received || 0) + 1 }));
@@ -1001,6 +1001,21 @@ function createServer() {
   return http.createServer((req, res) => {
     const urlPath = (req.url || '/').split('?')[0];
     if (!isAllowedClient(req)) return send(res, 403, 'Forbidden');
+    if (urlPath === '/api/local-history') {
+      if (req.method !== 'GET') return sendJson(res, 405, { error: 'Method not allowed' });
+      if (!isPcRequest(req)) return sendJson(res, 403, { error: 'Local archives can only be read on this computer.' });
+      // Preserve old installations; never evaluate private JavaScript as server code.
+      const names = ['local-history.json', 'divan_cycling_history.json', 'local-history.js', 'divan_cycling_history.js'];
+      const file = names.map(n => path.join(ROOT, 'data', n)).find(f => fs.existsSync(f));
+      if (!file) return sendJson(res, 200, null);
+      try {
+        let raw = fs.readFileSync(file, 'utf8').replace(/^\uFEFF/, '').trim();
+        if (file.endsWith('.js')) raw = raw.replace(/^(?:window\.)?(?:APEX_LOCAL_HISTORY|DIVAN_HEALTHFIT_DATA)\s*=\s*/, '').replace(/;\s*$/, '');
+        const data = JSON.parse(raw);
+        if (!data || !Array.isArray(data.rides)) throw new Error('Invalid archive');
+        return sendJson(res, 200, data);
+      } catch (e) { return sendJson(res, 500, { error: 'Could not read the local archive. The file has been left untouched.' }); }
+    }
     if (urlPath === '/api/backup') {
       return handleBackup(req, res).catch((e) => { if (!res.headersSent) sendJson(res, 500, { error: e.message }); });
     }

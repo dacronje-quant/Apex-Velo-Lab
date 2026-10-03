@@ -25,10 +25,6 @@ Implemented on `codex/bluetooth-updates`. Existing uncommitted changes were pres
 
 These show the implemented interface with **simulated devices**, not hardware verification:
 
-- [Desktop Devices](bluetooth-implemented-desktop.png)
-- [Mobile Devices drawer](bluetooth-implemented-mobile.png)
-- [Fan controls](bluetooth-implemented-fan.png)
-- [Phone remote fan controls](bluetooth-implemented-phone.png)
 
 The visual fixture in `tests/bluetooth-ui-fixture.js` only runs with isolated test mode. It is not loaded by the production app.
 
@@ -37,3 +33,5 @@ The visual fixture in `tests/bluetooth-ui-fixture.js` only runs with isolated te
 Pair your actual trainer, meter, HR sensor and HEADWIND in Chrome/Edge on localhost. Verify live data, trainer control, calibration while paused, reconnection after a power interruption, and HEADWIND Off/presets/confirmation. HEADWIND's protocol is proprietary, so compatibility with your particular firmware remains unverified until this physical check.
 
 Restart the launcher/server after updating, then refresh the app (Ctrl+F5). Previously saved device IDs and browser history remain compatible.
+
+Review images are preserved locally in the ignored `.private-review` folder. New browser checks generate synthetic screenshots under `test-output`.
