@@ -263,7 +263,8 @@
   .hub { flex-wrap: wrap; }
 </style>
 <style>
-  /* Slipstream: night glass over a light that takes the colour of the current zone.
+  /* Slipstream: night glass over a light that takes the colour of the current zone, the power
+     ring as the centrepiece of Ride and Focus, and the controls as a floating dock.
      Visual only - every control and id keeps its behaviour. */
   @property --zone-a { syntax: '<color>'; inherits: true; initial-value: #2a86ff; }
   @property --zone-b { syntax: '<color>'; inherits: true; initial-value: #1fd1b2; }
@@ -271,34 +272,120 @@
     --bg: #060812; --panel: rgba(255,255,255,.06); --line: rgba(255,255,255,.1); --text: #f1f4ff; --muted: #a4acc6; --dim: #6f7894;
     --cyan: #7cc8ff; --lime: #4be3a6; --amber: #ffbe4a; --red: #ff6b8a;
     --zone-a: #2a86ff; --zone-b: #1fd1b2;
+    --glass: linear-gradient(160deg, rgba(255,255,255,.09), rgba(255,255,255,.03));
+    --display: 'Unbounded', 'Figtree', -apple-system, sans-serif;
   }
   html, body { font-family: 'Figtree', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; }
-  body { transition: --zone-a 1.6s ease, --zone-b 1.6s ease; }
-  body::before { content: ""; position: fixed; inset: 0; z-index: -1; pointer-events: none;
-    background: radial-gradient(520px 420px at 0% -5%, color-mix(in srgb, var(--zone-a) 34%, transparent), transparent 70%),
-                radial-gradient(480px 460px at 100% 30%, color-mix(in srgb, var(--zone-b) 22%, transparent), transparent 70%),
-                radial-gradient(600px 400px at 50% 110%, rgba(61,99,255,.18), transparent 70%); }
-  .card, .m, .tr-tile, .dcard, .tabs { background: linear-gradient(160deg, rgba(255,255,255,.08), rgba(255,255,255,.03)); border-color: rgba(255,255,255,.09);
-    -webkit-backdrop-filter: blur(18px) saturate(150%); backdrop-filter: blur(18px) saturate(150%); }
-  .card, .dcard { border-radius: 22px; }
-  .m, .tr-tile { border-radius: 18px; }
-  .tabs { border-radius: 999px; padding: 4px; }
-  .tabs button { border-radius: 999px; }
-  .tabs button[aria-selected="true"] { background: rgba(255,255,255,.15); box-shadow: inset 0 1px 0 rgba(255,255,255,.2); }
-  .pill { background: rgba(255,255,255,.08); border-radius: 999px; }
-  .countdown, .power .big, .hero .big, .split .side .big, .tr-tile .tv, .m .v {
-    font-family: 'Unbounded', 'Figtree', sans-serif; font-weight: 500; letter-spacing: -.05em; font-variant-numeric: tabular-nums; }
-  .countdown { font-weight: 300; }
-  .power .big { font-weight: 600; text-shadow: 0 0 34px color-mix(in srgb, var(--zone-a) 45%, transparent); }
-  .tr-tile .tv { font-size: 30px; }
-  .tr-tile.pw .tv { color: #fff; }
+  /* html keeps the night colour; body is see-through so the zone light behind it shows */
+  body { background: transparent; transition: --zone-a 1.6s ease, --zone-b 1.6s ease; gap: 10px; }
+  body::before { content: ""; position: fixed; inset: -15%; z-index: -1; pointer-events: none; will-change: transform;
+    background: radial-gradient(60% 45% at 8% 0%, color-mix(in srgb, var(--zone-a) 48%, transparent), transparent 72%),
+                radial-gradient(55% 50% at 100% 35%, color-mix(in srgb, var(--zone-b) 32%, transparent), transparent 72%),
+                radial-gradient(70% 45% at 45% 105%, rgba(61,99,255,.26), transparent 72%);
+    animation: ssDrift 40s ease-in-out infinite alternate; }
+  @keyframes ssDrift { 50% { transform: translate3d(3%, 2%, 0) scale(1.06); } 100% { transform: translate3d(-2%, 4%, 0) scale(1.03); } }
+
+  /* Header and screen switcher */
+  header .title { font-family: var(--display); font-weight: 500; font-size: 15px; letter-spacing: -.02em; }
+  .pill { background: rgba(255,255,255,.08); border-radius: 999px; padding: 6px 11px; }
+  .pill.running { background: color-mix(in srgb, var(--lime) 18%, transparent); }
+  .dev { width: 9px; height: 9px; }
+  .dev.on { box-shadow: 0 0 8px var(--lime); }
+  .tabs { background: rgba(255,255,255,.07); border: 1px solid rgba(255,255,255,.1); border-radius: 999px; padding: 4px;
+    -webkit-backdrop-filter: blur(18px); backdrop-filter: blur(18px); }
+  .tabs button { border-radius: 999px; padding: 8px 2px; font-weight: 600; color: rgba(241,244,255,.6); transition: background .25s, color .2s; }
+  .tabs button[aria-selected="true"] { background: rgba(255,255,255,.16); color: #fff; box-shadow: inset 0 1px 0 rgba(255,255,255,.22); }
+
+  /* Glass everywhere */
+  .card, .m, .tr-tile, .dcard, .spin-offer, .ride-download { background: var(--glass); border: 1px solid rgba(255,255,255,.1);
+    -webkit-backdrop-filter: blur(18px) saturate(150%); backdrop-filter: blur(18px) saturate(150%);
+    box-shadow: inset 0 1px 0 rgba(255,255,255,.08); }
+  .card, .dcard, .spin-offer, .ride-download { border-radius: 26px; }
+  .m, .tr-tile { border-radius: 20px; }
+  .lbl, .m .l, .tr-tile .tl, .split .side .l { letter-spacing: .13em; color: rgba(241,244,255,.58); font-weight: 600; }
+  .countdown, .power .big, .hero .big, .split .side .big, .tr-tile .tv, .m .v, #pedL, #pedCad, #pedR {
+    font-family: var(--display); font-weight: 500; letter-spacing: -.05em; font-variant-numeric: tabular-nums; }
+  .note { color: rgba(241,244,255,.5); }
+
+  /* Power ring shared by Ride and Focus */
+  .ss-ring { position: absolute; left: 50%; transform: translateX(-50%); pointer-events: none; overflow: visible; }
+  .ss-ring circle { fill: none; transform: rotate(135deg); transform-origin: 200px 200px; }
+  .ss-ring .t { stroke: rgba(255,255,255,.09); stroke-width: 20; stroke-linecap: round; stroke-dasharray: 754 1005.3; }
+  .ss-ring .b { stroke: rgba(255,255,255,.22); stroke-width: 34; stroke-dasharray: 0 1005.3; transition: stroke-dasharray .6s, stroke-dashoffset .6s; }
+  .ss-ring .a { stroke: var(--zone-a); stroke-width: 20; stroke-linecap: round; stroke-dasharray: 0 1005.3; filter: drop-shadow(0 0 12px var(--zone-a)); transition: stroke-dasharray .35s ease; }
+
+  /* Ride: the ring on top, five compact tiles, then the workout graph */
+  .tr-page { gap: 8px; }
+  .tr-tiles { grid-template-columns: repeat(5, 1fr); gap: 6px; }
+  .tr-tile { padding: 8px 2px 6px; }
+  .tr-tile .tv { font-size: 19px; }
+  .tr-tile .tv small { font-size: 10px; }
+  .tr-tile .tl { font-size: 8.5px; letter-spacing: .1em; }
+  .tr-tile .ts { font-size: 10.5px; min-height: 13px; }
+  .tr-tile .tl, .tr-tile .ts { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; padding: 0 3px; }
+  .tr-tile.hr .tv { color: #fff; }
+  button.tr-tile.pw { grid-column: 1 / -1; order: -1; position: relative; height: 204px; display: flex; flex-direction: column; align-items: center; justify-content: center;
+    background: none; border: 0; box-shadow: none; -webkit-backdrop-filter: none; backdrop-filter: none; padding: 0; }
+  .tr-tile.pw .ss-ring { top: 2px; width: 200px; height: 200px; }
+  .tr-tile.pw .tv { position: relative; font-size: 64px; font-weight: 600; color: #fff; text-shadow: 0 0 30px color-mix(in srgb, var(--zone-a) 55%, transparent); margin-top: 6px; }
+  .tr-tile.pw .tl { position: relative; font-size: 9.5px; }
+  .tr-tile.pw .ts { position: relative; font-size: 13px; font-weight: 700; }
+  .tr-graph { background: rgba(3,5,14,.45); border: 1px solid rgba(255,255,255,.08); border-radius: 22px; min-height: 130px; }
+  .tr-graph-mode { background: rgba(14,18,38,.85); border-color: rgba(255,255,255,.12); }
+  .tr-next { font-size: 13.5px; }
+
+  /* Focus: step card and the ring */
+  .countdown { font-weight: 300; font-size: 60px; }
   .bar { height: 8px; border-radius: 99px; background: rgba(255,255,255,.08); }
-  .bar > i { background: linear-gradient(90deg, var(--zone-a), var(--zone-b)); box-shadow: 0 0 12px var(--zone-a); }
-  .tr-graph { background: rgba(3,5,14,.5); border-color: rgba(255,255,255,.08); border-radius: 18px; }
-  button { border-radius: 999px; background: rgba(255,255,255,.07); border-color: rgba(255,255,255,.1); }
-  button.primary { background: linear-gradient(135deg, var(--zone-a), var(--zone-b)); color: #fff; box-shadow: 0 10px 26px -12px var(--zone-a); }
-  button.primary.pause { background: linear-gradient(135deg, #ffbe4a, #ff8a3d); color: #1a1102; }
-  @media (prefers-reduced-motion: reduce) { body { transition: none; } }
+  .bar > i { border-radius: 99px; background: linear-gradient(90deg, var(--zone-a), var(--zone-b)); box-shadow: 0 0 12px var(--zone-a); }
+  .zb { border-radius: 999px; padding: 4px 9px; color: #fff; background: linear-gradient(135deg, var(--zone-a), var(--zone-b)); }
+  .card.power { position: relative; padding-top: 14px; overflow: hidden; }
+  .card.power .ss-ring { top: 6px; width: 228px; height: 228px; }
+  .card.power .lbl, .card.power .big, .card.power .tgt { position: relative; }
+  .card.power .lbl { margin-top: 52px; }
+  .power .big { font-size: 74px; font-weight: 600; color: #fff !important; text-shadow: 0 0 34px color-mix(in srgb, var(--zone-a) 55%, transparent); }
+  .power .big small { font-family: 'Figtree', sans-serif; font-size: 22px; }
+  .power .tgt { font-size: 15px; }
+  #trace { margin-top: 44px; }
+
+  /* Session */
+  .hero .big { font-weight: 300; font-size: 72px; }
+  #ribbon, #balTrace, #zoneBar { border-radius: 10px; }
+
+  /* Controls: a floating glass dock */
+  .controls { padding: 8px; gap: 6px; border-radius: 30px; background: var(--glass); border: 1px solid rgba(255,255,255,.12);
+    -webkit-backdrop-filter: blur(20px) saturate(150%); backdrop-filter: blur(20px) saturate(150%);
+    box-shadow: inset 0 1px 0 rgba(255,255,255,.1), 0 20px 40px -24px rgba(0,0,0,.9); }
+  button { border-radius: 20px; background: rgba(255,255,255,.07); border-color: rgba(255,255,255,.1); font-weight: 600;
+    transition: transform .3s cubic-bezier(.34,1.4,.64,1), background .2s; }
+  button:active { transform: scale(.96); }
+  .controls button { border-radius: 22px; }
+  .controls button.primary { border-radius: 24px; }
+  button.primary { background: linear-gradient(135deg, var(--zone-a), var(--zone-b)); color: #fff; border: 0; box-shadow: 0 12px 28px -12px var(--zone-a); }
+  button.primary.pause { background: linear-gradient(135deg, #ffbe4a, #ff8a3d); color: #1a1102; box-shadow: 0 12px 28px -14px #ff8a3d; }
+  .biasv div { font-family: var(--display); font-weight: 500; letter-spacing: -.03em; }
+  .hub button, .dacts button.go, .dacts button.pair, .ride-download a { background: linear-gradient(135deg, var(--zone-a), var(--zone-b)); color: #fff; }
+
+  /* Overlay and toast */
+  .overlay { background: rgba(6,8,18,.82); -webkit-backdrop-filter: blur(14px); backdrop-filter: blur(14px); }
+  .overlay h2 { font-family: var(--display); font-weight: 500; letter-spacing: -.03em; }
+  .toast { background: rgba(16,20,42,.92); border: 1px solid rgba(255,255,255,.12); border-radius: 18px; -webkit-backdrop-filter: blur(16px); backdrop-filter: blur(16px); }
+
+  /* Phone on its side (bike mount): back to one row of tiles, no ring */
+  @media (orientation: landscape) and (max-height: 560px) {
+    .tr-tiles { grid-template-columns: repeat(6, 1fr); }
+    button.tr-tile.pw { grid-column: auto; order: 0; height: auto; padding: 4px 2px 3px; background: var(--glass); border: 1px solid rgba(255,255,255,.1); }
+    .tr-tile.pw .ss-ring { display: none; }
+    .tr-tile.pw .tv { font-size: 26px; margin-top: 0; }
+    .tr-tile .tv { font-size: 22px; }
+    .controls { border-radius: 22px; padding: 6px; }
+  }
+  @media (max-height: 700px) and (orientation: portrait) {
+    button.tr-tile.pw { height: 170px; }
+    .tr-tile.pw .ss-ring { width: 168px; height: 168px; }
+    .tr-tile.pw .tv { font-size: 52px; }
+  }
+  @media (prefers-reduced-motion: reduce) { body { transition: none; } body::before { animation: none; } }
 </style>
 </head>
 <body>
@@ -324,7 +411,7 @@
     <section class="page tr-page" id="pageRide" aria-label="Ride">
       <div class="tr-tiles">
         <div class="tr-tile"><div class="tv num" id="trTarget">--</div><div class="tl">TARGET W</div><div class="ts num" id="trTargetSub">&nbsp;</div></div>
-        <button type="button" class="tr-tile pw" id="btnPowerView" aria-label="Power view: Current. Tap to change averaging."><div class="tv num" id="trPower">--</div><div class="tl" id="trPowerLabel">POWER · CURRENT</div><div class="ts num" id="trPowerSub">&nbsp;</div></button>
+        <button type="button" class="tr-tile pw" id="btnPowerView" aria-label="Power view: Current. Tap to change averaging."><svg class="ss-ring" viewBox="0 0 400 400" aria-hidden="true"><circle class="t" cx="200" cy="200" r="160"/><circle class="b" id="ssRideBand" cx="200" cy="200" r="160"/><circle class="a" id="ssRideArc" cx="200" cy="200" r="160"/></svg><div class="tv num" id="trPower">--</div><div class="tl" id="trPowerLabel">POWER · CURRENT</div><div class="ts num" id="trPowerSub">&nbsp;</div></button>
         <div class="tr-tile"><div class="tv num" id="trIntLeft">--:--</div><div class="tl">INTERVAL</div><div class="ts num" id="trIntSub">&nbsp;</div></div>
         <div class="tr-tile hr"><div class="tv num" id="trHr">--</div><div class="tl">HEART RATE</div><div class="ts" id="trHrSub">&nbsp;</div></div>
         <div class="tr-tile"><div class="tv num" id="trCad">--</div><div class="tl">CADENCE</div><div class="ts num" id="trCadSub">&nbsp;</div></div>
@@ -334,7 +421,7 @@
         <canvas id="trGraph" aria-label="Workout targets with measured power, heart rate and cadence"></canvas>
         <div class="tr-graph-tools" aria-hidden="true"><span class="tr-graph-mode" id="rideGraphMode">Full workout</span><span id="rideGraphHint">Tap to follow</span></div>
       </div>
-      <div class="tr-legend"><span><i style="background:#2d7ff9"></i>Workout</span><span><i style="background:#facc15"></i>Power</span><span><i style="background:#fb7185"></i>Heart rate</span><span><i style="background:#34d399"></i>Cadence</span></div>
+      <div class="tr-legend"><span><i style="background:linear-gradient(90deg,#2a86ff,#ffb21f,#ff5a36)"></i>Workout</span><span><i style="background:#ffffff"></i>Power</span><span><i style="background:#ff5c86"></i>Heart rate</span><span><i style="background:#3ddc97"></i>Cadence</span></div>
       <div class="tr-next" id="trNext">&nbsp;</div>
     </section>
 
@@ -351,6 +438,7 @@
       </div>
 
       <div class="card power">
+        <svg class="ss-ring" viewBox="0 0 400 400" aria-hidden="true"><circle class="t" cx="200" cy="200" r="160"/><circle class="b" id="ssFocusBand" cx="200" cy="200" r="160"/><circle class="a" id="ssFocusArc" cx="200" cy="200" r="160"/></svg>
         <div class="lbl" id="powerLbl">POWER (5s)</div>
         <div class="big num" id="power">--<small>W</small></div>
         <div class="tgt num" id="target">Target --</div>
@@ -489,8 +577,9 @@
     const h = Math.floor(s / 3600), m = Math.floor((s % 3600) / 60), x = s % 60;
     return (h ? h + ':' + String(m).padStart(2, '0') : m) + ':' + String(x).padStart(2, '0');
   };
-  // Zone colours come from the app's shared Coggan table; a neutral grey if the script failed to load.
-  const zoneColor = (pct) => (window.VeloMetrics ? VeloMetrics.zoneForPct(pct).color : '#566174');
+  // Zone colours come from the app's shared Coggan table, drawn in the Slipstream zone light; a neutral grey if the script failed to load.
+  const ZONE_LIGHT = { Z1: '#3d63ff', Z2: '#2a86ff', Z3: '#16c08d', Z4: '#ffb21f', Z5: '#ff5a36', Z6: '#ff2e63', Z7: '#9b4dff' };
+  const zoneColor = (pct) => { const z = window.VeloMetrics ? VeloMetrics.zoneForPct(pct) : null; return z ? (ZONE_LIGHT[z.short] || z.color) : '#566174'; };
   const BAL_LEN = 120; // seconds of L/R balance kept for the Balance screen
   let snap = null, snapAt = 0, lastOkAt = 0, failures = 0, sending = false, skipArmedUntil = 0;
   const rideViewport = new VeloLiveGraph.Viewport({ reduceMotion: matchMedia('(prefers-reduced-motion: reduce)').matches });
@@ -1097,6 +1186,9 @@
    * current step outlined), your power (yellow), heart rate (red, own scale) and cadence
    * (green, own scale) traced over it, and the playhead at `progress`.
    */
+  // Zone light colours for workout steps (match the PC cockpit profile).
+  const STEP_LIGHT = { Z1: '#3d63ff', Z2: '#2a86ff', Z3: '#16c08d', Z4: '#ffb21f', Z5: '#ff5a36', Z6: '#ff2e63', Z7: '#9b4dff' };
+  const stepLight = (pct) => { const z = window.VeloMetrics ? VeloMetrics.zoneForPct(pct) : null; return (z && STEP_LIGHT[z.short]) || '#2a86ff'; };
   function drawRideGraph(s, progress, now = performance.now()) {
     const cv = ctx2d($('trGraph')); if (!cv) return;
     const { g, w, h } = cv;
@@ -1137,13 +1229,20 @@
     // Grid: FTP line + 100 W steps
     g.lineWidth = 1;
     for (let v = 100; v < maxW; v += 100) { g.strokeStyle = 'rgba(148,163,184,.08)'; g.beginPath(); g.moveTo(0, yW(v)); g.lineTo(w, yW(v)); g.stroke(); }
-    // Steps
+    // Steps, each in its zone light: soft ahead of the playhead, full colour behind it
     let seconds = 0;
     prof.forEach(([dur, pct], i) => {
       const x = xOf(seconds), bw = dur / span * w, yT = yW(ftp * pct / 100 * bias);
-      g.fillStyle = 'rgba(45,127,249,.28)';
+      const zc = stepLight(pct * bias);
+      g.globalAlpha = .26; g.fillStyle = zc;
       g.fillRect(x, yT, Math.max(1, bw - 1), bottom - yT);
-      if (px > x) { g.fillStyle = 'rgba(45,127,249,.72)'; g.fillRect(x, yT, Math.max(0, Math.min(bw - 1, px - x)), bottom - yT); }
+      if (px > x) {
+        const fade = g.createLinearGradient(0, yT, 0, bottom);
+        fade.addColorStop(0, zc); fade.addColorStop(1, zc + '55');
+        g.globalAlpha = .9; g.fillStyle = fade;
+        g.fillRect(x, yT, Math.max(0, Math.min(bw - 1, px - x)), bottom - yT);
+      }
+      g.globalAlpha = 1;
       if (s.step && i === s.step.index - 1) { g.strokeStyle = 'rgba(238,242,247,.85)'; g.lineWidth = 1.5; g.strokeRect(x + .75, yT + .75, Math.max(1, bw - 2.5), bottom - yT - 1.5); }
       seconds += dur;
     });
@@ -1176,9 +1275,9 @@
     const times = hist.t || (hist.p || []).map((_, i) => Math.min(hist.seconds || total, (i + .5) * hist.bin));
     const recentStart = recent?.t?.length ? recent.t[0] : Infinity;
     const streams = [
-      ['c', (v) => bottom - (v / 150) * (bottom - top), '#34d399', 1.5],
-      ['h', (v) => bottom - ((v - hrLo) / (hrHi - hrLo)) * (bottom - top), '#fb7185', 1.8],
-      ['p', yW, '#facc15', 2]
+      ['c', (v) => bottom - (v / 150) * (bottom - top), '#3ddc97', 1.5],
+      ['h', (v) => bottom - ((v - hrLo) / (hrHi - hrLo)) * (bottom - top), '#ff5c86', 1.8],
+      ['p', yW, '#ffffff', 2]
     ];
     for (const [key, yOf, color, width] of streams) {
       line(hist[key] || [], times, null, hist.bin * 2, yOf, color, width, recentStart, !recent);
@@ -1195,7 +1294,7 @@
       g.fillStyle = '#10141b'; g.fillRect(0, my, w, mh);
       for (const [dur, pct] of prof) {
         const height = Math.max(2, (ftp * pct / 100 * bias) / maxW * mh);
-        g.fillStyle = 'rgba(45,127,249,.6)';
+        g.fillStyle = stepLight(pct * bias);
         g.fillRect(t / total * w, my + mh - height, Math.max(1, dur / total * w - 1), height);
         t += dur;
       }
@@ -1470,22 +1569,44 @@
 })();
 </script>
 <script>
-  // Slipstream zone light: mirror the zone badge the page already renders. Visual only.
+  // Slipstream visuals: the zone light and the two power rings mirror what this page already
+  // shows (zone badge, power and target text). Visual only - nothing here sends or changes data.
   (function () {
     var LIGHT = { Z1: ['#3d63ff', '#19c2e0'], Z2: ['#2a86ff', '#1fd1b2'], Z3: ['#16c08d', '#a7e04a'], Z4: ['#ffb21f', '#ff7a2f'],
       Z5: ['#ff5a36', '#ff2d7a'], Z6: ['#ff2e63', '#a23bff'], Z7: ['#9b4dff', '#ff3dce'] };
-    var badge = document.getElementById('zoneBadge');
-    if (!badge || !window.MutationObserver) return;
+    var C = 2 * Math.PI * 160, ARC = C * 0.75, TARGET_AT = 0.625;
+    var $ = function (id) { return document.getElementById(id); };
+    var num = function (t) { var n = parseFloat(String(t || '').replace(/[^\d.-]/g, '')); return isFinite(n) ? n : 0; };
+    if (!window.MutationObserver) return;
+    var watch = function (el, fn) { if (!el) return; fn(); new MutationObserver(fn).observe(el, { childList: true, characterData: true, subtree: true }); };
+
     var last = '';
-    var apply = function () {
-      var z = (badge.textContent || '').trim().toUpperCase();
+    watch($('zoneBadge'), function () {
+      var z = ($('zoneBadge').textContent || '').trim().toUpperCase();
       if (z === last || !LIGHT[z]) return;
       last = z;
       document.body.style.setProperty('--zone-a', LIGHT[z][0]);
       document.body.style.setProperty('--zone-b', LIGHT[z][1]);
+    });
+
+    function ring(arcId, bandId, power, target) {
+      var arc = $(arcId), band = $(bandId);
+      if (!arc || !band) return;
+      var max = target > 0 ? target / TARGET_AT : 400;
+      arc.style.strokeDasharray = (Math.max(0, Math.min(1, power / max)) * ARC).toFixed(1) + ' ' + C.toFixed(1);
+      if (target > 0) {
+        var a = target * 0.95 / max * ARC, b = target * 1.05 / max * ARC;
+        band.style.strokeDasharray = (b - a).toFixed(1) + ' ' + C.toFixed(1);
+        band.style.strokeDashoffset = (-a).toFixed(1);
+      } else band.style.strokeDasharray = '0 ' + C.toFixed(1);
+    }
+    var ride = function () { ring('ssRideArc', 'ssRideBand', num($('trPower') && $('trPower').textContent), num($('trTarget') && $('trTarget').textContent)); };
+    var focus = function () {
+      var m = /Target\s*(\d+)/.exec(($('target') && $('target').textContent) || '');
+      ring('ssFocusArc', 'ssFocusBand', num($('power') && $('power').textContent), m ? Number(m[1]) : 0);
     };
-    apply();
-    new MutationObserver(apply).observe(badge, { childList: true, characterData: true, subtree: true });
+    watch($('trPower'), ride); watch($('trTarget'), ride);
+    watch($('power'), focus); watch($('target'), focus);
   })();
 </script>
 </body>
