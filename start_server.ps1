@@ -1,8 +1,8 @@
 # APEX VELO LAB - local web server + AI coach proxy (Windows PowerShell 5.1 or PowerShell 7).
 #
 # - Serves the app on http://localhost:8080 (a secure context, so Web Bluetooth works).
-# - Forwards AI Coach requests from /api/coach to the Claude API or the Gemini API. The API keys
-#   are read here, from the ANTHROPIC_API_KEY / GEMINI_API_KEY environment variables or the .env
+# - Forwards AI Coach requests from /api/coach to the Claude, Gemini or OpenAI (ChatGPT) API. The API keys
+#   are read here, from the ANTHROPIC_API_KEY / GEMINI_API_KEY / OPENAI_API_KEY environment variables or the .env
 #   file next to this script. They are never sent to the browser, and .env is never served.
 # Keep the port stable: the browser stores your rides and settings per address (localhost:8080).
 
@@ -12,6 +12,7 @@ $root = [System.IO.Path]::GetFullPath($PSScriptRoot)
 # ------------------------------------------------------------------ config --
 $keyFromEnvironment = -not [string]::IsNullOrWhiteSpace($env:ANTHROPIC_API_KEY)
 $geminiKeyFromEnvironment = -not [string]::IsNullOrWhiteSpace($env:GEMINI_API_KEY)
+$openaiKeyFromEnvironment = -not [string]::IsNullOrWhiteSpace($env:OPENAI_API_KEY)
 $settings = @{}
 $envFile = Join-Path $root '.env'
 if (Test-Path $envFile -PathType Leaf) {
@@ -43,17 +44,22 @@ $models = [ordered]@{
     'gemini-3.8-flash'          = @{ label = 'Gemini 3.8 Flash';         provider = 'gemini'; adaptive = $true }
     'gemini-3.1-pro-preview'    = @{ label = 'Gemini 3.1 Pro (preview)'; provider = 'gemini'; adaptive = $true }
     'gemini-3.1-flash-lite'     = @{ label = 'Gemini 3.1 Flash-Lite';    provider = 'gemini'; adaptive = $true }
+    'gpt-6.1-sol'               = @{ label = 'GPT-6.1 Sol';              provider = 'openai'; adaptive = $true }
 }
+# The list above is only the starting point: at startup (and on "Re-check server") each provider whose key is
+# set is asked for its current model list (Update-ModelCatalog), so new models appear without editing this file.
 $providers = [ordered]@{
     'claude' = @{ label = 'Claude'; keyName = 'ANTHROPIC_API_KEY'; fallbackModel = 'claude-opus-5-5' }
     'gemini' = @{ label = 'Gemini'; keyName = 'GEMINI_API_KEY';    fallbackModel = 'gemini-3.8-flash' }
+    'openai' = @{ label = 'ChatGPT'; keyName = 'OPENAI_API_KEY';   fallbackModel = 'gpt-6.1-sol' }
 }
 $efforts = @('low', 'medium', 'high')
 
 # A key set as an environment variable wins over .env; the APEX_* settings come from .env.
 $apiKey = if ($keyFromEnvironment) { $env:ANTHROPIC_API_KEY.Trim() } else { (Get-Setting 'ANTHROPIC_API_KEY' '').Trim() }
 $geminiKey = if ($geminiKeyFromEnvironment) { $env:GEMINI_API_KEY.Trim() } else { (Get-Setting 'GEMINI_API_KEY' '').Trim() }
-$keys = @{ claude = $apiKey; gemini = $geminiKey }
+$openaiKey = if ($openaiKeyFromEnvironment) { $env:OPENAI_API_KEY.Trim() } else { (Get-Setting 'OPENAI_API_KEY' '').Trim() }
+$keys = @{ claude = $apiKey; gemini = $geminiKey; openai = $openaiKey }
 function Select-Model([string]$id, [string]$provider) {
     if ($id -eq 'claude-sonnet-5') { $id = 'claude-sonnet-5-5' }  # renamed model
     if ($models.Contains($id) -and $models[$id].provider -eq $provider) { return $id }
@@ -62,16 +68,18 @@ function Select-Model([string]$id, [string]$provider) {
 $defaultModels = @{
     claude = Select-Model (Get-Setting 'APEX_COACH_MODEL' '') 'claude'
     gemini = Select-Model (Get-Setting 'APEX_GEMINI_MODEL' '') 'gemini'
+    openai = Select-Model (Get-Setting 'APEX_OPENAI_MODEL' '') 'openai'
 }
 # Default provider: APEX_COACH_PROVIDER if set, otherwise whichever has a key (Claude first).
 $defaultProvider = Get-Setting 'APEX_COACH_PROVIDER' ''
-if (-not $providers.Contains($defaultProvider)) { $defaultProvider = if ($apiKey -eq '' -and $geminiKey -ne '') { 'gemini' } else { 'claude' } }
+if (-not $providers.Contains($defaultProvider)) { $defaultProvider = if ($apiKey -ne '') { 'claude' } elseif ($geminiKey -ne '') { 'gemini' } elseif ($openaiKey -ne '') { 'openai' } else { 'claude' } }
 $defaultModel = $defaultModels[$defaultProvider]
 $defaultEffort = Get-Setting 'APEX_COACH_EFFORT' 'low'
 if ($efforts -notcontains $defaultEffort) { $defaultEffort = 'low' }
 $port = [int](Get-Setting 'APEX_PORT' '8080')
 $apiBase = (Get-Setting 'APEX_ANTHROPIC_BASE_URL' 'https://api.anthropic.com').TrimEnd('/')
 $geminiBase = (Get-Setting 'APEX_GEMINI_BASE_URL' 'https://generativelanguage.googleapis.com').TrimEnd('/')
+$openaiBase = (Get-Setting 'APEX_OPENAI_BASE_URL' 'https://api.openai.com').TrimEnd('/')
 $maxBodyBytes = 256KB
 
 $systemPrompt = "You are an elite cycling coach and exercise physiologist. You prescribe structured indoor ERG sessions " +
@@ -532,12 +540,107 @@ function Invoke-LiveCmd($request, $response) {
     Send-Json $response 200 ([ordered]@{ ok = $true; id = $newId })   # the phone shows the result at once and knows when the PC has applied it (cmdAck)
 }
 
+# ----------------------------------------------------------- model catalog --
+# Each provider's /models list, filtered to chat models the coach can use. Rules are kept identical in server.js.
+$catalog = [ordered]@{ claude = @{ source = 'built-in' }; gemini = @{ source = 'built-in' }; openai = @{ source = 'built-in' } }
+$script:catalogAt = [datetime]::MinValue
+
+function Get-PrettyOpenAiName([string]$id) {
+    $parts = [System.Collections.ArrayList]@($id.Split('-'))
+    $head = $parts[0]; $parts.RemoveAt(0)
+    if ($head -eq 'gpt' -and $parts.Count -gt 0) { $head = 'GPT-' + $parts[0]; $parts.RemoveAt(0) }
+    elseif ($head -eq 'chatgpt') { $head = 'ChatGPT'; if ($parts.Count -gt 0) { $head += '-' + $parts[0]; $parts.RemoveAt(0) } }
+    $words = @($head)
+    foreach ($w in $parts) { if ($w.Length -gt 0) { $words += ($w.Substring(0, 1).ToUpper() + $w.Substring(1)) } }
+    return ($words -join ' ')
+}
+function Test-ClaudeChat([string]$id) { return ($id -match '^claude-') -and ($id -notmatch '^claude-(2|instant|3-(?!7))') }
+function Test-ClaudeAdaptive([string]$id) { return $id -match '^claude-(opus|sonnet|haiku)-([5-9]|4-[6-9])' }
+function Test-GeminiChat([string]$id, $methods) {
+    return ($id -match '^gemini-') -and ($id -notmatch '^gemini-(1\.|2\.0)') -and (@($methods) -contains 'generateContent') -and
+        ($id -notmatch '(embedding|tts|image|live|audio|native|aqa|vision|robotics|computer-use|learnlm)')
+}
+function Test-OpenAiChat([string]$id) {
+    return ($id -cmatch '^(gpt-[4-9]|o[1-9]|chatgpt-)') -and ($id -notmatch '^gpt-4(-|$)') -and
+        ($id -notmatch '(audio|realtime|tts|transcribe|search|image|embed|moderation|instruct|codex|computer-use|deep-research|oss|-\d{4}-\d{2}-\d{2}$|-\d{4}$)')
+}
+function Test-OpenAiReasoning([string]$id) { return ($id -cmatch '^(o[1-9]|gpt-[5-9])') -and ($id -notmatch 'chat') }
+
+# GET with a 10 s limit; returns the parsed JSON or throws with the API's message.
+function Get-ApiJson([string]$url, [hashtable]$headers) {
+    $msg = New-Object System.Net.Http.HttpRequestMessage([System.Net.Http.HttpMethod]::Get, $url)
+    foreach ($k in $headers.Keys) { $msg.Headers.TryAddWithoutValidation($k, $headers[$k]) | Out-Null }
+    $cts = New-Object System.Threading.CancellationTokenSource([TimeSpan]::FromSeconds(10))
+    try {
+        $resp = $http.SendAsync($msg, $cts.Token).GetAwaiter().GetResult()
+        $text = $utf8.GetString($resp.Content.ReadAsByteArrayAsync().GetAwaiter().GetResult())
+    } finally { $msg.Dispose(); $cts.Dispose() }
+    $data = $null
+    try { $data = $text | ConvertFrom-Json } catch { }
+    if (-not $resp.IsSuccessStatusCode) {
+        $err = if ($data -and $data.error -and $data.error.message) { $data.error.message } else { "HTTP $([int]$resp.StatusCode)" }
+        throw $err
+    }
+    return $data
+}
+
+# Live model list for one provider: @( @{ id; label; adaptive } ), newest first.
+function Get-ProviderModels([string]$provider) {
+    $out = @()
+    if ($provider -eq 'claude') {
+        $d = Get-ApiJson "$apiBase/v1/models?limit=1000" @{ 'x-api-key' = $apiKey; 'anthropic-version' = '2023-06-01' }
+        foreach ($m in @($d.data)) {
+            if ($m -and (Test-ClaudeChat $m.id)) { $out += @{ id = $m.id; label = $(if ($m.display_name) { $m.display_name } else { $m.id }); adaptive = (Test-ClaudeAdaptive $m.id) } }
+        }
+    } elseif ($provider -eq 'gemini') {
+        $d = Get-ApiJson "$geminiBase/v1beta/models?pageSize=1000" @{ 'x-goog-api-key' = $geminiKey }
+        foreach ($m in @($d.models)) {
+            if (-not $m) { continue }
+            $id = ([string]$m.name) -replace '^models/', ''
+            if (Test-GeminiChat $id $m.supportedGenerationMethods) { $out += @{ id = $id; label = $(if ($m.displayName) { $m.displayName } else { $id }); adaptive = $true } }
+        }
+        $out = @($out | Sort-Object -Property @{ Expression = { [regex]::Replace($_.id, '\d+', { param($x) $x.Value.PadLeft(6, '0') }) }; Descending = $true })
+    } else {
+        $d = Get-ApiJson "$openaiBase/v1/models" @{ 'Authorization' = "Bearer $openaiKey" }
+        foreach ($m in @(@($d.data) | Sort-Object -Property @{ Expression = { [long]$_.created }; Descending = $true })) {
+            if ($m -and (Test-OpenAiChat $m.id)) {
+                $label = if ($models.Contains($m.id)) { $models[$m.id].label } else { Get-PrettyOpenAiName $m.id }
+                $out += @{ id = $m.id; label = $label; adaptive = (Test-OpenAiReasoning $m.id) }
+            }
+        }
+    }
+    return ,$out
+}
+
+# Refreshes $models from every provider that has a key (at most every 6 h unless forced). A failure keeps the current list.
+function Update-ModelCatalog([bool]$force) {
+    if (-not $force -and ((Get-Date) - $script:catalogAt).TotalHours -lt 6) { return }
+    foreach ($provider in @($providers.Keys)) {
+        if ($keys[$provider] -eq '') { continue }
+        try {
+            $list = Get-ProviderModels $provider
+            if ($list.Count -eq 0) { throw 'no chat models returned' }
+            $def = $defaultModels[$provider]
+            $keep = $null
+            if ($models.Contains($def) -and -not ($list | Where-Object { $_.id -eq $def })) { $keep = $models[$def] }
+            foreach ($id in @($models.Keys)) { if ($models[$id].provider -eq $provider) { $models.Remove($id) } }
+            foreach ($m in $list) { $models[$m.id] = @{ label = $m.label; provider = $provider; adaptive = [bool]$m.adaptive } }
+            if ($keep) { $models[$def] = $keep }
+            $catalog[$provider] = [ordered]@{ source = 'live'; count = $list.Count; at = (Get-Date).ToUniversalTime().ToString('o') }
+        } catch {
+            $catalog[$provider] = [ordered]@{ source = 'built-in'; error = "$($_.Exception.Message)" }
+            Write-Host "[models] $($providers[$provider].label) model list unavailable ($($_.Exception.Message)); using the built-in list." -ForegroundColor Yellow
+        }
+    }
+    $script:catalogAt = Get-Date
+}
+
 function Get-StatusObject {
     $list = @()
     foreach ($id in $models.Keys) { $list += [ordered]@{ id = $id; label = $models[$id].label; provider = $models[$id].provider; effort = $models[$id].adaptive } }
     $prov = [ordered]@{}
     foreach ($id in $providers.Keys) { $prov[$id] = [ordered]@{ label = $providers[$id].label; configured = ($keys[$id] -ne ''); model = $defaultModels[$id] } }
-    return [ordered]@{ provider = $defaultProvider; providers = $prov; configured = ($keys[$defaultProvider] -ne ''); model = $defaultModel; effort = $defaultEffort; models = $list; efforts = $efforts }
+    return [ordered]@{ provider = $defaultProvider; providers = $prov; configured = ($keys[$defaultProvider] -ne ''); model = $defaultModel; effort = $defaultEffort; models = $list; efforts = $efforts; catalog = $catalog }
 }
 
 function New-ClaudeMessage([string]$prompt, [string]$model, [string]$effort) {
@@ -560,6 +663,59 @@ function New-ClaudeMessage([string]$prompt, [string]$model, [string]$effort) {
     return $msg
 }
 
+# Gemini 3+ takes a thinking level; Gemini 2.5 takes a token budget instead.
+function Get-GeminiThinking([string]$model, [string]$effort) {
+    if ($model -match '^gemini-2\.') {
+        $budget = switch ($effort) { 'high' { 24576 } 'medium' { 8192 } default { 1024 } }
+        return [ordered]@{ thinkingBudget = $budget; includeThoughts = $true }
+    }
+    return [ordered]@{ thinkingLevel = $effort; includeThoughts = $true }
+}
+
+# OpenAI Responses API. Reasoning models (o-series, GPT-5 and later) get the effort and a reasoning summary.
+function New-OpenAiMessage([string]$instructions, $inputList, [string]$model, [string]$effort, [bool]$summary) {
+    $req = [ordered]@{ model = $model; instructions = $instructions; input = @($inputList); max_output_tokens = 16000; store = $false }
+    if ($models.Contains($model) -and $models[$model].adaptive) {
+        $req.reasoning = if ($summary) { [ordered]@{ effort = $effort; summary = 'auto' } } else { [ordered]@{ effort = $effort } }
+    }
+    $msg = New-Object System.Net.Http.HttpRequestMessage([System.Net.Http.HttpMethod]::Post, "$openaiBase/v1/responses")
+    $msg.Headers.TryAddWithoutValidation('Authorization', "Bearer $openaiKey") | Out-Null
+    $msg.Content = New-Object System.Net.Http.StringContent(($req | ConvertTo-Json -Depth 10 -Compress), $utf8, 'application/json')
+    return $msg
+}
+# Sends an OpenAI request; retries once without the reasoning summary if the account cannot use it.
+function Send-OpenAiRequest([string]$instructions, $inputList, [string]$model, [string]$effort) {
+    $r = Send-AiRequest (New-OpenAiMessage $instructions $inputList $model $effort $true)
+    $errText = if (-not $r.failed -and $r.data -and $r.data.error -and $r.data.error.message) { [string]$r.data.error.message } else { '' }
+    if (-not $r.failed -and $r.code -eq 400 -and $errText -match 'summar|verif') { $r = Send-AiRequest (New-OpenAiMessage $instructions $inputList $model $effort $false) }
+    return $r
+}
+# Reads a Responses API reply into the app's common shape.
+function Read-OpenAiReply($data, [string]$model) {
+    $text = ''; $refusal = ''; $thinking = @()
+    foreach ($it in @($data.output)) {
+        if (-not $it) { continue }
+        if ($it.type -eq 'message') {
+            foreach ($c in @($it.content)) {
+                if ($c -and $c.type -eq 'output_text') { $text += [string]$c.text }
+                elseif ($c -and $c.type -eq 'refusal') { $refusal += [string]$c.refusal }
+            }
+        } elseif ($it.type -eq 'reasoning') {
+            foreach ($sm in @($it.summary)) { if ($sm -and $sm.text) { $thinking += $sm.text } }
+        }
+    }
+    $u = $data.usage
+    $reason = if ($data.status -eq 'incomplete' -and $data.incomplete_details) { [string]$data.incomplete_details.reason } else { '' }
+    $stop = if ($refusal -ne '' -and $text -eq '') { 'refusal' } elseif ($reason -eq 'max_output_tokens') { 'max_tokens' } elseif ($reason -ne '') { $reason } else { 'end_turn' }
+    return @{
+        text = $text; thinking = $thinking; stop = $stop
+        model = $(if ($data.model) { $data.model } else { $model })
+        inTok = $(if ($u -and $u.input_tokens) { [int]$u.input_tokens } else { 0 })
+        outTok = $(if ($u -and $u.output_tokens) { [int]$u.output_tokens } else { 0 })
+        cached = $(if ($u -and $u.input_tokens_details -and $u.input_tokens_details.cached_tokens) { [int]$u.input_tokens_details.cached_tokens } else { 0 })
+    }
+}
+
 function New-GeminiMessage([string]$prompt, [string]$model, [string]$effort) {
     $req = [ordered]@{
         systemInstruction = @{ parts = @(@{ text = $systemPrompt }) }
@@ -567,7 +723,7 @@ function New-GeminiMessage([string]$prompt, [string]$model, [string]$effort) {
         generationConfig  = [ordered]@{
             maxOutputTokens  = 16000
             responseMimeType = 'application/json'
-            thinkingConfig   = [ordered]@{ thinkingLevel = $effort; includeThoughts = $true }
+            thinkingConfig   = (Get-GeminiThinking $model $effort)
         }
     }
     $url = "$geminiBase/v1beta/models/$([System.Uri]::EscapeDataString($model)):generateContent"
@@ -600,24 +756,18 @@ function Invoke-Coach($request, $response) {
     $pLabel = $providers[$provider].label
     if ($keys[$provider] -eq '') { return Send-Json $response 503 @{ error = "No $pLabel API key. Add $($providers[$provider].keyName) to the .env file and restart Launch-Apex-Velo.bat." } }
 
-    $msg = if ($provider -eq 'gemini') { New-GeminiMessage $prompt $model $effort } else { New-ClaudeMessage $prompt $model $effort }
     $sw = [System.Diagnostics.Stopwatch]::StartNew()
-    try {
-        $upstream = $http.SendAsync($msg).GetAwaiter().GetResult()
-        $text = $utf8.GetString($upstream.Content.ReadAsByteArrayAsync().GetAwaiter().GetResult())
-    } catch {
-        $inner = $_.Exception
-        while ($inner.InnerException) { $inner = $inner.InnerException }
-        $timedOut = ($inner -is [System.Threading.Tasks.TaskCanceledException]) -or ($inner -is [System.TimeoutException])
-        Write-Host "[coach] $model $(if ($timedOut) { 'timed out' } else { 'request failed: ' + $inner.Message })" -ForegroundColor Yellow
-        if ($timedOut) { return Send-Json $response 504 @{ error = "$pLabel did not answer in time." } }
-        return Send-Json $response 502 @{ error = "Could not reach the $pLabel API ($($inner.Message))." }
-    } finally { $msg.Dispose() }
-
-    $data = $null
-    try { $data = $text | ConvertFrom-Json } catch { }
-    $code = [int]$upstream.StatusCode
-    if (-not $upstream.IsSuccessStatusCode) {
+    $r = if ($provider -eq 'gemini') { Send-AiRequest (New-GeminiMessage $prompt $model $effort) }
+        elseif ($provider -eq 'openai') { Send-OpenAiRequest $systemPrompt @([ordered]@{ role = 'user'; content = $prompt }) $model $effort }
+        else { Send-AiRequest (New-ClaudeMessage $prompt $model $effort) }
+    if ($r.failed) {
+        Write-Host "[coach] $model $(if ($r.timedOut) { 'timed out' } else { 'request failed: ' + $r.message })" -ForegroundColor Yellow
+        if ($r.timedOut) { return Send-Json $response 504 @{ error = "$pLabel did not answer in time." } }
+        return Send-Json $response 502 @{ error = "Could not reach the $pLabel API ($($r.message))." }
+    }
+    $data = $r.data
+    $code = $r.code
+    if (-not $r.ok) {
         $err = if ($data -and $data.error -and $data.error.message) { $data.error.message } else { "HTTP $code" }
         Write-Host "[coach] $model failed: $code $err" -ForegroundColor Yellow
         return Send-Json $response 502 @{ error = "$pLabel API error ${code}: $err"; upstreamStatus = $code }
@@ -642,6 +792,9 @@ function Invoke-Coach($request, $response) {
         if ($um -and $um.thoughtsTokenCount) { $outTok += [int]$um.thoughtsTokenCount }
         $stop = if ($cand.finishReason -eq 'MAX_TOKENS') { 'max_tokens' } else { ([string]$cand.finishReason).ToLower() }
         $modelOut = if ($data.modelVersion) { $data.modelVersion } else { $model }
+    } elseif ($provider -eq 'openai') {
+        $o = Read-OpenAiReply $data $model
+        $outText = $o.text; $thinking = @($o.thinking); $inTok = $o.inTok; $outTok = $o.outTok; $stop = $o.stop; $modelOut = $o.model
     } else {
         foreach ($b in @($data.content)) {
             if ($b.type -eq 'text') { $outText += $b.text }
@@ -702,7 +855,7 @@ function New-GeminiAskMessage($messages, [string]$context, [string]$model, [stri
         contents          = $contents
         generationConfig  = [ordered]@{
             maxOutputTokens = 16000
-            thinkingConfig  = [ordered]@{ thinkingLevel = $effort; includeThoughts = $true }
+            thinkingConfig  = (Get-GeminiThinking $model $effort)
         }
     }
     $url = "$geminiBase/v1beta/models/$([System.Uri]::EscapeDataString($model)):generateContent"
@@ -775,6 +928,11 @@ function Invoke-Ask($request, $response) {
 
     $sw = [System.Diagnostics.Stopwatch]::StartNew()
     if ($provider -eq 'gemini') { $r = Send-AiRequest (New-GeminiAskMessage $v.messages $v.context $model $effort) }
+    elseif ($provider -eq 'openai') {
+        $ctx = if ($v.context -ne '') { $v.context } else { '(no data for this period)' }
+        $inputList = @(); foreach ($m in $v.messages) { $inputList += [ordered]@{ role = $m.role; content = $m.content } }
+        $r = Send-OpenAiRequest "$askSystemPrompt`n`nTRAINING DATA`n$ctx" $inputList $model $effort
+    }
     else {
         $r = Send-AiRequest (New-ClaudeAskMessage $v.messages $v.context $model $effort $true)
         # An account or gateway that does not accept the fallback option gets the same question without it.
@@ -812,6 +970,9 @@ function Invoke-Ask($request, $response) {
         if ($um -and $um.thoughtsTokenCount) { $outTok += [int]$um.thoughtsTokenCount }
         $stop = if ($cand.finishReason -eq 'MAX_TOKENS') { 'max_tokens' } else { ([string]$cand.finishReason).ToLower() }
         $modelOut = if ($data.modelVersion) { $data.modelVersion } else { $model }
+    } elseif ($provider -eq 'openai') {
+        $o = Read-OpenAiReply $data $model
+        $outText = $o.text; $inTok = $o.inTok; $outTok = $o.outTok; $cacheRead = $o.cached; $stop = $o.stop; $modelOut = $o.model
     } else {
         foreach ($b in @($data.content)) { if ($b -and $b.type -eq 'text') { $outText += $b.text } }
         $inTok = if ($data.usage -and $data.usage.input_tokens) { [int]$data.usage.input_tokens } else { 0 }
@@ -1272,6 +1433,14 @@ if ($geminiKey -ne '') {
 } else {
     Write-Host "  AI Coach - Gemini: no GEMINI_API_KEY in .env" -ForegroundColor DarkGray
 }
+if ($openaiKey -ne '') {
+    $src = if ($openaiKeyFromEnvironment) { 'the OPENAI_API_KEY environment variable' } else { '.env' }
+    Write-Host "  AI Coach - ChatGPT: ready (key from $src)" -ForegroundColor White
+} else {
+    Write-Host "  AI Coach - ChatGPT: no OPENAI_API_KEY in .env" -ForegroundColor DarkGray
+}
+try { Update-ModelCatalog $true } catch { }
+foreach ($p in $catalog.Keys) { if ($catalog[$p].source -eq 'live') { Write-Host "  AI models - $($providers[$p].label): $($catalog[$p].count) models from the API" -ForegroundColor DarkGray } }
 if ($keys[$defaultProvider] -ne '') {
     $eff = if ($models[$defaultModel].adaptive) { ", $defaultEffort effort" } else { '' }
     Write-Host "  AI Coach default: $($models[$defaultModel].label)$eff (switch in the app's AI engine card)" -ForegroundColor White
@@ -1340,7 +1509,10 @@ try {
             } elseif ($path -eq '/api/coach/status') {
                 if ($request.HttpMethod -ne 'GET') { Send-Json $response 405 @{ error = 'Method not allowed' } }
                 elseif (-not (Test-LocalRequest $request)) { Send-Json $response 403 @{ error = 'Forbidden' } }
-                else { Send-Json $response 200 (Get-StatusObject) }
+                else {
+                    try { Update-ModelCatalog ($request.QueryString['refresh'] -eq '1') } catch { }
+                    Send-Json $response 200 (Get-StatusObject)
+                }
             } elseif ($path -eq '/api/coach') {
                 if ($request.HttpMethod -ne 'POST') { Send-Json $response 405 @{ error = 'Method not allowed' } }
                 else { Invoke-Coach $request $response }

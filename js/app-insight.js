@@ -265,7 +265,7 @@
         ? `<div class="ai-breakdown md-body">${md(ai.text)}</div><div class="hint">AI coach: ${esc(ai.label || ai.model)}${ai.effort ? `, ${esc(ai.effort)} effort` : ''} &middot; ${esc(new Date(ai.at).toLocaleString('en-GB', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' }))} <button type="button" class="link-btn" data-ai-breakdown="${esc(record.id)}">Ask again</button></div>`
         : live
           ? `<button type="button" class="btn btn-sm" data-ai-breakdown="${esc(record.id)}"><svg class="ic"><use href="#i-sparkles"/></svg>Ask the AI coach (${esc(VeloAiCoach.labelFor(coach.model))}, low effort)</button>`
-          : '<span class="hint">Add an Anthropic or Gemini key to .env for an AI coach breakdown - the summary above is computed offline.</span>';
+          : '<span class="hint">Add an Anthropic, Gemini or OpenAI key to .env for an AI coach breakdown - the summary above is computed offline.</span>';
       return `
         <div class="review-block interval-diagnosis" id="intervalDiagnosis">
           <div class="sub-title"><span>Interval diagnosis</span><span class="hint">hard steps (88% FTP+): target, cadence fade, heart-rate drift</span></div>

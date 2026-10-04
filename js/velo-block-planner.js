@@ -453,7 +453,8 @@ GOAL: ${goal.label} - ${goal.summary}
 AVAILABILITY: ${opts.hoursPerWeek} h/week on ${dayNames}${opts.longDay !== null ? `; long ride on ${VeloBlockPlanner.DAY_NAMES[opts.longDay]}` : ''}. Block starts ${opts.startDate}.
 ${opts.aiChoosesHours ? `AI-CHOSEN WEEKLY TIME: The rider left weekly hours blank. Choose recommendedHours for each week from the history, goal and recovery below. Starting allowance ${opts.timeBounds.baselineHours} h; overall ceiling ${opts.timeBounds.ceilingHours} h/week. Build gradually, never more than 10% above the previous build-week allowance; recovery and test weeks are shorter. recommendedHours is the allowance BEFORE the app reduces recovery/test weeks to 65%. Explain the choice in plain language in summary. This is an estimate, not proof of an optimal duration. ${opts.timeBounds.reason}` : 'The entered hours are a maximum, not a requirement to fill every week.'}
 CURRENT STATE: CTL ${ctx.ctl.toFixed(1)}, ATL ${ctx.atl.toFixed(1)}, TSB ${ctx.tsb.toFixed(1)} (${ctx.formZone}); last 7 days ${ctx.sevenDayTss} TSS.
-STRENGTH TRAINING: ${ctx.strength && ctx.strength.line ? ctx.strength.line : 'none recorded'}
+NON-CYCLING ACTIVITIES (from Strava, last ${ctx.lookbackDays} days, newest first):
+${ctx.otherActivities && ctx.otherActivities.line ? ctx.otherActivities.line : '- None recorded.'}
 LAST ${ctx.lookbackDays} DAYS: ${h.ridesWin} rides, ${h.hoursPerWeekWin} h/week, intensity mix easy ${h.lowIntensityPct ?? 'n/a'}% / tempo-SweetSpot ${h.midIntensityPct ?? 'n/a'}% / threshold+ ${h.highIntensityPct ?? 'n/a'}%; days since last hard ride ${h.daysSinceHard ?? 'n/a'}; power profile ${h.profileType || 'n/a'}.
 ${ctx.notes ? `RIDER NOTES: ${ctx.notes}\n` : ''}DEFAULT STRUCTURE (adjust if the physiology says so): ${skel.map((s, i) => `W${i + 1} ${s.type}`).join(', ')}.
 

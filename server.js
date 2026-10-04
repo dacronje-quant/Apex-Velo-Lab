@@ -3,8 +3,8 @@
  * APEX VELO // LAB - local server.
  *
  * Serves the app on http://localhost:8080 and forwards AI Coach requests to the
- * Claude API or the Gemini API. The API keys are read here, on your computer, from the
- * ANTHROPIC_API_KEY / GEMINI_API_KEY environment variables or the .env file next to this
+ * Claude, Gemini or OpenAI (ChatGPT) API. The API keys are read here, on your computer, from the
+ * ANTHROPIC_API_KEY / GEMINI_API_KEY / OPENAI_API_KEY environment variables or the .env file next to this
  * script. They are never sent to the browser, and the .env file is never served.
  *
  * Usage:  node server.js [--open]      (Node 18 or newer, no npm install needed)
@@ -37,6 +37,7 @@ function loadDotEnv(file) {
 }
 const KEY_FROM_ENVIRONMENT = !!(process.env.ANTHROPIC_API_KEY || '').trim();
 const GEMINI_KEY_FROM_ENVIRONMENT = !!(process.env.GEMINI_API_KEY || '').trim();
+const OPENAI_KEY_FROM_ENVIRONMENT = !!(process.env.OPENAI_API_KEY || '').trim();
 loadDotEnv(path.join(ROOT, '.env'));
 
 /**
@@ -49,30 +50,37 @@ const MODELS = {
   'claude-haiku-4-5-20251001': { label: 'Claude Haiku 4.5', provider: 'claude', adaptive: false },
   'gemini-3.8-flash':          { label: 'Gemini 3.8 Flash', provider: 'gemini', adaptive: true },
   'gemini-3.1-pro-preview':    { label: 'Gemini 3.1 Pro (preview)', provider: 'gemini', adaptive: true },
-  'gemini-3.1-flash-lite':     { label: 'Gemini 3.1 Flash-Lite', provider: 'gemini', adaptive: true }
+  'gemini-3.1-flash-lite':     { label: 'Gemini 3.1 Flash-Lite', provider: 'gemini', adaptive: true },
+  'gpt-6.1-sol':               { label: 'GPT-6.1 Sol', provider: 'openai', adaptive: true }
 };
+// The list above is only the starting point: at startup (and on "Re-check server") the server asks each
+// provider whose key is set for its current model list, so new models appear without editing this file.
 const PROVIDERS = {
   claude: { label: 'Claude', keyName: 'ANTHROPIC_API_KEY', fallbackModel: 'claude-opus-5-5' },
-  gemini: { label: 'Gemini', keyName: 'GEMINI_API_KEY', fallbackModel: 'gemini-3.8-flash' }
+  gemini: { label: 'Gemini', keyName: 'GEMINI_API_KEY', fallbackModel: 'gemini-3.8-flash' },
+  openai: { label: 'ChatGPT', keyName: 'OPENAI_API_KEY', fallbackModel: 'gpt-6.1-sol' }
 };
 const EFFORTS = ['low', 'medium', 'high'];
 
 const API_KEY = (process.env.ANTHROPIC_API_KEY || '').trim();
 const GEMINI_API_KEY = (process.env.GEMINI_API_KEY || '').trim();
-const KEYS = { claude: API_KEY, gemini: GEMINI_API_KEY };
+const OPENAI_API_KEY = (process.env.OPENAI_API_KEY || '').trim();
+const KEYS = { claude: API_KEY, gemini: GEMINI_API_KEY, openai: OPENAI_API_KEY };
 const pickModel = (raw, provider) => { const id = raw === 'claude-sonnet-5' ? 'claude-sonnet-5-5' : raw; return (MODELS[id] && MODELS[id].provider === provider ? id : PROVIDERS[provider].fallbackModel); };
 const DEFAULT_MODELS = {
   claude: pickModel(process.env.APEX_COACH_MODEL, 'claude'),
-  gemini: pickModel(process.env.APEX_GEMINI_MODEL, 'gemini')
+  gemini: pickModel(process.env.APEX_GEMINI_MODEL, 'gemini'),
+  openai: pickModel(process.env.APEX_OPENAI_MODEL, 'openai')
 };
 // Default provider: APEX_COACH_PROVIDER if set, otherwise whichever has a key (Claude first).
 const DEFAULT_PROVIDER = PROVIDERS[process.env.APEX_COACH_PROVIDER] ? process.env.APEX_COACH_PROVIDER
-  : (!API_KEY && GEMINI_API_KEY ? 'gemini' : 'claude');
+  : (API_KEY ? 'claude' : GEMINI_API_KEY ? 'gemini' : OPENAI_API_KEY ? 'openai' : 'claude');
 const DEFAULT_MODEL = DEFAULT_MODELS[DEFAULT_PROVIDER];
 const DEFAULT_EFFORT = EFFORTS.includes(process.env.APEX_COACH_EFFORT) ? process.env.APEX_COACH_EFFORT : 'low';
 const PORT = parseInt(process.env.APEX_PORT || '8080', 10);
 const API_BASE = (process.env.APEX_ANTHROPIC_BASE_URL || 'https://api.anthropic.com').replace(/\/+$/, '');
 const GEMINI_BASE = (process.env.APEX_GEMINI_BASE_URL || 'https://generativelanguage.googleapis.com').replace(/\/+$/, '');
+const OPENAI_BASE = (process.env.APEX_OPENAI_BASE_URL || 'https://api.openai.com').replace(/\/+$/, '');
 const UPSTREAM_TIMEOUT_MS = 180000;
 const MAX_BODY_BYTES = 256 * 1024;
 
@@ -184,6 +192,77 @@ function readBody(req, limit = MAX_BODY_BYTES) {
   });
 }
 
+// ----------------------------------------------------------- model catalog --
+// Each provider's /models list, filtered to chat models the coach can use. Rules are kept identical in start_server.ps1.
+const CATALOG = { claude: { source: 'built-in' }, gemini: { source: 'built-in' }, openai: { source: 'built-in' } };
+const CATALOG_TTL_MS = 6 * 60 * 60 * 1000;
+let catalogAt = 0;
+let catalogRefresh = null;
+
+/** 'gpt-6.1-sol' -> 'GPT-6.1 Sol', 'o4-mini' -> 'o4 Mini'. */
+function prettyOpenAiName(id) {
+  const parts = id.split('-');
+  let head = parts.shift();
+  if (head === 'gpt' && parts.length) head = 'GPT-' + parts.shift();
+  else if (head === 'chatgpt') head = 'ChatGPT' + (parts.length ? '-' + parts.shift() : '');
+  return [head].concat(parts.map(w => w.charAt(0).toUpperCase() + w.slice(1))).join(' ');
+}
+const claudeChat = (id) => /^claude-/.test(id) && !/^claude-(2|instant|3-(?!7))/.test(id);
+const claudeAdaptive = (id) => /^claude-(opus|sonnet|haiku)-([5-9]|4-[6-9])/.test(id);
+const geminiChat = (id, methods) => /^gemini-/.test(id) && !/^gemini-(1\.|2\.0)/.test(id) && (methods || []).includes('generateContent') &&
+  !/(embedding|tts|image|live|audio|native|aqa|vision|robotics|computer-use|learnlm)/.test(id);
+const openAiChat = (id) => /^(gpt-[4-9]|o[1-9]|chatgpt-)/.test(id) && !/^gpt-4(-|$)/.test(id) &&
+  !/(audio|realtime|tts|transcribe|search|image|embed|moderation|instruct|codex|computer-use|deep-research|oss|-\d{4}-\d{2}-\d{2}$|-\d{4}$)/.test(id);
+const openAiReasoning = (id) => /^(o[1-9]|gpt-[5-9])/.test(id) && !/chat/.test(id);
+
+async function getJson(url, headers) {
+  const r = await fetch(url, { headers, signal: AbortSignal.timeout(10000) });
+  const data = await r.json().catch(() => ({}));
+  if (!r.ok) throw new Error((data && data.error && data.error.message) || `HTTP ${r.status}`);
+  return data;
+}
+
+/** Live model list for one provider: [{ id, label, adaptive }], newest first. */
+async function listProviderModels(provider) {
+  if (provider === 'claude') {
+    const d = await getJson(`${API_BASE}/v1/models?limit=1000`, { 'x-api-key': API_KEY, 'anthropic-version': '2023-06-01' });
+    return (d.data || []).filter(m => claudeChat(m.id)).map(m => ({ id: m.id, label: m.display_name || m.id, adaptive: claudeAdaptive(m.id) }));
+  }
+  if (provider === 'gemini') {
+    const d = await getJson(`${GEMINI_BASE}/v1beta/models?pageSize=1000`, { 'x-goog-api-key': GEMINI_API_KEY });
+    return (d.models || []).map(m => ({ ...m, id: String(m.name || '').replace(/^models\//, '') }))
+      .filter(m => geminiChat(m.id, m.supportedGenerationMethods))
+      .map(m => ({ id: m.id, label: m.displayName || m.id, adaptive: true }))
+      .sort((a, b) => b.id.localeCompare(a.id, 'en', { numeric: true }));
+  }
+  const d = await getJson(`${OPENAI_BASE}/v1/models`, { authorization: `Bearer ${OPENAI_API_KEY}` });
+  return (d.data || []).filter(m => openAiChat(m.id)).sort((a, b) => (b.created || 0) - (a.created || 0))
+    .map(m => ({ id: m.id, label: (MODELS[m.id] && MODELS[m.id].label) || prettyOpenAiName(m.id), adaptive: openAiReasoning(m.id) }));
+}
+
+/** Refreshes MODELS from every provider that has a key. A provider that fails keeps its current list. */
+function refreshModelCatalog(force = false) {
+  if (!force && Date.now() - catalogAt < CATALOG_TTL_MS) return Promise.resolve();
+  if (catalogRefresh) return catalogRefresh;
+  catalogRefresh = Promise.all(Object.keys(PROVIDERS).filter(p => KEYS[p]).map(async (provider) => {
+    try {
+      const list = await listProviderModels(provider);
+      if (!list.length) throw new Error('no chat models returned');
+      // Rebuild this provider's entries in the live order; keep the default model even if the list omits it.
+      const keep = {};
+      for (const [id, m] of Object.entries(MODELS)) if (m.provider === provider && id === DEFAULT_MODELS[provider] && !list.some(x => x.id === id)) keep[id] = m;
+      for (const id of Object.keys(MODELS)) if (MODELS[id].provider === provider) delete MODELS[id];
+      for (const m of list) MODELS[m.id] = { label: m.label, provider, adaptive: m.adaptive };
+      Object.assign(MODELS, keep);
+      CATALOG[provider] = { source: 'live', count: list.length, at: new Date().toISOString() };
+    } catch (e) {
+      CATALOG[provider] = { source: 'built-in', error: e.message };
+      console.warn(`[models] ${PROVIDERS[provider].label} model list unavailable (${e.message}); using the built-in list.`);
+    }
+  })).then(() => { catalogAt = Date.now(); }).finally(() => { catalogRefresh = null; });
+  return catalogRefresh;
+}
+
 function status() {
   const providers = {};
   for (const [id, p] of Object.entries(PROVIDERS)) providers[id] = { label: p.label, configured: !!KEYS[id], model: DEFAULT_MODELS[id] };
@@ -194,7 +273,8 @@ function status() {
     model: DEFAULT_MODEL,
     effort: DEFAULT_EFFORT,
     models: Object.entries(MODELS).map(([id, m]) => ({ id, label: m.label, provider: m.provider, effort: m.adaptive })),
-    efforts: EFFORTS
+    efforts: EFFORTS,
+    catalog: CATALOG
   };
 }
 
@@ -214,6 +294,12 @@ function buildClaudeRequest(prompt, model, effort) {
   return body;
 }
 
+/** Gemini 3+ takes a thinking level; Gemini 2.5 takes a token budget instead. */
+const GEMINI_BUDGETS = { low: 1024, medium: 8192, high: 24576 };
+function geminiThinking(model, effort) {
+  return /^gemini-2\./.test(model || '') ? { thinkingBudget: GEMINI_BUDGETS[effort] || 1024, includeThoughts: true } : { thinkingLevel: effort, includeThoughts: true };
+}
+
 function buildGeminiRequest(prompt, model, effort) {
   return {
     systemInstruction: { parts: [{ text: SYSTEM_PROMPT }] },
@@ -221,7 +307,7 @@ function buildGeminiRequest(prompt, model, effort) {
     generationConfig: {
       maxOutputTokens: 16000,
       responseMimeType: 'application/json',
-      thinkingConfig: { thinkingLevel: effort, includeThoughts: true }
+      thinkingConfig: geminiThinking(model, effort)
     }
   };
 }
@@ -257,14 +343,67 @@ function buildClaudeAskRequest(messages, context, model, effort, fallback = true
 }
 
 /** Ask request for Gemini: plain text answers (no JSON response type), assistant turns as role "model". */
-function buildGeminiAskRequest(messages, context, effort) {
+function buildGeminiAskRequest(messages, context, effort, model) {
   return {
     systemInstruction: { parts: [{ text: ASK_SYSTEM_PROMPT }, { text: `TRAINING DATA\n${context || '(no data for this period)'}` }] },
     contents: messages.map(m => ({ role: m.role === 'assistant' ? 'model' : 'user', parts: [{ text: m.content }] })),
     generationConfig: {
       maxOutputTokens: 16000,
-      thinkingConfig: { thinkingLevel: effort, includeThoughts: true }
+      thinkingConfig: geminiThinking(model, effort)
     }
+  };
+}
+
+/**
+ * OpenAI Responses API request. Reasoning models (o-series, GPT-5 and later) get the effort setting and a
+ * reasoning summary (shown like Claude's thinking); other models get neither.
+ */
+function buildOpenAiRequest(instructions, input, model, effort, summary = true) {
+  const body = { model, instructions, input, max_output_tokens: 16000, store: false };
+  if (MODELS[model] && MODELS[model].adaptive) body.reasoning = summary ? { effort, summary: 'auto' } : { effort };
+  return body;
+}
+const buildOpenAiCoachRequest = (prompt, model, effort) => buildOpenAiRequest(SYSTEM_PROMPT, [{ role: 'user', content: prompt }], model, effort);
+const buildOpenAiAskRequest = (messages, context, model, effort) => buildOpenAiRequest(
+  `${ASK_SYSTEM_PROMPT}\n\nTRAINING DATA\n${context || '(no data for this period)'}`,
+  messages.map(m => ({ role: m.role, content: m.content })), model, effort);
+
+/** Calls OpenAI (Responses API); retries once without the reasoning summary if the account cannot use it. */
+async function callOpenAi(reqBody, signal) {
+  const post = (b) => fetch(`${OPENAI_BASE}/v1/responses`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json', authorization: `Bearer ${OPENAI_API_KEY}` },
+    body: JSON.stringify(b),
+    signal
+  });
+  let upstream = await post(reqBody);
+  let data = await upstream.json().catch(() => ({}));
+  if (upstream.status === 400 && reqBody.reasoning && reqBody.reasoning.summary && /summar|verif/i.test((data.error && data.error.message) || '')) {
+    reqBody = { ...reqBody, reasoning: { effort: reqBody.reasoning.effort } };
+    upstream = await post(reqBody);
+    data = await upstream.json().catch(() => ({}));
+  }
+  if (!upstream.ok) {
+    const msg = (data && data.error && data.error.message) || `HTTP ${upstream.status}`;
+    return { error: `OpenAI API error ${upstream.status}: ${msg}`, upstreamStatus: upstream.status, log: `${upstream.status} ${msg}` };
+  }
+  const items = Array.isArray(data.output) ? data.output : [];
+  let text = '', refusal = '';
+  const thinking = [];
+  for (const it of items) {
+    if (it.type === 'message') for (const c of it.content || []) {
+      if (c.type === 'output_text') text += c.text || '';
+      else if (c.type === 'refusal') refusal += c.refusal || '';
+    } else if (it.type === 'reasoning') for (const s of it.summary || []) if (s.text) thinking.push(s.text);
+  }
+  const u = data.usage || {};
+  const incomplete = data.status === 'incomplete' && data.incomplete_details && data.incomplete_details.reason;
+  return {
+    text,
+    thinking: thinking.join('\n\n'),
+    model: data.model || reqBody.model,
+    stopReason: refusal && !text ? 'refusal' : incomplete === 'max_output_tokens' ? 'max_tokens' : (incomplete || 'end_turn'),
+    usage: { input_tokens: u.input_tokens || 0, output_tokens: u.output_tokens || 0, cache_read_input_tokens: (u.input_tokens_details && u.input_tokens_details.cached_tokens) || 0 }
   };
 }
 
@@ -354,6 +493,7 @@ async function handleCoach(req, res) {
   try {
     const out = provider === 'gemini'
       ? await callGemini(buildGeminiRequest(prompt, model, effort), model, ac.signal)
+      : provider === 'openai' ? await callOpenAi(buildOpenAiCoachRequest(prompt, model, effort), ac.signal)
       : await callClaude(buildClaudeRequest(prompt, model, effort), ac.signal);
     if (out.error) {
       console.warn(`[coach] ${model} failed: ${out.log}`);
@@ -395,7 +535,7 @@ function validateAsk(input) {
   return { messages, context };
 }
 
-/** POST /api/ask - free questions about the rider's own training data, answered by Claude or Gemini. */
+/** POST /api/ask - free questions about the rider's own training data, answered by Claude, Gemini or ChatGPT. */
 async function handleAsk(req, res) {
   const input = await readAppJson(req, res);
   if (!input) return;
@@ -410,7 +550,8 @@ async function handleAsk(req, res) {
   const t0 = Date.now();
   try {
     let out;
-    if (provider === 'gemini') out = await callGemini(buildGeminiAskRequest(v.messages, v.context, effort), model, ac.signal);
+    if (provider === 'gemini') out = await callGemini(buildGeminiAskRequest(v.messages, v.context, effort, model), model, ac.signal);
+    else if (provider === 'openai') out = await callOpenAi(buildOpenAiAskRequest(v.messages, v.context, model, effort), ac.signal);
     else {
       out = await callClaude(buildClaudeAskRequest(v.messages, v.context, model, effort), ac.signal);
       // An account or gateway that does not accept the fallback option gets the same question without it.
@@ -1029,7 +1170,8 @@ function createServer() {
     if (urlPath === '/api/coach/status') {
       if (req.method !== 'GET') return sendJson(res, 405, { error: 'Method not allowed' });
       if (!isLocalRequest(req)) return sendJson(res, 403, { error: 'Forbidden' });
-      return sendJson(res, 200, status());
+      const q = new URL(req.url, 'http://localhost').searchParams;
+      return refreshModelCatalog(q.get('refresh') === '1').then(() => sendJson(res, 200, status()), () => sendJson(res, 200, status()));
     }
     if (urlPath === '/api/coach') {
       if (req.method !== 'POST') return sendJson(res, 405, { error: 'Method not allowed' });
@@ -1079,6 +1221,10 @@ if (require.main === module) {
     const keySrc = (fromEnv, name) => (fromEnv ? `the ${name} environment variable` : '.env');
     console.log(API_KEY ? `AI Coach - Claude: ready, key from ${keySrc(KEY_FROM_ENVIRONMENT, 'ANTHROPIC_API_KEY')}` : 'AI Coach - Claude: no ANTHROPIC_API_KEY in .env');
     console.log(GEMINI_API_KEY ? `AI Coach - Gemini: ready, key from ${keySrc(GEMINI_KEY_FROM_ENVIRONMENT, 'GEMINI_API_KEY')}` : 'AI Coach - Gemini: no GEMINI_API_KEY in .env');
+    console.log(OPENAI_API_KEY ? `AI Coach - ChatGPT: ready, key from ${keySrc(OPENAI_KEY_FROM_ENVIRONMENT, 'OPENAI_API_KEY')}` : 'AI Coach - ChatGPT: no OPENAI_API_KEY in .env');
+    refreshModelCatalog(true).then(() => {
+      for (const [p, c] of Object.entries(CATALOG)) if (c.source === 'live') console.log(`AI models - ${PROVIDERS[p].label}: ${c.count} models from the API`);
+    });
     console.log(KEYS[DEFAULT_PROVIDER]
       ? `AI Coach default: ${MODELS[DEFAULT_MODEL].label}, ${DEFAULT_EFFORT} effort (switch provider in the app's AI engine card)`
       : 'AI Coach: no API key for the default provider - the offline engine is used until you add one.');
@@ -1091,4 +1237,4 @@ if (require.main === module) {
   });
 }
 
-module.exports = { createServer, buildClaudeRequest, buildGeminiRequest, buildClaudeAskRequest, buildGeminiAskRequest, validateAsk, ASK_SYSTEM_PROMPT, loadDotEnv, slimActivity, MODELS, PROVIDERS };
+module.exports = { createServer, buildClaudeRequest, buildGeminiRequest, buildClaudeAskRequest, buildGeminiAskRequest, buildOpenAiCoachRequest, buildOpenAiAskRequest, prettyOpenAiName, openAiChat, refreshModelCatalog, validateAsk, ASK_SYSTEM_PROMPT, loadDotEnv, slimActivity, MODELS, PROVIDERS };

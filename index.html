@@ -1193,6 +1193,7 @@
               <select id="selectCoachProvider" class="input-field">
                 <option value="claude">Claude (Anthropic)</option>
                 <option value="gemini">Gemini (Google)</option>
+                <option value="openai">ChatGPT (OpenAI)</option>
               </select>
             </label>
             <label class="field"><span>Model</span>
@@ -1212,7 +1213,7 @@
               <button type="button" class="btn btn-primary" id="btnSaveAiCoachConfig">Save</button>
               <button type="button" class="btn" id="btnRecheckAiEngine">Re-check server</button>
             </div>
-            <p class="field-help">The API keys (<code>ANTHROPIC_API_KEY</code>, <code>GEMINI_API_KEY</code>) live in the <code>.env</code> file in the app folder and are read only by the local server on this computer. They are never stored in or sent to the browser. For Gemini, effort sets the thinking level. Start the app with <code>Launch-Apex-Velo.bat</code>.</p>
+            <p class="field-help">The API keys (<code>ANTHROPIC_API_KEY</code>, <code>GEMINI_API_KEY</code>, <code>OPENAI_API_KEY</code>) live in the <code>.env</code> file in the app folder and are read only by the local server on this computer. They are never stored in or sent to the browser. The model lists are read live from each provider, so new models show up after <b>Re-check server</b>. For Gemini, effort sets the thinking level; for ChatGPT, the reasoning effort. Start the app with <code>Launch-Apex-Velo.bat</code>.</p>
       </section>
 
       <section class="settings-section" data-sec="health" id="healthSettings">

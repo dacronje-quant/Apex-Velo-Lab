@@ -146,7 +146,7 @@
         warn.hidden = c.isLive;
         this.setText('askEngineWarnText', c.engine.reachable
           ? `Ask needs a ${c.providerLabel} API key. Add ${VeloAiCoach.PROVIDERS[c.provider].keyName} to the .env file and restart Launch-Apex-Velo.bat.`
-          : 'Ask uses Claude or Gemini through the local server: open the app with Launch-Apex-Velo.bat (your API key stays on this PC).');
+          : 'Ask uses Claude, Gemini or ChatGPT through the local server: open the app with Launch-Apex-Velo.bat (your API key stays on this PC).');
       }
     },
 

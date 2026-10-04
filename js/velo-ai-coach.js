@@ -24,15 +24,19 @@ class VeloAiCoach {
   static DEFAULT_EFFORT = 'low';
   static PROVIDERS = {
     claude: { label: 'Claude', keyName: 'ANTHROPIC_API_KEY', defaultModel: 'claude-opus-5-5' },
-    gemini: { label: 'Gemini', keyName: 'GEMINI_API_KEY', defaultModel: 'gemini-3.8-flash' }
+    gemini: { label: 'Gemini', keyName: 'GEMINI_API_KEY', defaultModel: 'gemini-3.8-flash' },
+    openai: { label: 'ChatGPT', keyName: 'OPENAI_API_KEY', defaultModel: 'gpt-6.1-sol' }
   };
+  /** Live model list from the local server ({ id: { label, provider, effort } }); fills the pickers once detected. */
+  static SERVER_MODELS = {};
   static MODEL_LABELS = {
     'claude-opus-5-5': 'Claude Opus 5.5',
     'claude-sonnet-5-5': 'Claude Sonnet 5.5',
     'claude-haiku-4-5-20251001': 'Claude Haiku 4.5',
     'gemini-3.8-flash': 'Gemini 3.8 Flash',
     'gemini-3.1-pro-preview': 'Gemini 3.1 Pro (preview)',
-    'gemini-3.1-flash-lite': 'Gemini 3.1 Flash-Lite'
+    'gemini-3.1-flash-lite': 'Gemini 3.1 Flash-Lite',
+    'gpt-6.1-sol': 'GPT-6.1 Sol'
   };
   /** Look-back choices (days) for the history sent to the coach, and the cap on individually listed rides. */
   static LOOKBACK_OPTIONS = [7, 14, 28, 42, 90];
@@ -62,7 +66,8 @@ class VeloAiCoach {
       localStorage.removeItem('apex_gemini_model');
     } catch (e) { /* storage unavailable */ }
     if (!VeloAiCoach.PROVIDERS[this.providerOverride]) this.providerOverride = '';
-    if (!VeloAiCoach.MODEL_LABELS[this.modelOverride]) this.modelOverride = '';
+    // Models now come from the server's live list, so any saved id is kept; the server falls back if it is gone.
+    if (typeof this.modelOverride !== 'string') this.modelOverride = '';
     this.currentRecommendation = null;
   }
 
@@ -72,7 +77,13 @@ class VeloAiCoach {
     return { reachable: false, provider: 'claude', providers, model: VeloAiCoach.DEFAULT_MODEL, effort: VeloAiCoach.DEFAULT_EFFORT, models: [], efforts: ['low', 'medium', 'high'] };
   }
 
-  static providerOf(model) { return /^gemini/i.test(model || '') ? 'gemini' : 'claude'; }
+  static providerOf(model) {
+    const sm = VeloAiCoach.SERVER_MODELS[model];
+    if (sm && VeloAiCoach.PROVIDERS[sm.provider]) return sm.provider;
+    if (/^gemini/i.test(model || '')) return 'gemini';
+    if (/^(gpt|o\d|chatgpt)/i.test(model || '')) return 'openai';
+    return 'claude';
+  }
 
   /** Provider, model and effort that will be used for the next request. */
   get provider() {
@@ -93,16 +104,27 @@ class VeloAiCoach {
     const ep = this.engine.providers && this.engine.providers[this.provider];
     return !!(this.engine.reachable && ep && ep.configured);
   }
-  static labelFor(model) { return VeloAiCoach.MODEL_LABELS[model] || model; }
-  static supportsEffort(model) { return !/haiku/i.test(model); }
-  static modelsFor(provider) { return Object.keys(VeloAiCoach.MODEL_LABELS).filter(m => VeloAiCoach.providerOf(m) === provider); }
+  static labelFor(model) {
+    const sm = VeloAiCoach.SERVER_MODELS[model];
+    return (sm && sm.label) || VeloAiCoach.MODEL_LABELS[model] || model;
+  }
+  static supportsEffort(model) {
+    const sm = VeloAiCoach.SERVER_MODELS[model];
+    return sm ? !!sm.effort : !/haiku/i.test(model);
+  }
+  /** The server's live list for a provider (newest first), or the built-in list when the server is offline. */
+  static modelsFor(provider) {
+    const live = Object.keys(VeloAiCoach.SERVER_MODELS).filter(m => VeloAiCoach.SERVER_MODELS[m].provider === provider);
+    return live.length ? live : Object.keys(VeloAiCoach.MODEL_LABELS).filter(m => VeloAiCoach.providerOf(m) === provider);
+  }
 
   /** Asks the local server which providers have keys. Never throws. */
-  async detectEngine(timeoutMs = 3000) {
+  async detectEngine(timeoutMs = 3000, refresh = false) {
+    if (refresh) timeoutMs = Math.max(timeoutMs, 15000);
     const ac = typeof AbortController !== 'undefined' ? new AbortController() : null;
     const timer = ac ? setTimeout(() => ac.abort(), timeoutMs) : null;
     try {
-      const resp = await fetch(VeloAiCoach.STATUS_URL, { cache: 'no-store', signal: ac ? ac.signal : undefined });
+      const resp = await fetch(VeloAiCoach.STATUS_URL + (refresh ? '?refresh=1' : ''), { cache: 'no-store', signal: ac ? ac.signal : undefined });
       const json = resp.ok ? await resp.json() : null;
       if (json && (json.providers || json.provider === 'claude')) {
         const providers = VeloAiCoach.offlineEngine().providers;
@@ -115,6 +137,9 @@ class VeloAiCoach {
           // Older server (Claude only).
           providers.claude = { ...providers.claude, configured: !!json.configured, model: json.model || providers.claude.model };
         }
+        const sm = {};
+        for (const m of (Array.isArray(json.models) ? json.models : [])) if (m && m.id) sm[m.id] = { label: m.label || m.id, provider: m.provider, effort: m.effort !== false };
+        VeloAiCoach.SERVER_MODELS = sm;
         this.engine = {
           reachable: true,
           provider: VeloAiCoach.PROVIDERS[json.provider] ? json.provider : 'claude',
@@ -122,6 +147,7 @@ class VeloAiCoach {
           model: json.model || VeloAiCoach.DEFAULT_MODEL,
           effort: json.effort || VeloAiCoach.DEFAULT_EFFORT,
           models: Array.isArray(json.models) ? json.models : [],
+          catalog: json.catalog || null,
           efforts: Array.isArray(json.efforts) ? json.efforts : ['low', 'medium', 'high']
         };
       } else {
@@ -201,6 +227,10 @@ class VeloAiCoach {
     const strength = typeof VeloStravaSync !== 'undefined'
       ? VeloStravaSync.strengthSummary(all, lookback, now)
       : { count: 0, sessions: [], line: '' };
+    // Raw facts about runs, gym, walks, yoga... for the AI prompts (the offline engine uses `strength` above).
+    const otherActivities = typeof VeloStravaSync !== 'undefined' && VeloStravaSync.otherActivitiesSummary
+      ? VeloStravaSync.otherActivitiesSummary(all, lookback, now)
+      : { count: 0, line: '' };
     const yesterday = VeloMetrics.localDateKey(new Date(now.getFullYear(), now.getMonth(), now.getDate() - 1));
     const today = VeloMetrics.localDateKey(now);
     const heavyLegsRecent = strength.sessions.some(s => s.heavyLegs && (s.date === yesterday || s.date === today));
@@ -224,7 +254,7 @@ class VeloAiCoach {
       formZone: form.label, formKey: form.key, formDesc: form.desc,
       sevenDayTss, sevenDayHours, recentWorkouts, recentList, consecutiveDays,
       lookbackDays: lookback, windowRideCount: windowRides.length, listedRideCount: listedRides.length,
-      history, strength, heavyLegsRecent,
+      history, strength, heavyLegsRecent, otherActivities,
       goal: VeloAiCoach.GOALS[goal] ? goal : 'ftp',
       notes: String(notes || '').slice(0, 280),
       targetFocus,
@@ -549,7 +579,8 @@ PERFORMANCE MANAGEMENT (Banister model):
 - Intensity mix (${ctx.lookbackDays} d, by ride IF): easy ${h.lowIntensityPct ?? 'n/a'}%, tempo/SweetSpot ${h.midIntensityPct ?? 'n/a'}%, threshold+ ${h.highIntensityPct ?? 'n/a'}%
 - Days since last hard ride (IF>=0.85): ${h.daysSinceHard ?? 'none on record'}; days since last ride >= 90 min: ${h.daysSinceLong ?? 'none on record'}
 - Power profile: ${h.profileType || 'n/a'}
-- Strength training: ${ctx.strength && ctx.strength.line ? ctx.strength.line : 'none recorded'}
+NON-CYCLING ACTIVITIES (from Strava, last ${ctx.lookbackDays} days, newest first; today is ${VeloMetrics.localDateKey(new Date())}):
+${ctx.otherActivities && ctx.otherActivities.line ? ctx.otherActivities.line : '- None recorded.'}
 ${ctx.readiness ? `DAILY READINESS (Apple Watch, vs the rider's own baselines): ${ctx.readiness.level.toUpperCase()} - ${ctx.readiness.label}.${ctx.readiness.hrv ? ` HRV 7-day ${ctx.readiness.hrv.avg7} ms (normal ${ctx.readiness.hrv.normalLow}-${ctx.readiness.hrv.normalHigh}).` : ''}${ctx.readiness.rhr ? ` Resting HR ${ctx.readiness.rhr.today} bpm (baseline ${ctx.readiness.rhr.base}).` : ''}${ctx.readiness.sleep ? ` Sleep ${ctx.readiness.sleep.last} h.` : ''}${ctx.readiness.reasons.length ? ' Flags: ' + ctx.readiness.reasons.join('; ') + '.' : ''} Amber = no key session today (endurance or shortened sets); red = Z1-Z2 recovery spin. Say so in fatigueStatus.
 ` : ''}${ctx.insight && ctx.insight.lines.length ? `RECENT RIDE INSIGHT (computed from recorded power and heart rate - use it, e.g. ease or re-pace a session type that faded, keep aerobic work steady while drift is high, build on new bests):
 ${ctx.insight.lines.map(l => `- ${l}`).join('\n')}

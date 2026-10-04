@@ -180,7 +180,7 @@
 
     /** Re-reads the local server's status (which keys are present, default models) and updates the UI. */
     async refreshCoachEngine(announce) {
-      await this.aiCoach.detectEngine();
+      await this.aiCoach.detectEngine(3000, !!announce);  // "Re-check server" also re-reads every provider's model list
       const providerSelect = document.getElementById('selectCoachProvider');
       if (providerSelect) providerSelect.value = this.aiCoach.provider;
       this.fillCoachModelOptions();

@@ -246,6 +246,34 @@ class VeloStravaSync {
     return { count: sessions.length, sessions, line };
   }
 
+  /**
+   * Every non-cycling activity in the look-back window as plain facts for the AI prompts (newest first):
+   * date and time, sport, title, duration, distance, heart rate, Strava relative effort, calories and the
+   * session notes / exercises. No labels or rules are added: the AI judges the effect on the rider itself.
+   */
+  static otherActivitiesSummary(workouts, days, now = new Date(), max = 25) {
+    const since = now.getTime() - days * 86400000;
+    const list = (workouts || [])
+      .filter(r => r && r.activityType && r.activityType !== 'ride')
+      .filter(r => { const t = Date.parse(r.date); return Number.isFinite(t) && t >= since && t <= now.getTime(); })
+      .sort((a, b) => Date.parse(b.date) - Date.parse(a.date));
+    const n = VeloStravaSync.num;
+    const clean = (t, len) => String(t || '').replace(/\s+/g, ' ').trim().slice(0, len);
+    const lines = list.slice(0, max).map(r => {
+      const local = String(r.startLocal || '').match(/^(\d{4}-\d{2}-\d{2})T(\d{2}:\d{2})/);
+      const when = local ? `${local[1]} ${local[2]}` : (typeof VeloMetrics !== 'undefined' ? VeloMetrics.localDateKey(r.date) : String(r.date).slice(0, 10));
+      const facts = [`${Math.round(n(r.duration) / 60)} min`];
+      if (n(r.distanceKm) > 0) facts.push(`${r.distanceKm} km`);
+      if (n(r.avgHr) > 0) facts.push(`avg HR ${r.avgHr}${n(r.maxHr) > 0 ? `, max ${r.maxHr}` : ''} bpm`);
+      if (n(r.sufferScore) > 0) facts.push(`Strava relative effort ${r.sufferScore}`);
+      if (n(r.totalCalories) > 0) facts.push(`${r.totalCalories} kcal`);
+      const notes = clean(r.description || (r.exercises || []).join('; '), 300);
+      return `- ${when}: ${r.sportType || r.activityType} "${clean(r.title, 80)}" (${facts.join(', ')})${notes ? ` - notes: ${notes}` : ''}`;
+    });
+    const more = list.length > max ? `\n- ...and ${list.length - max} older ones` : '';
+    return { count: list.length, line: lines.length ? lines.join('\n') + more : `- None in the last ${days} days.` };
+  }
+
   // ------------------------------------------------- activity -> record --
   /**
    * Builds the history record for a Strava activity. Deterministic, so re-syncing unchanged
