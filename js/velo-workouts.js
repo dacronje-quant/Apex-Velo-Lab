@@ -2,7 +2,7 @@
       {
         id: 'carson',
         category: 'sweetspot',
-        title: 'Carson - SweetSpot 5x5',
+        title: 'Steady Climb - SweetSpot 5x5',
         desc: 'Aerobic base builder: 5-minute SweetSpot intervals between 88% and 94% FTP with brief 2-minute recoveries.',
         durationMin: 48,
         tss: 56,
@@ -25,7 +25,7 @@
       {
         id: 'eichorn',
         category: 'sweetspot',
-        title: 'Eichorn - 2x20 SweetSpot Classic',
+        title: 'Long Haul - 2x20 SweetSpot Classic',
         desc: 'The gold standard muscular endurance workout: two sustained 20-minute blocks locked precisely at 90% FTP.',
         durationMin: 60,
         tss: 74,
@@ -103,7 +103,7 @@
       {
         id: 'mary_austin',
         category: 'threshold',
-        title: 'Mary Austin - Threshold Over-Unders',
+        title: 'Seesaw - Threshold Over-Unders',
         desc: 'Lactate clearance mastery: 3 sets of over-unders alternating 2 minutes at 95% FTP (under) and 1 minute at 105% FTP (over).',
         durationMin: 60,
         tss: 80,
@@ -132,7 +132,7 @@
       {
         id: 'spanish',
         category: 'vo2',
-        title: 'Spanish Needle - Microbursts',
+        title: 'Spark Plug - Microbursts',
         desc: 'Explosive high-intensity repeatability: 15-second surges at 150% FTP with 15-second recovery valleys.',
         durationMin: 45,
         tss: 68,
@@ -159,7 +159,7 @@
       {
         id: 'taylor',
         category: 'vo2',
-        title: 'Taylor -2 - 30/30 VO2 Intervals',
+        title: 'Quick Switch - 30/30 VO2 Intervals',
         desc: 'Classic high-aerobic capacity protocol: 3 sets of 30 seconds at 120% FTP followed by 30 seconds easy spinning.',
         durationMin: 45,
         tss: 64,
@@ -287,7 +287,7 @@
       {
         id: 'pettit',
         category: 'endurance',
-        title: 'Pettit - Aerobic Recovery & Flush',
+        title: 'Easy Flush - Aerobic Recovery',
         desc: 'Low-stress aerobic maintenance: constant steady-state spinning between 55% and 65% FTP.',
         durationMin: 60,
         tss: 39,
@@ -303,7 +303,7 @@
       {
         id: 'alpe',
         category: 'threshold',
-        title: 'Alpe du Zwift Climb Simulation',
+        title: 'Alpine Switchbacks Climb Simulation',
         desc: 'Progressive alpine climb testing muscular endurance at 95% to 105% FTP.',
         durationMin: 60,
         tss: 82,

@@ -538,7 +538,7 @@
           const cadDecoupledOk = (cadInErg === cadInNonErg) && (cadInErg > 0);
 
           // C. Cockpit HUD Tag & Metric Compliance Feedback
-          app.intervalIndex = 2; // SweetSpot 1 in Carson (88% FTP -> 92 RPM)
+          app.intervalIndex = 2; // SweetSpot 1 in Steady Climb (88% FTP -> 92 RPM)
           app.updateHudTitles();
           const hudCadTag = frame.contentDocument.getElementById('hudCadenceTargetTag');
           const hasHudTag = hudCadTag && hudCadTag.textContent.includes('92 RPM Target');

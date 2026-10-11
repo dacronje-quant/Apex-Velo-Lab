@@ -8,8 +8,16 @@ No account, no cloud service, no subscription. Your rides stay in your browser a
 
 *All screenshots use the built-in synthetic demo (**Explore a demo**), not real rider data.*
 
-**Cockpit** - ride structured ERG workouts with live power, heart rate, cadence and W' balance
-![Cockpit](docs/images/cockpit.png)
+**Cockpit (desktop)** - a structured ERG workout mid-ride: live power, heart rate, cadence, targets and ride totals
+![Cockpit on desktop](docs/images/cockpit.png)
+
+**Phone** - the cockpit on a phone-sized screen, and the phone remote (`live.html`) that follows and controls the ride from another room
+
+<p>
+  <img src="docs/images/cockpit-phone.png" alt="Cockpit on a phone" width="300">
+  &nbsp;
+  <img src="docs/images/phone-remote.png" alt="Phone remote view" width="300">
+</p>
 
 **Workout library** - SweetSpot, threshold, VO2 and endurance sessions with interval profiles
 ![Workout library](docs/images/workouts.png)
