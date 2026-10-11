@@ -4,6 +4,25 @@ An indoor cycling cockpit, AI workout builder and training-analytics dashboard t
 
 No account, no cloud service, no subscription. Your rides stay in your browser and on your PC.
 
+## Screenshots
+
+*All screenshots use the built-in synthetic demo (**Explore a demo**), not real rider data.*
+
+**Cockpit** - ride structured ERG workouts with live power, heart rate, cadence and W' balance
+![Cockpit](docs/images/cockpit.png)
+
+**Workout library** - SweetSpot, threshold, VO2 and endurance sessions with interval profiles
+![Workout library](docs/images/workouts.png)
+
+**AI Coach** - today's session and a 7-day outlook from your fitness, fatigue and form
+![AI Coach](docs/images/ai-coach.png)
+
+**Analytics** - readiness, FTP, fitness/fatigue/form (PMC), power curve and CP
+![Analytics](docs/images/analytics.png)
+
+**Calendar** - rides, load and recovery by week, month or year
+![Calendar](docs/images/calendar.png)
+
 ## Requirements
 
 ### Minimum (try it out, analyse imported rides)
