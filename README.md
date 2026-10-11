@@ -4,6 +4,8 @@ An indoor cycling cockpit, AI workout builder and training-analytics dashboard t
 
 No account, no cloud service, no subscription. Your rides stay in your browser and on your PC.
 
+**[▶ Watch the trailer on YouTube](https://youtu.be/JPSZ__Zi_GM)**
+
 ## Screenshots
 
 *All screenshots use the built-in synthetic demo (**Explore a demo**), not real rider data.*
