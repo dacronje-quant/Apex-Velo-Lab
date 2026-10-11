@@ -7,8 +7,6 @@
 .strava-tokens.json
 
 # Personal ride history (kept on this PC only - the app works without it)
-data/divan_cycling_history.js
-data/divan_cycling_history.json
 data/*.fit
 
 # Automatic history backups (written by the local server after rides)

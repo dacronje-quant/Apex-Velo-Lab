@@ -224,7 +224,7 @@
         if (icon) icon.textContent = sorted ? (this.historySortDirection === 'asc' ? '▲' : '▼') : '⇅';
       });
       if (!this.completedWorkouts.length) {
-        tbody.innerHTML = `<tr><td colspan="12" class="empty-cell">No completed workouts in database.<br>Use <b>Re-sync HealthFit</b>, import files, or ride a workout.</td></tr>`;
+        tbody.innerHTML = `<tr><td colspan="12" class="empty-cell">No completed workouts in database.<br>Import FIT/TCX/CSV files above, ride a workout, or try <b>Explore a demo</b>.</td></tr>`;
         this.updateHeroStats();
         return;
       }

@@ -1,6 +1,6 @@
 # Share a clean local version
 
-This branch prepares the app for people to download and run themselves. It does not deploy a service, publish a GitHub branch or change repository visibility.
+The public repository's `main` branch is the shareable version. Personal setup (keys, tokens, ride history, backups) lives only in git-ignored files next to the code, so the maintainer runs the same `main` as everyone else.
 
 1. The app is licensed under [MIT](../LICENSE). Include the licence and bundled third-party notices when sharing copies.
 2. Run `npm test`, `npm run test:browser`, `npm run test:suite` and `npm run check:share` when preparing a new release. Read [local setup](LOCAL-SETUP.md) and [privacy](PRIVACY.md).
@@ -12,7 +12,7 @@ New-Item -ItemType Directory -Force release-output
 git archive --format=zip --prefix=Apex-Velo-Lab/ --output=release-output/Apex-Velo-Lab-local.zip HEAD
 ```
 
-Share that archive rather than zipping your entire installed folder. For GitHub distribution, push the prepared branch when ready and let users download its source ZIP. If making a private repository public, review historical commits first: earlier personal screenshots may still exist there. Do not rewrite or discard history as part of an ordinary update.
+Share that archive rather than zipping your entire installed folder. For GitHub distribution, push the prepared branch when ready and let users download its source ZIP. Repository history was cleaned of personal screenshots in October 2026; keep screenshots in releases synthetic (use **Explore a demo**). Do not rewrite or discard history as part of an ordinary update.
 
 Existing installations retain browser profiles, rides, device settings and health data at the same origin. Legacy local archives remain supported. Review screenshots removed from public source are preserved locally under `.private-review/proposals`. Restart the local server after an update so the new private-archive endpoint is available.
 

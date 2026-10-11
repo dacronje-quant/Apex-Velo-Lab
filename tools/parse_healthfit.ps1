@@ -1,5 +1,5 @@
 # Garmin FIT parser for an optional local HealthFit archive
-param([string]$RiderName = 'Rider', [string]$OutputPath = (Join-Path $PSScriptRoot 'data/local-history.json'))
+param([string]$RiderName = 'Rider', [string]$OutputPath = (Join-Path $PSScriptRoot '../data/local-history.json'))
 $healthFitDir = if ($env:HEALTHFIT_DIR) { $env:HEALTHFIT_DIR } else { Join-Path $env:USERPROFILE 'Downloads\HealthFit\HealthFit' }
 $outputJson = $OutputPath
 
