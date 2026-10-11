@@ -88,6 +88,15 @@ STRAVA_CLIENT_SECRET=
 
 Keys stay on your PC; the browser never sees them. Step-by-step instructions for each connection, the phone remote and Apple Health are in **[local setup and troubleshooting](docs/LOCAL-SETUP.md)**.
 
+### Optional: AI workouts and AI training programs
+
+Everything here is optional. Without an API key the app builds workouts and training blocks with its built-in offline engine, and riding, analytics and Strava work the same. Add a Claude, ChatGPT or Gemini key (above) to let an AI do the planning instead.
+
+- **AI workout creation.** In **AI Coach**, pick a goal (FTP, Longevity, VO2max or Balanced) and a session length (or Auto), optionally type a request such as "45 min over-unders", and load the result into the cockpit in one click. Targets are scaled to your current FTP and zones.
+- **AI training programs.** In **AI Coach > Training block**, set a goal, length (4-12 weeks), available days and long-ride day. The AI designs the phases, weekly load and key sessions (and can choose your weekly hours if you leave them blank); the app places them on your Calendar, keeps the load ramp safe, and re-checks the plan after every ride. Suggested changes only apply when you press **Apply**.
+- **Personalised from your own history.** The coach sees your fitness/fatigue/form, recent hours and intensity mix, power profile, recent interval diagnosis, power-to-heart-rate drift, new power bests, recovery data and strength sessions when imported. **History look-back** (7-90 days) controls how much is sent.
+- **Privacy and cost.** Only compact summaries are sent to the provider you choose, via your local server; keys stay in `.env`. The provider bills API usage, so pick the model and effort that suit your budget.
+
 ## Your data
 
 - Rides, settings and profiles live in your browser (IndexedDB) at `http://localhost:8080`. The app also writes compressed **automatic backups** to `data/backups` (newest 14). Restore one by dropping it on History's import zone.
