@@ -20,11 +20,13 @@ Verified on Windows with Node 24 and desktop Edge, using temporary data folders 
 npm test
 npm run test:storage
 npm run test:browser
+npm run test:suite
+npm run check:share
 ```
 
 Browser checks need optional development dependencies (`npm install`) and a supported installed browser. The app itself requires no npm install. Windows uses installed Edge by default for tests.
 
-The feature was also checked from an exported staged tree excluding pre-existing uncommitted UI changes. All its Node tests and the actual SQLite browser workflow passed. The broader browser suite in the existing working copy has one strength-training coach-context failure; it also fails in the preserved pre-change baseline and is outside this storage change.
+The public integration branch starts from public `main` at `9808abad6e3715b4b3b183343f031c9f9e073069`, with only the SQLite feature transferred from the older development history. Its 150 Node checks, 109 broad browser checks, actual SQLite browser workflow and public-installation browser checks passed on Windows. Main's current strength-coaching assertions are retained. GitHub checks use Node 24 on Windows/Linux and include the SQLite browser workflow.
 
 `node tests/sqlite-real-data-trial.cjs` optionally checks the newest legacy snapshot by full-content hash in a separate ignored private trial folder. It leaves the source unchanged and does not activate the real database.
 

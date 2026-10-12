@@ -10,7 +10,7 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
-          node-version: 20
+          node-version: 24
       - run: node scripts/run-tests.cjs
       - run: node scripts/check-share.cjs
   browser:
@@ -19,8 +19,9 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
-          node-version: 20
+          node-version: 24
       - run: npm install --ignore-scripts
       - run: npx playwright install --with-deps chromium
+      - run: node tests/sqlite-browser.cjs
       - run: npm run test:browser
       - run: npm run test:suite
