@@ -266,8 +266,9 @@
       if (!confirm('Remove this workout from history?')) return;
       const idx = this.completedWorkouts.findIndex(x => x.id === rideId);
       if (idx === -1) return;
-      const removed = this.completedWorkouts.splice(idx, 1)[0];
-      await VeloDB.deleteRide(rideId);
+      const removed = this.completedWorkouts[idx];
+      if (!await VeloDB.deleteRide(rideId)) { this.showToast('Could not save this deletion. The workout is still in your history.', 'error'); return; }
+      this.completedWorkouts.splice(idx, 1);
       this.persistHistoryLocal();
       this.renderHistoryTable();
       this.renderCalendarView();
@@ -287,13 +288,14 @@
 
     async clearAllWorkouts(promptConfirm = true) {
       if (promptConfirm && !confirm('Permanently remove all workouts from history and the local database?')) return;
+      if (!await VeloDB.clearAllRides()) { this.showToast('Could not clear saved history. Your workouts are unchanged.', 'error'); return; }
       this.completedWorkouts = [];
       try { localStorage.setItem('apex_velo_history', '[]'); } catch (e) { /* ignore */ }
-      await VeloDB.clearAllRides();
       this.renderHistoryTable();
       this.renderCalendarView();
       this.refreshAnalytics();
       this.showToast('All completed workouts removed.');
+      if (this.scheduleAutoBackup) this.scheduleAutoBackup();
     },
 
     async resyncHealthFitHistory(silent = false) {

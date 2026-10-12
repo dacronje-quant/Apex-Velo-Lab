@@ -183,7 +183,10 @@ class VeloApp {
     return `${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`;
   }
 
-  showToast(msg, type = 'info') {
+  showToast(msg, type = 'info', confirmed = false) {
+    if (!confirmed && window.VeloStorage?.enabled && ['success','info'].includes(type) && /\bsaved\b/i.test(msg)) {
+      return VeloStorage.flush().then(() => this.showToast(msg, type, true), () => this.showToast('Saving needs attention. Keep this tab open or export important data.', 'warning', true));
+    }
     let container = document.querySelector('.toast-container');
     if (!container) {
       container = document.createElement('div');
@@ -789,6 +792,7 @@ class VeloApp {
 
   resetWorkout(confirmPrompt = true) {
     if (confirmPrompt && this.totalElapsedSeconds > 10 && !confirm('Reset to step 1? Live telemetry for this session will be discarded.')) return;
+    if (window.VeloStorage?.enabled) VeloStorage.dropRideRecovery();
     this._remoteFinishedRide = null;
     this._remoteFitUpload = null;
     this._easySpinOffer = null;
@@ -1201,13 +1205,21 @@ class VeloApp {
       samples
     };
     this.completedWorkouts.unshift(record);
-    this.saveHistory();
+    const saved = this.saveHistory();
     if (this.preparePhoneFit) this.preparePhoneFit(record);
     this.renderHistoryTable();
     this.recalculatePmc();
     this.refreshAnalytics();
-    this.showToast('Workout complete - saved to your training history.', 'success');
+    const confirmation = Promise.resolve(saved).then(async ok => {
+      if (ok === false) this.showToast('Workout complete. Saving needs attention; keep this tab open or export the ride.', 'warning');
+      else {
+        this.showToast('Workout complete - saved to your training history.', 'success');
+        if (window.VeloStorage?.enabled) await VeloStorage.dropRideRecovery();
+      }
+      return ok;
+    });
     this.showRideSummary(record, isNaturalEnd);
+    return confirmation;
   }
 
   // ----------------------------------------------------- BLE & hardware --
@@ -2606,6 +2618,7 @@ class VeloApp {
 
   // --------------------------------------------------------- persistence --
   loadHistory() {
+    if (window.VeloStorage?.enabled) return structuredClone(window.__APEX_SQLITE_RIDES__ || []);
     try {
       const raw = localStorage.getItem('apex_velo_history');
       if (raw !== null) {
@@ -2628,7 +2641,8 @@ class VeloApp {
    */
   persistHistoryLocal() {
     try {
-      localStorage.setItem('apex_velo_history', JSON.stringify(this.completedWorkouts));
+      const cache = window.VeloStorage?.enabled ? this.completedWorkouts.map(({ samples, ...rest }) => rest) : this.completedWorkouts;
+      localStorage.setItem('apex_velo_history', JSON.stringify(cache));
       return true;
     } catch (e) {
       try {
@@ -2655,9 +2669,11 @@ class VeloApp {
     this.renderCalendarView();
     this.updateHeroStats();
     if (this.scheduleAutoBackup) this.scheduleAutoBackup();
+    return db;
   }
 
   async initIndexedDb() {
+    if (window.VeloStorage?.enabled) return; // SQLite was read and verified before app construction.
     try {
       if (localStorage.getItem('apex_velo_history') === '[]') {
         await VeloDB.clearAllRides();
@@ -2698,7 +2714,10 @@ class VeloApp {
 let app = null;
 window.addEventListener('DOMContentLoaded', async () => {
   await window.loadLocalHistory();
+  if (window.VeloStorage) await VeloStorage.boot();
   window.app = app = new VeloApp();
+  if (window.VeloStorage) VeloStorage.render();
+  if (window.VeloStorage) VeloStorage.initRecovery(app).catch(() => {});
   if (window.__APEX_ARCHIVE_ERROR__) app.showToast(window.__APEX_ARCHIVE_ERROR__, 'warning');
 });
 

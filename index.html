@@ -153,6 +153,21 @@
   <main>
     <!-- ============================== COCKPIT ============================== -->
     <section class="tab-view active" id="view-cockpit">
+      <div class="card welcome-card" id="earlierBrowserRecovery" hidden>
+        <h2>Your earlier browser data is kept</h2>
+        <p>The PC's saved data is now loaded. A full copy of this browser's earlier rides and settings is retained here too.</p>
+        <div class="btn-row"><button type="button" class="btn" id="btnExportEarlierBrowser">Download earlier browser backup</button><button type="button" class="btn btn-ghost" id="btnDismissEarlierBrowser">Dismiss</button></div>
+      </div>
+      <div class="card welcome-card" id="unsavedChangeRecovery" hidden>
+        <h2>Changes retained from an older tab</h2>
+        <p>The latest saved data is loaded. Conflicting changes from an older tab are kept in this browser for recovery; download them before clearing browser data.</p>
+        <div class="btn-row"><button type="button" class="btn" id="btnExportConflictingChanges">Download retained changes</button><button type="button" class="btn btn-ghost" id="btnDiscardConflictingChanges">Discard retained changes</button></div>
+      </div>
+      <div class="card welcome-card" id="interruptedRideRecovery" hidden>
+        <h2>Recover an unfinished ride</h2>
+        <p id="interruptedRideText"></p>
+        <div class="btn-row"><button type="button" class="btn btn-primary" id="btnRecoverInterruptedRide">Recover ride</button><button type="button" class="btn btn-ghost" id="btnDiscardInterruptedRide">Discard recovery copy</button></div>
+      </div>
       <div class="card welcome-card" id="firstRunHelp" hidden>
         <h2 id="firstRunTitle">Welcome to Apex Velo Lab</h2>
         <p id="firstRunText">Start with your rider profile, then try a simulated workout or connect your trainer. The initial FTP, weight and heart-rate values are placeholders. AI, Strava and Apple Health are optional.</p>
@@ -1229,11 +1244,16 @@
       </section>
 
       <section class="settings-section" data-sec="backups">
-        <p class="field-help">Your history lives in this browser. After every change the app also saves a compressed backup to <code>data\backups</code> on this PC (newest 14 kept). Restore by dropping a backup on the Import zone in History.</p>
+        <p class="field-help">Your rides, profiles, settings and plans are saved on this PC, separately from the app. Automatic backups keep recent, daily, weekly and monthly copies.</p>
+        <div class="dim auto-backup-status" id="localStorageStatus" aria-live="polite">Checking saved data...</div>
         <div class="dim auto-backup-status" id="autoBackupStatus" aria-live="polite"></div>
         <div class="btn-row">
-          <button type="button" class="btn btn-primary" id="btnBackupNow" title="Save a backup to data\backups on this PC now (it also happens automatically after every change)"><svg class="ic"><use href="#i-save"/></svg>Back up now</button>
+          <button type="button" class="btn btn-primary" id="btnBackupNow" title="Save a verified backup on this PC now"><svg class="ic"><use href="#i-save"/></svg>Back up now</button>
+          <button type="button" class="btn" id="btnListBackups">Restore a backup</button>
+          <button type="button" class="btn btn-ghost" id="btnOpenBackupFile">Open backup file</button>
+          <input type="file" id="localBackupFile" accept=".json,.gz" hidden>
         </div>
+        <div id="localBackupList" hidden></div>
       </section>
 
       <section class="settings-section" data-sec="phone">
@@ -1549,6 +1569,7 @@
   <script src="js/velo-metrics.js"></script>
   <script src="js/velo-glossary.js"></script>
   <script src="js/velo-db.js"></script>
+  <script src="js/velo-storage.js"></script>
   <script src="js/velo-sound.js"></script>
   <script src="js/velo-pip.js"></script>
   <script src="js/velo-folder-sync.js"></script>

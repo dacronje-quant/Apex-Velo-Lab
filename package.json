@@ -4,12 +4,13 @@
   "private": true,
   "license": "MIT",
   "description": "Local indoor cycling cockpit and training analytics",
-  "engines": { "node": ">=18" },
+  "engines": { "node": ">=24" },
   "scripts": {
     "start": "node server.js --open",
     "test": "node scripts/run-tests.cjs",
     "test:browser": "node tests/public-local-browser.cjs",
     "test:suite": "node tests/erg-browser.cjs --suite",
+    "test:storage": "node --test tests/sqlite-store.test.js tests/sqlite-api.test.js && node tests/sqlite-browser.cjs",
     "check:share": "node scripts/check-share.cjs"
   },
   "devDependencies": { "playwright": "1.62.1" }

@@ -16,7 +16,12 @@
   Object.assign(VeloApp.prototype, {
     /** The backup object - also what "Backup JSON" downloads (the importer reads it back). */
     backupPayload() {
-      return { app: 'APEX VELO LAB', exportedAt: new Date().toISOString(), profiles: this.profiles, activeProfileId: this.activeProfileId, workoutLibrary: this.loadSavedWorkouts(), health: this.healthStore || null, history: this.completedWorkouts };
+      const settings = {};
+      for (let i = 0; i < localStorage.length; i++) {
+        const k = localStorage.key(i);
+        if (/^apex_[a-zA-Z0-9_:-]{1,180}$/.test(k) && !['apex_velo_history', 'apex_auto_backup', 'apex_sqlite_migration'].includes(k)) settings[k] = localStorage.getItem(k);
+      }
+      return { app: 'APEX VELO LAB', exportedAt: new Date().toISOString(), profiles: this.profiles, activeProfileId: this.activeProfileId, workoutLibrary: this.loadSavedWorkouts(), health: this.healthStore || null, history: this.completedWorkouts, settings };
     },
 
     /** Cheap fingerprint of what a backup would contain, to skip identical uploads. */
@@ -46,6 +51,16 @@
      * Returns { ok, skipped?, name?, error? }. Never throws; failures only update the status line.
      */
     async runAutoBackup({ force = false } = {}) {
+      if (window.VeloStorage?.enabled) {
+        try {
+          await VeloStorage.flush();
+          const saved = force ? await VeloStorage.request('/backup', {}) : null;
+          this._localBackupInfo = await VeloStorage.request('/backups');
+          this._backupError = this._localBackupInfo.error;
+          this.renderBackupStatus();
+          return { ok: true, name: saved?.name, skipped: !force };
+        } catch (e) { this._backupError = e.message; this.renderBackupStatus(); return { ok: false, error: e.message }; }
+      }
       if (this._backupBusy) return { ok: false, error: 'busy' };
       const sig = this.backupSignature();
       const st = this.backupState();
@@ -79,6 +94,14 @@
     renderBackupStatus(busyText) {
       const el = document.getElementById('autoBackupStatus');
       if (!el) return;
+      if (window.VeloStorage?.enabled) {
+        const info = this._localBackupInfo;
+        const latest = info?.files.find(f => !f.corrupt && !f.name.startsWith('legacy:'));
+        el.textContent = this._backupError ? `Backup needs attention: ${this._backupError}` : latest
+          ? `Last backup ${new Date(latest.at).toLocaleString()} · ${latest.rides} rides · ${info.files.filter(f => !f.corrupt).length} copies`
+          : 'Automatic backups start after your first save. You can also back up now.';
+        el.title = info?.dir || ''; el.classList.toggle('backup-warn', !!this._backupError); return;
+      }
       const st = this.backupState();
       let text;
       if (busyText) text = busyText;
@@ -102,8 +125,57 @@
         this.showToast(r.ok ? `Backup saved (${r.name}).` : r.error, r.ok ? 'success' : 'error');
       });
       this.renderBackupStatus();
+      this.on(document.getElementById('btnListBackups'), 'click', () => this.showLocalBackups());
+      this.on(document.getElementById('btnOpenBackupFile'), 'click', () => document.getElementById('localBackupFile').click());
+      this.on(document.getElementById('localBackupFile'), 'change', async e => {
+        const file = e.target.files[0]; e.target.value = '';
+        if (!file || !window.VeloStorage?.enabled) return;
+        try {
+          if (file.size > 200 * 1024 * 1024) throw new Error('This backup is too large.');
+          const text = file.name.endsWith('.gz') ? await new Response(file.stream().pipeThrough(new DecompressionStream('gzip'))).text() : await file.text();
+          const imported = await VeloStorage.request('/import-backup', { backup: JSON.parse(text) });
+          await this.showLocalBackups();
+          const button = [...document.querySelectorAll('[data-restore-backup]')].find(b => b.dataset.restoreBackup === imported.name);
+          if (button) await this.restoreLocalBackup(imported.name, button);
+        } catch (err) { this.showToast(`Could not open this backup: ${err.message}`, 'error'); }
+      });
+      this.on(document.getElementById('localBackupList'), 'click', async e => {
+        const button = e.target.closest('[data-restore-backup]');
+        if (button) await this.restoreLocalBackup(button.dataset.restoreBackup, button);
+      });
+      if (window.VeloStorage?.enabled) {
+        this.runAutoBackup();
+        const poll = setInterval(() => this.runAutoBackup(), 30000);
+        this._disposers.push(() => clearInterval(poll));
+      }
       // Daily safety net even when nothing changed (the history loads a moment after start).
       this.scheduleAutoBackup(20000);
+    },
+
+    async showLocalBackups() {
+      const el = document.getElementById('localBackupList');
+      if (!el) return;
+      el.hidden = false;
+      if (!window.VeloStorage?.enabled) { el.textContent = 'Start the updated launcher to browse saved backups on this PC.'; return; }
+      el.textContent = 'Checking backups...';
+      try {
+        const info = await VeloStorage.request('/backups');
+        el.innerHTML = info.files.length ? info.files.map(f => `<div class="settings-kv"><span>${f.corrupt ? 'Unreadable backup' : esc(new Date(f.at).toLocaleString()) + ' · ' + f.rides + ' rides · ' + esc(f.reason)}${f.name.startsWith('legacy:') ? ' · old app folder' : ''}</span><button type="button" class="btn btn-xs" data-restore-backup="${esc(f.name)}" ${f.corrupt ? 'disabled' : ''}>Preview &amp; restore</button></div>`).join('') : 'No backups yet. Press Back up now.';
+      } catch(e) { el.textContent = e.message; }
+    },
+
+    async restoreLocalBackup(name, button) {
+      if (this.hasUnsavedRide()) { this.showToast('Finish or discard the current ride before restoring a backup.', 'warning'); return; }
+      button.disabled = true;
+      try {
+        await VeloStorage.flush();
+        const preview = await VeloStorage.request('/preview', { name });
+        const question = `Restore the backup from ${new Date(preview.at).toLocaleString()}?\n\n${preview.rides} rides, ${preview.samples} samples, ${preview.profiles} profiles${preview.verified ? ', with verified checksum' : ' (legacy backup)'}.\n\nThis replaces the current saved history and included settings. A safety backup is made first. The app will reload.`;
+        if (!confirm(question)) return;
+        await VeloStorage.enqueue({ name }, '/restore');
+        location.reload();
+      } catch(e) { this.showToast(`Restore stopped: ${e.message}`, 'error'); }
+      finally { button.disabled = false; }
     }
   });
 })();

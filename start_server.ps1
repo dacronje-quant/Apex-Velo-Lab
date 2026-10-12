@@ -7,6 +7,19 @@
 # Keep the port stable: the browser stores your rides and settings per address (localhost:8080).
 
 $ErrorActionPreference = 'Stop'
+# Current installations use one shared server, including SQLite and recovery. The legacy
+# implementation below remains for old standalone script copies only.
+if (Test-Path -LiteralPath (Join-Path $PSScriptRoot 'scripts/sqlite-store.cjs')) {
+    try {
+        . (Join-Path $PSScriptRoot 'scripts/resolve-runtime.ps1')
+        $apexNode = Resolve-ApexRuntime
+        & $apexNode (Join-Path $PSScriptRoot 'server.js') --open
+        exit $LASTEXITCODE
+    } catch {
+        Write-Host $_.Exception.Message -ForegroundColor Red
+        exit 1
+    }
+}
 $root = [System.IO.Path]::GetFullPath($PSScriptRoot)
 
 # ------------------------------------------------------------------ config --

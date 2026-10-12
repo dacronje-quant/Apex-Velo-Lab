@@ -449,6 +449,7 @@
       if (extraNative.length) this.writeHistoryLocal(memory); else setRaw('apex_velo_history', snap.local.history);
       setRaw(VeloBlockPlanner.STORAGE_KEY, snap.local.block);
       setRaw(S().STATE_KEY, snap.local.syncState);
+      if (window.VeloStorage?.enabled) await VeloStorage.flush();
       this.completedWorkouts = memory;
       if (this.blockPlanner) this.blockPlanner.block = VeloBlockPlanner.load();
       return true;
@@ -494,6 +495,7 @@
         // 3. localStorage mirror + sync state.
         if (!this.writeHistoryLocal(next.history)) throw new Error('Could not write the ride history to browser storage.');
         try { localStorage.setItem(S().STATE_KEY, JSON.stringify(nextState)); } catch (e) { throw new Error('Could not save the sync state.'); }
+        if (window.VeloStorage?.enabled) await VeloStorage.flush();
         if (this._syncFailAt === 'after-local') throw new Error('Simulated failure after writing browser storage.');
 
         this.completedWorkouts = next.history;

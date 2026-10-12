@@ -108,6 +108,7 @@
             files++;
           }
           this.saveHealthStore();   // stored before the server deletes anything
+          if (window.VeloStorage?.enabled) await VeloStorage.flush(); // SQLite must confirm the save before inbox acknowledgement.
           const ack = await fetch('api/health/ack', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ names: accepted }), cache: 'no-store' });
           if (!ack.ok) throw new Error('The server could not acknowledge the saved export. It will be retried.');
           if (!j.remaining) break;
