@@ -5,14 +5,14 @@
 
 ## Quick start
 
-1. Double-click **`Launch-Apex-Velo.bat`**. It needs no installs; it runs `start_server.ps1` with Windows PowerShell.
+1. Double-click **`Launch-Apex-Velo.bat`**. It prepares a verified portable Node runtime if needed, then starts the app. No manual database setup or npm install is required; the first runtime download needs internet.
 2. The launcher creates `.env` only if absent and opens the app at `http://localhost:8080`. Leave the keys blank to use local workouts and planning. Use **Set up my rider** to replace placeholder values, or **Explore a demo** for synthetic history in isolated storage. Web Bluetooth requires a compatible desktop Chrome/Edge browser at localhost.
 3. Open **Devices** in the header. Choose a device type under **Add or replace a device**, then **Pair device**. After pairing once, use **Connect saved devices** before a ride.
 4. Import your own FIT, TCX, CSV or Apex backup in **History**. New installations contain no personal ride history. The bundled `data/sample_sweetspot_ride.tcx` is a synthetic, opt-in example.
 
-On macOS/Linux or with Node.js, run `node server.js --open` (Node 18+, no runtime dependencies). See [local setup and troubleshooting](LOCAL-SETUP.md) and [local data/privacy](PRIVACY.md). This project is intended for local use, including a phone remote on trusted Wi-Fi.
+On macOS/Linux or with Node.js, run `node server.js --open` (Node 24+, no runtime dependencies). See [local setup and troubleshooting](LOCAL-SETUP.md) and [local data/privacy](PRIVACY.md). This project is intended for local use, including a phone remote on trusted Wi-Fi.
 
-Keep the port at 8080. The browser stores your rides and settings per address, so a different port starts with an empty history.
+Keep the port at 8080 for Web Bluetooth and migration of existing browser recovery copies. Confirmed rides and settings live in SQLite and load in other PC browsers too.
 
 **No internet needed to ride.** Chart.js and the Inter / JetBrains Mono fonts are served from the app folder (`vendor/`, `css/fonts.css`), so the cockpit, charts and phone view work with no connection. Only the AI coach (Claude / Gemini) and Strava need the internet; without it the coach uses its offline engine.
 
@@ -37,7 +37,7 @@ Then restart `Launch-Apex-Velo.bat` (the server only reads its code at start) an
 - **AI chooses weekly ride time.** In Coach > Training block, leave **Hours per week** blank to let the connected AI choose weekly allowances from recent riding and recovery. The app bounds the choice using the recent four-week average, recent-week volume, recovery signals and selected days, limits increases between build-week allowances, and shortens recovery/test weeks. These are planning estimates, not a measured optimum. If AI is unavailable or does not choose hours for every week, no new plan is saved: enter hours or try again. Entered hours preserve the existing planning behavior; re-planning keeps your choice to delegate hours to AI.
 - The server validates client addresses, Host and Origin. Localhost and permitted private-LAN addresses can use the app; the phone remote may be available on trusted Wi-Fi. Private health/archive and backup management is PC-only. This is not a login system: do not expose the server publicly. See [privacy](PRIVACY.md).
 - Without a key, the coach falls back to the offline engine and says so in the status pill.
-- `server.js` is an equivalent Node.js server (`node server.js --open`) for machines without Windows PowerShell. It reads the same `.env` and exposes the same API.
+- `server.js` is the shared Node.js server used by the Windows launcher and direct `node server.js --open` launches. It reads `.env` and exposes the same API.
 
 ## Bluetooth Devices
 
@@ -60,13 +60,14 @@ HEADWIND uses a proprietary adapter based on [WearWind's implementation](https:/
 
 ## Backups (automatic)
 
-Your ride history lives in the browser (IndexedDB + localStorage), so clearing Chrome's site data would erase it. The app therefore backs it up **automatically**:
+Confirmed rides, profiles, preferences, health records and Strava restore points live in SQLite on your PC. Clearing browser site data leaves confirmed data intact; a new PC browser loads it from SQLite.
 
-- About 15 s after anything changes the history (a ride saved, an import, a Strava sync, a delete, a profile change), and at least once a day, the app sends the same backup as **Backup JSON** - profiles, workout library and every ride **with its per-second samples** - gzipped, to the local server.
-- The server saves it as `data\backups\apex_velo_backup_<date>_<time>.json.gz` and keeps the **newest 14**. An unchanged history is not backed up twice in a day. **Settings (gear icon) > Backups** shows the last backup; **Back up now** makes one immediately. Apple Health recovery days are included in every backup.
-- **Restore:** drop a backup file (`.json.gz` or `.json`) on the **Import** zone in History. Rides already in the history are skipped; you are asked whether to restore the rider profiles too.
-- Only the app opened **on this PC** can write backups (not a phone on the Wi-Fi, not another website), only real Apex Velo Lab backups are accepted, and the folder is **never served** by the web server. `data/backups/` is git-ignored.
-- Want an off-PC copy? Point OneDrive / Google Drive at the `data\backups` folder, or copy a file to a USB stick now and then.
+- The default Windows database is `%LOCALAPPDATA%\ApexVeloLab\apex.sqlite`; macOS/Linux use `~/.local/share/ApexVeloLab/apex.sqlite` (honouring `XDG_DATA_HOME`). Set `APEX_DATA_DIR` to choose another folder. Existing browser data migrates with a verified snapshot and a retained browser recovery copy.
+- About 15 seconds after changes, and daily while the server runs, it writes a compressed snapshot containing all settings and every ride **with its per-second samples**. It verifies the checksum before publishing the file.
+- Snapshots live in `backups/` beside the database. Retention keeps recent, daily, weekly, monthly, migration and before-restore copies. **Settings > Backups** shows save and backup status; **Back up now** makes a snapshot immediately.
+- **Restore:** preview a listed snapshot or open a `.json.gz` / `.json` file in **Settings > Backups**. Confirming restore first creates a safety snapshot, then replaces the included state. Existing `data/backups/` files remain available. History's import zone remains available for merging ride exports.
+- Storage and backup management are **PC-only**; database and backup files are never served as static files. Browser recovery copies retain unconfirmed saves and approximately five-second checkpoints for interrupted rides.
+- For a second copy, set `APEX_BACKUP_MIRROR_DIR` to a USB, network or sync folder. Only verified snapshots are mirrored; keep the live database on a local disk. See [verification and practical limits](SQLITE-VERIFICATION.md).
 
 ## Settings
 
@@ -75,7 +76,7 @@ The **gear icon** in the header opens Settings - everything you set up once:
 - **Rider** - FTP, weight, max / threshold heart rate and crank length (opens the rider profiles).
 - **AI engine** - Claude or Gemini, model and reasoning effort (low by default).
 - **Apple Health** - live status, the address and token for Health Auto Export, and the setup steps with your PC's address filled in.
-- **Backups** - last automatic backup and **Back up now**.
+- **Backups** - save status, last automatic backup, **Back up now**, preview and restore, and backup-file import.
 - **Phone view** - the address to open on your phone.
 
 ## Apple Health: resting HR, HRV and sleep (Health Auto Export)
@@ -119,6 +120,8 @@ After a ride, the workout summary has a **Send to Strava** button. It shows the 
 **Already on Strava?** When a ride summary opens, the app first looks for the same ride in your Strava activities (a ride starting within 10 minutes, or overlapping at least half of it - runs and other sports never match). If it is there, for example uploaded by Wahoo, Garmin or Zwift, the panel says **Already on Strava** with the activity name and link, and there is nothing to send. **Check Strava** in the History toolbar does the same for every ride at once and reports how many were found.
 
 **One-time setup (about 3 minutes):**
+
+Creating your own API application requires a Strava subscription under the [current developer requirements](https://developers.strava.com/docs/getting-started/). For manual imports without API credentials, see [the local setup guide](LOCAL-SETUP.md#optional-connections).
 
 1. Go to [strava.com/settings/api](https://www.strava.com/settings/api) and create an application. Any name and website work (e.g. `Apex Velo Lab`, `http://localhost`); set **Authorization Callback Domain** to `localhost`.
 2. Copy its **Client ID** and **Client Secret** into `.env` as `STRAVA_CLIENT_ID=` and `STRAVA_CLIENT_SECRET=`, then restart `Launch-Apex-Velo.bat`.
@@ -210,7 +213,7 @@ A thin zone-coloured bar of the whole workout sits above the controls on every s
 - **Secrets live only in `.env`** (Anthropic and Gemini keys, Strava client secret) and `.strava-tokens.json`; both are git-ignored and the local server refuses to serve any dot-file, `.git`, the server scripts or helper scripts. The browser never sees a key.
 - **The server only answers this PC and devices on your private home network** (10.x, 172.16-31.x, 192.168.x, link-local). This is checked on the real client address of every request, which a client cannot fake, so even on a public Wi-Fi nothing outside answers. Every page and data file, not just the API, also refuses requests made through another website's address (DNS rebinding), so no website can read your ride history. Open the app as `http://localhost:8080` on the PC and by the numbered address the launcher prints on the phone; a PC name such as `http://DESKTOP-ABC:8080` is refused. Do **not** forward port 8080 on your router - the app is not meant to be reachable from the internet.
 - `Enable-Phone-View.bat` opens the port in Windows Firewall for **Private** networks only; `Enable-Phone-View.bat remove` undoes it.
-- Strava sync data stays in the browser (history, restore points in IndexedDB); besides `.strava-tokens.json`, the server only writes the automatic backups in `data\backups` (this PC only, never served, git-ignored).
+- Strava history and restore points persist in SQLite and its snapshots; browser recovery copies remain available. Service tokens stay in `.strava-tokens.json`. These private files are never distributed.
 - Personal ride history (`data/local-history.*`) is git-ignored; run `tools/parse_healthfit.ps1` to build your own from HealthFit `.fit` exports (set `HEALTHFIT_DIR` if they are not in `Downloads\HealthFit\HealthFit`).
 
 ## Data integrity rules
@@ -297,9 +300,11 @@ One **time range for the whole page** (6 weeks, 3 months, 6 months, 1 year, All)
 
 ```
 index.html            App shell, SVG icon sprite, all views
-Launch-Apex-Velo.bat  Double-click launcher (creates .env, asks for the key once, starts the server)
-start_server.ps1      Local server (PowerShell): static files, /api/coach and /api/ask (Claude / Gemini) and /api/strava/* (keys stay here)
-server.js             Same server for Node.js (optional)
+Launch-Apex-Velo.bat  Double-click launcher (creates .env if absent, starts the server)
+start_server.ps1      Windows entry point: resolves runtime and starts the shared server
+server.js             Shared Node 24+ server: static files, storage, coach, Strava, health and phone APIs
+scripts/resolve-runtime.ps1  Checks Node/SQLite or downloads a verified portable runtime
+scripts/sqlite-store.cjs     Transactional SQLite storage and verified snapshot backups
 .env.example          Template for .env (API keys, coach provider/model/effort, port)
 css/style.css         Design system (obsidian/slate tokens, glass surfaces, responsive breakpoints)
 css/fonts.css         Local Inter / JetBrains Mono fonts (no internet needed)
@@ -308,7 +313,8 @@ sw.js                 Network-first service worker (bump CACHE_NAME when files c
 data/                 local-history.json/.js - HealthFit archive + all-time MMP; backups/ - automatic backups; health/ - Health Auto Export token + inbox
 js/
   velo-metrics.js     Pure maths: zones, NP/IF/TSS, MMP, form bands, backoff, compliance
-  velo-db.js          IndexedDB persistence
+  velo-db.js          IndexedDB recovery and legacy persistence
+  velo-storage.js     SQLite migration, confirmed saves, retry outbox and interrupted-ride recovery
   velo-ble.js         Web Bluetooth: CPS, FTMS, HRS, battery, RSSI, reconnect, write queues
   velo-erg.js         ERG governor: soft start, anti-stall, step lead, stand break, PowerMatch
   velo-insight.js     Post-ride maths: decoupling, PR medals, FTP evidence/suggestion, interval diagnosis
@@ -344,7 +350,7 @@ js/
   velo-strava-sync.js Sync from Strava: range, 3-layer dedupe, power streams, refresh plan, validation (pure logic)
   app-strava-sync.js  Sync from Strava UI: preview + streams, restore points, atomic apply, undo, background check (mixin)
   app-insight.js      Ride review highlights, FTP update + log, History medals, AI interval breakdown, drift trend, coach insight (mixin)
-  app-backup.js       Automatic gzipped history backups to the local server, status line, Back up now (mixin)
+  app-backup.js       Storage/backup status, snapshot creation, preview and restore (mixin)
 test_suite.html       In-browser test suite
 tests/strava-sync-servers.test.js  Runs server.js and start_server.ps1 against a mock Strava
 live.html             Phone view (three views, pedal view switch, remote controls, device connect)

@@ -7,7 +7,7 @@
  * ANTHROPIC_API_KEY / GEMINI_API_KEY / OPENAI_API_KEY environment variables or the .env file next to this
  * script. They are never sent to the browser, and the .env file is never served.
  *
- * Usage:  node server.js [--open]      (Node 18 or newer, no npm install needed)
+ * Usage:  node server.js [--open]      (Node 24 or newer, no npm install needed)
  */
 'use strict';
 
@@ -121,7 +121,7 @@ const MIME = {
   '.fit': 'application/octet-stream', '.tcx': 'application/xml', '.csv': 'text/csv; charset=utf-8', '.md': 'text/markdown; charset=utf-8'
 };
 // Only app files are served: never dot-files (.env), this script, or the helper scripts.
-const BLOCKED = /(^|[\\/])\.|^server\.js$|\.(ps1|cmd|bat|sh)$|^data[\\/](?!sample_sweetspot_ride\.tcx$|README\.md$)/i;
+const BLOCKED = /(^|[\\/])\.|^server\.js$|^scripts[\\/]|\.(ps1|cmd|bat|sh|sqlite|sqlite-wal|sqlite-shm)$|^data[\\/](?!sample_sweetspot_ride\.tcx$|README\.md$)/i;
 
 function serveStatic(req, res, urlPath) {
   let rel;
@@ -130,6 +130,8 @@ function serveStatic(req, res, urlPath) {
   rel = rel.replace(/^\/+/, '') || 'index.html';
   const file = path.resolve(ROOT, rel);
   if (file !== ROOT && !file.startsWith(ROOT + path.sep)) return send(res, 403, 'Forbidden');
+  const privateDirs = [localStore?.dir, process.env.APEX_DATA_DIR, process.env.APEX_BACKUP_MIRROR_DIR].filter(Boolean).map(d => path.resolve(d));
+  if (privateDirs.some(d => file === d || file.startsWith(d + path.sep))) return send(res, 404, 'Not found');
   if (BLOCKED.test(path.relative(ROOT, file))) return send(res, 404, 'Not found');
   fs.stat(file, (err, st) => {
     if (err) return send(res, 404, 'Not found');
@@ -887,7 +889,52 @@ function deliverLiveCmds() {
   if (!w.res.writableEnded && !w.res.destroyed) sendJson(w.res, 200, { cmds }); // unconfirmed ones also ride on the next publish reply
 }
 
-// ------------------------------------------------ automatic backups (this PC only) --
+// SQLite is opened lazily, so API-only tests and old standalone server copies do not touch user data.
+let localStore = null;
+function storage() {
+  if (!localStore) {
+    const { LocalStore } = require('./scripts/sqlite-store.cjs');
+    localStore = new LocalStore({ legacyDir: path.join(ROOT, 'data', 'backups') });
+    localStore.startDailyBackups();
+  }
+  return localStore;
+}
+async function handleStorage(req, res, urlPath) {
+  if (!isPcRequest(req)) return sendJson(res, 403, { error: 'Saved data is available only on this PC.' });
+  // Require the exact origin for browser writes, including its port (other local sites are unrelated).
+  const expectedOrigin = `http://${req.headers.host}`;
+  if (req.headers.origin && req.headers.origin !== expectedOrigin) return sendJson(res, 403, { error: 'Open Apex on this server to save data.' });
+  if (req.headers['sec-fetch-site'] && !['same-origin', 'none'].includes(req.headers['sec-fetch-site'])) return sendJson(res, 403, { error: 'Cross-origin storage request refused.' });
+  try {
+    const store = storage();
+    if (req.method === 'GET') {
+      if (urlPath === '/api/storage') return sendJson(res, 200, store.state());
+      if (urlPath === '/api/storage/rides') return sendJson(res, 200, { ok: true, rides: store.rides(), revision: store.revision });
+      if (urlPath === '/api/storage/db-settings') return sendJson(res, 200, { ok: true, settings: store.dbSettings(), revision: store.revision });
+      if (urlPath === '/api/storage/backups') return sendJson(res, 200, store.backups());
+      return sendJson(res, 404, { error: 'Not found' });
+    }
+    if (req.method !== 'POST') return sendJson(res, 405, { error: 'Method not allowed' });
+    if (!/^application\/json\b/i.test(req.headers['content-type'] || '')) return sendJson(res, 415, { error: 'Content-Type must be application/json.' });
+    const text = await readBody(req, 200 * 1024 * 1024);
+    let input; try { input = JSON.parse(text); } catch { return sendJson(res, 400, { error: 'Invalid JSON.' }); }
+    if (!input || typeof input !== 'object' || Array.isArray(input)) return sendJson(res, 400, { error: 'Invalid request.' });
+    if (urlPath === '/api/storage/migrate') return sendJson(res, 200, store.migrate(input));
+    if (urlPath === '/api/storage/save') return sendJson(res, 200, store.update(input));
+    if (urlPath === '/api/storage/backup') return sendJson(res, 200, { ok: true, ...store.backup() });
+    if (urlPath === '/api/storage/import-backup') return sendJson(res, 200, { ok: true, ...store.importSnapshot(input.backup) });
+    if (urlPath === '/api/storage/preview') {
+      const { payload, reason, verified } = store.readSnapshot(store.snapshotFile(input.name));
+      return sendJson(res, 200, { ok: true, name: input.name, at: payload.exportedAt, rides: payload.history.length,
+        samples: payload.history.reduce((n,r) => n + (r.samples?.length || 0), 0), profiles: payload.profiles?.length || 0,
+        reason, verified, settings: Object.keys(payload.settings || {}).length });
+    }
+    if (urlPath === '/api/storage/restore') return sendJson(res, 200, store.restore(input));
+    return sendJson(res, 404, { error: 'Not found' });
+  } catch (e) { return sendJson(res, e.status || 503, { error: e.message }); }
+}
+
+// ------------------------------------------------ legacy backups (this PC only) --
 // The app posts its history backup (the same JSON as "Backup JSON", gzipped in the browser) after
 // changes and once a day. Kept in data/backups (the newest BACKUP_KEEP), never served to anyone.
 const BACKUP_DIR = path.join(ROOT, 'data', 'backups');
@@ -1160,6 +1207,7 @@ function createServer() {
     if (urlPath === '/api/backup') {
       return handleBackup(req, res).catch((e) => { if (!res.headersSent) sendJson(res, 500, { error: e.message }); });
     }
+    if (urlPath === '/api/storage' || urlPath.startsWith('/api/storage/')) return handleStorage(req, res, urlPath);
     if (urlPath === '/api/health' || urlPath.startsWith('/api/health/')) {
       const query = new URL(req.url, 'http://localhost').searchParams;
       return handleHealth(req, res, urlPath, query).catch((e) => { if (!res.headersSent) sendJson(res, 500, { error: e.message }); });
@@ -1195,7 +1243,7 @@ function createServer() {
 
 if (require.main === module) {
   const major = parseInt(process.versions.node.split('.')[0], 10);
-  if (major < 18) { console.error(`Node 18 or newer is required (found ${process.versions.node}).`); process.exit(1); }
+  if (major < 24) { console.error(`Node 24 or newer is required. On Windows, use Launch-Apex-Velo.bat for automatic setup (found ${process.versions.node}).`); process.exit(1); }
   const server = createServer();
   server.on('error', (e) => {
     console.error(e.code === 'EADDRINUSE' ? `Port ${PORT} is already in use - is Apex Velo Lab already running? Set APEX_PORT in .env to change it.` : e.message);
@@ -1204,6 +1252,8 @@ if (require.main === module) {
   server.listen(PORT, '0.0.0.0', () => {
     const url = `http://localhost:${PORT}/`;
     console.log(`Apex Velo Lab running at ${url}`);
+    try { console.log(`Saved data: ${storage().file}`); }
+    catch (e) { console.error(`Storage unavailable: ${e.message}. Existing data has not been reset.`); }
     try {
       const os = require('os');
       const nets = os.networkInterfaces();
@@ -1229,10 +1279,17 @@ if (require.main === module) {
       ? `AI Coach default: ${MODELS[DEFAULT_MODEL].label}, ${DEFAULT_EFFORT} effort (switch provider in the app's AI engine card)`
       : 'AI Coach: no API key for the default provider - the offline engine is used until you add one.');
     console.log('Press Ctrl+C to stop.');
-    if (process.argv.includes('--open')) {
+    if (process.argv.includes('--open') && !process.env.APEX_NO_BROWSER) {
       const { spawn } = require('child_process');
-      const cmd = process.platform === 'win32' ? ['cmd', ['/c', 'start', '', url]] : process.platform === 'darwin' ? ['open', [url]] : ['xdg-open', [url]];
-      try { spawn(cmd[0], cmd[1], { detached: true, stdio: 'ignore' }).unref(); } catch (e) { /* open it manually */ }
+      let cmd = process.platform === 'win32' ? ['cmd', ['/c', 'start', '', url]] : process.platform === 'darwin' ? ['open', [url]] : ['xdg-open', [url]];
+      if (process.platform === 'win32') {
+        // Preserve the Windows launcher's Web Bluetooth browser preference.
+        const bases = [process.env.ProgramFiles, process.env['ProgramFiles(x86)'], process.env.LOCALAPPDATA].filter(Boolean);
+        const candidates = [...bases.map(b => path.join(b, 'Google', 'Chrome', 'Application', 'chrome.exe')),
+          ...bases.map(b => path.join(b, 'Microsoft', 'Edge', 'Application', 'msedge.exe'))];
+        const browser = candidates.find(f => fs.existsSync(f)); if (browser) cmd = [browser, [url]];
+      }
+      try { spawn(cmd[0], cmd[1], { detached: true, stdio: 'ignore', windowsHide: true }).unref(); } catch (e) { /* open it manually */ }
     }
   });
 }

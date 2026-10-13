@@ -39,9 +39,9 @@ No account, no cloud service, no subscription. Your rides stay in your browser a
 
 | | |
 |---|---|
-| **Computer** | Windows 10/11 (nothing to install - uses the built-in PowerShell), **or** macOS / Linux / Windows with [Node.js 18+](https://nodejs.org) |
+| **Computer** | Windows 10/11 (the launcher prepares its runtime automatically), **or** macOS / Linux / Windows with [Node.js 24+](https://nodejs.org) |
 | **Browser** | Any current Chrome, Edge, Firefox or Safari |
-| **Internet** | Only to download the app. Riding, analytics and the offline coach work offline |
+| **Internet** | To download the app and, on first Windows launch, its runtime if needed. Riding, analytics and the offline coach work offline afterward |
 | **Cycling hardware** | None - the built-in simulator and **Explore a demo** work without sensors |
 
 ### Recommended for indoor riding
@@ -61,7 +61,7 @@ No account, no cloud service, no subscription. Your rides stay in your browser a
 | **Fan control** | Wahoo KICKR HEADWIND (Bluetooth) |
 | **Phone remote** | A phone or tablet on the **same home Wi-Fi** as the PC (any modern browser; iPhone Safari works). Shows the ride and controls the workout from another room. On Windows, run `Enable-Phone-View.bat` once |
 | **AI coach / Ask** | Internet plus your own API key from Anthropic (Claude), OpenAI (ChatGPT) or Google (Gemini). Usage is billed by the provider. Without a key the offline coach is used |
-| **Strava** | Internet plus your own free Strava API application (see [setup](docs/LOCAL-SETUP.md#optional-connections)) |
+| **Strava API sync** | Internet, a Strava subscription and your own API application (see [setup](docs/LOCAL-SETUP.md#optional-connections)). File imports can be used without API credentials |
 | **Recovery (HRV, resting HR, sleep)** | iPhone with Apple Health and the third-party **Health Auto Export** app (automatic exports need its paid tier), on the same Wi-Fi as the PC |
 
 **Network:** the app is a local server for your PC and your private home network only. Do not port-forward it or expose it to the internet.
@@ -70,10 +70,10 @@ No account, no cloud service, no subscription. Your rides stay in your browser a
 
 1. **Download** - click **Code > Download ZIP** on GitHub (or the latest Release) and extract it, or `git clone` the repository.
 2. **Start**
-   - **Windows:** double-click **`Launch-Apex-Velo.bat`**. Keep the window open while you use the app.
-   - **macOS / Linux / Node.js:** in the folder, run `node server.js --open` (no `npm install` needed).
+   - **Windows:** double-click **`Launch-Apex-Velo.bat`**. It prepares a verified portable runtime if needed; no manual database setup or `npm install` is required. Keep the window open while you use the app.
+   - **macOS / Linux / Node.js:** in the folder, run `node server.js --open` with Node 24+ (no `npm install` needed).
 
-   The app opens at **http://localhost:8080**. Always use this address - the browser stores your rides per address, so a different port or hostname looks like an empty app.
+   The app opens at **http://localhost:8080**. Use this address for Web Bluetooth and migration of your existing browser data. Confirmed rides and settings live in SQLite and load in other PC browsers too.
 3. **Set up** - choose **Set up my rider** and enter your FTP, weight and max heart rate, or **Explore a demo** to look around with synthetic rides (kept separate from your own data).
 4. **Ride** - open **Devices** in the header, choose a device type and **Pair device**. Next time, **Connect saved devices** reconnects everything. Pick a workout and press **Start**.
 5. **Bring your history (optional)** - drop FIT, TCX or CSV files from Garmin, Wahoo, Strava, Apple Watch and others into **History > Import**, or connect Strava.
@@ -101,7 +101,8 @@ Everything here is optional. Without an API key the app builds workouts and trai
 
 ## Your data
 
-- Rides, settings and profiles live in your browser (IndexedDB) at `http://localhost:8080`. The app also writes compressed **automatic backups** to `data/backups` (newest 14). Restore one by dropping it on History's import zone.
+- Rides, settings and profiles live in **SQLite on your PC**: `%LOCALAPPDATA%\ApexVeloLab\apex.sqlite` on Windows, or `~/.local/share/ApexVeloLab/apex.sqlite` on macOS/Linux (honouring `XDG_DATA_HOME`). Existing browser data migrates automatically with a recovery copy.
+- Verified compressed **automatic backups** live beside the database in `backups/`, with recent, daily, weekly and monthly copies. **Settings > Backups** can preview and restore them, or open an older backup file. Existing `data/backups` files stay available. Set `APEX_DATA_DIR` for a custom location or `APEX_BACKUP_MIRROR_DIR` for a second backup destination.
 - `.env`, Strava tokens and everything in `data/` are git-ignored, so updating never touches them. See [privacy](docs/PRIVACY.md).
 
 ## Updating
@@ -118,7 +119,7 @@ Everything here is optional. Without an API key the app builds workouts and trai
 
 ## Development
 
-`npm test` runs the Node checks. For browser checks: `npm install`, then `npm run test:browser` and `npm run test:suite`. `npm run check:share` scans the tracked files for secrets and private data before a release. See [development checks](docs/LOCAL-SETUP.md#development-checks).
+`npm test` runs the Node checks with Node 24+. For browser checks: `npm install`, then `npm run test:storage`, `npm run test:browser` and `npm run test:suite`. `npm run check:share` scans the tracked files for secrets and private data before a release. See [development checks](docs/LOCAL-SETUP.md#development-checks) and [SQLite verification](docs/SQLITE-VERIFICATION.md).
 
 ## Licence
 

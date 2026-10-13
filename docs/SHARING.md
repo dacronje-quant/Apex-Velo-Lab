@@ -1,9 +1,9 @@
 # Share a clean local version
 
-The public repository's `main` branch is the shareable version. Personal setup (keys, tokens, ride history, backups) lives only in git-ignored files next to the code, so the maintainer runs the same `main` as everyone else.
+The public repository's `main` branch is the shareable version. Personal credentials and health inbox files live in git-ignored files next to the code; confirmed rides, settings and backups live in the private user data folder. The maintainer can run the same source as everyone else.
 
 1. The app is licensed under [MIT](../LICENSE). Include the licence and bundled third-party notices when sharing copies.
-2. Run `npm test`, `npm run test:browser`, `npm run test:suite` and `npm run check:share` when preparing a new release. Read [local setup](LOCAL-SETUP.md) and [privacy](PRIVACY.md).
+2. With Node 24+, run `npm test`, `npm run test:storage`, `npm run test:browser`, `npm run test:suite` and `npm run check:share` when preparing a new release. Read [local setup](LOCAL-SETUP.md) and [privacy](PRIVACY.md).
 3. Commit the intended source changes. Keep `.env`, tokens, private imports, backups and `.private-review` ignored.
 4. To share only the committed files without Git history, create a source archive:
 
@@ -14,7 +14,7 @@ git archive --format=zip --prefix=Apex-Velo-Lab/ --output=release-output/Apex-Ve
 
 Share that archive rather than zipping your entire installed folder. For GitHub distribution, push the prepared branch when ready and let users download its source ZIP. Repository history was cleaned of personal screenshots in October 2026; keep screenshots in releases synthetic (use **Explore a demo**). Do not rewrite or discard history as part of an ordinary update.
 
-Existing installations retain browser profiles, rides, device settings and health data at the same origin. Legacy local archives remain supported. Review screenshots removed from public source are preserved locally under `.private-review/proposals`. Restart the local server after an update so the new private-archive endpoint is available.
+Existing installations migrate browser profiles, rides, device settings and health data into SQLite, retaining a recovery copy. Use the same browser and origin on the first upgraded launch. Legacy local archives remain supported. Review screenshots removed from public source are preserved locally under `.private-review/proposals`. Restart the local server after an update and refresh the browser.
 
 ## GitHub donations
 
