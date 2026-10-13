@@ -61,7 +61,7 @@ No account, no cloud service, no subscription. Your rides stay in your browser a
 | **Fan control** | Wahoo KICKR HEADWIND (Bluetooth) |
 | **Phone remote** | A phone or tablet on the **same home Wi-Fi** as the PC (any modern browser; iPhone Safari works). Shows the ride and controls the workout from another room. On Windows, run `Enable-Phone-View.bat` once |
 | **AI coach / Ask** | Internet plus your own API key from Anthropic (Claude), OpenAI (ChatGPT) or Google (Gemini). Usage is billed by the provider. Without a key the offline coach is used |
-| **Strava** | Internet plus your own free Strava API application (see [setup](docs/LOCAL-SETUP.md#optional-connections)) |
+| **Strava API sync** | Internet, a Strava subscription and your own API application (see [setup](docs/LOCAL-SETUP.md#optional-connections)). File imports can be used without API credentials |
 | **Recovery (HRV, resting HR, sleep)** | iPhone with Apple Health and the third-party **Health Auto Export** app (automatic exports need its paid tier), on the same Wi-Fi as the PC |
 
 **Network:** the app is a local server for your PC and your private home network only. Do not port-forward it or expose it to the internet.

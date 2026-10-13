@@ -121,6 +121,8 @@ After a ride, the workout summary has a **Send to Strava** button. It shows the 
 
 **One-time setup (about 3 minutes):**
 
+Creating your own API application requires a Strava subscription under the [current developer requirements](https://developers.strava.com/docs/getting-started/). For manual imports without API credentials, see [the local setup guide](LOCAL-SETUP.md#optional-connections).
+
 1. Go to [strava.com/settings/api](https://www.strava.com/settings/api) and create an application. Any name and website work (e.g. `Apex Velo Lab`, `http://localhost`); set **Authorization Callback Domain** to `localhost`.
 2. Copy its **Client ID** and **Client Secret** into `.env` as `STRAVA_CLIENT_ID=` and `STRAVA_CLIENT_SECRET=`, then restart `Launch-Apex-Velo.bat`.
 3. Open any ride summary and click **Connect Strava**. Approve access (keep *Upload your activities* and *View data about your private activities* ticked - the second one lets the app see which rides are already on Strava). The window closes by itself and the app shows *Ready to upload as <your name>*.
