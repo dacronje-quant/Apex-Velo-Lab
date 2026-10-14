@@ -1415,12 +1415,6 @@ details.menu > summary::-webkit-details-marker { display: none; }
 .pp-val small { font-size: 12px; color: var(--text-3); margin-left: 2px; }
 .pp-sub { font-size: 12px; color: var(--text-3); }
 .pp-delta { font-size: 12px; font-weight: 600; margin: 4px 0 2px; }
-.explore-card > summary { display: flex; align-items: center; justify-content: space-between; cursor: pointer; list-style: none; font-weight: 700; }
-.explore-card > summary::-webkit-details-marker { display: none; }
-.explore-card[open] > summary { margin-bottom: 12px; }
-.explore-card[open] > summary .ic { transform: rotate(180deg); }
-.explore-card .prog-grid { grid-template-columns: 1fr 1fr; }
-@media (max-width: 760px) { .explore-card .prog-grid { grid-template-columns: 1fr; } }
 
 /* Calendar: Apple Health recovery strip */
 .recov-strip { display: flex; flex-wrap: wrap; gap: 4px 8px; align-items: center; padding: 4px 6px; margin: 4px 0 6px; border-radius: var(--radius-sm); background: var(--surface-sunk); border-top: 3px solid transparent; font-size: 11.5px; color: var(--text-3); }
@@ -1508,21 +1502,10 @@ details.menu > summary::-webkit-details-marker { display: none; }
 }
 
 /* ------------------------------------------------------- Power analytics (v4) */
-/* Section links: sticky under the header on desktop, a scrollable pill row on small screens. */
-.ana-nav {
-  position: sticky; top: calc(var(--header-h) + 8px); z-index: 20; display: flex; gap: 2px; width: fit-content; max-width: 100%;
-  margin: 0 0 14px; padding: 3px; border-radius: var(--radius-full); overflow-x: auto; scrollbar-width: none;
-  background: rgba(11, 17, 30, 0.82); border: 1px solid var(--line); box-shadow: 0 10px 30px -14px rgba(0, 0, 0, 0.8);
-  backdrop-filter: blur(16px) saturate(140%); -webkit-backdrop-filter: blur(16px) saturate(140%);
-}
-.ana-nav::-webkit-scrollbar { display: none; }
-.ana-nav-btn { height: 30px; padding: 0 14px; border: 0; border-radius: var(--radius-full); background: transparent; color: var(--text-2); font-size: 12.5px; font-weight: 600; white-space: nowrap; transition: background .15s var(--ease), color .15s; }
-.ana-nav-btn:hover { color: var(--text-1); background: rgba(148, 163, 184, 0.08); }
-.ana-nav-btn.active { color: var(--text-1); background: rgba(124, 200, 255, 0.14); box-shadow: inset 0 0 0 1px rgba(124, 200, 255, 0.35); }
-.ana-section, .ana-anchor { scroll-margin-top: calc(var(--header-h) + 64px); }
+.ana-section { scroll-margin-top: calc(var(--header-h) + 64px); }
 .ana-section { display: flex; align-items: center; gap: 10px; }
 .ana-section::after { content: ''; flex: 1; height: 1px; background: linear-gradient(90deg, var(--line-strong), transparent); }
-@media (max-width: 1180px) { .ana-nav { position: static; width: 100%; } .ana-section, .ana-anchor { scroll-margin-top: 12px; } }
+@media (max-width: 1180px) { .ana-section { scroll-margin-top: 12px; } }
 
 .segmented-sm > button { height: 22px; padding: 0 8px; font-size: 11px; }
 .pdc-tools { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; justify-content: flex-end; }
@@ -2057,9 +2040,6 @@ select.input-field option, .header-profile-dropdown option { background: #10142a
 .toggle input:checked + .toggle-ui { background: linear-gradient(135deg, var(--zone-a), var(--zone-b)); border-color: transparent; }
 
 /* Pills for every choice */
-.ana-nav { border-radius: var(--radius-full); padding: 4px; background: rgba(255, 255, 255, 0.06); border: 1px solid rgba(255, 255, 255, 0.1); backdrop-filter: blur(16px); -webkit-backdrop-filter: blur(16px); }
-.ana-nav-btn { border-radius: var(--radius-full); }
-.ana-nav-btn.active { color: #fff; background: rgba(255, 255, 255, 0.15); box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.2); }
 .ai-chip, .ask-chip, .ride-chip, .w-card-tag, .folder-sync-pill, .engine-pill, .engine-chip, .readiness-chip, .form-badge, .zone-chip, .hrr-chip { border-radius: var(--radius-full); }
 .ai-chip, .ask-chip { background: rgba(255, 255, 255, 0.05); border-color: rgba(255, 255, 255, 0.1); }
 .ai-chip:hover, .ask-chip:hover, .ride-chip:hover { border-color: color-mix(in srgb, var(--zone-a) 55%, transparent); background: color-mix(in srgb, var(--zone-a) 10%, transparent); }

@@ -7,6 +7,7 @@
  *
  * Feature areas live in prototype mixins loaded after this file:
  *   app-analytics.js  - Chart.js charts, PMC explorer, MMP, progression dashboard
+ *   app-ana-studio.js - Analytics modules: dock, panels, drill-down, insights, zoom / expand
  *   app-history.js    - history table, ride review, exports, imports, calendar
  *   app-coach.js      - AI coach UI and the workout-architect preview
  * Pure math lives in velo-metrics / velo-analytics / velo-progress / velo-export.
@@ -2364,6 +2365,7 @@ class VeloApp {
       requestAnimationFrame(() => {
         this.refreshAnalytics();
         [this.pmcChart, this.mmpChart, this.ftpChart, this.driftChart, this.progWeeklyChart, this.progScatterChart, this.efChart, this.recoveryChart, this.balanceChart, this.cpHistoryChart].forEach(c => c && c.resize());
+        if (this.moveAnaGlider) this.moveAnaGlider(false);
       });
     } else if (tabKey === 'cockpit') {
       requestAnimationFrame(() => {

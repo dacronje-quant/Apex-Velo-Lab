@@ -12,6 +12,8 @@
   const SIX_WEEKS = 42 * DAY;
   /** Plain-English subtext for each progression tile (js/velo-glossary.js). */
   const TILE_TERMS = { ftp: 'ftp', ctl: 'ctl', ef: 'ef', p20: 'peak20', rhr: 'rhr', hrv: 'hrv' };
+  /** Where each tile drills to: analytics module and the card brought into view. */
+  const TILE_GOTO = { ftp: ['ftp', 'anaCardFtpHistory'], ctl: ['load', 'anaCardPmc'], ef: ['aerobic', 'anaCardEf'], p20: ['power', 'anaCardProfile'], rhr: ['body', 'anaCardRecovery'], hrv: ['body', 'anaCardRecovery'] };
 
   /** Trailing `days`-day mean of field `key` at each point that has it (two pointers, O(n)). */
   function trailingMeans(points, key, days) {
@@ -220,7 +222,8 @@
         const cls = !dz ? 'flat' : better ? 'good' : 'bad';
         const arrow = !dz ? '&rarr;' : delta > 0 ? '&#9650;' : '&#9660;';
         const dTxt = delta === null ? 'no data 6 weeks ago' : `${arrow} ${dz ? (delta > 0 ? '+' : '') + fmt(delta, t.dec) : 'no change'} vs 6 weeks ago`;
-        return `<div class="tile" data-tile="${t.key}">
+        const [goto, spot] = TILE_GOTO[t.key] || [];
+        return `<div class="tile${goto ? ' ana-link' : ''}" data-tile="${t.key}"${goto ? ` data-goto="${goto}" data-spot="${spot}" role="button" tabindex="0"` : ''}>
           <div class="tile-lbl" title="${esc(VeloGlossary.tip(TILE_TERMS[t.key]))}">${esc(t.label)}${VeloGlossary.html(TILE_TERMS[t.key])}</div>
           <div class="tile-row"><div class="tile-val num">${fmt(t.now, t.dec)}${has && t.unit ? `<small>${t.unit}</small>` : ''}</div>${VeloTrends.sparkline(t.spark, { color: 'currentColor' })}</div>
           <div class="tile-delta ${has ? cls : 'flat'} num">${has ? dTxt : (t.key === 'rhr' || t.key === 'hrv' ? 'Set up Apple Health in Settings' : 'Not enough data yet')}</div>
@@ -239,6 +242,7 @@
       this.renderPowerProfile(d);
       this.updateDashboardCharts(d);
       if (this.updateFtpMetricsChart) this.updateFtpMetricsChart();
+      if (this.renderAnaOverview) this.renderAnaOverview();
     },
 
     renderPowerProfile(d) {
@@ -246,6 +250,7 @@
       if (!box) return;
       const archive = this.medalArchive ? this.medalArchive() : null;
       const rows = VeloTrends.powerProfile(d.rides, d.peaksOf, d.now, archive, (this.activeProfile || {}).weightKg);
+      this._anaPrs = rows.filter(r => r.pr).map(r => `${r.label} ${r.name}`);
       const w = (v) => (v === null ? '--' : `${v}<small>W</small>`);
       box.innerHTML = rows.map(r => `
         <div class="pp-cell">
@@ -362,6 +367,7 @@
       rides.forEach(r => { const zs = this.rideZoneSeconds(r); if (zs) { withPower++; zs.forEach((v, i) => { z[i] += v; }); } else without++; });
       const tot = z.reduce((a, b) => a + b, 0);
       const h = (sec) => (sec >= 36000 ? `${Math.round(sec / 3600)} h` : sec >= 3600 ? `${(sec / 3600).toFixed(1)} h` : `${Math.round(sec / 60)} min`);
+      this._anaSeiler = null;
       if (!tot) {
         box.innerHTML = '<div class="mix-note">No rides with second-by-second power in this period.</div>';
         sb.innerHTML = '';
@@ -377,6 +383,7 @@
           <span class="zd-val num">${h(z[i])}</span><span class="zd-pct num">${Math.round((z[i] / tot) * 100)}%</span>
         </div>`).join('');
       const s = VeloPower.seiler(z);
+      this._anaSeiler = s;
       const say = {
         polarized: 'Mostly easy riding plus a solid dose of hard work, with little in between.',
         pyramidal: 'Mostly easy, some tempo / threshold and a little high intensity - the most common pattern in endurance training.',
