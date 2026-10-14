@@ -45,8 +45,37 @@
       const p = this.activeProfile || {};
       this._ftpEvCache = this._ftpEvCache || new Map();
       const key = `${r.id}|${r.samples.length}|${p.maxHr || 0}|${p.lthr || 0}`;
-      if (!this._ftpEvCache.has(key)) this._ftpEvCache.set(key, VeloInsight.ftpEvidence(r.samples, { maxHr: p.maxHr, lthr: p.lthr }));
+      if (!this._ftpEvCache.has(key)) this._ftpEvCache.set(key, (r.rampTest
+        ? VeloInsight.rampEvidence(r.samples, { maxHr: p.maxHr })
+        : VeloInsight.ftpEvidence(r.samples, { maxHr: p.maxHr, lthr: p.lthr })));
       return this._ftpEvCache.get(key);
+    },
+
+    /** Latest FTP implied by each method (20 min, 60 min, ramp test, CP model) and the most recent of them. */
+    renderFtpMethods() {
+      const body = document.getElementById('ftpMethodsBody');
+      if (!body) return;
+      const found = {};
+      [...this.cyclingRides()].filter(r => r.date).sort((a, b) => Date.parse(b.date) - Date.parse(a.date)).forEach(r => {
+        const ev = this.ftpEvidenceOf(r);
+        if (!ev) return;
+        [['ramp', ev.ramp], ['m20', ev.from20], ['m60', ev.from60]].forEach(([k, v]) => { if (v > 0 && !found[k]) found[k] = { watts: v, t: Date.parse(r.date) }; });
+      });
+      const cp = this._cpModelForFtp;
+      const rows = [
+        { k: 'ramp', label: 'Ramp test (best minute x 0.75)' },
+        { k: 'm20', label: '20 min best x 0.95' },
+        { k: 'm60', label: '60 min best' }
+      ].map(x => ({ ...x, ...(found[x.k] || {}) }));
+      if (cp) rows.push({ k: 'cp', label: 'CP model (FTP is about 95-100% of CP)', watts: Math.round(cp.cp * 0.975), t: cp.to });
+      const dated = rows.filter(x => x.watts > 0 && Number.isFinite(x.t)).sort((a, b) => b.t - a.t);
+      // The CP model's date is the end of its 90-day window, so it only leads when no ride implied an FTP.
+      const latest = dated.find(x => x.k !== 'cp') || dated[0];
+      const ftp = Number(this.activeProfile.ftp) || 0;
+      const day = t => new Date(t).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: '2-digit' });
+      this.setText('ftpImpliedChip', latest ? `${latest.watts} W` : '--');
+      body.innerHTML = (latest ? `<div class="cp-row"><span><b>Most recent implied FTP</b> <small>${esc(latest.label)} &middot; ${day(latest.t)}</small></span><b class="num">${latest.watts} W${ftp ? ` <small>(${latest.watts >= ftp ? '+' : ''}${latest.watts - ftp} vs ${ftp})</small>` : ''}</b></div>` : '')
+        + rows.map(x => `<div class="cp-row"><span>${esc(x.label)}${x.t ? ` <small>${day(x.t)}</small>` : ''}</span><b class="num">${x.watts > 0 ? x.watts + ' W' : '--'}</b></div>`).join('');
     },
 
     dismissedFtp() {

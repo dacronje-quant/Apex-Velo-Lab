@@ -309,6 +309,8 @@
     /** Critical power model card: CP, W', Pmax, CP vs FTP, VO2max estimate and pacing above CP. */
     renderCpModelCard(pdc) {
       const body = document.getElementById('cpModelBody');
+      this._cpModelForFtp = pdc && pdc.model && pdc.model.ok ? pdc.model : null;
+      if (this.renderFtpMethods) this.renderFtpMethods();
       if (!body) return;
       const m = pdc && pdc.model;
       const p = this.activeProfile || {};

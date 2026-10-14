@@ -182,6 +182,7 @@
     refreshAnalytics() {
       this.recalculatePmc();
       this.updateFtpChart();
+      if (this.renderFtpMethods) this.renderFtpMethods();
       if (this.updateDriftChart) this.updateDriftChart();
       this.updateMmpChart();
       this.renderProgression();

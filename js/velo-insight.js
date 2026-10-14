@@ -305,11 +305,27 @@ class VeloInsight {
     const estimate = Math.max(from20, from60);
     if (!estimate) return { estimate: 0, steady, hard, reason: 'not-steady', vi20: Math.round(vi20 * 100) / 100 };
     return {
-      estimate, steady, hard,
+      estimate, steady, hard, from20, from60,
       p20: Math.round(w20.avg), p60: w60 ? Math.round(w60.avg) : null,
       method: from60 >= from20 ? '60 min best' : '20 min best x 0.95',
       hrPct: hrAvg && maxHr ? Math.round((hrAvg / maxHr) * 100) : null,
       vi20: Math.round(vi20 * 100) / 100
+    };
+  }
+
+  /** FTP evidence from a finished ramp test: 75% of the best minute. The test runs to the rider's limit, so it counts as a hard effort. */
+  static rampEvidence(samples, { maxHr = 0 } = {}) {
+    samples = VeloMetrics.toOneHz(samples);
+    if (samples.length < 120) return null;
+    let best = -1;
+    VeloMetrics.powerWindows(samples, 60, avg => { if (avg > best) best = avg; });
+    if (!(best > 0)) return null;
+    const hrs = samples.slice(-60).map(s => Number(s.hr) || 0).filter(h => h > 0);
+    const hrAvg = hrs.length >= 30 ? hrs.reduce((a, b) => a + b, 0) / hrs.length : 0;
+    return {
+      estimate: Math.round(best * 0.75), ramp: Math.round(best * 0.75), steady: true, hard: true,
+      p20: null, p60: null, method: 'ramp test, best minute x 0.75',
+      hrPct: hrAvg && maxHr ? Math.round((hrAvg / maxHr) * 100) : null
     };
   }
 
