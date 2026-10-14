@@ -743,6 +743,8 @@ class VeloBle {
     // but no more than every CONTROL_RETRY_MS. Answering each refusal at once loops as fast as Bluetooth allows
     // while Zwift or the Wahoo app holds control, and queues ERG targets behind the requests.
     const slot = this.slots.trainer;
+    // Granted: drop any retry still waiting, so ERG targets resume at once instead of after the timer.
+    if (ok && requestOpCode === VeloBle.FTMS_OP.REQUEST_CONTROL) { clearTimeout(slot.controlRetry); slot.controlRetry = null; }
     if (result === 0x05 && slot.chars.control) {
       this.lastTargetPowerSent = null;
       if (!slot.controlRetry) {

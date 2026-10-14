@@ -275,3 +275,14 @@ test('another app holding the trainer gets a control request every few seconds, 
   await f.ble.setTrainerErgPower(200, true);
   assert.equal(writes.at(-1)[0], 0x05, 'ERG target is sent again once control is granted');
 });
+test('a grant that arrives while a control retry is waiting resumes ERG at once', async () => {
+  const f = fixture(), writes = [];
+  link(f, 'trainer', device('trainer'), { control: { async writeValueWithResponse(b) { writes.push([...b]); } } });
+  f.ble.slots.trainer.lastControlRequest = Date.now();
+  f.ble._onFtmsControlResponse(view([0x80, 0x05, 0x05])); // a late refusal of an earlier target
+  assert.ok(f.ble.slots.trainer.controlRetry);
+  f.ble._onFtmsControlResponse(view([0x80, 0x00, 0x01]));
+  assert.equal(f.ble.slots.trainer.controlRetry, null);
+  await f.ble.setTrainerErgPower(210, true);
+  assert.deepEqual(writes.map(w => w[0]), [0x05]);
+});
