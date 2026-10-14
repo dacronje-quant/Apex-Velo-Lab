@@ -695,6 +695,16 @@
     if (pollCtl) { try { pollCtl.abort(); } catch (e) { /* ignore */ } }
     pollLoop(pollGen);
   }
+  // Opening a pairing link in this tab only changes its fragment; it does not reload the script.
+  // Switch credentials and restart polling immediately, including after the PC unpairs all phones.
+  window.addEventListener('hashchange', () => {
+    const key = (location.hash.match(/(?:^#|&)pair=([0-9a-f]+)/) || [])[1] || '';
+    if (!key || key === phoneKey) return;
+    phoneKey = key;
+    try { localStorage.setItem('apexPhoneKey', key); } catch (e) { /* the address still carries the key */ }
+    seq = null;
+    restartPoll();
+  });
   async function pollLoop(gen) {
     while (gen === pollGen) {
       const ctl = new AbortController(); pollCtl = ctl;

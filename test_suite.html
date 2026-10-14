@@ -2608,14 +2608,16 @@
                 return { ok: kept && u.ok && stillThere && undone, detail: `5 restore points kept:${kept} undo ok:${u.ok} ride recorded after the sync kept:${stillThere} last sync undone:${undone}${undone ? '' : ' ids=' + app.completedWorkouts.filter(r => /strava_7/.test(r.id)).map(r => r.id).join(',') + ' state=' + W.localStorage.getItem(SS.STATE_KEY).slice(0, 300)}` };
               });
 
-              await suite('Strava Streams: 1 Hz Conversion Holds Short Gaps & Drops Pauses, TSS From the Power Stream, Measured Power Only', async () => {
-                // 60 s, a 3 s smart-recording gap (held), 60 s, a 79 s pause (dropped), 60 s
+              await suite('Strava Streams: Short Gaps Held, Pause Clock and Segments Preserved, TSS From Measured Power', async () => {
+                // 60 s, a 3 s smart-recording gap (held), 60 s, a 79 s pause (unfilled), 60 s
                 const time = [...Array.from({ length: 60 }, (_, i) => i), ...Array.from({ length: 60 }, (_, i) => 62 + i), ...Array.from({ length: 60 }, (_, i) => 200 + i)];
                 const watts = time.map((t, i) => 150 + (i % 7));
                 const hr = time.map(() => 130);
                 const smp = SS.streamsToSamples({ time: { data: time }, watts: { data: watts }, heartrate: { data: hr }, cadence: { data: time.map(() => 88) } });
                 const heldOk = smp && smp.length === 182 && smp[60].power === smp[59].power && smp[61].power === smp[59].power && smp[62].power === watts[60];
-                const seqOk = smp && smp.every((x, i) => x.time === i + 1) && smp.every(x => x.hr === 130 && x.cadence === 88);
+                const seqOk = smp && smp.every((x, i) => x.time === i + 1 + (i >= 122 ? 78 : 0)) && smp.every(x => x.hr === 130 && x.cadence === 88);
+                const pauseOk = smp && smp[122].segmentStart === true && smp.filter(x => x.segmentStart).length === 1
+                  && W.VeloMetrics.bestRollingAvg(smp, 180) === null;
                 const noPower = SS.streamsToSamples({ time: { data: time }, heartrate: { data: hr } }) === null;
                 const tooShort = SS.streamsToSamples({ time: { data: [0, 1, 2] }, watts: { data: [100, 100, 100] } }) === null;
                 // One hour at FTP = 100 TSS, computed from the samples (not estimated)
@@ -2624,8 +2626,8 @@
                 const rec = SS.toRecord(act, { ftp: 185 }, null);
                 const tssOk = rec.tss === 100 && rec.np === 185 && rec.tssMethod === 'power-stream' && rec.tssEstimated === false && rec.streams === 'ok' && rec.samples.length === hour.length && rec.samples.every((s, i) => s.time === hour[i].time && s.power === hour[i].power);
                 const measured = SS.hasMeasuredPower({ sport_type: 'Ride', device_watts: true, average_watts: 200 }) && !SS.hasMeasuredPower({ sport_type: 'Ride', device_watts: false, average_watts: 200 }) && !SS.hasMeasuredPower({ sport_type: 'Run', device_watts: true, average_watts: 200 });
-                return { ok: heldOk && seqOk && noPower && tooShort && tssOk && measured,
-                  detail: `3 s gap held + 79 s pause dropped (182 samples):${heldOk} (${smp && smp.length}) 1 Hz sequence + HR/cadence:${seqOk} no power stream -> none:${noPower} too short -> none:${tooShort} TSS from stream (1 h @ FTP = ${rec.tss}):${tssOk} measured power only (not Strava's estimate, not runs):${measured}` };
+                return { ok: heldOk && seqOk && pauseOk && noPower && tooShort && tssOk && measured,
+                  detail: `3 s gap held + pause unfilled (182 samples):${heldOk} (${smp && smp.length}) elapsed clock + HR/cadence:${seqOk} pause segment prevents joined peaks:${pauseOk} no power stream -> none:${noPower} too short -> none:${tooShort} TSS from stream (1 h @ FTP = ${rec.tss}):${tssOk} measured power only (not Strava's estimate, not runs):${measured}` };
               });
 
               await suite('Strava Streams: Fetched Only for Power-Meter Rides, Preview Writes Nothing, Undo Exact After Streams Added or Removed, Imports Never Sent Back', async () => {
