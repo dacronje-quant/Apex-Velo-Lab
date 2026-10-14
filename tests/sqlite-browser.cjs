@@ -76,6 +76,22 @@ const {fixture}=require('./sqlite-fixture.cjs');
     await third.evaluate(async()=>{await app.finishWorkout();await VeloStorage.flush();});assert.equal((await disk()).rides.length,2);assert.equal((await disk()).rides[0].samples[1].power,210);
     // A saved completed ride is never offered as unfinished on the next startup.
     await third.reload();await ready(third);assert.equal(await third.locator('#interruptedRideRecovery').isVisible(),false);
+    // Saves send only new or changed rides: an unchanged history posts nothing, one edit posts one ride.
+    const posts=[];const watch=r=>{if(r.url().endsWith('/api/storage/save'))posts.push(JSON.parse(r.postData()||'{}'));};third.on('request',watch);
+    await third.evaluate(async()=>{await app.saveHistory();await VeloStorage.flush();});assert.equal(posts.length,0);
+    await third.evaluate(async()=>{app.completedWorkouts[1].title='Only this ride changed';await app.saveHistory();await VeloStorage.flush();});
+    assert.equal(posts.length,1);assert.deepEqual(posts[0].put.map(r=>r.title),['Only this ride changed']);third.off('request',watch);
+    // A save the server refuses (4xx) is reported and dropped; it does not block later saves.
+    await third.route('**/api/storage/save',r=>r.fulfill({status:413,contentType:'application/json',body:'{"error":"Request too large"}'}),{times:1});
+    await third.evaluate(()=>localStorage.setItem('apex_refused_fixture','x'));await third.waitForFunction(()=>VeloStorage.error);
+    assert.equal(await third.evaluate(()=>VeloStorage.conflict),false);
+    await third.evaluate(async()=>{localStorage.setItem('apex_after_refusal','ok');await VeloStorage.flush();});assert.equal((await disk()).settings.apex_after_refusal,'ok');
+    // A clear reported as failed must not run later from the retry queue.
+    await third.route('**/api/storage/save',r=>r.abort('failed'));
+    assert.equal(await third.evaluate(()=>VeloDB.clearAllRides()),false);
+    await third.unroute('**/api/storage/save');await third.evaluate(async()=>{localStorage.setItem('apex_after_clear','ok');await VeloStorage.flush();});
+    assert.equal((await disk()).settings.apex_after_clear,'ok');assert.equal((await disk()).rides.length,2);
+    await third.reload();await ready(third);assert.equal((await disk()).rides.length,2);
     // Real ride delete persists; no browser copy resurrects it on restart.
     third.once('dialog',d=>d.accept());await third.evaluate(()=>app.deleteCompletedRide('legacy_ride'));assert.equal((await disk()).rides.length,1);await third.reload();await ready(third);assert.equal(await third.evaluate(()=>app.completedWorkouts.length),1);
     const beforeDemo=await disk();const demo=await cleared.newPage();await demo.goto(f.base+'/?apexDemo=1');await demo.waitForFunction(()=>window.app);assert.equal(await demo.evaluate(()=>VeloStorage.enabled),false);assert.equal(await demo.evaluate(()=>app.completedWorkouts.length),104);assert.deepEqual(await disk(),beforeDemo);

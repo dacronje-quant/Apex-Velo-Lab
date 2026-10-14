@@ -34,6 +34,7 @@ class LocalStore {
     this.dir = path.resolve(dir); this.legacyDir = legacyDir; this.clock = clock;
     this.backupDir = path.join(this.dir, 'backups'); this.file = path.join(this.dir, 'apex.sqlite');
     this.mirrorDir = mirrorDir ? path.resolve(mirrorDir) : null;
+    this.snapshotCache = new Map();
     fs.mkdirSync(this.dir, { recursive: true });
     this.db = new DatabaseSync(this.file);
     try {
@@ -153,7 +154,9 @@ class LocalStore {
     const target = path.join(this.backupDir, name), tmp = target + '.tmp';
     try {
       fs.writeFileSync(tmp, zlib.gzipSync(JSON.stringify(value)), { flush: true });
-      this.readSnapshot(tmp); fs.renameSync(tmp, target); this.pruneBackups();
+      const written = this.readSnapshot(tmp); fs.renameSync(tmp, target);
+      this.rememberSnapshot(target, written);
+      this.pruneBackups();
       this.lastBackupError = null;
       if (this.mirrorDir && this.mirrorDir !== this.backupDir) {
         let mirrorTmp;
@@ -184,6 +187,24 @@ class LocalStore {
     if (payload.exportedAt && !Number.isFinite(Date.parse(payload.exportedAt))) fail('Invalid backup date.');
     return { payload, reason: storageBackup?.reason || 'legacy', verified: !!storageBackup };
   }
+  /**
+   * What the backup list and pruning need from a snapshot (date, counts, reason). A snapshot never changes
+   * once written, so it is read and verified once and remembered by name, size and time - not gunzipped
+   * and re-hashed on every save, which stalled the server (and the phone remote) on long histories.
+   */
+  snapshotInfo(file) {
+    let st; try { st = fs.statSync(file); } catch { return { corrupt: true }; }
+    const hit = this.snapshotCache.get(file);
+    if (hit && hit.size === st.size && hit.mtimeMs === st.mtimeMs) return hit.info;
+    try { return this.rememberSnapshot(file, this.readSnapshot(file), st); }
+    catch { return { corrupt: true }; }
+  }
+  rememberSnapshot(file, { payload, reason, verified }, st = fs.statSync(file)) {
+    const info = { at: payload.exportedAt || st.mtime.toISOString(), rides: payload.history.length, profiles: payload.profiles?.length || 0,
+      reason, verified, bytes: st.size };
+    this.snapshotCache.set(file, { size: st.size, mtimeMs: st.mtimeMs, info });
+    return info;
+  }
   importSnapshot(value) {
     const { payload } = this.verifySnapshot(value);
     return this.writeSnapshot({ ...payload, exportedAt: payload.exportedAt || this.clock().toISOString() }, 'imported');
@@ -194,10 +215,8 @@ class LocalStore {
   backups() {
     const list = [];
     const add = (dir, name, legacy) => {
-      try { const { payload, reason, verified } = this.readSnapshot(path.join(dir, name));
-        list.push({ name: legacy ? 'legacy:' + name : name, at: payload.exportedAt || fs.statSync(path.join(dir, name)).mtime.toISOString(),
-          rides: payload.history.length, profiles: payload.profiles?.length || 0, reason, verified, bytes: fs.statSync(path.join(dir, name)).size });
-      } catch { list.push({ name: legacy ? 'legacy:' + name : name, corrupt: true, reason: 'Unreadable backup' }); }
+      const info = this.snapshotInfo(path.join(dir, name));
+      list.push(info.corrupt ? { name: legacy ? 'legacy:' + name : name, corrupt: true, reason: 'Unreadable backup' } : { name: legacy ? 'legacy:' + name : name, ...info });
     };
     for (const n of this.backupFiles()) add(this.backupDir, n, false);
     if (this.legacyDir && fs.existsSync(this.legacyDir)) for (const n of fs.readdirSync(this.legacyDir).filter(n => /^apex_velo_backup_\d{4}-\d{2}-\d{2}_\d{6}\.json\.gz$/.test(n))) add(this.legacyDir, n, true);
@@ -237,8 +256,9 @@ class LocalStore {
     const files = this.backupFiles(), keep = new Set(files.slice(0, 14)), days = new Set(), weeks = new Set(), months = new Set();
     let migration = false, restoreCount = 0;
     for (const n of files) {
-      let snap; try { snap = this.readSnapshot(path.join(this.backupDir, n)); } catch { keep.add(n); continue; }
-      const d = new Date(snap.payload.exportedAt), day = d.toISOString().slice(0,10), month = day.slice(0,7);
+      const snap = this.snapshotInfo(path.join(this.backupDir, n));
+      if (snap.corrupt) { keep.add(n); continue; }
+      const d = new Date(snap.at), day = d.toISOString().slice(0,10), month = day.slice(0,7);
       const monday = new Date(d); monday.setUTCDate(d.getUTCDate() - (d.getUTCDay() + 6) % 7); const week = monday.toISOString().slice(0,10);
       if (!days.has(day) && days.size < 30) { days.add(day); keep.add(n); }
       if (!weeks.has(week) && weeks.size < 12) { weeks.add(week); keep.add(n); }
@@ -246,7 +266,7 @@ class LocalStore {
       if (snap.reason === 'migration' && !migration) { migration = true; keep.add(n); }
       if (snap.reason === 'before-restore' && restoreCount++ < 5) keep.add(n);
     }
-    for (const n of files) if (!keep.has(n)) fs.unlinkSync(path.join(this.backupDir,n));
+    for (const n of files) if (!keep.has(n)) { fs.unlinkSync(path.join(this.backupDir,n)); this.snapshotCache.delete(path.join(this.backupDir,n)); }
   }
   backup(reason = 'manual') { if (!this.initialized) fail('Open Apex to migrate your browser data first.', 409); return this.writeSnapshot(this.payload(), reason); }
   scheduleBackup() {

@@ -3,7 +3,8 @@
  *
  *  - efOf(ride):          Efficiency Factor (NP / average HR) of a steady aerobic ride, or null.
  *                         Steady = variability index <= 1.06, IF 0.55-0.88, 20 min or more after
- *                         the warm-up. Interval sessions are left out: their EF means nothing.
+ *                         the warm-up, HR for at least 90% of it. Interval sessions are left out:
+ *                         their EF means nothing.
  *  - efPoints(rides):     EF per qualifying ride, oldest first.
  *  - rollingMean(points, day, days): average of the points in the `days` before `day`.
  *  - rampRate(ctl):       CTL gained over the last 7 days (fitness ramp, TSS/day per week).
@@ -24,8 +25,13 @@ class VeloTrends {
     const ftp = Number(r.ftpAtRide) || 0;
     if (Array.isArray(r.samples) && r.samples.length >= 1200) {
       const warm = r.samples.length >= 2400 ? 600 : 300;
-      const win = r.samples.slice(warm).filter(s => Number(s.power) > 0 && Number(s.hr) > 0);
-      if (win.length < 1200) return null;
+      const pedalled = r.samples.slice(warm).filter(s => Number(s.power) > 0);
+      const win = pedalled.filter(s => Number(s.hr) > 0);
+      // Steadiness is judged on all pedalled seconds: if the HR strap drops out during the hard efforts, the
+      // seconds left with HR are only the easy ones and an interval session would pass as steady.
+      if (win.length < 1200 || win.length < pedalled.length * 0.9) return null;
+      const allAvg = pedalled.reduce((a, s) => a + Number(s.power), 0) / pedalled.length;
+      if ((VeloMetrics.normalizedPower(pedalled) || allAvg) / allAvg > 1.06) return null;
       const p = win.map(s => Number(s.power));
       const avg = p.reduce((a, b) => a + b, 0) / p.length;
       const np = VeloMetrics.normalizedPower(win) || avg;

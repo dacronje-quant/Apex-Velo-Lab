@@ -6,6 +6,19 @@
   for (const k of ['getAllRides', 'saveRidesBatch', 'saveRide', 'applyRideChanges', 'deleteRide', 'clearAllRides', 'putSetting', 'getSetting', 'listSettings', 'deleteSetting']) native[k] = VeloDB[k].bind(VeloDB);
   const uuid = () => crypto.randomUUID().replace(/-/g, '_');
   let queuedAt = 0;
+  // A change the user was told had failed (delete, clear) must never run later behind their back.
+  const destructive = t => { const c = t.request || t.input || {}; return !!(c.clear || c.del?.length || c.dbDelete?.length); };
+  // What the PC already holds per ride, so a save sends only new or changed rides instead of the whole history.
+  // Saved sample arrays are replaced, never edited in place, so the array itself identifies its contents.
+  const sampleIds = new WeakMap(); let nextSampleId = 1;
+  const samplesKey = s => { if (!Array.isArray(s) || !s.length) return '0'; let id = sampleIds.get(s); if (!id) sampleIds.set(s, id = nextSampleId++); return id + ':' + s.length; };
+  const signature = r => { const { samples, ...summary } = r; return JSON.stringify(summary) + '#' + samplesKey(samples); };
+  const committed = new Map(); let committedOrder = null;
+  V.markCommitted = function (rides) {
+    committed.clear();
+    for (const r of rides) committed.set(String(r.id), signature(r));
+    committedOrder = rides.map(r => String(r.id)).join('\n');
+  };
   V.request = async function (url, input) {
     const r = await fetch('api/storage' + url, { cache: 'no-store', signal: AbortSignal.timeout(30000),
       ...(input === undefined ? {} : { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(input) }) });
@@ -50,10 +63,17 @@
         V.pending.shift(); task.resolve(result); V.render();
       }
     } catch (e) {
-      V.error = e.message; V.conflict = e.status === 409 || (e.status >= 400 && e.status < 500);
-      // Reject the waiting caller; retain the task and exact request for automatic network retry.
+      // 409: another tab saved first, so stop and reload. Any other 4xx: the server refused this request and it
+      // can never succeed, so report it and keep saving the rest instead of blocking every later save.
+      const refused = e.status >= 400 && e.status < 500 && e.status !== 409;
+      V.error = e.message; V.conflict = e.status === 409;
       for (const task of V.pending) task.reject(e);
+      // Retain the rest for automatic retry, except changes whose failure the caller has now reported.
+      const dropped = V.pending.filter((t, i) => (refused && i === 0) || destructive(t));
+      V.pending = V.pending.filter(t => !dropped.includes(t));
+      for (const t of dropped) await native.deleteSetting('sqlite_pending:' + t.operationId);
       V.render();
+      if (refused && V.pending.length) setTimeout(() => V.pump(), 0);
     } finally { V.running = false; }
   };
   V.flush = async function () {
@@ -176,19 +196,37 @@
       };
       VeloDB.getAllRides = async () => { try { const j = await V.request('/rides'); return j.rides; } catch { return null; } };
       VeloDB.saveRidesBatch = async rides => {
-        const copy = structuredClone(rides);
-        const committed = copy.length ? write({ put: copy, order: copy.map(r => r.id) }) : Promise.resolve(true);
+        const sigs = rides.map(signature);
+        const changed = [], changedSigs = [];
+        rides.forEach((r, i) => { if (committed.get(String(r.id)) !== sigs[i]) { changed.push(r); changedSigs.push(sigs[i]); } });
+        const order = rides.map(r => r.id), orderKey = order.map(String).join('\n');
+        const fullList = rides.length >= committed.size;
+        const sendOrder = rides.length && !(fullList && orderKey === committedOrder);
+        if (!changed.length && !sendOrder) return true;
+        const copy = structuredClone(changed);
+        const saved = write({ put: copy, ...(sendOrder ? { order } : {}) });
         // Retain full samples locally even if the PC save fails; they can be exported/retried.
-        await native.saveRidesBatch(copy);
-        return committed;
+        if (copy.length) await native.saveRidesBatch(copy);
+        const ok = await saved;
+        if (ok) {
+          changed.forEach((r, i) => committed.set(String(r.id), changedSigs[i]));
+          if (fullList) committedOrder = orderKey;
+        }
+        return ok;
       };
       VeloDB.saveRide = ride => VeloDB.saveRidesBatch([ride]);
       VeloDB.applyRideChanges = async (put = [], del = [], { exact = false } = {}) => {
         const ok = await write({ put, del, exact });
-        if (ok) await native.applyRideChanges(put, del, { exact }); return ok;
+        if (ok) {
+          await native.applyRideChanges(put, del, { exact });
+          for (const r of put) committed.set(String(r.id), signature(r));
+          for (const id of del) committed.delete(String(id));
+          committedOrder = null;
+        }
+        return ok;
       };
       VeloDB.deleteRide = id => VeloDB.applyRideChanges([], [id]);
-      VeloDB.clearAllRides = async () => { const ok = await write({ clear: true }); if (ok) await native.clearAllRides(); return ok; };
+      VeloDB.clearAllRides = async () => { const ok = await write({ clear: true }); if (ok) { await native.clearAllRides(); V.markCommitted([]); } return ok; };
       VeloDB.putSetting = obj => write({ dbPut: [obj] });
       VeloDB.deleteSetting = k => write({ dbDelete: [k] });
       VeloDB.listSettings = async prefix => {
@@ -208,6 +246,9 @@
   };
   V.checkpointRide = async function (app) {
     if (!V.enabled || V.checkpointBusy || !app.hasUnsavedRide() || !app.recordedSamples.length) return;
+    // Paused or idle: the recovery copy is already current, so do not rewrite the whole ride again.
+    const mark = app.recordedSamples.length + ':' + app.totalElapsedSeconds + ':' + app.intervalIndex;
+    if (V.checkpointMark === mark) return;
     V.checkpointBusy = true;
     V.rideKey ||= 'sqlite_active_ride:' + uuid();
     try {
@@ -216,11 +257,13 @@
         elapsed: app.totalElapsedSeconds, step: app.intervalIndex, remaining: app.intervalSecondsRemaining,
         startedAt: app.sessionStartedAt, distance: app.totalDistanceMeters, maxSpeed: app.maxSpeedKmh,
         hadHardware: app.rideHadHardware, sourceChanges: structuredClone(app._deviceSourceChanges || []) };
-      if (!await native.putSetting(snapshot)) app.showToast('Could not save the interrupted-ride recovery copy. Keep this tab open until the ride is saved.', 'warning');
+      if (await native.putSetting(snapshot)) V.checkpointMark = mark;
+      else app.showToast('Could not save the interrupted-ride recovery copy. Keep this tab open until the ride is saved.', 'warning');
     } finally { V.checkpointBusy = false; }
   };
   V.dropRideRecovery = async function () {
     const rideKey = V.rideKey;
+    V.checkpointMark = null;
     while (V.checkpointBusy) await new Promise(r => setTimeout(r, 20));
     if (rideKey) await native.deleteSetting(rideKey);
   };
@@ -246,7 +289,14 @@
         changesBanner.hidden = true;
       });
     }
-    const list = ((await native.listSettings('sqlite_active_ride:')) || []).filter(s => s.storeId === V.storeId && s.samples?.length);
+    // A ride whose save was retried and completed after this copy was kept is already in history: drop the copy.
+    const rideStart = r => { const s0 = r.samples[0]; return Number.isFinite(s0?.timestamp) ? new Date(s0.timestamp - (s0.time || 0) * 1000).toISOString() : null; };
+    const savedStarts = new Set((app.completedWorkouts || []).map(r => r.date));
+    const list = [];
+    for (const s of (await native.listSettings('sqlite_active_ride:')) || []) {
+      if (s.storeId !== V.storeId || !s.samples?.length) continue;
+      if (savedStarts.has(rideStart(s))) await native.deleteSetting(s.key); else list.push(s);
+    }
     const recovery = list.sort((a,b) => b.at-a.at)[0];
     const banner = document.getElementById('interruptedRideRecovery');
     if (recovery && banner) {

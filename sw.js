@@ -1,12 +1,12 @@
 // APEX VELO // LAB service worker - network-first for app files so updates are never
 // masked by a stale cache; the cache is only a fallback when offline.
-const CACHE_NAME = 'apex-velo-cache-v50';
+const CACHE_NAME = 'apex-velo-cache-v51';
 const CORE = [
   './js/phone-zen.js',
   './js/velo-storage.js',
   './css/phone-layout.css',
   './js/app-devices.js',
-  './', './index.html', './live.html', './manifest.json', './apex-velo-icon.png', './apex-velo-icon-192.png', './apex-velo-icon.ico', './css/style.css', './css/fonts.css', './vendor/chart.umd.min.js',
+  './', './index.html', './live.html', './manifest.json', './apex-velo-icon.png', './apex-velo-icon-192.png', './apex-velo-icon.ico', './css/style.css', './css/fonts.css', './vendor/chart.umd.min.js', './vendor/qrcode.js',
   './vendor/fonts/inter-latin-400-normal.woff2', './vendor/fonts/inter-latin-500-normal.woff2', './vendor/fonts/inter-latin-600-normal.woff2', './vendor/fonts/inter-latin-700-normal.woff2', './vendor/fonts/inter-latin-800-normal.woff2',
   './vendor/fonts/jetbrains-mono-latin-400-normal.woff2', './vendor/fonts/jetbrains-mono-latin-500-normal.woff2', './vendor/fonts/jetbrains-mono-latin-600-normal.woff2', './vendor/fonts/jetbrains-mono-latin-700-normal.woff2', './vendor/fonts/jetbrains-mono-latin-800-normal.woff2',
   './vendor/fonts/unbounded-latin-300-normal.woff2', './vendor/fonts/unbounded-latin-400-normal.woff2', './vendor/fonts/unbounded-latin-500-normal.woff2', './vendor/fonts/unbounded-latin-600-normal.woff2', './vendor/fonts/unbounded-latin-700-normal.woff2', './vendor/fonts/figtree-latin-400-normal.woff2', './vendor/fonts/figtree-latin-500-normal.woff2', './vendor/fonts/figtree-latin-600-normal.woff2', './vendor/fonts/figtree-latin-700-normal.woff2', './vendor/fonts/figtree-latin-800-normal.woff2',

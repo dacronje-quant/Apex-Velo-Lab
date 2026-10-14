@@ -375,7 +375,7 @@
           <span class="plan-dow">${esc(d.dayLabel || '')}</span>
           <span class="plan-bar"><span style="height:${Math.max(4, ((Number(d.tss) || 0) / maxT) * 100)}%;background:${colorFor[d.focus] || '#64748b'}"></span></span>
           <b class="plan-title">${esc(d.title || d.focus)}</b>
-          <span class="plan-meta num">${off ? 'Rest' : `${d.durationMin} min - ${Math.round(d.tss || 0)} TSS`}</span>
+          <span class="plan-meta num">${off ? 'Rest' : `${Math.round(Number(d.durationMin)) || 0} min - ${Math.round(Number(d.tss) || 0)} TSS`}</span>
         </button>`;
       }).join('');
     },

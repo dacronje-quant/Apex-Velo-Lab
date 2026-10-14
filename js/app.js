@@ -1318,7 +1318,11 @@ class VeloApp {
         this.onDeviceDisconnected(data.device, data.willReconnect);
         break;
       case 'ftms_response':
-        if (!data.ok && data.result === 0x05) this.showToast('Trainer refused control (another app may hold it). Retrying...', 'warning');
+        // Once per refusal spell, not on every retry while another app holds the trainer.
+        if (!data.ok && data.result === 0x05) {
+          if (!this._trainerControlWarned) this.showToast('Control held by another app (Zwift, Wahoo...). Close it; Apex keeps asking every few seconds.', 'warning');
+          this._trainerControlWarned = true;
+        } else if (data.ok && data.requestOpCode === 0x00) this._trainerControlWarned = false;
         break;
       default:
         break;
@@ -1491,7 +1495,7 @@ class VeloApp {
       let text, pc;
       if (!this.ergModeEnabled) { text = 'ERG OFF'; pc = 'erg-status-pill erg-off'; }
       else if (trainerConnected && this.ble.slots.trainer.controlGranted !== true) {
-        text = this.ble.slots.trainer.controlGranted === false ? 'ERG · CONTROL REFUSED' : 'ERG · WAITING FOR CONTROL'; pc = 'erg-status-pill';
+        text = this.ble.slots.trainer.controlGranted === false ? 'ERG · CONTROL HELD BY ANOTHER APP' : 'ERG · WAITING FOR CONTROL'; pc = 'erg-status-pill';
       }
       else if (trainerConnected && this.erg.mode !== 'normal') {
         const cmd = this.lastCommandedErgWatts != null ? this.lastCommandedErgWatts : targetW;
@@ -2668,7 +2672,11 @@ class VeloApp {
 
   // --------------------------------------------------------- persistence --
   loadHistory() {
-    if (window.VeloStorage?.enabled) return structuredClone(window.__APEX_SQLITE_RIDES__ || []);
+    if (window.VeloStorage?.enabled) {
+      const rides = structuredClone(window.__APEX_SQLITE_RIDES__ || []);
+      VeloStorage.markCommitted(rides);
+      return rides;
+    }
     try {
       const raw = localStorage.getItem('apex_velo_history');
       if (raw !== null) {

@@ -1322,6 +1322,7 @@ body.focus-mode #valInstantPower { font-size: clamp(120px, 14vw, 220px); }
 .settings-kv > div { display: flex; flex-direction: column; gap: 2px; padding: 8px 10px; border-radius: var(--radius-sm); background: var(--surface-sunk); border: 1px solid var(--line); min-width: 0; }
 .settings-kv > div > span { font-size: 11px; font-weight: 700; letter-spacing: .06em; text-transform: uppercase; color: var(--text-3); }
 .settings-kv > div > b { font-weight: 600; color: var(--text-1); overflow-wrap: anywhere; }
+.settings-kv .phone-qr { width: 164px; height: 164px; image-rendering: pixelated; background: #fff; border-radius: 6px; margin: 6px 0; }
 .settings-kv code, .setup-steps code { font-family: var(--font-mono); font-size: 12px; color: var(--cyan); overflow-wrap: anywhere; }
 .setup-steps { margin: 0 0 12px 18px; display: grid; gap: 6px; font-size: 13px; color: var(--text-2); }
 .backup-warn { color: var(--amber); }

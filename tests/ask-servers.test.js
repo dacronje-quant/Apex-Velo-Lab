@@ -44,6 +44,8 @@ function startMockAi() {
       if (u.pathname === '/v1/messages') {
         if (body && body.fallbacks && state.rejectFallback) return send(400, { type: 'error', error: { type: 'invalid_request_error', message: 'fallbacks: not available for this account' } });
         const last = body && body.messages ? body.messages[body.messages.length - 1] : null;
+        // Never answers: records whether the app server gave up on the call when its own client left.
+        if (last && /HANG/.test(last.content)) { state.hung = 'open'; res.on('close', () => { state.hung = 'closed'; }); return; }
         if (last && /REFUSE/.test(last.content)) return send(200, { model: body.model, content: [], stop_reason: 'refusal', usage: { input_tokens: 10, output_tokens: 0 } });
         return send(200, {
           model: body.model, stop_reason: 'end_turn',
@@ -190,6 +192,17 @@ async function runAgainst(kind, pwsh, mock, appPort) {
     const cr = await fetch(`${base}/api/coach`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ prompt: 'Build me a session' }) });
     const cc = mock.log.find(x => x.path === '/v1/messages');
     check(`${tag}: coach requests are unchanged`, cr.status === 200 && cc && typeof cc.body.system === 'string' && cc.body.messages.length === 1 && !('fallbacks' in cc.body));
+
+    // 8. Cancelling a question in the app stops the paid upstream call instead of letting it run to the timeout.
+    if (kind === 'node') {
+      mock.state.hung = null;
+      const ctl = new AbortController();
+      const pending = fetch(`${base}/api/ask`, { method: 'POST', signal: ctl.signal, headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ messages: [{ role: 'user', content: 'HANG' }] }) }).catch(() => null);
+      for (let i = 0; i < 50 && mock.state.hung !== 'open'; i++) await new Promise(r => setTimeout(r, 50));
+      ctl.abort(); await pending;
+      for (let i = 0; i < 50 && mock.state.hung !== 'closed'; i++) await new Promise(r => setTimeout(r, 50));
+      check(`${tag}: a cancelled question aborts the upstream request`, mock.state.hung === 'closed', String(mock.state.hung));
+    }
     return seen;
   } finally {
     proc.kill();

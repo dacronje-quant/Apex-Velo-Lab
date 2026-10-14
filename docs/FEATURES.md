@@ -181,8 +181,10 @@ The **Sync from Strava** card in *History* imports your Strava activities for a 
 The PC keeps the Bluetooth sensors and runs the ride; your phone becomes a live screen and remote.
 
 1. **One time:** double-click `Enable-Phone-View.bat` and click **Yes** on the Windows prompt. It lets the server listen on your home network and opens the port in Windows Firewall for *private* networks only. Your home Wi-Fi/Ethernet must be set to **Private network** in Windows settings. (Undo any time: `Enable-Phone-View.bat remove`.)
-2. Start `Launch-Apex-Velo.bat` as usual and open the app on the PC. The console window prints the phone address, e.g. `http://192.168.1.23:8080/live.html`.
-3. On the iPhone (same Wi-Fi, not mobile data) open that address in Safari, then **Share > Add to Home Screen** for a full-screen "Apex Live" icon.
+2. Start `Launch-Apex-Velo.bat` as usual and open the app on the PC, then **Settings > Phone view**. It shows a QR code and the phone address, e.g. `http://192.168.1.23:8080/live.html#pair=...`. The `#pair=` part pairs the phone: without it a device on the same Wi-Fi cannot see the ride, send commands or download ride files.
+3. On the iPhone (same Wi-Fi, not mobile data) scan the code or open that address in Safari, then **Share > Add to Home Screen** for a full-screen "Apex Live" icon. **Unpair all phones** in the same place makes a new code if a link was shared or a phone lost.
+
+The AI coach, Ask, Strava and saved data are only available to the app on the PC itself, never over the Wi-Fi.
 
 The phone has three main views: **Ride**, **Pedaling** and **Devices**. Tap the tabs or swipe sideways; the phone remembers the last view. Only Pedaling has a view switch. Each screen fits without vertical scrolling on small phones and in landscape.
 

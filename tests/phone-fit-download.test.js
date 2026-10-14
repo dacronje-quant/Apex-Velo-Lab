@@ -129,7 +129,21 @@ for (const kind of ['node', 'powershell']) {
     const live = await (await fetch(base + '/api/live')).json();
     assert.equal(live.fit.id, ride.id);
     assert.equal(live.fit.filename, filename);
-    const download = await fetch(base + live.fit.url, { headers: { Origin: `http://192.168.1.2:${port}` } });
+    const lan = { Origin: `http://192.168.1.2:${port}` };
+    let download = await fetch(base + live.fit.url, { headers: lan });
+    if (kind === 'node') {
+      // A phone that has not been paired cannot download rides, read the live screen or send commands.
+      assert.equal(download.status, 401);
+      assert.equal((await fetch(base + '/api/live', { headers: lan })).status, 401);
+      assert.equal((await fetch(base + '/api/live', { headers: { ...lan, 'X-Apex-Phone': '0'.repeat(20) } })).status, 401);
+      assert.equal((await fetch(base + '/api/live/cmd', { method: 'POST', headers: { ...lan, 'Content-Type': 'application/json' }, body: '{"cmd":"watts-up"}' })).status, 401);
+      const key = fs.readFileSync(path.join(dir, 'data', 'phone-token.txt'), 'utf8').trim();
+      assert.equal((await fetch(base + '/api/live', { headers: { ...lan, 'X-Apex-Phone': key } })).status, 200);
+      // Even a paired phone cannot overwrite the live screen or collect the PC's commands.
+      assert.equal((await fetch(base + '/api/live', { method: 'POST', headers: { ...lan, 'X-Apex-Phone': key, 'Content-Type': 'application/json' }, body: '{}' })).status, 403);
+      assert.equal((await fetch(base + '/api/live/cmds', { headers: { ...lan, 'X-Apex-Phone': key } })).status, 403);
+      download = await fetch(base + live.fit.url + '&k=' + key, { headers: lan });
+    }
     assert.equal(download.status, 200);
     assert.equal(download.headers.get('content-type'), 'application/octet-stream');
     assert.equal(download.headers.get('content-disposition'), `attachment; filename="${filename}"`);
@@ -145,6 +159,7 @@ for (const kind of ['node', 'powershell']) {
     assert.equal((await fetch(`${base}/api/live/fit?id=next_ride&filename=${filename}`, { method: 'POST', body: bytes })).status, 200);
     assert.equal((await fetch(fitUrl)).status, 404); // old ride URLs never download a different ride
     assert.equal((await fetch(`${base}/api/live/fit?id=next_ride`)).status, 200);
-    assert.deepEqual(fs.readdirSync(dir).sort(), ['.env', entry].sort()); // no ride files on disk
+    assert.deepEqual(fs.readdirSync(dir).sort(), ['.env', entry, ...(kind === 'node' ? ['data'] : [])].sort()); // no ride files on disk
+    if (kind === 'node') assert.deepEqual(fs.readdirSync(path.join(dir, 'data')), ['phone-token.txt']);
   });
 }

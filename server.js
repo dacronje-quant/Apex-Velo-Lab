@@ -127,6 +127,9 @@ function serveStatic(req, res, urlPath) {
   let rel;
   try { rel = decodeURIComponent(urlPath); } catch (e) { return send(res, 400, 'Bad request'); }
   if (rel.includes('\0')) return send(res, 400, 'Bad request');
+  // Windows would otherwise resolve 8.3 short names (/ENV~1 = .env) and alternate data streams (file::$DATA)
+  // to files the name check below never sees. No app file uses either character.
+  if (/[~:]/.test(rel)) return send(res, 404, 'Not found');
   rel = rel.replace(/^\/+/, '') || 'index.html';
   const file = path.resolve(ROOT, rel);
   if (file !== ROOT && !file.startsWith(ROOT + path.sep)) return send(res, 403, 'Forbidden');
@@ -136,6 +139,11 @@ function serveStatic(req, res, urlPath) {
   fs.stat(file, (err, st) => {
     if (err) return send(res, 404, 'Not found');
     const target = st.isDirectory() ? path.join(file, 'index.html') : file;
+    // Check the name the file system really opens too (case, short names, links), not only the requested one.
+    let real;
+    try { real = fs.realpathSync.native(target); } catch (e) { return send(res, 404, 'Not found'); }
+    const realRoot = realRootDir();
+    if (!real.startsWith(realRoot + path.sep) || BLOCKED.test(path.relative(realRoot, real))) return send(res, 404, 'Not found');
     fs.readFile(target, (err2, data) => {
       if (err2) return send(res, 404, 'Not found');
       res.writeHead(200, {
@@ -146,6 +154,20 @@ function serveStatic(req, res, urlPath) {
       res.end(req.method === 'HEAD' ? undefined : data);
     });
   });
+}
+
+let realRootCache = null;
+function realRootDir() {
+  if (!realRootCache) { try { realRootCache = fs.realpathSync.native(ROOT); } catch (e) { realRootCache = ROOT; } }
+  return realRootCache;
+}
+
+/** Writes a small private file (tokens, status) atomically and readable only by this user where the OS supports it. */
+function writePrivateFile(file, data) {
+  fs.mkdirSync(path.dirname(file), { recursive: true });
+  const tmp = `${file}.${process.pid}.tmp`;
+  fs.writeFileSync(tmp, data, { mode: 0o600 });
+  fs.renameSync(tmp, file);
 }
 
 function send(res, status, body, type = 'text/plain; charset=utf-8') {
@@ -475,7 +497,7 @@ function resolveEngine(input) {
 
 /** Reads and checks a JSON request from the app (local only); returns the parsed body or sends the error. */
 async function readAppJson(req, res) {
-  if (!isLocalRequest(req)) { sendJson(res, 403, { error: 'Requests are only accepted from the app on localhost.' }); return null; }
+  if (!isPcRequest(req)) { sendJson(res, 403, { error: 'Requests are only accepted from the app on this PC.' }); return null; }
   if (!/^application\/json\b/i.test(req.headers['content-type'] || '')) { sendJson(res, 415, { error: 'Content-Type must be application/json.' }); return null; }
   try { return JSON.parse(await readBody(req)); } catch (e) { sendJson(res, e.status || 400, { error: e.status ? e.message : 'Invalid JSON.' }); return null; }
 }
@@ -490,7 +512,8 @@ async function handleCoach(req, res) {
 
   const ac = new AbortController();
   const timer = setTimeout(() => ac.abort(), UPSTREAM_TIMEOUT_MS);
-  req.on('close', () => { if (!res.writableEnded) ac.abort(); });
+  // res, not req: the request's 'close' has already fired once its body was read, so it never reports a cancel.
+  res.on('close', () => { if (!res.writableEnded) ac.abort(); });
   const t0 = Date.now();
   try {
     const out = provider === 'gemini'
@@ -548,7 +571,8 @@ async function handleAsk(req, res) {
 
   const ac = new AbortController();
   const timer = setTimeout(() => ac.abort(), UPSTREAM_TIMEOUT_MS);
-  req.on('close', () => { if (!res.writableEnded) ac.abort(); });
+  // res, not req: the request's 'close' has already fired once its body was read, so it never reports a cancel.
+  res.on('close', () => { if (!res.writableEnded) ac.abort(); });
   const t0 = Date.now();
   try {
     let out;
@@ -584,6 +608,8 @@ const STRAVA_CLIENT_SECRET = (process.env.STRAVA_CLIENT_SECRET || '').trim();
 const STRAVA_BASE = (process.env.APEX_STRAVA_BASE_URL || 'https://www.strava.com').replace(/\/+$/, '');
 const STRAVA_TOKEN_FILE = path.join(ROOT, '.strava-tokens.json');
 const STRAVA_MAX_UPLOAD = 12 * 1024 * 1024;
+const STRAVA_TIMEOUT_MS = 30000;
+const STRAVA_UPLOAD_TIMEOUT_MS = 120000;
 const stravaStates = new Map();
 
 function readStravaTokens() {
@@ -591,13 +617,13 @@ function readStravaTokens() {
 }
 function saveStravaTokens(d, scope, athlete) {
   const a = athlete || d.athlete || {};
-  fs.writeFileSync(STRAVA_TOKEN_FILE, JSON.stringify({
+  writePrivateFile(STRAVA_TOKEN_FILE, JSON.stringify({
     access_token: d.access_token, refresh_token: d.refresh_token, expires_at: d.expires_at, scope: scope || '',
     athlete: { id: a.id, firstname: a.firstname || '', lastname: a.lastname || '' }
   }, null, 2));
 }
 async function stravaForm(url, fields) {
-  const r = await fetch(url, { method: 'POST', body: new URLSearchParams(fields) });
+  const r = await fetch(url, { method: 'POST', body: new URLSearchParams(fields), signal: AbortSignal.timeout(STRAVA_TIMEOUT_MS) });
   const data = await r.json().catch(() => null);
   return { ok: r.ok, status: r.status, data };
 }
@@ -672,14 +698,14 @@ function slimActivity(a, detailed) {
 }
 /** One GET to the Strava API. The sync path has no other way to reach Strava. */
 async function stravaGet(pathAndQuery, token) {
-  const r = await fetch(`${STRAVA_BASE}/api/v3/${pathAndQuery}`, { method: 'GET', headers: { Authorization: `Bearer ${token}` } });
+  const r = await fetch(`${STRAVA_BASE}/api/v3/${pathAndQuery}`, { method: 'GET', headers: { Authorization: `Bearer ${token}` }, signal: AbortSignal.timeout(STRAVA_TIMEOUT_MS) });
   const data = await r.json().catch(() => null);
   return { status: r.status, ok: r.ok, data, rate: stravaRate(r) };
 }
 
 async function handleStravaSync(req, res, query) {
   if (req.method !== 'GET') return sendJson(res, 405, { error: 'Method not allowed' });
-  if (!isLocalRequest(req)) return sendJson(res, 403, { error: 'Forbidden' });
+  if (!isPcRequest(req)) return sendJson(res, 403, { error: 'Forbidden' });
   const t = readStravaTokens();
   if (!t || !t.refresh_token) return sendJson(res, 401, { error: 'Strava is not connected. Connect Strava first.', needsConnect: true });
   if (!/activity:read_all/.test(t.scope || '')) {
@@ -694,7 +720,7 @@ async function handleStravaSync(req, res, query) {
     if (!/^\d+$/.test(sid)) return sendJson(res, 400, { error: 'streams must be one activity id' });
     let r, text;
     try {
-      r = await fetch(`${STRAVA_BASE}/api/v3/activities/${sid}/streams?keys=${SYNC_STREAM_KEYS}&key_by_type=true`, { method: 'GET', headers: { Authorization: `Bearer ${token}` } });
+      r = await fetch(`${STRAVA_BASE}/api/v3/activities/${sid}/streams?keys=${SYNC_STREAM_KEYS}&key_by_type=true`, { method: 'GET', headers: { Authorization: `Bearer ${token}` }, signal: AbortSignal.timeout(STRAVA_TIMEOUT_MS) });
       text = await r.text();
     } catch (e) { return sendJson(res, 502, { error: `Could not reach Strava (${e.message}).` }); }
     const rate = stravaRate(r);
@@ -751,11 +777,11 @@ async function handleStravaSync(req, res, query) {
 
 async function handleStrava(req, res, urlPath, query) {
   if (urlPath === '/api/strava/status') {
-    if (!isLocalRequest(req)) return sendJson(res, 403, { error: 'Forbidden' });
+    if (!isPcRequest(req)) return sendJson(res, 403, { error: 'Forbidden' });
     return sendJson(res, 200, stravaStatus());
   }
   if (urlPath === '/api/strava/connect') {
-    if (!isLocalRequest(req)) return send(res, 403, 'Forbidden');
+    if (!isPcRequest(req)) return send(res, 403, 'Forbidden');
     if (!STRAVA_CLIENT_ID || !STRAVA_CLIENT_SECRET) return sendHtml(res, 400, 'Strava not set up', '<h1>Strava is not set up yet</h1><p>Add <code>STRAVA_CLIENT_ID</code> and <code>STRAVA_CLIENT_SECRET</code> to the <code>.env</code> file, restart the server, then try again.</p>');
     const state = require('crypto').randomBytes(16).toString('hex');
     stravaStates.set(state, Date.now());
@@ -781,7 +807,7 @@ async function handleStrava(req, res, urlPath, query) {
   }
   if (urlPath === '/api/strava/disconnect') {
     if (req.method !== 'POST') return sendJson(res, 405, { error: 'Method not allowed' });
-    if (!isLocalRequest(req)) return sendJson(res, 403, { error: 'Forbidden' });
+    if (!isPcRequest(req)) return sendJson(res, 403, { error: 'Forbidden' });
     const token = await stravaAccessToken();
     if (token) await stravaForm(`${STRAVA_BASE}/oauth/deauthorize`, { access_token: token }).catch(() => {});
     try { fs.unlinkSync(STRAVA_TOKEN_FILE); } catch (e) { /* not connected */ }
@@ -789,7 +815,7 @@ async function handleStrava(req, res, urlPath, query) {
   }
   if (urlPath === '/api/strava/upload') {
     if (req.method !== 'POST') return sendJson(res, 405, { error: 'Method not allowed' });
-    if (!isLocalRequest(req)) return sendJson(res, 403, { error: 'Requests are only accepted from the app on localhost.' });
+    if (!isPcRequest(req)) return sendJson(res, 403, { error: 'Requests are only accepted from the app on this PC.' });
     if (!/^application\/json\b/i.test(req.headers['content-type'] || '')) return sendJson(res, 415, { error: 'Content-Type must be application/json.' });
     const token = await stravaAccessToken();
     if (!token) return sendJson(res, 401, { error: 'Strava is not connected (or access was revoked). Connect Strava and try again.', needsConnect: true });
@@ -802,7 +828,7 @@ async function handleStrava(req, res, urlPath, query) {
     const parts = { data_type: 'fit', name: input.name || '', description: input.description || '', trainer: '1', commute: '0', external_id: input.externalId || '' };
     for (const [k, v] of Object.entries(parts)) if (v !== '') form.append(k, String(v));
     let r;
-    try { r = await fetch(`${STRAVA_BASE}/api/v3/uploads`, { method: 'POST', headers: { Authorization: `Bearer ${token}` }, body: form }); }
+    try { r = await fetch(`${STRAVA_BASE}/api/v3/uploads`, { method: 'POST', headers: { Authorization: `Bearer ${token}` }, body: form, signal: AbortSignal.timeout(STRAVA_UPLOAD_TIMEOUT_MS) }); }
     catch (e) { return sendJson(res, 502, { error: `Could not reach Strava (${e.message}).` }); }
     const d = await r.json().catch(() => null);
     if (r.status === 401) return sendJson(res, 401, { error: 'Strava rejected the sign-in. Connect Strava again.', needsConnect: true });
@@ -813,7 +839,7 @@ async function handleStrava(req, res, urlPath, query) {
     return sendJson(res, 200, out);
   }
   if (urlPath === '/api/strava/activities') {
-    if (!isLocalRequest(req)) return sendJson(res, 403, { error: 'Forbidden' });
+    if (!isPcRequest(req)) return sendJson(res, 403, { error: 'Forbidden' });
     const after = query.get('after') || '', before = query.get('before') || '';
     if (!/^\d+$/.test(after) || !/^\d+$/.test(before)) return sendJson(res, 400, { error: 'after and before (unix seconds) are required' });
     const token = await stravaAccessToken();
@@ -821,7 +847,7 @@ async function handleStrava(req, res, urlPath, query) {
     const out = [];
     for (let page = 1; page <= 10; page++) {
       let r;
-      try { r = await fetch(`${STRAVA_BASE}/api/v3/athlete/activities?after=${after}&before=${before}&per_page=200&page=${page}`, { headers: { Authorization: `Bearer ${token}` } }); }
+      try { r = await fetch(`${STRAVA_BASE}/api/v3/athlete/activities?after=${after}&before=${before}&per_page=200&page=${page}`, { headers: { Authorization: `Bearer ${token}` }, signal: AbortSignal.timeout(STRAVA_TIMEOUT_MS) }); }
       catch (e) { return sendJson(res, 502, { error: `Could not reach Strava (${e.message}).` }); }
       if (r.status === 401) return sendJson(res, 401, { error: 'Strava needs permission to read your activities. Connect Strava again.', needsConnect: true });
       if (r.status === 429) return sendJson(res, 429, { error: 'Strava rate limit reached - try again in 15 minutes.' });
@@ -835,11 +861,11 @@ async function handleStrava(req, res, urlPath, query) {
   if (urlPath === '/api/strava/sync') return handleStravaSync(req, res, query);
   const m = urlPath.match(/^\/api\/strava\/upload\/(\d+)$/);
   if (m) {
-    if (!isLocalRequest(req)) return sendJson(res, 403, { error: 'Forbidden' });
+    if (!isPcRequest(req)) return sendJson(res, 403, { error: 'Forbidden' });
     const token = await stravaAccessToken();
     if (!token) return sendJson(res, 401, { error: 'Strava is not connected.', needsConnect: true });
     let r;
-    try { r = await fetch(`${STRAVA_BASE}/api/v3/uploads/${m[1]}`, { headers: { Authorization: `Bearer ${token}` } }); }
+    try { r = await fetch(`${STRAVA_BASE}/api/v3/uploads/${m[1]}`, { headers: { Authorization: `Bearer ${token}` }, signal: AbortSignal.timeout(STRAVA_TIMEOUT_MS) }); }
     catch (e) { return sendJson(res, 502, { error: `Could not reach Strava (${e.message}).` }); }
     const d = await r.json().catch(() => null);
     if (!r.ok || !d) return sendJson(res, 502, { error: `Strava status check failed (HTTP ${r.status}).` });
@@ -1015,9 +1041,28 @@ const HEALTH_NAME_RE = /^hae_\d{8}_\d{6}_[0-9a-f]{6}\.json$/;
 function healthToken(renew = false) {
   if (!renew) { try { const t = fs.readFileSync(HEALTH_TOKEN_FILE, 'utf8').trim(); if (/^[0-9a-f]{32,}$/.test(t)) return t; } catch (e) { /* none yet */ } }
   const t = require('crypto').randomBytes(24).toString('hex');
-  fs.mkdirSync(HEALTH_DIR, { recursive: true });
-  fs.writeFileSync(HEALTH_TOKEN_FILE, t);
+  writePrivateFile(HEALTH_TOKEN_FILE, t);
   return t;
+}
+
+// The phone remote is paired by opening the address shown on this PC (Settings > Phone view), which carries
+// this token in its #fragment. live.html keeps it and sends it with every request, so another device on the
+// same Wi-Fi cannot drive the trainer, read the live screen or download rides.
+const PHONE_TOKEN_FILE = path.join(ROOT, 'data', 'phone-token.txt');
+function phoneToken(renew = false) {
+  if (!renew) { try { const t = fs.readFileSync(PHONE_TOKEN_FILE, 'utf8').trim(); if (/^[0-9a-f]{20,}$/.test(t)) return t; } catch (e) { /* none yet */ } }
+  const t = require('crypto').randomBytes(10).toString('hex');
+  writePrivateFile(PHONE_TOKEN_FILE, t);
+  return t;
+}
+function safeEqual(given, want) {
+  const a = Buffer.from(String(given || '')), b = Buffer.from(want);
+  return a.length === b.length && require('crypto').timingSafeEqual(a, b);
+}
+/** The app on this PC, or a phone that was paired with the token. */
+function isPairedPhone(req, query) {
+  if (isPcRequest(req)) return true;
+  return safeEqual(req.headers['x-apex-phone'] || query.get('k'), phoneToken());
 }
 
 function healthInboxFiles() {
@@ -1037,13 +1082,12 @@ function healthStatus() {
   let meta = {};
   try { meta = JSON.parse(fs.readFileSync(HEALTH_META_FILE, 'utf8')) || {}; } catch (e) { /* none yet */ }
   const ips = lanAddresses();
-  return { token: healthToken(), port: PORT, urls: ips.map(ip => `http://${ip}:${PORT}/api/health`), phoneUrls: ips.map(ip => `http://${ip}:${PORT}/live.html`), inbox: healthInboxFiles().length, lastReceived: meta.lastReceived || null, lastBytes: meta.lastBytes || 0, received: meta.received || 0 };
+  const pair = phoneToken();
+  return { token: healthToken(), port: PORT, urls: ips.map(ip => `http://${ip}:${PORT}/api/health`), phoneUrls: ips.map(ip => `http://${ip}:${PORT}/live.html#pair=${pair}`), inbox: healthInboxFiles().length, lastReceived: meta.lastReceived || null, lastBytes: meta.lastBytes || 0, received: meta.received || 0 };
 }
 
 function tokenMatches(given) {
-  const want = Buffer.from(healthToken());
-  const got = Buffer.from(String(given || ''));
-  return got.length === want.length && require('crypto').timingSafeEqual(got, want);
+  return safeEqual(given, healthToken());
 }
 
 async function handleHealth(req, res, urlPath, query) {
@@ -1068,7 +1112,7 @@ async function handleHealth(req, res, urlPath, query) {
       fs.renameSync(tmp, path.join(HEALTH_INBOX, name));
       let meta = {};
       try { meta = JSON.parse(fs.readFileSync(HEALTH_META_FILE, 'utf8')) || {}; } catch (e) { /* first */ }
-      fs.writeFileSync(HEALTH_META_FILE, JSON.stringify({ lastReceived: d.toISOString(), lastBytes: buf.length, received: (meta.received || 0) + 1 }));
+      writePrivateFile(HEALTH_META_FILE, JSON.stringify({ lastReceived: d.toISOString(), lastBytes: buf.length, received: (meta.received || 0) + 1 }));
     } catch (e) {
       return sendJson(res, 500, { error: `Could not save the data (${e.message}).` });
     }
@@ -1078,6 +1122,7 @@ async function handleHealth(req, res, urlPath, query) {
   if (!isPcRequest(req)) return sendJson(res, 403, { error: 'Only the app on this PC can read Apple Health data.' });
   if (urlPath === '/api/health/status' && req.method === 'GET') return sendJson(res, 200, healthStatus());
   if (urlPath === '/api/health/token' && req.method === 'POST') { healthToken(true); return sendJson(res, 200, healthStatus()); }
+  if (urlPath === '/api/health/phone-token' && req.method === 'POST') { phoneToken(true); return sendJson(res, 200, healthStatus()); }
   if (urlPath === '/api/health/inbox' && req.method === 'GET') {
     const names = healthInboxFiles().slice(0, 20);
     const files = [];
@@ -1099,8 +1144,15 @@ async function handleHealth(req, res, urlPath, query) {
 
 async function handleLive(req, res, urlPath) {
   if (!isLocalRequest(req)) return sendJson(res, 403, { error: 'Forbidden' });
+  const query = new URL(req.url, 'http://localhost').searchParams;
+  // Publishing the live screen and collecting commands is for the PC app; reading it and sending commands
+  // needs the PC or a paired phone.
+  const pcOnly = (urlPath === '/api/live' && req.method === 'POST') || urlPath === '/api/live/cmds' || (urlPath === '/api/live/fit' && req.method === 'POST');
+  if (pcOnly ? !isPcRequest(req) : !isPairedPhone(req, query)) {
+    return pcOnly ? sendJson(res, 403, { error: 'Only the app on this PC can do this.' })
+      : sendJson(res, 401, { error: 'This phone is not paired. Open the address from Settings > Phone view on the PC.', needsPairing: true });
+  }
   if (urlPath === '/api/live/fit') {
-    const query = new URL(req.url, 'http://localhost').searchParams;
     const id = query.get('id');
     if (req.method === 'GET' || req.method === 'HEAD') {
       if (!live.fit || live.fit.id !== id) return sendJson(res, 404, { error: 'This FIT file is no longer available. Keep the PC app open until downloaded.' });
@@ -1112,7 +1164,6 @@ async function handleLive(req, res, urlPath) {
       return res.end(req.method === 'HEAD' ? undefined : live.fit.bytes);
     }
     if (req.method !== 'POST') return sendJson(res, 405, { error: 'Method not allowed' });
-    if (!isPcRequest(req)) return sendJson(res, 403, { error: 'Only the app on this PC can publish FIT files.' });
     const filename = query.get('filename');
     if (!/^[a-zA-Z0-9_-]{1,80}$/.test(id || '') || !/^[a-zA-Z0-9_-]{1,120}\.fit$/.test(filename || '')) return sendJson(res, 400, { error: 'Invalid FIT file name or ride id.' });
     if (Number(req.headers['content-length']) > LIVE_FIT_MAX_BYTES) return sendJson(res, 413, { error: 'FIT file too large' });
@@ -1128,14 +1179,14 @@ async function handleLive(req, res, urlPath) {
   }
   if (urlPath === '/api/live') {
     if (req.method === 'GET') {
-      const after = new URL(req.url, 'http://localhost').searchParams.get('after');
+      const after = query.get('after');
       // Nothing newer than what the phone already has: hold the request until the next snapshot.
       if (after !== null && Number(after) === live.seq) {
         if (live.waiters.length >= LIVE_MAX_WAITERS) { const old = live.waiters.shift(); clearTimeout(old.timer); if (!old.res.writableEnded) sendJson(old.res, 200, liveState()); }
         const w = { res, timer: null };
         w.timer = setTimeout(() => { live.waiters = live.waiters.filter(x => x !== w); if (!res.writableEnded) sendJson(res, 200, liveState()); }, LIVE_HOLD_MS);
         live.waiters.push(w);
-        req.on('close', () => { clearTimeout(w.timer); live.waiters = live.waiters.filter(x => x !== w); });
+        res.on('close', () => { clearTimeout(w.timer); live.waiters = live.waiters.filter(x => x !== w); });
         return;
       }
       return sendJson(res, 200, liveState());
@@ -1156,17 +1207,15 @@ async function handleLive(req, res, urlPath) {
     return sendJson(res, 405, { error: 'Method not allowed' });
   }
   if (urlPath === '/api/live/cmds') {
-    // Only the app on this PC collects commands.
-    if (!isPcRequest(req)) return sendJson(res, 403, { error: 'Forbidden' });
     if (req.method !== 'GET') return sendJson(res, 405, { error: 'Method not allowed' });
-    const after = Number(new URL(req.url, 'http://localhost').searchParams.get('after')) || 0;
+    const after = Number(query.get('after')) || 0;
     const ready = pendingLiveCmds(after);
     if (ready.length) return sendJson(res, 200, { cmds: ready });
     if (live.cmdWaiter) { const old = live.cmdWaiter; clearTimeout(old.timer); if (!old.res.writableEnded) sendJson(old.res, 200, { cmds: [] }); }
     const w = { res, after, timer: null };
     w.timer = setTimeout(() => { if (live.cmdWaiter === w) live.cmdWaiter = null; if (!res.writableEnded) sendJson(res, 200, { cmds: [] }); }, LIVE_CMD_HOLD_MS);
     live.cmdWaiter = w;
-    req.on('close', () => { clearTimeout(w.timer); if (live.cmdWaiter === w) live.cmdWaiter = null; });
+    res.on('close', () => { clearTimeout(w.timer); if (live.cmdWaiter === w) live.cmdWaiter = null; });
     return;
   }
   if (urlPath === '/api/live/cmd') {
@@ -1217,7 +1266,7 @@ function createServer() {
     }
     if (urlPath === '/api/coach/status') {
       if (req.method !== 'GET') return sendJson(res, 405, { error: 'Method not allowed' });
-      if (!isLocalRequest(req)) return sendJson(res, 403, { error: 'Forbidden' });
+      if (!isPcRequest(req)) return sendJson(res, 403, { error: 'Forbidden' });
       const q = new URL(req.url, 'http://localhost').searchParams;
       return refreshModelCatalog(q.get('refresh') === '1').then(() => sendJson(res, 200, status()), () => sendJson(res, 200, status()));
     }
@@ -1264,8 +1313,7 @@ if (require.main === module) {
         }
       }
       if (lanIps.length) {
-        console.log('Phone view (same Wi-Fi as this PC) - open in Safari:');
-        for (const ip of lanIps) console.log(`  http://${ip}:${PORT}/live.html`);
+        console.log(`Phone view (same Wi-Fi as this PC): pair the phone from the app's Settings > Phone view (${lanIps.map(ip => `http://${ip}:${PORT}/live.html`).join(', ')}).`);
       }
     } catch { /* ignore - LAN IP display is best-effort */ }
     const keySrc = (fromEnv, name) => (fromEnv ? `the ${name} environment variable` : '.env');

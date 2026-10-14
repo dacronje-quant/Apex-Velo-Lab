@@ -67,9 +67,25 @@
       const st = this.fetchHealthStatus ? await this.fetchHealthStatus() : null;
       if (!st) { el.innerHTML = `<span class="backup-warn">${esc(this._healthStatusError || 'The local server is not reachable.')}</span>`; return; }
       const urls = st.phoneUrls || [];
+      // The address carries this PC's pairing key, so scanning or opening it once pairs the phone.
+      const qr = (u) => {
+        if (typeof window.qrcode !== 'function') return '';
+        try { const q = window.qrcode(0, 'M'); q.addData(u); q.make(); return `<img class="phone-qr" alt="QR code for the phone address" src="${q.createDataURL(4, 2)}">`; } catch (e) { return ''; }
+      };
       el.innerHTML = urls.length
-        ? urls.map(u => `<div><span>On your phone</span><b><code>${esc(u)}</code></b></div>`).join('')
+        ? urls.map(u => `<div><span>On your phone - scan or open once to pair</span>${qr(u)}<b><code>${esc(u)}</code></b></div>`).join('')
+          + '<div><span>Lost phone or shared the link?</span><button type="button" class="btn" id="btnPhoneNewKey">Unpair all phones</button></div>'
         : '<span class="backup-warn">Phone access is off - run Enable-Phone-View.bat once on this PC, then restart the launcher.</span>';
+      const btn = document.getElementById('btnPhoneNewKey');
+      if (btn) btn.addEventListener('click', async () => {
+        if (!confirm('Unpair every phone? Each phone must scan the new code before it can use the remote again.')) return;
+        try {
+          const r = await fetch('api/health/phone-token', { method: 'POST', cache: 'no-store' });
+          if (!r.ok) throw new Error(r.status);
+          this.renderPhoneAddress();
+          this.showToast('Phones unpaired - scan the new code to pair again.', 'success');
+        } catch (e) { this.showToast('Could not unpair - is the local server running?', 'error'); }
+      });
     }
   });
 })();
