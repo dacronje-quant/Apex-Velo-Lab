@@ -1,0 +1,237 @@
+/* ==========================================================================
+   Analytics studio: module dock, one panel at a time, drill-down tiles, insight feed,
+   legend toggles, drag-to-zoom and the expanded chart dialog (js/app-ana-studio.js).
+   ========================================================================== */
+
+/* ------------------------------------------------------------------ dock */
+#view-analytics .ana-dock {
+  position: sticky; top: calc(var(--header-h) + 8px); z-index: 20;
+  display: grid; grid-auto-flow: column; grid-auto-columns: minmax(150px, 1fr); gap: 6px;
+  width: 100%; max-width: 100%; margin: 0 0 18px; padding: 6px;
+  border-radius: 26px; overflow-x: auto; overscroll-behavior-x: contain; scrollbar-width: none; scroll-snap-type: x proximity;
+  background: rgba(10, 14, 30, 0.55); border: 1px solid rgba(255, 255, 255, 0.09);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.06);
+  backdrop-filter: blur(18px) saturate(150%); -webkit-backdrop-filter: blur(18px) saturate(150%);
+  transition: background .25s var(--ease), box-shadow .25s var(--ease);
+}
+#view-analytics .ana-dock.is-stuck { background: rgba(9, 12, 26, 0.9); box-shadow: 0 18px 40px -18px rgba(0, 0, 0, 0.9), inset 0 1px 0 rgba(255, 255, 255, 0.06); }
+.ana-dock::-webkit-scrollbar { display: none; }
+.ana-dock-sentinel { height: 1px; margin-bottom: -1px; }
+
+.ana-dock-glider {
+  position: absolute; left: 0; top: 0; width: 0; height: 0; z-index: 0; pointer-events: none; opacity: 0;
+  border-radius: 20px;
+  background: linear-gradient(150deg, color-mix(in srgb, var(--zone-a) 30%, transparent), color-mix(in srgb, var(--zone-b) 16%, transparent));
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--zone-a) 55%, transparent), 0 10px 30px -12px var(--zone-a);
+  transition: transform .45s var(--spring), width .45s var(--spring), height .3s var(--ease), opacity .2s;
+}
+.ana-dock-glider.ready { opacity: 1; }
+.ana-dock-glider.no-anim { transition: none; }
+
+.ana-mod {
+  position: relative; z-index: 1; display: flex; flex-direction: column; align-items: flex-start; gap: 1px; min-width: 0;
+  padding: 9px 12px 10px; border: 0; border-radius: 20px; background: transparent; color: var(--text-2); text-align: left;
+  scroll-snap-align: center; transition: color .2s, background .2s;
+}
+.ana-mod:hover { color: var(--text-1); background: rgba(255, 255, 255, 0.04); }
+.ana-mod.active { color: var(--text-1); background: transparent; }
+.ana-mod:focus-visible { outline-offset: -2px; border-radius: 20px; }
+.ana-mod-top { display: flex; align-items: flex-start; gap: 7px; width: 100%; min-width: 0; font-size: 12px; font-weight: 700; letter-spacing: .02em; }
+.ana-mod-top .ic { width: 14px; height: 14px; margin-top: 1px; opacity: .75; }
+.ana-mod.active .ana-mod-top .ic { opacity: 1; color: var(--zone-b); }
+.ana-mod-name { min-width: 0; overflow-wrap: anywhere; line-height: 1.25; }
+.ana-mod-key {
+  margin-left: auto; flex: none; min-width: 17px; height: 17px; padding: 0 4px; border-radius: 6px; display: inline-grid; place-items: center;
+  font: 600 10px/1 var(--font-mono); color: var(--text-3); background: rgba(255, 255, 255, 0.06); border: 1px solid rgba(255, 255, 255, 0.08);
+}
+.ana-mod-stat {
+  font-family: var(--font-display); font-weight: 500; font-size: 19px; letter-spacing: -0.03em; line-height: 1.25; color: var(--text-1);
+  max-width: 100%; overflow-wrap: anywhere; margin-top: 3px;
+}
+.ana-mod-stat[data-dir="up"]::after, .ana-mod-stat[data-dir="down"]::after {
+  --arrow: var(--text-3);
+  content: ''; display: inline-block; width: 0; height: 0; margin-left: 6px; vertical-align: middle;
+  border-left: 4px solid transparent; border-right: 4px solid transparent;
+}
+.ana-mod-stat[data-tone="good"]::after { --arrow: var(--lime); }
+.ana-mod-stat[data-tone="bad"]::after { --arrow: var(--amber); }
+.ana-mod-stat[data-dir="up"]::after { border-bottom: 6px solid var(--arrow); }
+.ana-mod-stat[data-dir="down"]::after { border-top: 6px solid var(--arrow); }
+.ana-mod-sub { font-size: 11px; line-height: 1.35; color: var(--text-3); max-width: 100%; overflow-wrap: anywhere; }
+.ana-mod.active .ana-mod-sub { color: var(--text-2); }
+@media (hover: none), (max-width: 860px) { .ana-mod-key { display: none; } }
+@media (max-width: 1180px) {
+  #view-analytics .ana-dock { position: static; grid-auto-columns: minmax(142px, 1fr); border-radius: 22px; }
+}
+@media (max-width: 560px) {
+  #view-analytics .ana-dock { grid-auto-columns: 128px; padding: 5px; gap: 4px; margin-bottom: 14px; }
+  .ana-mod { padding: 8px 10px; }
+  .ana-mod-stat { font-size: 16px; }
+}
+
+/* ---------------------------------------------------------------- panels */
+.ana-stage { position: relative; min-width: 0; }
+.ana-panel { min-width: 0; outline: none; }
+.ana-panel[hidden] { display: none !important; }
+.ana-panel-head { display: flex; align-items: baseline; flex-wrap: wrap; gap: 4px 14px; margin: 2px 2px 14px; }
+.ana-panel-head .ana-section { margin: 0; font-size: 12px; }
+.ana-panel-head .ana-section::after { display: none; }
+.ana-panel-head p { font-size: 13px; color: var(--text-2); }
+#view-analytics .ana-section { scroll-margin-top: calc(var(--header-h) + 110px); }
+#view-analytics .ana-panel .card, #view-analytics .ana-panel .tile { scroll-margin-top: calc(var(--header-h) + 112px); }
+@media (max-width: 1180px) { #view-analytics .ana-panel .card, #view-analytics .ana-panel .tile, #view-analytics .ana-section { scroll-margin-top: 12px; } }
+
+/* Bento grid inside a panel */
+.ana-grid { display: grid; grid-template-columns: repeat(12, minmax(0, 1fr)); gap: var(--gap); margin-bottom: var(--gap); }
+.ana-grid > .card { margin-bottom: 0; min-width: 0; }
+.ana-w-12 { grid-column: span 12; } .ana-w-8 { grid-column: span 8; } .ana-w-7 { grid-column: span 7; }
+.ana-w-6 { grid-column: span 6; } .ana-w-5 { grid-column: span 5; } .ana-w-4 { grid-column: span 4; }
+@media (max-width: 1180px) { .ana-grid > [class*="ana-w-"] { grid-column: span 12; } }
+#ana-panel-overview .tile-grid { margin-bottom: var(--gap); }
+#ana-panel-overview .today-strip { margin-bottom: 0; }
+
+/* Card body split: chart on the left, a list beside it */
+.ana-split { display: grid; grid-template-columns: minmax(0, 1.7fr) minmax(240px, 1fr); gap: 24px; align-items: start; }
+.ana-split > * { min-width: 0; }
+.ana-split-side .cp-rows { margin-top: 0; }
+@media (max-width: 1000px) { .ana-split { grid-template-columns: minmax(0, 1fr); gap: 14px; } }
+
+/* Entrance: the new panel's cards rise in, slightly staggered, from the side you came from */
+@keyframes anaRise {
+  from { opacity: 0; transform: translate(calc(var(--ana-dir, 1) * 18px), 10px) scale(.99); }
+  to { opacity: 1; transform: none; }
+}
+.ana-enter .card, .ana-enter .tile, .ana-enter .pmc-stat-pill, .ana-enter .ana-panel-head {
+  animation: anaRise .5s var(--ease) backwards; animation-delay: calc(var(--i, 0) * 45ms);
+}
+
+/* Previous / next */
+.ana-pager { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; margin-top: 4px; }
+.ana-pager-btn {
+  display: inline-flex; align-items: center; gap: 12px; justify-self: start; max-width: 100%; min-width: 0; padding: 12px 16px; border-radius: 20px; text-align: left;
+  border: 1px solid rgba(255, 255, 255, 0.09); background: rgba(255, 255, 255, 0.035); color: var(--text-2);
+  transition: border-color .2s, background .2s, transform .35s var(--spring);
+}
+.ana-pager-btn.next { grid-column: 2; justify-self: end; text-align: right; }
+.ana-pager-btn span { display: flex; flex-direction: column; min-width: 0; }
+.ana-pager-btn small { font-size: 10.5px; font-weight: 700; letter-spacing: .1em; text-transform: uppercase; color: var(--text-3); }
+.ana-pager-btn b { color: var(--text-1); font-weight: 700; font-size: 14px; overflow-wrap: anywhere; }
+.ana-pager-btn:hover { border-color: color-mix(in srgb, var(--zone-a) 50%, transparent); background: rgba(255, 255, 255, 0.06); }
+.ana-pager-btn:hover .ic { color: var(--zone-b); }
+.ana-pager-btn:not(.next):hover { transform: translateX(-2px); }
+.ana-pager-btn.next:hover { transform: translateX(2px); }
+
+/* ------------------------------------------------------------ drill-down */
+.ana-link { cursor: pointer; transition: transform .35s var(--spring), border-color .2s, box-shadow .25s; }
+.ana-link:hover { transform: translateY(-2px); border-color: color-mix(in srgb, var(--zone-a) 45%, transparent); box-shadow: 0 18px 40px -26px var(--zone-a); }
+.ana-link:active { transform: translateY(0) scale(.99); }
+.tile.ana-link { position: relative; }
+.tile.ana-link::after {
+  content: ''; position: absolute; right: 12px; top: 13px; width: 7px; height: 7px; opacity: 0;
+  border-right: 2px solid var(--text-2); border-top: 2px solid var(--text-2); transform: rotate(45deg) translate(-3px, 3px);
+  transition: opacity .2s, transform .3s var(--spring);
+}
+.tile.ana-link:hover::after, .tile.ana-link:focus-visible::after { opacity: 1; transform: rotate(45deg); }
+
+@keyframes anaSpot {
+  0% { box-shadow: 0 0 0 0 color-mix(in srgb, var(--zone-a) 70%, transparent); }
+  35% { box-shadow: 0 0 0 4px color-mix(in srgb, var(--zone-a) 45%, transparent), 0 0 50px -6px var(--zone-a); }
+  100% { box-shadow: 0 0 0 0 transparent; }
+}
+.card.ana-spot, .tile.ana-spot { animation: anaSpot 1.8s var(--ease); border-color: color-mix(in srgb, var(--zone-a) 55%, transparent); }
+
+/* -------------------------------------------------------- insight feed */
+.ana-title-ic { color: var(--amber); }
+.ana-insights { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
+@media (max-width: 760px) { .ana-insights { grid-template-columns: 1fr; } }
+.ana-insight {
+  --tone: var(--text-3);
+  display: grid; grid-template-columns: 34px minmax(0, 1fr) auto 12px; align-items: center; gap: 10px; min-width: 0;
+  padding: 10px 12px; border-radius: 18px; text-align: left; color: var(--text-2);
+  border: 1px solid rgba(255, 255, 255, 0.07); background: rgba(255, 255, 255, 0.03);
+  transition: border-color .2s, background .2s, transform .35s var(--spring);
+}
+.ana-insight[data-tone="good"] { --tone: var(--lime); }
+.ana-insight[data-tone="bad"] { --tone: var(--amber); }
+.ana-insight[data-tone="flat"] { --tone: var(--cyan); }
+.ana-insight:hover { transform: translateY(-1px); background: rgba(255, 255, 255, 0.055); border-color: color-mix(in srgb, var(--tone) 45%, transparent); }
+.ana-insight-ic {
+  width: 34px; height: 34px; border-radius: 12px; display: grid; place-items: center; color: var(--tone);
+  background: color-mix(in srgb, var(--tone) 14%, transparent); border: 1px solid color-mix(in srgb, var(--tone) 28%, transparent);
+}
+.ana-insight-txt { display: flex; flex-direction: column; min-width: 0; }
+.ana-insight-txt b { color: var(--text-1); font-size: 13px; font-weight: 700; overflow-wrap: anywhere; }
+.ana-insight-txt small { font-size: 11.5px; color: var(--text-3); line-height: 1.4; overflow-wrap: anywhere; }
+.ana-insight-val { font-size: 12.5px; font-weight: 700; color: var(--tone); white-space: nowrap; }
+.ana-insight-go { color: var(--text-3); transition: transform .3s var(--spring), color .2s; }
+.ana-insight:hover .ana-insight-go { transform: translateX(3px); color: var(--text-1); }
+#anaCardRecords .record-row { padding: 9px 10px; font-size: 12.5px; }
+
+/* ------------------------------------------------------- legend toggles */
+.ana-legend { gap: 4px 6px; }
+.lg-toggle {
+  display: inline-flex; align-items: center; gap: 6px; height: 26px; padding: 0 10px; border-radius: 999px;
+  border: 1px solid rgba(255, 255, 255, 0.08); background: rgba(255, 255, 255, 0.03); color: var(--text-2);
+  font-size: 11.5px; font-weight: 500; letter-spacing: 0; text-transform: none; white-space: nowrap;
+  transition: opacity .2s, background .2s, border-color .2s, color .2s;
+}
+.lg-toggle:hover { color: var(--text-1); border-color: rgba(255, 255, 255, 0.2); }
+.lg-toggle.is-off { opacity: .45; background: transparent; }
+.lg-toggle.is-off .lg { filter: grayscale(1); }
+.lg-toggle.is-off > :not(.lg) { text-decoration: line-through; text-decoration-color: rgba(255, 255, 255, 0.35); }
+
+.ana-hint { margin-top: 8px; font-size: 11px; color: var(--text-3); }
+@media (hover: none) { .ana-hint { display: none; } }
+
+/* ------------------------------------------------------- drag-to-zoom */
+.chart-box canvas { touch-action: pan-y; }
+.ana-zoom-reset {
+  position: absolute; top: 6px; right: 6px; z-index: 2; display: inline-flex; align-items: center; gap: 6px; height: 26px; padding: 0 10px;
+  border-radius: 999px; border: 1px solid color-mix(in srgb, var(--zone-a) 55%, transparent);
+  background: rgba(9, 12, 26, 0.88); color: var(--text-1); font-size: 11.5px; font-weight: 600;
+  box-shadow: 0 8px 20px -10px var(--zone-a); animation: anaRise .3s var(--ease) backwards;
+}
+
+/* -------------------------------------------------------------- expand */
+[data-expandable] > .card-title { padding-right: 42px; }
+.ana-expand-btn {
+  position: absolute; top: 16px; right: 16px; z-index: 2;
+  display: inline-grid; place-items: center; width: 30px; height: 30px; flex: none; border-radius: 10px;
+  border: 1px solid rgba(255, 255, 255, 0.08); background: rgba(255, 255, 255, 0.03); color: var(--text-2);
+  transition: color .2s, border-color .2s, background .2s, transform .3s var(--spring);
+}
+.ana-expand-btn:hover { color: var(--text-1); border-color: color-mix(in srgb, var(--zone-a) 55%, transparent); transform: scale(1.06); }
+.ana-expand-btn .ic { width: 14px; height: 14px; }
+.card.is-zoomed .ana-expand-btn { display: none; }
+
+html.ana-zoom-lock { overflow: hidden; }
+.ana-zoom {
+  width: min(1400px, calc(100vw - 32px)); max-width: none; max-height: calc(100vh - 32px); margin: auto; padding: 0;
+  border: 0; background: transparent; color: inherit; overflow: visible;
+}
+.ana-zoom::backdrop { background: rgba(3, 5, 12, 0.72); backdrop-filter: blur(10px); -webkit-backdrop-filter: blur(10px); }
+.ana-zoom[open] { animation: anaZoomIn .32s var(--spring); }
+@keyframes anaZoomIn { from { opacity: 0; transform: scale(.96) translateY(8px); } to { opacity: 1; transform: none; } }
+.ana-zoom-body { max-height: calc(100vh - 32px); overflow: auto; border-radius: 28px; }
+.ana-zoom-body > .card {
+  margin: 0; background: linear-gradient(160deg, rgba(26, 32, 60, 0.97), rgba(10, 13, 28, 0.98));
+  box-shadow: 0 40px 100px -30px rgba(0, 0, 0, 0.9);
+}
+.ana-zoom-body > .card > .card-title { padding-right: 48px; }
+.ana-zoom-body .chart-box { height: min(62vh, 620px) !important; }
+.ana-zoom-body .ftp-metrics-chart { height: min(58vh, 560px) !important; }
+.ana-zoom-close {
+  position: absolute; top: 14px; right: 14px; z-index: 3; width: 36px; height: 36px; display: grid; place-items: center;
+  border-radius: 12px; border: 1px solid rgba(255, 255, 255, 0.14); background: rgba(255, 255, 255, 0.06); color: var(--text-1);
+}
+.ana-zoom-close:hover { background: rgba(255, 255, 255, 0.12); }
+@media (max-width: 560px) {
+  .ana-zoom { width: calc(100vw - 16px); max-height: calc(100vh - 16px); }
+  .ana-zoom-body { max-height: calc(100vh - 16px); border-radius: 22px; }
+  .ana-zoom-body .chart-box { height: min(56vh, 420px) !important; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .ana-dock-glider, .ana-link, .ana-insight, .ana-pager-btn, .ana-expand-btn { transition: none; }
+  .ana-enter .card, .ana-enter .tile, .ana-enter .pmc-stat-pill, .ana-enter .ana-panel-head, .ana-zoom[open], .card.ana-spot, .ana-zoom-reset { animation: none; }
+}

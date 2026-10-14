@@ -47,6 +47,7 @@
   <script src="js/velo-local-history.js"></script>
   <link rel="stylesheet" href="css/style.css">
   <link rel="stylesheet" href="css/ftp-history.css">
+  <link rel="stylesheet" href="css/analytics-studio.css">
 </head>
 <body>
 
@@ -783,8 +784,8 @@
     </section>
 
     <!-- ============================== ANALYTICS ============================== -->
+    <!-- One module at a time: the dock switches panels (1-7 or [ ] on the keyboard), every chart card can be expanded. -->
     <section class="tab-view" id="view-analytics">
-      <!-- TODAY -->
       <div class="ana-head">
         <div>
           <span class="eyebrow">Progression</span>
@@ -798,200 +799,254 @@
           <button type="button" class="ana-range" data-range="all">All</button>
         </div>
       </div>
-      <nav class="ana-nav" id="anaSectionNav" aria-label="Analytics sections">
-        <button type="button" class="ana-nav-btn active" data-target="ana-overview">Overview</button>
-        <button type="button" class="ana-nav-btn" data-target="ana-load">Fitness &amp; load</button>
-        <button type="button" class="ana-nav-btn" data-target="ana-power">Power &amp; CP</button>
-        <button type="button" class="ana-nav-btn" data-target="ana-intensity">Intensity</button>
-        <button type="button" class="ana-nav-btn" data-target="ana-aerobic">Aerobic engine</button>
-        <button type="button" class="ana-nav-btn" data-target="ana-balance">Pedal balance</button>
+
+      <div class="ana-dock-sentinel" id="anaDockSentinel" aria-hidden="true"></div>
+      <nav class="ana-nav ana-dock" id="anaSectionNav" role="tablist" aria-label="Analytics modules">
+        <span class="ana-dock-glider" aria-hidden="true"></span>
+        <button type="button" class="ana-mod" role="tab" id="anaTab-overview" data-panel="overview" aria-controls="ana-panel-overview" aria-selected="true">
+          <span class="ana-mod-top"><svg class="ic"><use href="#i-grid"/></svg><span class="ana-mod-name">Overview</span><kbd class="ana-mod-key">1</kbd></span>
+          <span class="ana-mod-stat num" id="anaModStat-overview">--</span><span class="ana-mod-sub" id="anaModSub-overview">form today</span>
+        </button>
+        <button type="button" class="ana-mod" role="tab" id="anaTab-load" data-panel="load" aria-controls="ana-panel-load" aria-selected="false" tabindex="-1">
+          <span class="ana-mod-top"><svg class="ic"><use href="#i-activity"/></svg><span class="ana-mod-name">Fitness &amp; load</span><kbd class="ana-mod-key">2</kbd></span>
+          <span class="ana-mod-stat num" id="anaModStat-load">--</span><span class="ana-mod-sub" id="anaModSub-load">fitness (CTL)</span>
+        </button>
+        <button type="button" class="ana-mod" role="tab" id="anaTab-power" data-panel="power" aria-controls="ana-panel-power" aria-selected="false" tabindex="-1">
+          <span class="ana-mod-top"><svg class="ic"><use href="#i-bolt"/></svg><span class="ana-mod-name">Power &amp; CP</span><kbd class="ana-mod-key">3</kbd></span>
+          <span class="ana-mod-stat num" id="anaModStat-power">--</span><span class="ana-mod-sub" id="anaModSub-power">critical power</span>
+        </button>
+        <button type="button" class="ana-mod" role="tab" id="anaTab-ftp" data-panel="ftp" aria-controls="ana-panel-ftp" aria-selected="false" tabindex="-1">
+          <span class="ana-mod-top"><svg class="ic"><use href="#i-target"/></svg><span class="ana-mod-name">FTP</span><kbd class="ana-mod-key">4</kbd></span>
+          <span class="ana-mod-stat num" id="anaModStat-ftp">--</span><span class="ana-mod-sub" id="anaModSub-ftp">in use</span>
+        </button>
+        <button type="button" class="ana-mod" role="tab" id="anaTab-intensity" data-panel="intensity" aria-controls="ana-panel-intensity" aria-selected="false" tabindex="-1">
+          <span class="ana-mod-top"><svg class="ic"><use href="#i-focus"/></svg><span class="ana-mod-name">Intensity</span><kbd class="ana-mod-key">5</kbd></span>
+          <span class="ana-mod-stat" id="anaModStat-intensity">--</span><span class="ana-mod-sub" id="anaModSub-intensity">distribution</span>
+        </button>
+        <button type="button" class="ana-mod" role="tab" id="anaTab-aerobic" data-panel="aerobic" aria-controls="ana-panel-aerobic" aria-selected="false" tabindex="-1">
+          <span class="ana-mod-top"><svg class="ic"><use href="#i-crank"/></svg><span class="ana-mod-name">Aerobic engine</span><kbd class="ana-mod-key">6</kbd></span>
+          <span class="ana-mod-stat num" id="anaModStat-aerobic">--</span><span class="ana-mod-sub" id="anaModSub-aerobic">efficiency (EF)</span>
+        </button>
+        <button type="button" class="ana-mod" role="tab" id="anaTab-body" data-panel="body" aria-controls="ana-panel-body" aria-selected="false" tabindex="-1">
+          <span class="ana-mod-top"><svg class="ic"><use href="#i-lotus"/></svg><span class="ana-mod-name">Recovery &amp; balance</span><kbd class="ana-mod-key">7</kbd></span>
+          <span class="ana-mod-stat num" id="anaModStat-body">--</span><span class="ana-mod-sub" id="anaModSub-body">resting HR</span>
+        </button>
       </nav>
-      <div class="ana-anchor" id="ana-overview"></div>
-      <div class="pmc-status-row today-strip">
-        <div class="pmc-stat-pill" data-accent="lime"><span class="title" data-term="readiness">Readiness &middot; today</span><span class="val"><button type="button" class="readiness-chip" id="anaReadinessChip" data-level="none">Readiness --</button></span><span class="desc" id="anaReadinessNote">Resting HR, HRV &amp; sleep</span></div>
-        <div class="pmc-stat-pill" data-accent="amber"><span class="title" data-term="tsb">TSB &middot; Form</span><span class="val num" id="pmcValTsb">--</span><span class="desc"><span class="form-badge" id="pmcFormStatus">--</span></span></div>
-        <div class="pmc-stat-pill" data-accent="cyan"><span class="title" data-term="ctl">CTL &middot; Fitness</span><span class="val num" id="pmcValCtl">--</span><span class="desc" data-term-tip="atl">Recent strain (ATL) <b class="num" id="pmcValAtl">--</b></span></div>
-        <div class="pmc-stat-pill" data-accent="violet"><span class="title" data-term="ramp">Ramp rate &middot; 7 days</span><span class="val num" id="anaRampVal">--</span><span class="desc" id="anaRampNote">CTL change per week</span></div>
-        <div class="pmc-stat-pill" data-accent="rose"><span class="title" data-term="ftp">Active FTP</span><span class="val num" id="pmcValFtp">200 W</span><span class="desc num" id="pmcValWkg">2.67 W/kg (75 kg)</span></div>
-      </div>
 
-      <!-- PROGRESSION TILES -->
-      <div class="tile-grid" id="anaTiles"></div>
+      <div class="ana-stage" id="anaStage">
+        <!-- OVERVIEW -->
+        <div class="ana-panel" id="ana-panel-overview" data-panel="overview" role="tabpanel" aria-labelledby="anaTab-overview" tabindex="-1">
+          <div class="pmc-status-row today-strip" id="anaTodayStrip">
+            <div class="pmc-stat-pill" data-accent="lime"><span class="title" data-term="readiness">Readiness &middot; today</span><span class="val"><button type="button" class="readiness-chip" id="anaReadinessChip" data-level="none">Readiness --</button></span><span class="desc" id="anaReadinessNote">Resting HR, HRV &amp; sleep</span></div>
+            <div class="pmc-stat-pill ana-link" data-accent="amber" data-goto="load" data-spot="anaCardPmc" role="button" tabindex="0" aria-label="Form (TSB): open the performance management chart"><span class="title" data-term="tsb">TSB &middot; Form</span><span class="val num" id="pmcValTsb">--</span><span class="desc"><span class="form-badge" id="pmcFormStatus">--</span></span></div>
+            <div class="pmc-stat-pill ana-link" data-accent="cyan" data-goto="load" data-spot="anaCardPmc" role="button" tabindex="0" aria-label="Fitness (CTL): open the performance management chart"><span class="title" data-term="ctl">CTL &middot; Fitness</span><span class="val num" id="pmcValCtl">--</span><span class="desc" data-term-tip="atl">Recent strain (ATL) <b class="num" id="pmcValAtl">--</b></span></div>
+            <div class="pmc-stat-pill ana-link" data-accent="violet" data-goto="load" data-spot="anaCardWeekly" role="button" tabindex="0" aria-label="Ramp rate: open weekly training load"><span class="title" data-term="ramp">Ramp rate &middot; 7 days</span><span class="val num" id="anaRampVal">--</span><span class="desc" id="anaRampNote">CTL change per week</span></div>
+            <div class="pmc-stat-pill ana-link" data-accent="rose" data-goto="ftp" data-spot="anaCardFtpHistory" role="button" tabindex="0" aria-label="Active FTP: open FTP history"><span class="title" data-term="ftp">Active FTP</span><span class="val num" id="pmcValFtp">200 W</span><span class="desc num" id="pmcValWkg">2.67 W/kg (75 kg)</span></div>
+          </div>
 
-      <!-- FITNESS & LOAD -->
-      <h3 class="ana-section" id="ana-load">Fitness &amp; load</h3>
-      <div class="card">
-        <div class="card-title">
-          <span data-term="pmc">Performance management chart</span>
-          <div class="legend-inline legend-block">
-            <span data-term-tip="ctl"><i class="lg lg-ctl"></i>Fitness (CTL)</span><span data-term-tip="atl"><i class="lg lg-atl"></i>Strain (ATL)</span><span data-term-tip="tsb"><i class="lg lg-tsb"></i>Freshness (TSB)</span><span data-term-tip="tss"><i class="lg lg-tss"></i>Daily load (TSS)</span>
+          <!-- PROGRESSION TILES (click one to open its chart) -->
+          <div class="tile-grid" id="anaTiles"></div>
+
+          <div class="ana-grid">
+            <div class="card ana-w-7" id="anaCardInsights">
+              <div class="card-title"><span>What changed<span class="plain">From your rides and Apple Health in this period - tap one to dig in</span></span></div>
+              <div class="ana-insights" id="anaInsights"></div>
+            </div>
+            <div class="card ana-w-5" id="anaCardRecords">
+              <div class="card-title"><span>Records<span class="plain">All-time bests - tap a ride to review it</span></span><svg class="ic ana-title-ic"><use href="#i-trophy"/></svg></div>
+              <div class="records-list" id="progRecords"></div>
+            </div>
           </div>
         </div>
-        <div class="chart-box" style="height:300px;"><canvas id="pmcChartCanvas"></canvas></div>
-      </div>
-      <div class="card prog-card">
-        <div class="card-title">
-          <span><span id="progWeeklyTitle">Weekly training load</span><span class="plain">Training done each week</span></span>
-          <div class="segmented" id="progMetricPills" role="radiogroup" aria-label="Weekly metric">
-            <button type="button" class="prog-metric active" data-metric="tss" data-term-tip="tss">TSS</button>
-            <button type="button" class="prog-metric" data-metric="hours">Hours</button>
-            <button type="button" class="prog-metric" data-metric="kj" data-term-tip="kj">kJ</button>
-            <button type="button" class="prog-metric" data-metric="rides">Rides</button>
-            <button type="button" class="prog-metric" data-metric="zones" title="Hours per power zone, from 1 Hz power">Zones</button>
-          </div>
-        </div>
-        <div class="kpi-grid" id="progKpis"></div>
-        <div class="sub-title"><span>Consistency week by week</span><span class="hint" id="progWeeklyHint">Click a week to list its rides</span></div>
-        <div class="chart-box" style="height:230px;"><canvas id="progWeeklyChart"></canvas></div>
-        <div class="week-rides" id="progWeekRides"></div>
-      </div>
 
-      <!-- POWER & CRITICAL POWER -->
-      <h3 class="ana-section" id="ana-power">Power &amp; critical power</h3>
-      <div class="cockpit-grid">
-        <div class="col-span-8">
-          <div class="card pdc-card">
+        <!-- FITNESS & LOAD -->
+        <div class="ana-panel" id="ana-panel-load" data-panel="load" role="tabpanel" aria-labelledby="anaTab-load" tabindex="-1" hidden>
+          <div class="ana-panel-head"><h3 class="ana-section" id="ana-load">Fitness &amp; load</h3><p>Is training building fitness - and how hard was each week?</p></div>
+          <div class="card" id="anaCardPmc" data-expandable>
             <div class="card-title">
-              <span data-term="pdc">Power duration curve</span>
-              <div class="pdc-tools">
-                <span class="legend-inline" id="pdcLegend">
-                  <span><i class="lg lg-range"></i><span id="pdcRangeLegend">This period</span></span>
-                  <span><i class="lg lg-pr"></i>All-time best</span>
-                  <span id="pdcPrevLegendWrap"><i class="lg lg-prev"></i>Previous period</span>
-                  <span><i class="lg lg-model"></i>CP model</span>
-                  <span id="pdcLiveLegendWrap" hidden><i class="lg lg-session"></i>This session</span>
-                </span>
-                <div class="segmented segmented-sm" id="pdcUnitPills" role="radiogroup" aria-label="Power units">
-                  <button type="button" class="pdc-unit active" data-unit="w" aria-pressed="true">W</button>
-                  <button type="button" class="pdc-unit" data-unit="wkg" aria-pressed="false">W/kg</button>
-                </div>
+              <span data-term="pmc">Performance management chart</span>
+              <div class="legend-inline legend-block ana-legend" data-chart="pmcChart">
+                <button type="button" class="lg-toggle" data-ds="0" aria-pressed="true" data-term-tip="ctl"><i class="lg lg-ctl"></i>Fitness (CTL)</button><button type="button" class="lg-toggle" data-ds="1" aria-pressed="true" data-term-tip="atl"><i class="lg lg-atl"></i>Strain (ATL)</button><button type="button" class="lg-toggle" data-ds="2" aria-pressed="true" data-term-tip="tsb"><i class="lg lg-tsb"></i>Freshness (TSB)</button><button type="button" class="lg-toggle" data-ds="3" aria-pressed="true" data-term-tip="tss"><i class="lg lg-tss"></i>Daily load (TSS)</button>
               </div>
             </div>
-            <div class="chart-box" style="height:300px;"><canvas id="mmpChartCanvas" aria-label="Power duration curve: best average power for every duration from 1 second to 4 hours"></canvas></div>
-            <div class="mmp-scrub">
-              <input type="range" id="mmpScrubSlider" min="0" max="26" step="1" value="19" aria-label="Duration to inspect">
-              <div class="mmp-scrub-readout" id="mmpScrubReadout" aria-live="polite"></div>
-            </div>
-            <details class="table-view" id="pdcTableWrap"><summary>Show the curve as a table</summary><div class="table-scroll" id="pdcTable"></div></details>
+            <div class="chart-box" style="height:300px;"><canvas id="pmcChartCanvas"></canvas></div>
+            <p class="ana-hint">Tap a series to show or hide it &middot; with a mouse, drag across the chart to zoom, double-click to reset.</p>
           </div>
-        </div>
-        <div class="col-span-4">
-          <div class="card cp-card" id="cpModelCard">
-            <div class="card-title"><span data-term="cpModel">Critical power model</span><span class="chip chip-ghost num" id="cpModelChip">90 days</span></div>
-            <div id="cpModelBody"></div>
-          </div>
-        </div>
-      </div>
-      <div class="card">
-        <div class="card-title"><span data-term="profile">Power profile</span><span class="hint">PR = your all-time best, set in the last 90 days</span></div>
-        <div class="power-profile" id="anaPowerProfile"></div>
-      </div>
-      <div class="cockpit-grid">
-        <div class="col-span-7">
-          <div class="card">
+          <div class="card prog-card" id="anaCardWeekly" data-expandable>
             <div class="card-title">
-              <span data-term="cpHistory">Critical power &amp; W&prime; over time</span>
-              <span class="legend-inline"><span data-term-tip="cp"><i class="lg lg-range"></i>CP &middot; long-effort limit</span><span data-term-tip="ftp"><i class="lg lg-ftp"></i>FTP in use</span><span data-term-tip="wprime"><i class="lg lg-pr"></i>W&prime; &middot; burst energy</span></span>
+              <span><span id="progWeeklyTitle">Weekly training load</span><span class="plain">Training done each week</span></span>
+              <div class="segmented" id="progMetricPills" role="radiogroup" aria-label="Weekly metric">
+                <button type="button" class="prog-metric active" data-metric="tss" data-term-tip="tss">TSS</button>
+                <button type="button" class="prog-metric" data-metric="hours">Hours</button>
+                <button type="button" class="prog-metric" data-metric="kj" data-term-tip="kj">kJ</button>
+                <button type="button" class="prog-metric" data-metric="rides">Rides</button>
+                <button type="button" class="prog-metric" data-metric="zones" title="Hours per power zone, from 1 Hz power">Zones</button>
+              </div>
             </div>
-            <div class="chart-box" style="height:280px;"><canvas id="cpHistoryCanvas" aria-label="Critical power and W prime over time"></canvas></div>
-            <p class="footnote" id="cpHistoryNote">Each point is the model fitted to the best efforts of the 90 days before it. CP rising = more sustainable power; W&prime; rising = more punch above CP.</p>
+            <div class="kpi-grid" id="progKpis"></div>
+            <div class="sub-title"><span>Consistency week by week</span><span class="hint" id="progWeeklyHint">Click a week to list its rides</span></div>
+            <div class="chart-box" style="height:230px;"><canvas id="progWeeklyChart"></canvas></div>
+            <div class="week-rides" id="progWeekRides"></div>
           </div>
         </div>
-        <div class="col-span-5">
-          <div class="card">
+
+        <!-- POWER & CRITICAL POWER -->
+        <div class="ana-panel" id="ana-panel-power" data-panel="power" role="tabpanel" aria-labelledby="anaTab-power" tabindex="-1" hidden>
+          <div class="ana-panel-head"><h3 class="ana-section" id="ana-power">Power &amp; critical power</h3><p>What can you hold, and for how long?</p></div>
+          <div class="ana-grid">
+            <div class="card pdc-card ana-w-8" id="anaCardPdc" data-expandable>
+              <div class="card-title">
+                <span data-term="pdc">Power duration curve</span>
+                <div class="pdc-tools">
+                  <span class="legend-inline ana-legend" id="pdcLegend" data-chart="mmpChart">
+                    <button type="button" class="lg-toggle" data-ds="0" aria-pressed="true"><i class="lg lg-range"></i><span id="pdcRangeLegend">This period</span></button>
+                    <button type="button" class="lg-toggle" data-ds="1" aria-pressed="true"><i class="lg lg-pr"></i>All-time best</button>
+                    <button type="button" class="lg-toggle" data-ds="2" aria-pressed="true" id="pdcPrevLegendWrap"><i class="lg lg-prev"></i>Previous period</button>
+                    <button type="button" class="lg-toggle" data-ds="3" aria-pressed="true"><i class="lg lg-model"></i>CP model</button>
+                    <button type="button" class="lg-toggle" data-ds="4" aria-pressed="true" id="pdcLiveLegendWrap" hidden><i class="lg lg-session"></i>This session</button>
+                  </span>
+                  <div class="segmented segmented-sm" id="pdcUnitPills" role="radiogroup" aria-label="Power units">
+                    <button type="button" class="pdc-unit active" data-unit="w" aria-pressed="true">W</button>
+                    <button type="button" class="pdc-unit" data-unit="wkg" aria-pressed="false">W/kg</button>
+                  </div>
+                </div>
+              </div>
+              <div class="chart-box" style="height:300px;"><canvas id="mmpChartCanvas" aria-label="Power duration curve: best average power for every duration from 1 second to 4 hours"></canvas></div>
+              <div class="mmp-scrub">
+                <input type="range" id="mmpScrubSlider" min="0" max="26" step="1" value="19" aria-label="Duration to inspect">
+                <div class="mmp-scrub-readout" id="mmpScrubReadout" aria-live="polite"></div>
+              </div>
+              <details class="table-view" id="pdcTableWrap"><summary>Show the curve as a table</summary><div class="table-scroll" id="pdcTable"></div></details>
+            </div>
+            <div class="card cp-card ana-w-4" id="cpModelCard">
+              <div class="card-title"><span data-term="cpModel">Critical power model</span><span class="chip chip-ghost num" id="cpModelChip">90 days</span></div>
+              <div id="cpModelBody"></div>
+            </div>
+            <div class="card ana-w-12" id="anaCardProfile">
+              <div class="card-title"><span data-term="profile">Power profile</span><span class="hint">PR = your all-time best, set in the last 90 days</span></div>
+              <div class="power-profile" id="anaPowerProfile"></div>
+            </div>
+            <div class="card ana-w-12" id="anaCardCpHistory" data-expandable>
+              <div class="card-title">
+                <span data-term="cpHistory">Critical power &amp; W&prime; over time</span>
+                <span class="legend-inline ana-legend" data-chart="cpHistoryChart"><button type="button" class="lg-toggle" data-ds="0" aria-pressed="true" data-term-tip="cp"><i class="lg lg-range"></i>CP &middot; long-effort limit</button><button type="button" class="lg-toggle" data-ds="1" aria-pressed="true" data-term-tip="ftp"><i class="lg lg-ftp"></i>FTP in use</button><button type="button" class="lg-toggle" data-ds="2" aria-pressed="true" data-term-tip="wprime"><i class="lg lg-pr"></i>W&prime; &middot; burst energy</button></span>
+              </div>
+              <div class="chart-box" style="height:280px;"><canvas id="cpHistoryCanvas" aria-label="Critical power and W prime over time"></canvas></div>
+              <p class="footnote" id="cpHistoryNote">Each point is the model fitted to the best efforts of the 90 days before it. CP rising = more sustainable power; W&prime; rising = more punch above CP.</p>
+            </div>
+          </div>
+        </div>
+
+        <!-- FTP -->
+        <div class="ana-panel" id="ana-panel-ftp" data-panel="ftp" role="tabpanel" aria-labelledby="anaTab-ftp" tabindex="-1" hidden>
+          <div class="ana-panel-head"><h3 class="ana-section" id="ana-ftp">FTP</h3><p>Where is your threshold heading - and what do your rides say it is?</p></div>
+          <div class="card" id="anaCardFtpHistory" data-expandable>
             <div class="card-title"><span data-term="ftpHistory">FTP history &amp; monthly peak NP</span><span class="chip chip-ghost num" id="ftpDeltaLabel">--</span></div>
-            <div class="chart-box" style="height:280px;"><canvas id="ftpProgressChartCanvas"></canvas></div>
-            <p class="footnote">Bars: highest Normalized Power ride per month. Amber line: the FTP your rides used (and your FTP updates). Green triangles: months where a ride tested your FTP - the FTP it proved (best 20 min x 0.95 or best 60 min), shown when it came within 5% of your FTP or beat it.</p>
-            <div class="sub-title"><span>Implied FTP &middot; every method</span><span class="chip chip-ghost num" id="ftpImpliedChip">--</span></div>
-            <div id="ftpMethodsBody" class="cp-rows"></div>
+            <div class="ana-split">
+              <div class="ana-split-main">
+                <div class="chart-box" style="height:280px;"><canvas id="ftpProgressChartCanvas"></canvas></div>
+                <p class="footnote">Bars: highest Normalized Power ride per month. Amber line: the FTP your rides used (and your FTP updates). Green triangles: months where a ride tested your FTP - the FTP it proved (best 20 min x 0.95 or best 60 min), shown when it came within 5% of your FTP or beat it.</p>
+              </div>
+              <div class="ana-split-side">
+                <div class="sub-title"><span>Implied FTP &middot; every method</span><span class="chip chip-ghost num" id="ftpImpliedChip">--</span></div>
+                <div id="ftpMethodsBody" class="cp-rows"></div>
+              </div>
+            </div>
           </div>
+
+          <div class="card" id="ftpMetricsHistoryCard" data-expandable>
+            <div class="card-title"><span>FTP over time</span><span class="chip chip-ghost">Experimental estimate</span></div>
+            <div class="ftp-metrics-current">
+              <div><span>FTP in Use</span><strong id="ftpMetricsActiveValue">—</strong><small>Your training setting</small></div>
+              <div><span>Power + Heart Rate</span><strong id="ftpMetricsEstimateValue">—</strong><small id="ftpMetricsEstimateRange">Latest saved estimate</small></div>
+            </div>
+            <div class="ftp-metrics-tools"><label class="ftp-band-toggle"><input type="checkbox" id="ftpMetricsBand" checked><span class="ftp-band-check" aria-hidden="true"></span><span>Uncertainty band</span></label><label class="ftp-band-toggle"><input type="checkbox" id="ftpMetricsWorkoutDots" checked><span class="ftp-band-check" aria-hidden="true"></span><span>Workout-implied FTP dots</span></label></div>
+            <div class="ftp-metrics-controls" id="ftpMetricsControls" role="group" aria-label="FTP history series"></div>
+            <div class="chart-box ftp-metrics-chart"><canvas id="ftpMetricsHistoryCanvas" role="img" aria-label="FTP in use and experimental Power plus Heart Rate estimate over time"></canvas></div>
+            <p class="footnote" id="ftpMetricsStatus" role="status">Loading saved calculation history…</p>
+            <p class="footnote">The shaded range shows model uncertainty, not validated FTP confidence. Your training setting changes only when you choose to update it.</p>
+            <details class="table-view" id="ftpMetricsDetails"><summary>Supporting calculations &amp; history</summary>
+              <p class="footnote">Power Curve and Bayesian Power Curve model one-hour power. Workout Capacity Floor is a conditional CP floor; Workout Capacity Model is a prior-dependent diagnostic. Easy efforts are not maximal tests, so these checks are not standalone FTP recommendations.</p>
+              <button type="button" class="btn btn-sm" id="btnImportFtpMetrics">Import calculation history</button>
+              <input type="file" id="ftpMetricsFile" accept=".json,application/json" hidden>
+              <div class="table-scroll ftp-metrics-table"><table class="data-table"><thead><tr><th>Date</th><th>Metric</th><th>Watts</th><th>Range</th><th>Evidence</th></tr></thead><tbody id="ftpMetricsTable"></tbody></table></div>
+            </details>
+          </div>
+        </div>
+
+        <!-- INTENSITY DISTRIBUTION -->
+        <div class="ana-panel" id="ana-panel-intensity" data-panel="intensity" role="tabpanel" aria-labelledby="anaTab-intensity" tabindex="-1" hidden>
+          <div class="ana-panel-head"><h3 class="ana-section" id="ana-intensity">Intensity distribution</h3><p>How hard was the riding, and how was it spread?</p></div>
+          <div class="card" id="anaCardZones">
+            <div class="card-title"><span>Where your training time went</span><span class="chip chip-ghost num" id="zoneDistLabel">--</span></div>
+            <div class="intensity-grid">
+              <div>
+                <div class="sub-title"><span data-term="zones">Time in power zones</span><span class="hint">vs the FTP of each ride</span></div>
+                <div class="zone-dist" id="anaZoneDist"></div>
+              </div>
+              <div>
+                <div class="sub-title"><span data-term="seiler">3-zone distribution</span><span class="hint">Low &lt; 75% &middot; moderate 75-105% &middot; high &gt; 105% FTP</span></div>
+                <div class="seiler" id="anaSeiler"></div>
+              </div>
+            </div>
+            <p class="footnote" id="zoneDistNote">From second-by-second power. Rides without power data are not included.</p>
+          </div>
+          <div class="ana-grid">
+            <div class="card ana-w-5" id="anaCardMix">
+              <div class="card-title"><span data-term="intensityMix">Intensity mix</span><span class="hint">hours by ride IF</span></div>
+              <div class="intensity-mix" id="progIntensityMix"></div>
+            </div>
+            <div class="card ana-w-7" id="anaCardScatter" data-expandable>
+              <div class="card-title"><span>Every ride &middot; duration vs NP</span><span class="hint">Colour = IF band &middot; click a dot to review</span></div>
+              <div class="chart-box" style="height:260px;"><canvas id="progScatterChart"></canvas></div>
+            </div>
+          </div>
+        </div>
+
+        <!-- AEROBIC ENGINE -->
+        <div class="ana-panel" id="ana-panel-aerobic" data-panel="aerobic" role="tabpanel" aria-labelledby="anaTab-aerobic" tabindex="-1" hidden>
+          <div class="ana-panel-head"><h3 class="ana-section" id="ana-aerobic">Aerobic engine</h3><p>Is your endurance base growing?</p></div>
+          <div class="ana-grid">
+            <div class="card ana-w-6" id="anaCardEf" data-expandable>
+              <div class="card-title"><span data-term="ef">Efficiency factor (EF)</span><span class="chip chip-ghost num" id="efTrendLabel">--</span></div>
+              <div class="chart-box" style="height:240px;"><canvas id="efTrendCanvas"></canvas></div>
+              <p class="footnote">Steady aerobic rides only (Z2 to tempo, VI &le; 1.06, 20 min+). Dots = rides, line = 30-day average. Rising = more watts per heartbeat: your aerobic engine is growing.</p>
+            </div>
+            <div class="card ana-w-6" id="anaCardDrift" data-expandable>
+              <div class="card-title"><span data-term="decoupling">Aerobic decoupling (Pw:HR)</span><span class="chip chip-ghost num" id="driftTrendLabel">--</span></div>
+              <div class="chart-box" style="height:240px;"><canvas id="driftTrendCanvas"></canvas></div>
+              <p class="footnote" id="driftTrendNote">Each point is a steady ride (Zone 2, tempo, sweet spot) with heart rate: how much power per heartbeat dropped from the first to the second half. 3.5% or less = base consolidated, under 5% = coupled; a falling trend at the same power means your aerobic base is improving.</p>
+            </div>
+          </div>
+        </div>
+
+        <!-- RECOVERY & BALANCE -->
+        <div class="ana-panel" id="ana-panel-body" data-panel="body" role="tabpanel" aria-labelledby="anaTab-body" tabindex="-1" hidden>
+          <div class="ana-panel-head"><h3 class="ana-section" id="ana-balance">Recovery &amp; balance</h3><p>How is your body handling the training?</p></div>
+          <div class="card" id="anaCardRecovery" data-expandable>
+            <div class="card-title"><span data-term="recovery">Resting HR &amp; HRV</span><span class="chip chip-ghost num" id="recoveryTrendLabel">Apple Health</span></div>
+            <div class="chart-box" style="height:260px;"><canvas id="recoveryTrendCanvas"></canvas></div>
+            <p class="footnote" id="recoveryTrendNote">From your Apple Watch via Health Auto Export (Settings &rsaquo; Apple Health). Falling resting HR and rising HRV over months = adaptation. Lines are 7-day averages.</p>
+          </div>
+          <div class="card" id="anaCardBalance" data-expandable>
+            <div class="card-title"><span data-term="lr">Left / right balance per ride</span><span class="chip chip-ghost num" id="balanceTrendLabel">--</span></div>
+            <div class="chart-box" style="height:220px;"><canvas id="balanceTrendCanvas"></canvas></div>
+            <p class="footnote">Average left-leg share per ride, measured by the pedals (50% = even). The shaded band is 48-52%, the usual range; the line is the 10-ride average - a steady drift one way is worth watching.</p>
+          </div>
+        </div>
+
+        <!-- Previous / next module -->
+        <div class="ana-pager" id="anaPager">
+          <button type="button" class="ana-pager-btn" id="anaPagerPrev" data-dir="-1"><svg class="ic"><use href="#i-left"/></svg><span><small>Previous</small><b id="anaPagerPrevName">--</b></span></button>
+          <button type="button" class="ana-pager-btn next" id="anaPagerNext" data-dir="1"><span><small>Next</small><b id="anaPagerNextName">--</b></span><svg class="ic"><use href="#i-right"/></svg></button>
         </div>
       </div>
 
-      <div class="card" id="ftpMetricsHistoryCard">
-        <div class="card-title"><span>FTP over time</span><span class="chip chip-ghost">Experimental estimate</span></div>
-        <div class="ftp-metrics-current">
-          <div><span>FTP in Use</span><strong id="ftpMetricsActiveValue">—</strong><small>Your training setting</small></div>
-          <div><span>Power + Heart Rate</span><strong id="ftpMetricsEstimateValue">—</strong><small id="ftpMetricsEstimateRange">Latest saved estimate</small></div>
-        </div>
-        <div class="ftp-metrics-tools"><label class="ftp-band-toggle"><input type="checkbox" id="ftpMetricsBand" checked><span class="ftp-band-check" aria-hidden="true"></span><span>Uncertainty band</span></label><label class="ftp-band-toggle"><input type="checkbox" id="ftpMetricsWorkoutDots" checked><span class="ftp-band-check" aria-hidden="true"></span><span>Workout-implied FTP dots</span></label></div>
-        <div class="ftp-metrics-controls" id="ftpMetricsControls" role="group" aria-label="FTP history series"></div>
-        <div class="chart-box ftp-metrics-chart"><canvas id="ftpMetricsHistoryCanvas" role="img" aria-label="FTP in use and experimental Power plus Heart Rate estimate over time"></canvas></div>
-        <p class="footnote" id="ftpMetricsStatus" role="status">Loading saved calculation history…</p>
-        <p class="footnote">The shaded range shows model uncertainty, not validated FTP confidence. Your training setting changes only when you choose to update it.</p>
-        <details class="table-view" id="ftpMetricsDetails"><summary>Supporting calculations &amp; history</summary>
-          <p class="footnote">Power Curve and Bayesian Power Curve model one-hour power. Workout Capacity Floor is a conditional CP floor; Workout Capacity Model is a prior-dependent diagnostic. Easy efforts are not maximal tests, so these checks are not standalone FTP recommendations.</p>
-          <button type="button" class="btn btn-sm" id="btnImportFtpMetrics">Import calculation history</button>
-          <input type="file" id="ftpMetricsFile" accept=".json,application/json" hidden>
-          <div class="table-scroll ftp-metrics-table"><table class="data-table"><thead><tr><th>Date</th><th>Metric</th><th>Watts</th><th>Range</th><th>Evidence</th></tr></thead><tbody id="ftpMetricsTable"></tbody></table></div>
-        </details>
-      </div>
-
-      <!-- INTENSITY DISTRIBUTION -->
-      <h3 class="ana-section" id="ana-intensity">Intensity distribution</h3>
-      <div class="card">
-        <div class="card-title"><span>Where your training time went</span><span class="chip chip-ghost num" id="zoneDistLabel">--</span></div>
-        <div class="intensity-grid">
-          <div>
-            <div class="sub-title"><span data-term="zones">Time in power zones</span><span class="hint">vs the FTP of each ride</span></div>
-            <div class="zone-dist" id="anaZoneDist"></div>
-          </div>
-          <div>
-            <div class="sub-title"><span data-term="seiler">3-zone distribution</span><span class="hint">Low &lt; 75% &middot; moderate 75-105% &middot; high &gt; 105% FTP</span></div>
-            <div class="seiler" id="anaSeiler"></div>
-          </div>
-        </div>
-        <p class="footnote" id="zoneDistNote">From second-by-second power. Rides without power data are not included.</p>
-      </div>
-
-      <!-- AEROBIC ENGINE -->
-      <h3 class="ana-section" id="ana-aerobic">Aerobic engine</h3>
-      <div class="cockpit-grid">
-        <div class="col-span-6">
-          <div class="card">
-            <div class="card-title"><span data-term="ef">Efficiency factor (EF)</span><span class="chip chip-ghost num" id="efTrendLabel">--</span></div>
-            <div class="chart-box" style="height:220px;"><canvas id="efTrendCanvas"></canvas></div>
-            <p class="footnote">Steady aerobic rides only (Z2 to tempo, VI &le; 1.06, 20 min+). Dots = rides, line = 30-day average. Rising = more watts per heartbeat: your aerobic engine is growing.</p>
-          </div>
-        </div>
-        <div class="col-span-6">
-          <div class="card">
-            <div class="card-title"><span data-term="decoupling">Aerobic decoupling (Pw:HR)</span><span class="chip chip-ghost num" id="driftTrendLabel">--</span></div>
-            <div class="chart-box" style="height:220px;"><canvas id="driftTrendCanvas"></canvas></div>
-            <p class="footnote" id="driftTrendNote">Each point is a steady ride (Zone 2, tempo, sweet spot) with heart rate: how much power per heartbeat dropped from the first to the second half. 3.5% or less = base consolidated, under 5% = coupled; a falling trend at the same power means your aerobic base is improving.</p>
-          </div>
-        </div>
-      </div>
-      <div class="card">
-        <div class="card-title"><span data-term="recovery">Resting HR &amp; HRV</span><span class="chip chip-ghost num" id="recoveryTrendLabel">Apple Health</span></div>
-        <div class="chart-box" style="height:260px;"><canvas id="recoveryTrendCanvas"></canvas></div>
-        <p class="footnote" id="recoveryTrendNote">From your Apple Watch via Health Auto Export (Settings &rsaquo; Apple Health). Falling resting HR and rising HRV over months = adaptation. Lines are 7-day averages.</p>
-      </div>
-
-      <!-- BALANCE -->
-      <h3 class="ana-section" id="ana-balance">Pedal balance</h3>
-      <div class="card">
-        <div class="card-title"><span data-term="lr">Left / right balance per ride</span><span class="chip chip-ghost num" id="balanceTrendLabel">--</span></div>
-        <div class="chart-box" style="height:200px;"><canvas id="balanceTrendCanvas"></canvas></div>
-        <p class="footnote">Average left-leg share per ride, measured by the pedals (50% = even). The shaded band is 48-52%, the usual range; the line is the 10-ride average - a steady drift one way is worth watching.</p>
-      </div>
-
-      <!-- EXPLORE -->
-      <details class="card explore-card">
-        <summary><span>Explore &middot; intensity mix, records and every ride</span><svg class="ic"><use href="#i-chevron"/></svg></summary>
-        <div class="prog-grid">
-          <div class="prog-side">
-            <div class="sub-title"><span data-term="intensityMix">Intensity mix</span><span class="hint">hours by ride IF</span></div>
-            <div class="intensity-mix" id="progIntensityMix"></div>
-          </div>
-          <div class="prog-side">
-            <div class="sub-title"><span>Records</span></div>
-            <div class="records-list" id="progRecords"></div>
-          </div>
-        </div>
-        <div class="sub-title" style="margin-top:6px;"><span>Every ride &middot; duration vs NP</span><span class="hint">Colour = IF band &middot; click a dot to review</span></div>
-        <div class="chart-box" style="height:260px;"><canvas id="progScatterChart"></canvas></div>
-      </details>
+      <!-- Expanded chart: a card is moved in here (top layer) and put back on close. -->
+      <dialog class="ana-zoom" id="anaZoomDialog" aria-label="Expanded chart">
+        <button type="button" class="ana-zoom-close" id="anaZoomClose" aria-label="Close expanded chart"><svg class="ic"><use href="#i-x"/></svg></button>
+        <div class="ana-zoom-body" id="anaZoomBody"></div>
+      </dialog>
     </section>
 
     <!-- ============================== HISTORY ============================== -->
@@ -1485,6 +1540,8 @@
         <div class="shortcut-row"><span>Fullscreen</span><kbd class="key-badge">F</kbd></div>
         <div class="shortcut-row"><span>Picture-in-picture mini HUD</span><kbd class="key-badge">P</kbd></div>
         <div class="shortcut-row"><span>Mute / unmute cues</span><kbd class="key-badge">M</kbd></div>
+        <div class="shortcut-row"><span>Analytics: jump to a module</span><kbd class="key-badge">1 &ndash; 7</kbd></div>
+        <div class="shortcut-row"><span>Analytics: previous / next module</span><kbd class="key-badge">[ ]</kbd></div>
         <div class="shortcut-row"><span>Close / exit</span><kbd class="key-badge">Esc</kbd></div>
       </div>
       <div class="btn-row btn-row-end"><button type="button" class="btn btn-primary" id="btnCloseShortcutsBtn">Got it</button></div>
@@ -1644,6 +1701,7 @@
   <script src="js/app-ride-analysis.js"></script>
   <script src="js/app-ask.js"></script>
   <script src="js/app-dashboard.js"></script>
+  <script src="js/app-ana-studio.js"></script>
   <script src="js/app-ftp-history.js"></script>
   <script src="js/app-history.js"></script>
   <script src="js/app-coach.js"></script>

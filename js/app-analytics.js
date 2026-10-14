@@ -1,6 +1,7 @@
 /**
  * APEX VELO // LAB - Analytics mixin: Chart.js charts, PMC explorer, power-duration
- * curve with scrub tool, monthly peak NP and the weekly progression charts.
+ * curve with scrub tool, monthly peak NP and the weekly progression charts. The module dock,
+ * drill-down, legend toggles, drag-zoom and expanded charts live in app-ana-studio.js.
  */
 (function () {
   // Categorical series colours for the Slipstream night surface (distinct hues, >=3:1 contrast).
@@ -103,8 +104,6 @@
     initAnalyticsUi() {
       // One time range for the whole Analytics page (PMC, weekly load, trends).
       document.querySelectorAll('#anaRangePills .ana-range').forEach(p => this.on(p, 'click', () => this.setAnalyticsRange(p.dataset.range)));
-      const explore = document.querySelector('#view-analytics .explore-card');
-      if (explore) this.on(explore, 'toggle', () => { if (explore.open && this.progScatterChart) requestAnimationFrame(() => this.progScatterChart.resize()); });
       document.querySelectorAll('#progMetricPills .prog-metric').forEach(p => this.on(p, 'click', () => {
         document.querySelectorAll('#progMetricPills .prog-metric').forEach(x => x.classList.toggle('active', x === p));
         this.progMetric = p.dataset.metric;
@@ -134,34 +133,6 @@
       if (tableWrap) this.on(tableWrap, 'toggle', () => { if (tableWrap.open) document.getElementById('pdcTable').innerHTML = this.pdcTableHtml(); });
       this.initAnalyticsNav();
       this.refreshAnalytics();
-    },
-
-    /** Section links under the page header, with the visible section highlighted. */
-    initAnalyticsNav() {
-      const nav = document.getElementById('anaSectionNav');
-      if (!nav) return;
-      const btns = [...nav.querySelectorAll('.ana-nav-btn')];
-      const setActive = (id) => btns.forEach(b => { const on = b.dataset.target === id; b.classList.toggle('active', on); if (on) b.setAttribute('aria-current', 'true'); else b.removeAttribute('aria-current'); });
-      btns.forEach(b => this.on(b, 'click', () => {
-        const el = document.getElementById(b.dataset.target);
-        if (!el) return;
-        setActive(b.dataset.target);
-        this._anaNavLock = Date.now() + 900;
-        el.scrollIntoView({ behavior: matchMedia('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth', block: 'start' });
-      }));
-      // Scroll spy: the active section is the last one whose heading has passed under the sticky nav.
-      const targets = btns.map(b => document.getElementById(b.dataset.target)).filter(Boolean);
-      let queued = false;
-      const spy = () => {
-        queued = false;
-        if (this.activeTab !== 'analytics' || Date.now() < (this._anaNavLock || 0)) return;
-        const line = nav.getBoundingClientRect().bottom + 40;
-        let current = targets[0];
-        for (const t of targets) { if (t.getBoundingClientRect().top <= line) current = t; else break; }
-        const atEnd = window.innerHeight + window.scrollY >= document.documentElement.scrollHeight - 4;
-        setActive(atEnd ? targets[targets.length - 1].id : current.id);
-      };
-      this.on(window, 'scroll', () => { if (!queued) { queued = true; requestAnimationFrame(spy); } }, { passive: true });
     },
 
     /** Sets the page-wide range: '6w' | '3m' | '6m' | '1y' | 'all'. */
@@ -258,6 +229,8 @@
     recalculatePmc() {
       const pmc = this.analytics.calculatePmcHistory(this.completedWorkouts, this.pmcDays(), this.pmcOpts());
       if (this.pmcChart) {
+        // New data under the chart: a drag-zoom on the old dates no longer means anything.
+        if (this.resetChartZoom) this.resetChartZoom(this.pmcChart, true);
         this._pmcKeys = pmc.dateKeys;
         this.pmcChart.data.labels = pmc.labels;
         this.pmcChart.data.datasets[0].data = pmc.ctlData;
@@ -689,6 +662,7 @@
 
       // KPIs with deltas vs the preceding period of equal length
       const k = VeloProgress.kpis(rides, this.progWeeks);
+      this._progKpis = k;
       const kpiEl = document.getElementById('progKpis');
       if (kpiEl) {
         const delta = (cur, prev, fmt) => {

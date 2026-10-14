@@ -12,7 +12,7 @@ const {fixture}=require('./sqlite-fixture.cjs');
    C:[{date,value:244,low:172,high:326}],Cfloor:[{date,value:198}],trainerRoad:[{date,value:211,reason:'AI FTP Detection'}]}};
   const migration=await fetch(f.base+'/api/storage/migrate',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({revision:state.revision,operationId:'ftp_fixture_migration',rides:[],settings:{apex_velo_profiles:JSON.stringify([profile]),apex_velo_active_prof_id:profile.id},dbSettings:[]})});assert.ok(migration.ok);
   const page=await browser.newPage({viewport:{width:1440,height:1000}}),errors=[];page.on('pageerror',e=>errors.push(e.message));await page.goto(f.base);
-  await page.waitForFunction(()=>window.app&&VeloStorage.enabled&&app.ftpMetricsChart);await page.locator('[data-tab="analytics"]').click();
+  await page.waitForFunction(()=>window.app&&VeloStorage.enabled&&app.ftpMetricsChart);await page.locator('[data-tab="analytics"]').click();await page.locator('#anaTab-ftp').click();
   await page.waitForFunction(()=>document.getElementById('ftpMetricsStatus').textContent.includes('No saved'));
   const file=path.join(out,'fixture-history.json');fs.writeFileSync(file,JSON.stringify(bundle));await page.locator('#ftpMetricsFile').setInputFiles(file);
   await page.waitForFunction(()=>app._ftpMetricBundle?.series.B.length===1);await page.evaluate(()=>VeloStorage.flush());
