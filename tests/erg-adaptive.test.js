@@ -22,7 +22,8 @@ test('Auto distinguishes steady, sustained, VO2, bursts, torque and ramp test st
   for (const [iv, expected] of cases) assert.equal(E.describe({ category: 'vo2' }, iv).key, expected);
   const ramp = { id: 'ramp', category: 'assessment' };
   assert.equal(E.describe(ramp, step(120, 60)).key, 'assessment');
-  assert.equal(E.describe(ramp, step(45, 300)).key, 'steady');
+  assert.equal(E.describe(ramp, step(45, 300, { name: 'Warmup' })).key, 'steady');
+  assert.equal(E.describe(ramp, step(50, 60, { effort: 'ramp' })).test, true);
   assert.equal(E.describe(ramp, step(120, 60)).controlMode, 'erg');
 });
 
@@ -123,7 +124,9 @@ test('manual response overrides still preserve burst protection and ramp-test fa
   assert.equal(e.offset, 0);
   e.configure({ id: 'ramp', category: 'assessment' }, step(120, 60), 'steady');
   assert.equal(e.profile.test, true);
-  assert.equal(run(e, 3, { target: 240, cadence: 50, power: 150 })[2].event, 'test-stop');
+  const ramp = run(e, 11, { target: 240, cadence: 50, power: 150 });
+  assert.ok(ramp.slice(0, -1).every(r => !r.event));
+  assert.equal(ramp.at(-1).event, 'test-stop');
 });
 
 test('low cadence at target power is respected; a real stall still eases the load', () => {
@@ -203,19 +206,25 @@ function appFixture(intervals, category = 'vo2') {
   const noOp = () => {};
   Object.assign(app, { currentWorkout: { id: category === 'assessment' ? 'ramp' : 'test', category, intervals },
     intervalIndex: 0, intervalSecondsRemaining: intervals[0].duration, totalElapsedSeconds: 0,
+    isWorkoutCompleted: false, completedWorkouts: [],
     activeProfile: { ftp: 200 }, ergBiasMultiplier: 1, ergModeEnabled: true, ergResponse: 'auto',
     powerMatchEnabled: true, isPlaying: true, erg: new E(), simulator: { enabled: false, step: noOp },
     blePedal: { lastTime: 10000, watts: 100, cadence: 90, leftPct: null, rightPct: null },
     bleTrainer: { lastTime: 10000, watts: 100, cadence: 90, speed: null, distanceMeters: null },
     bleHr: { lastTime: -1e9, hr: null },
     ble: { isTrainerConnected: () => true, getState: () => 'connected',
-      setTrainerErgPower: w => commands.push(w), pauseTrainerWorkout: noOp },
-    clock: { stop: noOp }, audio: { countdownTick: noOp, intervalGo: noOp },
+      setTrainerErgPower: w => commands.push(w), pauseTrainerWorkout: noOp,
+      stopTrainerWorkout: () => commands.push('stop') },
+    clock: { stop: noOp }, audio: { countdownTick: noOp, intervalGo: noOp, workoutCompleteFanfare: noOp },
     analytics: new (vm.runInContext('VeloAnalytics', ctx))(200), powerBuffer: [], recordedSamples: [],
     totalDistanceMeters: 0, currentSpeed: 0, maxSpeedKmh: 0, rideHadHardware: true,
     activeTab: 'cockpit', updateStandUi: noOp, updateHudDisplays: noOp, updateTelemetryChart: noOp,
     updatePowerSourceBadge: noOp, updateHudTitles: noOp, renderIntervalTrack: noOp, updateIntervalCountdown: noOp,
-    updatePlaybackControlsUi: noOp, releaseWakeLock: noOp, showToast: noOp });
+    updatePlaybackControlsUi: noOp, releaseWakeLock: noOp, showToast: noOp,
+    renderEasySpinOffer: noOp, saveHistory: () => Promise.resolve(true), renderHistoryTable: noOp,
+    recalculatePmc: noOp, refreshAnalytics: noOp,
+    showRideSummary: record => { app.summaryRecord = record; },
+    preparePhoneFit: record => { app.phoneRecord = record; } });
   return { app, commands };
 }
 
@@ -229,15 +238,107 @@ test('workout engine commands the new interval exactly at the boundary', () => {
   assert.equal(app.erg.profile.key, 'burst');
 });
 
-test('ramp failure pauses the workout, retains measured samples and never commands an eased test load', () => {
+test('ramp failure finishes and saves with the final measured second, stops ERG and exposes the result', () => {
   const { app, commands } = appFixture([step(120, 60)], 'assessment');
   app.blePedal.watts = 140; app.blePedal.cadence = 50;
-  app.tick1Hz(); app.tick1Hz(); app.tick1Hz();
+  for (let i = 0; i < 11; i++) app.tick1Hz();
   assert.equal(app.isPlaying, false);
   assert.equal(app.erg.mode, 'test-stop');
-  assert.deepEqual(commands, [240, 240]);
-  assert.equal(app.recordedSamples.length, 3);
-  assert.equal(app.recordedSamples[2].power, 140);
+  assert.deepEqual(commands, [...Array(10).fill(240), 'stop']);
+  assert.equal(app.recordedSamples.length, 11);
+  assert.equal(app.recordedSamples.at(-1).power, 140);
+  assert.equal(app.isWorkoutCompleted, true);
+  assert.equal(app.completedWorkouts.length, 1);
+  assert.equal(app.summaryRecord.samples.length, 11);
+  assert.equal(app.summaryRecord.rampTest.reason, 'cadence-collapse');
+  assert.equal(app.summaryRecord.rampTest.targetWatts, 240);
+  assert.equal(app.phoneRecord, app.summaryRecord);
+  assert.equal(app._easySpinOffer, null);
+  app.finishWorkout();
+  assert.equal(app.completedWorkouts.length, 1, 'completion is saved only once');
+});
+
+test('a sustained target miss ends a ramp without cadence, even when ERG mode is disabled', () => {
+  const { app } = appFixture([step(120, 60)], 'assessment');
+  app.ergModeEnabled = false;
+  app.blePedal.watts = 140; app.blePedal.cadence = null; app.bleTrainer.cadence = null;
+  for (let i = 0; i < 17; i++) app.tick1Hz();
+  assert.equal(app.isWorkoutCompleted, false);
+  app.tick1Hz();
+  assert.equal(app.isWorkoutCompleted, true);
+  assert.equal(app.summaryRecord.rampTest.reason, 'target-missed');
+});
+
+test('sensor loss pauses the ramp for reconnection without saving a failed test or advancing a step', () => {
+  const { app, commands } = appFixture([step(120, 60)], 'assessment');
+  for (let i = 0; i < 10; i++) app.tick1Hz();
+  app.blePedal.lastTime = app.bleTrainer.lastTime = -10000;
+  app.intervalSecondsRemaining = 1;
+  app.tick1Hz();
+  assert.equal(app.isPlaying, false);
+  assert.equal(app.isWorkoutCompleted, false);
+  assert.equal(app.completedWorkouts.length, 0);
+  assert.equal(app.intervalIndex, 0);
+  assert.equal(app.recordedSamples.at(-1).src, 'NONE');
+  assert.ok(!commands.includes('stop'));
+});
+
+test('ramp passes the former final step, commands a higher target and leaves the library plan untouched', () => {
+  const intervals = [step(127, 60, { effort: 'ramp' }), step(134, 60, { effort: 'ramp' })];
+  const { app, commands } = appFixture(intervals, 'assessment');
+  app.intervalIndex = 1; app.intervalSecondsRemaining = 1;
+  app.blePedal.watts = 268;
+  app.tick1Hz();
+  assert.equal(app.isPlaying, true);
+  assert.equal(app.isWorkoutCompleted, false);
+  assert.equal(intervals.length, 2);
+  assert.equal(app.currentWorkout.intervals.length, 3);
+  assert.equal(app.currentWorkout.intervals[2].pctFtp, 141);
+  assert.equal(app.currentWorkout.intervals[2].duration, 60);
+  assert.equal(app.currentWorkout.intervals[2].rampExtension, true);
+  assert.equal(commands.at(-1), 282);
+  assert.equal(app.completedWorkouts.length, 0);
+});
+
+test('the trainer command ceiling ends explicitly rather than creating an endless clamped ramp', () => {
+  const { app } = appFixture([step(998, 60, { effort: 'ramp' })], 'assessment');
+  app.intervalSecondsRemaining = 1; app.blePedal.watts = 1996;
+  app.tick1Hz();
+  assert.equal(app.isWorkoutCompleted, true);
+  assert.equal(app.summaryRecord.rampTest.reason, 'controller-limit');
+});
+
+test('settling and brief dips recover; low cadence holding target is not failure', () => {
+  const e = new E(); e.configure({ id: 'ramp', category: 'assessment' }, step(120, 60));
+  assert.ok(run(e, 6, { power: 0, cadence: 0 }).every(r => !r.event));
+  assert.ok(run(e, 10, { power: 200, cadence: 35 }).every(r => !r.event));
+  assert.ok(run(e, 4, { power: 100 }).every(r => !r.event));
+  assert.ok(e.testMonitor.under > 0);
+  assert.ok(run(e, 5, { power: 200 }).every(r => !r.event));
+  assert.equal(e.testMonitor.under, 0);
+});
+
+test('dropouts and power-source changes reset a pending target miss and allow settling again', () => {
+  const e = new E(); e.configure({ id: 'ramp', category: 'assessment' }, step(120, 60));
+  run(e, 15, { power: 100, cadenceKnown: false, testSource: 'PEDALS' });
+  assert.ok(e.testMonitor.under > 0);
+  assert.ok(run(e, 20, { power: null, cadence: 0 }).every(r => !r.event));
+  assert.equal(e.testMonitor.under, 0);
+  run(e, 15, { power: 100, cadenceKnown: false, testSource: 'PEDALS' });
+  assert.ok(run(e, 6, { power: 100, cadenceKnown: false, testSource: 'TRAINER' }).every(r => !r.event));
+  assert.equal(e.testMonitor.under, 0);
+  assert.ok(run(e, 30, { power: 0, testPowerKnown: false }).every(r => !r.event));
+});
+
+test('warmup, recovery and ordinary training keep their existing duration-based behavior', () => {
+  const e = new E();
+  for (const iv of [step(45, 300, { name: 'Warmup' }), step(45, 300, { name: 'Cooldown' })]) {
+    e.configure({ id: 'ramp', category: 'assessment' }, iv);
+    assert.equal(e.profile.test, false);
+    assert.ok(run(e, 25, { target: 90, power: 0, cadenceKnown: false }).every(r => !r.event));
+  }
+  e.configure({ category: 'vo2' }, step(120, 60, { name: 'Ramp up' }));
+  assert.ok(run(e, 30, { power: 100, cadenceKnown: false }).every(r => !r.event));
 });
 
 test('response preference is saved, applies immediately, and invalid selections are ignored', () => {

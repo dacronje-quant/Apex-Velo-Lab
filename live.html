@@ -458,7 +458,7 @@
         <div class="tr-tile"><div class="tv num" id="trIntLeft">--:--</div><div class="tl">INTERVAL</div><div class="ts num" id="trIntSub">&nbsp;</div></div>
         <div class="tr-tile hr"><div class="tv num" id="trHr">--</div><div class="tl">HEART RATE</div><div class="ts" id="trHrSub">&nbsp;</div></div>
         <div class="tr-tile"><div class="tv num" id="trCad">--</div><div class="tl">CADENCE</div><div class="ts num" id="trCadSub">&nbsp;</div></div>
-        <div class="tr-tile"><div class="tv num" id="trLeft">--:--</div><div class="tl">TIME LEFT</div><div class="ts num" id="trElapsed">&nbsp;</div></div>
+        <div class="tr-tile"><div class="tv num" id="trLeft">--:--</div><div class="tl" id="trLeftLabel">TIME LEFT</div><div class="ts num" id="trElapsed">&nbsp;</div></div>
       </div>
       <div class="ride-totals" aria-label="Session totals"><span><b id="rideAvg">--</b><small>AVG W</small></span><span><b id="rideDist">--</b><small>DISTANCE KM</small></span><span id="rideBurstCell" hidden><b id="rideBurst">--</b><small>W&prime; LEFT</small></span></div><div class="tr-step-name" id="trStepName"></div>
       <div class="tr-graph" id="rideGraphView" role="button" tabindex="0" aria-pressed="false" aria-label="Full workout graph. Tap to follow the current intervals.">
@@ -528,7 +528,8 @@
 
   <section class="ride-download" id="rideDownload" hidden aria-label="Completed workout">
     <div class="details">
-      <strong>Workout saved</strong>
+      <strong id="rideSavedTitle">Workout saved</strong>
+      <p id="rampTestResult" hidden></p>
       <p id="fitDownloadStatus" role="status">Preparing your FIT file...</p>
     </div>
     <a id="btnDownloadFit" hidden download>Download .fit</a>
@@ -743,6 +744,9 @@
     const finished = live && s.state === 'finished';
     document.body.classList.toggle('finished', finished);
     const completed = finished && s.completedRide;
+    $('rideSavedTitle').textContent = completed?.rampTest ? 'Ramp test complete' : 'Workout saved';
+    $('rampTestResult').hidden = !completed?.rampTest;
+    $('rampTestResult').textContent = completed?.rampTest?.message || '';
     $('rideDownload').hidden = !completed;
     const fit = completed && s.fitFile?.id === completed.id ? s.fitFile : null;
     const download = $('btnDownloadFit');
@@ -1248,6 +1252,7 @@
 
   function renderRide(s, riding) {
     const set = (id, v) => { const e = $(id); if (e) e.textContent = v; };
+    const rampFinished = s.state === 'finished' && !!s.completedRide?.rampTest;
     const stepLeft = s.step ? s.step.remaining : null;
     const totalLeft = s.totalDuration ? Math.max(0, Math.round(s.totalDuration * (1 - (s.progress || 0)))) : null;
     set('trTarget', s.target > 0 ? s.target : '--');
@@ -1263,19 +1268,24 @@
         ps.className = 'ts num ' + (pct <= 5 ? 'on' : pct <= 10 ? 'close' : 'off');
       } else { ps.textContent = ' '; ps.className = 'ts num'; }
     }
-    set('trIntLeft', stepLeft != null ? fmt(stepLeft) : '--:--');
-    set('trIntSub', s.step ? `${s.step.index}/${s.step.count} steps` : ' ');
+    set('trIntLeft', rampFinished ? 'DONE' : stepLeft != null ? fmt(stepLeft) : '--:--');
+    set('trIntSub', rampFinished ? 'Ramp complete' : s.step ? s.rampTest?.openEnded ? `Step ${s.step.index} · until your limit` : `${s.step.index}/${s.step.count} steps` : ' ');
     set('trStepName', s.step ? (s.step.name || '') : '');
     set('trHr', s.hr || '--');
     set('trHrSub', s.hrZone || ' ');
     set('trCad', s.cadence || '--');
     set('trCadSub', s.targetCadence ? `target ${s.targetCadence}` : ' ');
-    set('trLeft', totalLeft != null ? fmt(totalLeft) : '--:--');
+    set('trLeft', s.rampTest?.openEnded ? 'LIMIT' : totalLeft != null ? fmt(totalLeft) : '--:--');
+    set('trLeftLabel', s.rampTest?.openEnded ? 'FINISHES AT' : 'TIME LEFT');
+    if (riding && s.rampTest?.underSeconds > 0 && ps) {
+      ps.textContent = `Target low · ${s.rampTest.underSeconds}/${s.rampTest.finishAfter}s`;
+      ps.className = 'ts num off';
+    }
     set('trElapsed', `${fmt(s.elapsed || 0)} ridden`);
     const nx = $('trNext');
-    if (nx) nx.innerHTML = s.next && stepLeft != null
+    if (nx) nx.innerHTML = rampFinished ? esc(s.completedRide.rampTest.message || 'Ramp test complete.') : s.next && stepLeft != null
       ? `Next in <b class="num">${fmt(stepLeft)}</b>: <b>${esc(s.next.name)}</b> &middot; <span class="num">${fmt(s.next.duration)} @ ${s.next.watts} W</span>`
-      : (s.step ? 'Final step &mdash; bring it home.' : '&nbsp;');
+      : (s.rampTest?.openEnded ? 'Ramp continues until you cannot hold the target.' : s.step ? 'Final step &mdash; bring it home.' : '&nbsp;');
     PhoneZen.update(s, power, powerViewLabel());
   }
 

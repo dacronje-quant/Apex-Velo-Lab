@@ -189,6 +189,8 @@
         state,
         completedRide: state === 'finished' ? this._remoteFinishedRide || null : null,
         title: w.title || 'Workout',
+        rampTest: this.rampTestConfig?.() ? { openEnded: true, underSeconds: this.erg?.testMonitor?.under || 0,
+          finishAfter: this.erg?.o?.testUnderPowerSec || 10 } : null,
         ftp: p.ftp || null,
         rider: p.name || null,
         step: iv ? { index: this.intervalIndex + 1, count: ivs.length, name: iv.name, remaining: this.intervalSecondsRemaining, duration: iv.duration } : null,
@@ -378,7 +380,8 @@
     /** Encode the saved ride once; the server holds only the latest file in memory. */
     preparePhoneFit(record) {
       if (!this._remoteEnabled) return;
-      this._remoteFinishedRide = { id: record.id, title: record.title, duration: record.duration, fitError: null };
+      this._remoteFinishedRide = { id: record.id, title: record.title, duration: record.duration, fitError: null,
+        ...(record.rampTest ? { rampTest: record.rampTest } : {}) };
       try {
         this._remoteFitUpload = {
           id: record.id, filename: VeloExport.fileStem(record) + '.fit',

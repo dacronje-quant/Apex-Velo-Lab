@@ -25,3 +25,4 @@ jobs:
       - run: node tests/sqlite-browser.cjs
       - run: npm run test:browser
       - run: npm run test:suite
+      - run: node tests/ramp-test-browser.cjs

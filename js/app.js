@@ -474,7 +474,7 @@ class VeloApp {
           <div class="w-card-desc">${VeloApp.esc(w.desc)}</div>
           <div class="w-card-footer">
             <div class="w-card-meta num">
-              <span><b>${w.durationMin}</b>m</span><span><b>${w.tss}</b> TSS</span><span>IF <b>${w.if}</b></span><span>peak <b>${Math.round(ftp * maxPct / 100)}</b>W</span>
+              ${this.rampTestConfig(w) ? '<span><b>Until your limit</b></span><span>Auto finish &amp; save</span>' : `<span><b>${w.durationMin}</b>m</span><span><b>${w.tss}</b> TSS</span><span>IF <b>${w.if}</b></span><span>peak <b>${Math.round(ftp * maxPct / 100)}</b>W</span>`}
             </div>
             <div class="btn-row btn-row-tight">
               <button type="button" class="btn btn-sm btn-primary btn-ride-now" data-act="load" data-id="${VeloApp.esc(w.id)}">Ride</button>
@@ -742,6 +742,7 @@ class VeloApp {
       this.resetWorkout(false);
     }
     this.isPlaying = !this.isPlaying;
+    this.erg?.resetTestMonitor();
     if (this.isPlaying) {
       if (!this.sessionStartedAt) this.sessionStartedAt = Date.now();
       if (this.recordedSamples.length) {
@@ -798,8 +799,8 @@ class VeloApp {
     this._easySpinOffer = null;
     this.renderEasySpinOffer();
     // Easy-spin extensions belong to one ride only.
-    if (this.currentWorkout && this.currentWorkout.intervals.some(iv => iv.extension)) {
-      this.currentWorkout = { ...this.currentWorkout, intervals: this.currentWorkout.intervals.filter(iv => !iv.extension) };
+    if (this.currentWorkout && this.currentWorkout.intervals.some(iv => iv.extension || iv.rampExtension)) {
+      this.currentWorkout = { ...this.currentWorkout, intervals: this.currentWorkout.intervals.filter(iv => !iv.extension && !iv.rampExtension) };
     }
     this.isPlaying = false;
     this.releaseWakeLock();
@@ -890,6 +891,38 @@ class VeloApp {
   }
 
   // ----------------------------------------------------------- 1 Hz engine --
+  rampTestConfig(workout = this.currentWorkout) {
+    return workout?.autoRamp || (workout?.id === 'ramp' ? { stepPctFtp: 7, stepSeconds: 60 } : null);
+  }
+
+  /** Extend a copy of the ride plan; reaching the preview's last step is not test completion. */
+  extendRampTest() {
+    const w = this.currentWorkout, config = this.rampTestConfig();
+    const last = w.intervals[this.intervalIndex];
+    if (!config || !VeloErg.describe(w, last).test) return false;
+    const stepPct = Number(config.stepPctFtp) || 7;
+    const pctFtp = Number(last.pctFtp) + Math.max(0.1, stepPct);
+    // Stop explicitly at the controller's supported limit rather than silently clamping the ramp.
+    if (Math.round(this.activeProfile.ftp * pctFtp / 100 * this.ergBiasMultiplier) > 2000) {
+      this.finishRampTest({ reason: 'controller-limit' });
+      return true;
+    }
+    const step = { name: `Ramp ${pctFtp}% FTP`, duration: Math.max(1, Number(config.stepSeconds) || 60),
+      pctFtp, effort: 'ramp', rampExtension: true };
+    this.currentWorkout = { ...w, intervals: [...w.intervals, step] };
+    return false;
+  }
+
+  finishRampTest(failure) {
+    const reason = failure.reason;
+    const targetWatts = this.getCurrentTargetWatts();
+    const message = reason === 'controller-limit' ? 'Ramp test ended at the trainer control limit.' :
+      `Ramp test complete: ${targetWatts} W target could no longer be held${reason === 'cadence-collapse' ? ' as cadence fell' : ''}.`;
+    this.finishWorkout(true, { rampTest: { ...failure, targetWatts, step: this.intervalIndex + 1,
+      elapsedSeconds: this.totalElapsedSeconds, message } });
+    if (this.publishSoon) this.publishSoon();
+  }
+
   tick1Hz() {
     this.totalElapsedSeconds++;
     this.intervalSecondsRemaining--;
@@ -953,14 +986,13 @@ class VeloApp {
       ftp: this.activeProfile.ftp,
       pedalPower: pmOn ? power : null,
       stepKey: this.intervalIndex,
+      testPowerKnown: source === 'PEDALS' || source === 'TRAINER',
+      testSource: source,
     });
     this.powerMatchOffset = this.erg.offset;
     this.updateStandUi();
     if (this.ergModeEnabled) {
-      if (erg.event === 'test-stop') {
-        this.togglePlayPause();
-        this.showToast('Ramp test paused: cadence and power fell. Finish the test at failure; resuming at an easier load changes the result.', 'info');
-      } else {
+      if (erg.event !== 'test-stop') {
         this.ble.setTrainerErgPower(erg.watts);
         this.lastCommandedErgWatts = trainerConnected ? erg.watts : null;
         if (erg.event === 'stall' && trainerConnected) {
@@ -1042,9 +1074,16 @@ class VeloApp {
     this.updateTelemetryChart(this.totalElapsedSeconds, power, cadence, hr, targetPower);
     this.updatePowerSourceBadge();
     if (this.totalElapsedSeconds % 5 === 0 && this.activeTab === 'analytics') this.updateMmpChart();
-    if (this.ergModeEnabled && erg.event === 'test-stop') return;
+    // Save after recording the final measured second. Completion stops the trainer and opens the result.
+    if (erg.event === 'test-stop') { this.finishRampTest(erg.failure); return; }
+    if (this.erg.profile?.test && source === 'NONE') {
+      this.togglePlayPause();
+      this.showToast('Ramp test paused: power signal lost. Reconnect, then resume when ready.', 'info');
+      return;
+    }
 
     if (this.intervalSecondsRemaining <= 0) {
+      if (this.intervalIndex === ivs.length - 1 && this.extendRampTest()) return;
       this.intervalIndex++;
       if (this.intervalIndex >= this.currentWorkout.intervals.length) {
         // Workout done: keep spinning on an easy step and offer "+5 min easy spin" for 10 s.
@@ -1135,7 +1174,8 @@ class VeloApp {
     if (t) t.textContent = `(${left})`;
   }
 
-  finishWorkout(isNaturalEnd = false, { fanfare = true } = {}) {
+  finishWorkout(isNaturalEnd = false, { fanfare = true, rampTest = null } = {}) {
+    if (this.isWorkoutCompleted) return;
     this._easySpinOffer = null;
     this.renderEasySpinOffer();
     this.isPlaying = false;
@@ -1202,6 +1242,7 @@ class VeloApp {
       samplesCount: samples.length,
       source: 'APEX VELO Cockpit',
       completedAt: Date.now(),
+      ...(rampTest ? { rampTest } : {}),
       samples
     };
     this.completedWorkouts.unshift(record);
@@ -1213,7 +1254,7 @@ class VeloApp {
     const confirmation = Promise.resolve(saved).then(async ok => {
       if (ok === false) this.showToast('Workout complete. Saving needs attention; keep this tab open or export the ride.', 'warning');
       else {
-        this.showToast('Workout complete - saved to your training history.', 'success');
+        this.showToast(rampTest ? `${rampTest.message} Saved to your training history.` : 'Workout complete - saved to your training history.', 'success');
         if (window.VeloStorage?.enabled) await VeloStorage.dropRideRecovery();
       }
       return ok;
@@ -1639,6 +1680,13 @@ class VeloApp {
     this.setText('hudWorkoutTitle', this.currentWorkout.title || 'Loaded workout');
     this.setText('hudWorkoutDuration', hours ? this.fmtTime(totalSeconds) : parts.join(' ') || '0 min');
     this.setText('hudWorkoutAvgPower', duration > 0 ? `${Math.round(joules / duration)} W` : '--');
+    const ramp = this.rampTestConfig();
+    this.setText('hudWorkoutDurationLabel', ramp ? 'Finishes' : 'Total duration');
+    this.setText('hudWorkoutAvgPowerLabel', ramp ? 'Step increase' : 'Expected avg power');
+    if (ramp) {
+      this.setText('hudWorkoutDuration', 'At your limit');
+      this.setText('hudWorkoutAvgPower', `${Math.round(this.activeProfile.ftp * (Number(ramp.stepPctFtp) || 7) / 100 * this.ergBiasMultiplier)} W / min`);
+    }
   }
 
   updateHudTitles() {
@@ -1657,7 +1705,7 @@ class VeloApp {
     this.updatePowerSourceBadge();
 
     this.setText('zenWorkoutTitle', this.currentWorkout.title || 'Active Workout');
-    this.setText('zenStepIndex', `STEP ${this.intervalIndex + 1} OF ${this.currentWorkout.intervals.length}`);
+    this.setText('zenStepIndex', this.rampTestConfig() ? `STEP ${this.intervalIndex + 1} · UNTIL YOUR LIMIT` : `STEP ${this.intervalIndex + 1} OF ${this.currentWorkout.intervals.length}`);
     this.setText('zenStepName', iv.name);
     const zb = this.$('zenStepZoneBadge');
     if (zb) {
@@ -1676,7 +1724,7 @@ class VeloApp {
       const nextW = Math.round(this.activeProfile.ftp * (nextIv.pctFtp / 100) * this.ergBiasMultiplier);
       this.setText('zenUpNextText', `Step ${this.intervalIndex + 2}: ${nextIv.name} - ${this.fmtTime(nextIv.duration)} @ ${nextW}W (${nextIv.pctFtp}%) - ${this.getCurrentTargetCadence(this.intervalIndex + 1)} rpm`);
     } else {
-      this.setText('zenUpNextText', 'Final step - bring it home.');
+      this.setText('zenUpNextText', this.rampTestConfig() ? 'Next: another ramp step. The test finishes when you cannot hold the target.' : 'Final step - bring it home.');
     }
   }
 
@@ -1734,7 +1782,8 @@ class VeloApp {
       else if (ts.state === 'idle') { cls = 'compliance-idle'; txt = 'TARGET --'; }
       else { cls = Math.abs(ts.diffPct) <= 10 ? 'compliance-close' : 'compliance-off'; txt = `${ts.state === 'under' ? 'UNDER' : 'OVER'} (${d})`; }
       pill.className = `compliance-pill ${cls} num`;
-      pill.textContent = txt;
+      pill.textContent = this.erg.profile?.test && this.erg.testMonitor.under > 0
+        ? `TARGET LOW · ${this.erg.testMonitor.under}/${this.erg.o.testUnderPowerSec}s` : txt;
     }
     const marker = this.$('targetBandMarker');
     if (marker) {
@@ -1908,7 +1957,8 @@ class VeloApp {
       else { cc = 'zen-over'; pc = 'pill-over'; txt = `HIGH POWER (+${ts.diff}W)`; }
       card.className = `zen-power-card ${cc}`;
       pill.className = `zen-diff-pill ${pc} num`;
-      pill.textContent = txt;
+      pill.textContent = this.erg.profile?.test && this.erg.testMonitor.under > 0
+        ? `TARGET LOW · ${this.erg.testMonitor.under}/${this.erg.o.testUnderPowerSec}s` : txt;
       card.style.setProperty('--halo-strength', Math.min(1, 0.4 + Math.abs(ts.diffPct || 0) / 25).toFixed(2));
     }
     if (this.isZenMode) {

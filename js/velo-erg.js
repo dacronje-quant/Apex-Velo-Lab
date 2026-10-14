@@ -45,8 +45,8 @@ class VeloErg {
     const cadence = Number(step.cadence || step.targetCadence) || 0;
     const explicit = ['ramp', 'all-out', 'test', 'cadence', 'torque', 'steady'].includes(step.effort);
     const recovery = pct <= 75 && /\b(?:recovery|rest|cooldown|warmup|flush)\b/.test(name);
-    const rampTest = step.effort === 'ramp' || (!explicit && workout.category === 'assessment' &&
-      (workout.id === 'ramp' || /ramp\s*test/i.test(workout.title || '')));
+    const rampTest = !recovery && (step.effort === 'ramp' || (!explicit && workout.category === 'assessment' &&
+      (workout.id === 'ramp' || /ramp\s*test/i.test(workout.title || ''))));
     const allOut = step.effort === 'all-out' || (!explicit && !recovery && /all[ -]?out|\bsprint\b/.test(name));
     const cadenceDrill = step.effort === 'cadence' || (!explicit && !recovery && /\bcadence[ -](?:drill|ladder|pyramid|spin)/.test(name));
     const pacedTest = step.effort === 'test' || (!explicit && !recovery && /(?:ftp|8[ -]?(?:min|minute)|20[ -]?(?:min|minute)).*test|test.*(?:ftp|8[ -]?(?:min|minute)|20[ -]?(?:min|minute))/.test(name));
@@ -54,10 +54,10 @@ class VeloErg {
     const torque = step.effort === 'torque' || cadence > 0 && cadence <= 75 ||
       (!explicit && /\b(?:torque|grind|climb|berg|low[ -]cadence)\b/.test(name));
     const easy = pct <= 75 && !allOut && !pacedTest;
-    let key = pacedTest ? 'paced' : cadenceDrill ? 'cadence' : easy ? 'steady' : rampTest ? 'assessment' : torque ? 'torque' :
+    let key = pacedTest ? 'paced' : cadenceDrill ? 'cadence' : rampTest ? 'assessment' : easy ? 'steady' : torque ? 'torque' :
       short || allOut ? 'burst' : pct >= 106 ? 'responsive' : 'tempo';
     if (selection === 'steady' || selection === 'responsive') key = selection;
-    const reason = rampTest ? 'ERG follows each ramp-test target. If stall protection triggers on a test step, the test pauses rather than continuing at a reduced load.' :
+    const reason = rampTest ? 'One-minute steps continue until you cannot hold the target. After settling, power below 85% for 10 seconds (or 3 seconds with low cadence) finishes and saves the test. Brief dips and missing power signals do not count.' :
       pacedTest ? 'ERG holds the prescribed test power with gentle meter corrections. This measures performance at the set target; power remains limited by that target.' :
       cadenceDrill ? 'ERG holds the power target while cadence changes. PowerMatch waits through rapid cadence changes, then resumes gentle corrections once cadence settles.' :
       key === 'torque' ? 'Gentle power corrections and a lower stall threshold respect the prescribed cadence. Stall protection eases the load if you struggle to keep the pedals turning.' :
@@ -66,7 +66,7 @@ class VeloErg {
       key === 'steady' ? 'Longer power averaging and slower corrections reduce resistance hunting during easy, steady riding.' :
       'Stable power control for tempo, SweetSpot, threshold and over-unders.';
     return { key, label: VeloErg.PROFILES[key].label, reason, controlMode: 'erg',
-      freeze: short || allOut, test: rampTest && !easy };
+      freeze: short || allOut, test: rampTest };
   }
 
   static DEFAULTS = {
@@ -81,6 +81,10 @@ class VeloErg {
     recoverRpm: 15,        // spin this many rpm above the stall threshold to ramp back
     recoverSec: 6,         // seconds to ramp back to target after a stall
     stallMinPctFtp: 76,    // the anti-stall guard only acts above Z2
+    testSettleSec: 6,      // ignore trainer settling after each ramp-test target change
+    testWindow: 3,         // smooth measured power before detecting a missed test target
+    testPowerPct: 0.85,    // app control tolerance, not a physiological threshold
+    testUnderPowerSec: 10,
     leadSec: 2,            // send an upward step up to this many seconds early...
     leadMaxShare: 0.1,     // ...but never more than this share of the step it cuts into
     pmSettleSec: 6,        // PowerMatch waits this long after a target change
@@ -116,6 +120,37 @@ class VeloErg {
     this.pmSettle = 0;
     this.standLeft = 0;       // seconds of the current stand break
     this.mode = 'normal';     // normal | soft-start | stall | ramp | stand
+    this.resetTestMonitor();
+  }
+
+  resetTestMonitor() {
+    this.testMonitor = { key: null, source: null, settle: 0, power: [], under: 0, lowCadence: 0 };
+  }
+
+  /** Only fresh, measured power can end a test. Loss/change of source starts a new settling period. */
+  testFailure({ target, power, cadence, cadenceKnown, stepKey, testPowerKnown = true, testSource = 'measured' }) {
+    const m = this.testMonitor, o = this.o;
+    const key = `${stepKey}:${target}`;
+    if (!this.profile?.test || !(target > 0) || !testPowerKnown || !Number.isFinite(power)) {
+      this.resetTestMonitor();
+      return null;
+    }
+    if (m.key !== key || m.source !== testSource) {
+      Object.assign(m, { key, source: testSource, settle: o.testSettleSec, power: [], under: 0, lowCadence: 0 });
+    }
+    if (this.ramp || this.standLeft > 0) m.settle = o.testSettleSec;
+    if (m.settle > 0) { m.settle--; m.power = []; m.under = 0; m.lowCadence = 0; return null; }
+    m.power.push(power);
+    if (m.power.length > o.testWindow) m.power.shift();
+    if (m.power.length < o.testWindow) return null;
+    const avg = m.power.reduce((a, b) => a + b, 0) / m.power.length;
+    const under = avg < target * o.testPowerPct;
+    m.under = under ? m.under + 1 : 0;
+    m.lowCadence = under && cadenceKnown && cadence < o.stallCadence ? m.lowCadence + 1 : 0;
+    if (m.lowCadence >= o.stallSec || m.under >= o.testUnderPowerSec) {
+      return { reason: m.lowCadence >= o.stallSec ? 'cadence-collapse' : 'target-missed', measuredWatts: Math.round(avg) };
+    }
+    return null;
   }
 
   configure(workout, step, selection = 'auto') {
@@ -202,7 +237,7 @@ class VeloErg {
 
   /**
    * One second of control. Returns { watts, base, mode, event }. 'stall' eases a training
-   * step; 'test-stop' asks the caller to pause a failed ramp test instead of easing its load.
+   * step; 'test-stop' asks the caller to finish and save a ramp test at its limit.
    *
    * input: target, nextTarget, secondsLeft and stepDuration (of the current step), cadence,
    *        cadenceKnown, power (measured, any source), targetCadence, ftp,
@@ -224,6 +259,12 @@ class VeloErg {
     // pedals and trainer), and waits for the trainer to settle before adjusting again.
     this.prepareTarget(base, stepKey);
 
+    const failure = this.testFailure({ ...input, target: base });
+    if (failure) {
+      this.mode = 'test-stop';
+      return { watts: 0, base, mode: this.mode, event: 'test-stop', failure };
+    }
+
     // Trainer ERG already responds to cadence. Do not stack a meter correction on its
     // transient response to a spin-up or sudden slowdown. Timers resume at stable cadence.
     if (cadenceKnown && Number.isFinite(cadence)) {
@@ -240,14 +281,9 @@ class VeloErg {
     const hard = ftp > 0 ? base >= ftp * o.stallMinPctFtp / 100 : base >= 150;
     const waiting = !!(this.ramp && this.ramp.waiting);
     const failing = cadence < o.stopCadence || power == null || power < base * o.stallPowerPct;
-    if (cadenceKnown && hard && !waiting && this.standLeft <= 0 && cadence < stallAt && failing) this.lowCadSec++;
+    if (!this.profile?.test && cadenceKnown && hard && !waiting && this.standLeft <= 0 && cadence < stallAt && failing) this.lowCadSec++;
     else this.lowCadSec = 0;
     if (this.lowCadSec >= o.stallSec) {
-      if (this.profile?.test) {
-        this.lowCadSec = 0;
-        this.mode = 'test-stop';
-        return { watts: 0, base, mode: this.mode, event: 'test-stop' };
-      }
       this.ramp = { from: Math.round(base * o.stallLoadPct), dur: o.recoverSec, t: 0, waiting: true, spinAt: stallAt + o.recoverRpm, stall: true };
       this.lowCadSec = 0;
       this.offset = Math.min(this.offset, 0);

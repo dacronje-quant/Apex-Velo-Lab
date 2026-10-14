@@ -75,3 +75,15 @@ test('a plan without timed steps has no expected power value', () => {
   assert.equal(text.hudWorkoutDuration, '0 min');
   assert.equal(text.hudWorkoutAvgPower, '--');
 });
+
+test('ramp summary shows a performance endpoint and the actual FTP-scaled step increase', () => {
+  const { app, text } = workout();
+  app.currentWorkout.id = 'ramp';
+  app.updateWorkoutOverview();
+  assert.equal(text.hudWorkoutDuration, 'At your limit');
+  assert.equal(text.hudWorkoutDurationLabel, 'Finishes');
+  assert.equal(text.hudWorkoutAvgPower, '14 W / min');
+  app.activeProfile.ftp = 300; app.ergBiasMultiplier = 1.1;
+  app.updateWorkoutOverview();
+  assert.equal(text.hudWorkoutAvgPower, '23 W / min');
+});

@@ -506,6 +506,7 @@
 
       details.innerHTML = `
         ${banner}
+        ${record.rampTest ? `<p class="wcb-sub">${VeloApp.esc(record.rampTest.message || 'Ramp test complete.')}</p>` : ''}
         ${this.rideInsightHtml ? this.rideInsightHtml(record) : ''}
         <div class="inspector-header-stats">
           <div class="metric-cell"><span class="metric-cell-lbl">Duration${VeloGlossary.html('gap')}</span><span class="metric-cell-val num">${this.fmtTime(record.duration)}</span>${cmp(record.duration, avgOf(r => r.duration))}</div>
