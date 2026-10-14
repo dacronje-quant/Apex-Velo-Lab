@@ -192,7 +192,7 @@ class VeloRideImporter {
     }
     if (!samples.length) throw new Error('CSV contained no telemetry rows.');
     const first = samples[0];
-    const startMs = Number.isFinite(first.timestamp) ? first.timestamp - (first.time || 0) * 1000 : Date.now();
+    const startMs = Number.isFinite(first.timestamp) ? first.timestamp - (first.time || 0) * 1000 : firstClock ?? Date.now();
     return VeloRideImporter.summarize(samples, riderFtp, {
       id: VeloRideImporter.uid('imported_csv'),
       date: new Date(startMs).toISOString(),
