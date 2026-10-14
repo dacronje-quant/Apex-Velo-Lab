@@ -116,7 +116,17 @@ for (const kind of ['node', 'powershell']) {
     assert.equal((await fetch(fitUrl)).status, 404);
     assert.equal((await upload(Buffer.from('not a fit file'))).status, 400);
     assert.equal((await upload(bytes.subarray(0, bytes.length - 1))).status, 400);
-    assert.equal((await upload(Buffer.alloc(16 * 1024 * 1024 + 1))).status, 413);
+    // Both servers reject an oversized Content-Length before reading the body. Send just the
+    // headers so a fast 413 cannot race an in-progress 16 MB upload into an intermittent EPIPE.
+    const oversizedStatus = await new Promise((resolve, reject) => {
+      const req = http.request(fitUrl, { method: 'POST', headers: {
+        'Content-Type': 'application/octet-stream', 'Content-Length': 16 * 1024 * 1024 + 1, Connection: 'close'
+      } }, res => { res.resume(); res.on('end', () => { resolve(res.statusCode); req.destroy(); }); });
+      req.on('error', reject);
+      req.setTimeout(5000, () => req.destroy(new Error('Oversized FIT headers were not rejected.')));
+      req.end();
+    });
+    assert.equal(oversizedStatus, 413);
     assert.equal((await upload(bytes, { Origin: `http://192.168.1.2:${port}` })).status, 403);
     assert.equal((await upload(bytes, { Origin: 'https://other.example' })).status, 403);
     assert.equal((await fetch(`${base}/api/live/fit?id=bad&filename=../bad.fit`, { method: 'POST', body: bytes })).status, 400);
