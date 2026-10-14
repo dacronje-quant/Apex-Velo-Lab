@@ -262,6 +262,7 @@ class VeloApp {
     this.renderIntervalTrack();
     this.populateCustomIntervalTable();
     this.renderWorkoutCatalog(this.currentCatalogFilter || 'all', this.currentCatalogSearch || '');
+    if (this.updateFtpMetricsChart) this.updateFtpMetricsChart();
   }
 
   setActiveProfile(id, notify = true) {

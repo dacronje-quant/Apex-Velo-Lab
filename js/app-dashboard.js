@@ -238,6 +238,7 @@
 
       this.renderPowerProfile(d);
       this.updateDashboardCharts(d);
+      if (this.updateFtpMetricsChart) this.updateFtpMetricsChart();
     },
 
     renderPowerProfile(d) {

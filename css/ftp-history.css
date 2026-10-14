@@ -1,0 +1,24 @@
+.ftp-metrics-controls { display:flex; flex-wrap:wrap; gap:10px 18px; margin:14px 0; }
+.ftp-metrics-controls label { display:flex; align-items:center; gap:6px; font-size:12px; color:var(--text-2); cursor:pointer; }
+.ftp-metrics-controls input { accent-color:var(--cyan); }
+.ftp-metrics-controls i { width:12px; height:3px; border-radius:3px; }
+.ftp-metrics-tools { display:flex; flex-wrap:wrap; align-items:center; gap:12px; }
+.ftp-metrics-tools label { display:flex; align-items:center; gap:8px; font-size:12px; color:var(--text-2); }
+.ftp-metrics-tools .ftp-band-toggle { position:relative;gap:10px;padding:10px 14px;border:1px solid var(--line);border-radius:10px;cursor:pointer;user-select:none;transition:background .15s,border-color .15s;color:var(--text-2); }
+.ftp-band-toggle input { position:absolute;width:1px;height:1px;opacity:0; }
+.ftp-band-check { display:grid;place-items:center;width:19px;height:19px;border:1px solid var(--text-2);border-radius:5px;transition:background .15s,border-color .15s; }
+.ftp-band-toggle input:checked + .ftp-band-check { background:var(--cyan);border-color:var(--cyan); }
+.ftp-band-toggle input:checked + .ftp-band-check::after { content:'';width:9px;height:5px;border-left:2px solid #08131d;border-bottom:2px solid #08131d;transform:translateY(-1px) rotate(-45deg); }
+.ftp-band-toggle:has(input:checked) { border-color:var(--cyan);background:color-mix(in srgb,var(--cyan) 8%,transparent); }
+.ftp-band-toggle:hover { background:color-mix(in srgb,var(--cyan) 12%,transparent); }
+.ftp-band-toggle:has(input:focus-visible) { outline:2px solid var(--cyan);outline-offset:3px; }
+.ftp-metrics-chart { height:340px; }
+.ftp-metrics-current { display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:14px;margin:14px 0; }
+.ftp-metrics-current > div { padding:14px;border:1px solid var(--line);border-radius:12px;background:var(--surface);min-width:0; }
+.ftp-metrics-current span,.ftp-metrics-current small { display:block;font-size:12px;color:var(--text-2); }
+.ftp-metrics-current strong { display:block;font-size:30px;color:var(--cyan);margin:4px 0; }
+.ftp-metrics-current > div:first-child strong { color:var(--amber); }
+#ftpMetricsHistoryCard { scroll-margin-top:90px; }
+.ftp-metrics-table { max-height:280px; overflow:auto; }
+.ftp-metrics-table td:last-child { min-width:180px; white-space:normal; }
+@media(max-width:640px) { #ftpMetricsHistoryCard { scroll-margin-top:190px; } .ftp-metrics-chart { height:290px; } .ftp-metrics-tools { align-items:flex-start; } .ftp-metrics-tools label { flex-wrap:wrap; } }

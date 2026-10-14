@@ -554,9 +554,11 @@
         }
       });
       this.updateFtpDelta(d);
+      if (this.initFtpMetricsChart) this.initFtpMetricsChart();
     },
 
     updateFtpChart() {
+      if (this.updateFtpMetricsChart) this.updateFtpMetricsChart();
       if (!this.ftpChart) return;
       const d = this.getFtpProgressionData();
       this.ftpChart.data.labels = d.labels;
