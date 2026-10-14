@@ -37,6 +37,14 @@ Then restart `Launch-Apex-Velo.bat` (the server only reads its code at start) an
 - **AI chooses weekly ride time.** In Coach > Training block, leave **Hours per week** blank to let the connected AI choose weekly allowances from recent riding and recovery. The app bounds the choice using the recent four-week average, recent-week volume, recovery signals and selected days, limits increases between build-week allowances, and shortens recovery/test weeks. These are planning estimates, not a measured optimum. If AI is unavailable or does not choose hours for every week, no new plan is saved: enter hours or try again. Entered hours preserve the existing planning behavior; re-planning keeps your choice to delegate hours to AI.
 - The server validates client addresses, Host and Origin. Localhost and permitted private-LAN addresses can use the app; the phone remote may be available on trusted Wi-Fi. Private health/archive and backup management is PC-only. This is not a login system: do not expose the server publicly. See [privacy](PRIVACY.md).
 - Without a key, the coach falls back to the offline engine and says so in the status pill.
+
+### Evidence-based sport scientist
+
+The coach works as a sport scientist, online and offline. `js/velo-sport-science.js` holds a curated, graded evidence base (reviewed 2026-10): intensity distribution, short and long VO2 max intervals, threshold work, progression, tapering, durability, fitness and longevity, strength training, recovery-guided training, fuelling, sleep, testing, plus masters riders and the menstrual cycle when your notes mention them. Grade A = meta-analyses or several randomised trials, B = randomised trials in cyclists or large cohorts, C = practitioner consensus or limited trials.
+
+- **AI sessions and blocks** get an *evidence brief*: the goal's physiological model (what limits performance, intensity distribution, key-session menu with doses, progression, what to avoid) and only the findings that apply to you (e.g. recovery-guided training when Apple Health data exists, strength training when you lift, time-efficient work under 5 h/week, a taper when your notes mention an event). The system prompt asks for a needs analysis, an exact dose and a safety check, and allows citing only references from the brief. Any other citation the model returns is removed before it is shown.
+- **The offline engine follows the same findings.** Key workouts in a training block progress through each phase's load weeks (more repetitions or shorter rests, the same session length). Longevity sessions include a weekly heart-rate-guided 4 x 4 (cardiorespiratory fitness is the strongest fitness link to longevity), and long rides get fuelling advice.
+- **"The science behind this"** under the coach's advice and the block summary lists the principles used, in plain words, with the evidence grade and the source (hover for the full reference).
 - `server.js` is the shared Node.js server used by the Windows launcher and direct `node server.js --open` launches. It reads `.env` and exposes the same API.
 
 ## Bluetooth Devices
@@ -107,7 +115,8 @@ In **AI Coach > Training block**, pick a goal, a length (4-12 weeks), a start da
 
 - **3 load weeks + 1 recovery week** (about 45% less load, a short key session kept), and a final lighter week that ends with a **ramp test** to reset FTP and zones.
 - **Progressive overload by a controlled CTL ramp** (3-4 CTL per load week by goal, none in the first week if you start fatigued). Volume grows toward your available hours instead of jumping to them.
-- **Phase progression per goal**, e.g. Raise FTP: SweetSpot foundation -> threshold build -> threshold + VO2 peak.
+- **Phase progression per goal**, e.g. Raise FTP: SweetSpot foundation -> threshold build -> threshold + VO2 peak; Longevity: aerobic base -> durability + aerobic power (weekly 4 x 4) -> consolidate.
+- **Key workouts progress within a phase**: later load weeks add repetitions or shorten rests (more time in the target zone at the same session length); lighter weeks keep a short, sharp key session.
 - **1-3 key sessions a week** (at most 2 while CTL is under 30), never on consecutive days (also across weeks) and never the day after the long ride; the other rides are easy, so most of the time stays in Zone 1-2.
 - With Claude or Gemini connected, the model designs the periodisation (week types, phases, weekly load, key-session types) and its reasoning is shown. The app always places the sessions on your days and enforces the rules above, and clamps the weekly load to a safe ramp. Without a key, the built-in engine plans the block on its own.
 
@@ -254,10 +263,10 @@ A thin zone-coloured bar of the whole workout sits above the controls on every s
 
 ### AI Coach
 - **Build a session:** the Workouts tab is the library (filter, search, fine-tune in the table); anything built for you comes from the **AI Coach** (its notes box takes free-text requests like "45 min over-unders").
-- **Goals:** FTP, Longevity (Z2/durability), VO2max and Balanced.
+- **Goals:** FTP, Longevity (Z2/durability, a weekly 4 x 4 and strength work), VO2max and Balanced.
 - **Context from your real history.** 28-day hours per week, intensity mix, CTL/ATL/TSB, days since the last hard and last long ride, and a power-profile type from your all-time MMP curve. Free-text notes are passed through as well.
 - **Claude or Gemini (Claude Opus 5.5 or Gemini 3.8 Flash, low effort by default).** The summarised reasoning trace is rendered as markdown with a live timer, alongside phase cards and a 7-day plan that ramps CTL, drops the ramp to 0 when fatigued and never stacks hard days within 48 h. Click a day of the plan to pre-fill the request.
-- **Offline engine.** Builds a workout sized to the requested duration: sweet-spot blocks, threshold under/overs, 4×4 VO2 or Rønnestad 30/15. IF and TSS are computed from the intervals, not estimated.
+- **Offline engine.** Builds a workout sized to the requested duration: sweet-spot blocks, threshold under/overs, 4×4 VO2 (heart-rate guided for Longevity) or Rønnestad 30/15. IF and TSS are computed from the intervals, not estimated. See *Evidence-based sport scientist* above.
 - **One-click load** into the cockpit, and **Clear Recommendation**.
 - **Recent ride insight in the prompt.** From rides with recorded power, the coach (Claude/Gemini, and the offline engine's advice) gets: the last hard session's interval diagnosis (and its saved AI breakdown), the Pw:HR drift of recent steady rides, new power bests over an earlier best (5 min and longer), and an FTP suggestion you have not applied yet - so a session type that faded is re-paced, aerobic work stays steady while drift is high, and targets reflect a proven FTP.
 
@@ -326,6 +335,7 @@ js/
   velo-progress.js    Weekly aggregates, KPIs, records, coach profile
   velo-importer.js    FIT / TCX / CSV import (recorded channels only)
   velo-export.js      FIT / TCX / CSV export
+  velo-sport-science.js  Graded evidence base, AI evidence brief, citation check, progression steps
   velo-ai-coach.js    Goals, context, offline engine, week plan, Claude/Gemini prompt
   velo-block-planner.js  Training blocks: periodisation, session placement, post-ride review
   velo-workouts.js    Workout library

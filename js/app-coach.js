@@ -270,6 +270,20 @@
       this.updateCoachEngineStatus();
     },
 
+    /** "The science behind this": plain-language findings, their evidence grade and the source study. */
+    evidenceHtml(list) {
+      const S = typeof VeloSportScience !== 'undefined' ? VeloSportScience : null;
+      const items = (Array.isArray(list) ? list : []).map(e => {
+        const full = S && e.ref ? S.REFERENCES[e.ref] || '' : '';
+        const grade = e.grade && S ? `<span class="chip chip-ghost chip-xs" title="Evidence grade ${esc(e.grade)}: ${esc(S.GRADES[e.grade] || '')}">Grade ${esc(e.grade)}</span>` : '';
+        const ref = e.ref ? `<small class="evidence-ref" title="${esc(full)}">${esc(e.ref)}</small>` : '';
+        return `<li><b>${esc(e.principle)}</b> ${grade}<span class="evidence-why">${esc(e.why)}</span>${ref}</li>`;
+      }).join('');
+      if (!items) return '';
+      const foot = S ? `<p class="evidence-foot">Evidence base reviewed ${esc(S.REVIEWED)}. Grade A: ${esc(S.GRADES.A)}; B: ${esc(S.GRADES.B)}; C: ${esc(S.GRADES.C)}. Hover a source for the full reference.</p>` : '';
+      return `<ul class="evidence-list">${items}</ul>${foot}`;
+    },
+
     renderAiCoachRecommendation(rec) {
       if (!rec || !rec.workout) return;
       const panel = document.getElementById('aiCoachResultPanel');
@@ -296,6 +310,13 @@
       this.setText('aiCoachDiagnosisText', a.fitnessDiagnosis || '--');
       this.setText('aiCoachFatigueText', a.fatigueStatus || '--');
       this.setText('aiCoachAdviceText', a.trainingAdvice || '--');
+      const evBox = document.getElementById('aiCoachEvidence');
+      const evList = document.getElementById('aiCoachEvidenceList');
+      if (evBox && evList) {
+        const html = this.evidenceHtml(rec.evidence);
+        evList.innerHTML = html;
+        evBox.hidden = !html;
+      }
 
       const wrap = document.getElementById('aiCoachThinkingWrap');
       const content = document.getElementById('aiCoachThoughtsContent');

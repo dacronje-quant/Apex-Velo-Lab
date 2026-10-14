@@ -191,8 +191,11 @@
       this.setText('blockSubtitle', `${fmtDay(b.startDate, { month: 'short', day: 'numeric' })} - ${fmtDay(b.endDate, { month: 'short', day: 'numeric', year: 'numeric' })} - ${b.options.aiChoosesHours ? 'Weekly hours chosen from your training' : `Up to ${b.options.hoursPerWeek} h/week`} - ${by}`);
       const sumEl = document.getElementById('blockSummary');
       if (sumEl) {
-        sumEl.innerHTML = esc(b.summary || '') + (b.thinking
-          ? `<details class="block-thinking"><summary>Coach reasoning</summary><div>${esc(b.thinking).replace(/\n/g, '<br>')}</div></details>` : '');
+        const evidence = this.evidenceHtml ? this.evidenceHtml(b.evidence) : '';
+        sumEl.innerHTML = esc(b.summary || '')
+          + (evidence ? `<details class="evidence-box"><summary>The science behind this plan</summary>${evidence}</details>` : '')
+          + (b.thinking
+            ? `<details class="block-thinking"><summary>Coach reasoning</summary><div>${esc(b.thinking).replace(/\n/g, '<br>')}</div></details>` : '');
       }
 
       // Suggestions
