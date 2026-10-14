@@ -26,3 +26,9 @@ test('exact header names win: time and timestamp both present', () => {
   assert.equal(r.duration, 120);
   assert.equal(r.avgWatts, 250);
 });
+
+test('an ISO clock in the time column dates the ride', () => {
+  const r = I.parseCsv('time,power\n' + rows(120, i => `${new Date(Date.UTC(2026, 2, 3, 6, 0, i)).toISOString()},200`), 'T', 200);
+  assert.equal(r.duration, 120);
+  assert.equal(r.date, '2026-03-03T06:00:00.000Z');
+});

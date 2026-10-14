@@ -258,7 +258,8 @@
   V.checkpointRide = async function (app) {
     if (!V.enabled || V.checkpointBusy || !app.hasUnsavedRide() || !app.recordedSamples.length) return;
     // Paused or idle: the recovery copy is already current, so do not rewrite the whole ride again.
-    const mark = app.recordedSamples.length + ':' + app.totalElapsedSeconds + ':' + app.intervalIndex;
+    const mark = [app.recordedSamples.length, app.totalElapsedSeconds, app.intervalIndex, app.intervalSecondsRemaining,
+      app.currentWorkout?.intervals?.reduce((a, iv) => a + (iv.duration || 0), 0)].join(':');
     if (V.checkpointMark === mark) return;
     V.checkpointBusy = true;
     V.rideKey ||= 'sqlite_active_ride:' + uuid();
