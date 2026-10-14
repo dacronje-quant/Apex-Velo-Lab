@@ -127,3 +127,13 @@ test('process death inside a write transaction cannot expose half-applied change
     const reopened=new LocalStore({dir:s.dir});try{assert.deepEqual(reopened.rides(),[ride]);assert.equal(reopened.settings().apex_erg_response,'responsive');}finally{reopened.close();}
   }finally{if(child.exitCode===null)child.kill();}
 });
+test('a new backup does not re-read every earlier snapshot to prune them', t => {
+  let now = Date.parse('2026-01-01T08:00:00Z');
+  const s = fixture(t, { clock: () => new Date(now) }); migrate(s);
+  for (let i = 0; i < 20; i++) { now += 86400000; s.backup('manual'); }
+  let reads = 0; const read = s.readSnapshot.bind(s); s.readSnapshot = f => { reads++; return read(f); };
+  now += 86400000; s.backup('manual');
+  assert.equal(reads, 1, 'only the new snapshot is verified');
+  assert.equal(s.backups().files.length, s.backupFiles().length);
+  assert.equal(reads, 1, 'listing backups uses the remembered details too');
+});

@@ -44,6 +44,8 @@ class VeloBle {
   static CPS_OP = { START_OFFSET_COMPENSATION: 0x0C, START_ENHANCED_OFFSET_COMPENSATION: 0x10, RESPONSE: 0x20 };
   /** FTMS Control Point op codes. */
   static FTMS_OP = { REQUEST_CONTROL: 0x00, SET_TARGET_POWER: 0x05, START_RESUME: 0x07, STOP_PAUSE: 0x08, RESPONSE: 0x80 };
+  /** While another app holds the trainer, ask for control again at most this often. */
+  static CONTROL_RETRY_MS = 3000;
 
   static RECONNECT_MAX_ATTEMPTS = 8;
   static FIRST_CONNECT_ATTEMPTS = 3;
@@ -155,7 +157,7 @@ class VeloBle {
     slot.pktCount = 0;
     slot.pktWindowStart = 0;
     slot.packetRate = 0;
-    if (kind === 'trainer') slot.controlGranted = null;
+    if (kind === 'trainer') { slot.controlGranted = null; clearTimeout(slot.controlRetry); slot.controlRetry = null; slot.lastControlRequest = 0; }
     if (kind === 'fan') {
       slot.fanSpeed = null; slot.requestedSpeed = null;
       slot.writeChain = Promise.resolve(); // a hung vendor write must not block a new connection
@@ -708,6 +710,7 @@ class VeloBle {
     } catch (e) { /* Supported Power Range is optional */ }
 
     await VeloBle.delay(150);
+    slot.lastControlRequest = Date.now();
     await this._write('trainer', control, new Uint8Array([VeloBle.FTMS_OP.REQUEST_CONTROL]));
 
     await VeloBle.delay(150);
@@ -736,10 +739,21 @@ class VeloBle {
     if (requestOpCode === VeloBle.FTMS_OP.REQUEST_CONTROL) this.slots.trainer.controlGranted = ok;
     if (result === 0x05) this.slots.trainer.controlGranted = false;
     this._emit({ type: 'ftms_response', ok, requestOpCode, result });
-    // 0x05 = Control Not Permitted: another app grabbed control or the trainer rebooted - request it again.
-    if (result === 0x05 && this.slots.trainer.chars.control) {
-      this._write('trainer', this.slots.trainer.chars.control, new Uint8Array([VeloBle.FTMS_OP.REQUEST_CONTROL])).catch(() => {});
+    // 0x05 = Control Not Permitted: another app grabbed control or the trainer rebooted - request it again,
+    // but no more than every CONTROL_RETRY_MS. Answering each refusal at once loops as fast as Bluetooth allows
+    // while Zwift or the Wahoo app holds control, and queues ERG targets behind the requests.
+    const slot = this.slots.trainer;
+    if (result === 0x05 && slot.chars.control) {
       this.lastTargetPowerSent = null;
+      if (!slot.controlRetry) {
+        const wait = Math.max(0, (slot.lastControlRequest || 0) + VeloBle.CONTROL_RETRY_MS - Date.now());
+        slot.controlRetry = setTimeout(() => {
+          slot.controlRetry = null;
+          if (!slot.chars.control || slot.controlGranted === true) return;
+          slot.lastControlRequest = Date.now();
+          this._write('trainer', slot.chars.control, new Uint8Array([VeloBle.FTMS_OP.REQUEST_CONTROL])).catch(() => {});
+        }, wait);
+      }
     }
   }
 
@@ -783,6 +797,8 @@ class VeloBle {
   async setTrainerErgPower(watts, force = false) {
     const c = this.slots.trainer.chars.control;
     if (!c) return;
+    // Waiting to ask for control again: targets would only be refused too. Once granted the target is re-sent.
+    if (this.slots.trainer.controlRetry) return;
     const lo = Math.max(0, this.powerRange.min || 0);
     const hi = Math.min(2000, this.powerRange.max || 2000);
     const clampedWatts = Math.max(lo, Math.min(hi, Math.round(watts)));

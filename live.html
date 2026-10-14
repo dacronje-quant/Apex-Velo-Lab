@@ -572,6 +572,18 @@
 (function () {
   'use strict';
   const $ = (id) => document.getElementById(id);
+  // Pairing: the address shown on the PC ends in #pair=<key>. The key stays in the address too, because an
+  // iPhone home-screen icon saves the address but not Safari's storage.
+  const hashKey = (location.hash.match(/(?:^#|&)pair=([0-9a-f]+)/) || [])[1] || '';
+  let phoneKey = hashKey;
+  try {
+    if (hashKey) localStorage.setItem('apexPhoneKey', hashKey);
+    else phoneKey = localStorage.getItem('apexPhoneKey') || '';
+  } catch (e) { /* storage blocked: the address still carries the key */ }
+  if (phoneKey && !hashKey) try { history.replaceState(null, '', location.pathname + location.search + '#pair=' + phoneKey); } catch (e) { /* ignore */ }
+  const authHeaders = (h = {}) => (phoneKey ? { ...h, 'X-Apex-Phone': phoneKey } : h);
+  const UNPAIRED = 'Pair this phone';
+  const UNPAIRED_TEXT = 'On the PC open Settings > Phone view and open the address shown there on this phone (or scan its QR code). This keeps other devices on the Wi-Fi from controlling your trainer.';
   const fmt = (s) => {
     s = Math.max(0, Math.round(s || 0));
     const h = Math.floor(s / 3600), m = Math.floor((s % 3600) / 60), x = s % 60;
@@ -688,7 +700,14 @@
       const ctl = new AbortController(); pollCtl = ctl;
       const guard = setTimeout(() => ctl.abort(), 4000); // server holds 2.5 s max, so a dropped Wi-Fi connection is noticed within 4 s
       try {
-        const r = await fetch('api/live' + (seq != null ? '?after=' + seq : ''), { cache: 'no-store', signal: ctl.signal });
+        const r = await fetch('api/live' + (seq != null ? '?after=' + seq : ''), { cache: 'no-store', signal: ctl.signal, headers: authHeaders() });
+        if (r.status === 401) {
+          if (gen !== pollGen) return;
+          render(null);
+          overlay(true, UNPAIRED, UNPAIRED_TEXT);
+          await wait(3000);
+          continue;
+        }
         if (!r.ok) throw new Error(String(r.status));
         const d = await r.json();
         if (gen !== pollGen) return;
@@ -752,7 +771,7 @@
     const download = $('btnDownloadFit');
     download.hidden = !fit;
     if (fit) {
-      download.href = 'api/live/fit?id=' + encodeURIComponent(completed.id);
+      download.href = 'api/live/fit?id=' + encodeURIComponent(completed.id) + (phoneKey ? '&k=' + encodeURIComponent(phoneKey) : '');
       download.download = fit.filename;
     } else {
       download.removeAttribute('href');
@@ -1407,7 +1426,7 @@
     if (navigator.vibrate) navigator.vibrate(15);
     if (label) toast(label);
     try {
-      const r = await fetch('api/live/cmd', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ cmd }) });
+      const r = await fetch('api/live/cmd', { method: 'POST', headers: authHeaders({ 'Content-Type': 'application/json' }), body: JSON.stringify({ cmd }) });
       const d = await r.json().catch(() => ({}));
       if (!r.ok) throw new Error(d.error || ('Error ' + r.status));
       if (entry && typeof d.id === 'number') entry.id = d.id;

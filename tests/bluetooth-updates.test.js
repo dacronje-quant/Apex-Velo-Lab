@@ -253,3 +253,25 @@ test('automatic fan cooling follows a trailing average and does not hunt on nois
   assert(sent.length > before, 'harder effort raises airflow');
   assert(sent[sent.length - 1].v > settled);
 });
+test('another app holding the trainer gets a control request every few seconds, not a request loop', async () => {
+  const f = fixture(), writes = [];
+  link(f, 'trainer', device('trainer'), { control: { async writeValueWithResponse(b) { writes.push([...b]); } } });
+  const refused = () => f.ble._onFtmsControlResponse(view([0x80, 0x00, 0x05]));
+  f.ble.slots.trainer.lastControlRequest = Date.now();
+  for (let i = 0; i < 20; i++) refused();
+  await new Promise(r => setTimeout(r, 20));
+  assert.equal(writes.length, 0, 'no immediate re-request after a fresh refusal');
+  assert.equal(f.ble.slots.trainer.controlGranted, false);
+  // While waiting, ERG targets are held back instead of queueing behind the refusals.
+  await f.ble.setTrainerErgPower(200, true);
+  assert.equal(writes.length, 0);
+  f.Ble.CONTROL_RETRY_MS = 30;
+  clearTimeout(f.ble.slots.trainer.controlRetry); f.ble.slots.trainer.controlRetry = null;
+  refused(); refused();
+  await new Promise(r => setTimeout(r, 80));
+  assert.deepEqual(writes, [[0x00]], 'exactly one request per retry window');
+  f.ble._onFtmsControlResponse(view([0x80, 0x00, 0x01]));
+  assert.equal(f.ble.slots.trainer.controlGranted, true);
+  await f.ble.setTrainerErgPower(200, true);
+  assert.equal(writes.at(-1)[0], 0x05, 'ERG target is sent again once control is granted');
+});

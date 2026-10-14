@@ -118,35 +118,66 @@ class VeloRideImporter {
     const lines = csvString.replace(/\r/g, '').trim().split('\n').filter(Boolean);
     if (lines.length < 2) throw new Error('Invalid CSV file.');
     const header = lines[0].split(',').map(h => h.trim().toLowerCase());
-    const find = (...names) => header.findIndex(h => names.some(n => h === n || h.startsWith(n)));
     const named = header.some(h => /[a-z]/.test(h));
-    const col = named ? {
-      time: find('time_s', 'timesec', 'time'),
-      ts: find('timestamp_iso', 'timestamp'),
-      target: find('target_w', 'targetwatts', 'target'),
-      power: find('power_w', 'actualwatts', 'power', 'watts'),
-      cad: find('cadence_rpm', 'cadencerpm', 'cadence'),
-      hr: find('heart_rate_bpm', 'heartratebpm', 'hr', 'heart'),
-      speed: find('speed_kmh', 'speedkmh', 'speed'),
-      dist: find('distance_km', 'distancekm', 'distance'),
-      left: find('left_balance_pct', 'leftbalancepct', 'left'),
-      right: find('right_balance_pct', 'rightbalancepct', 'right'),
-      segment: find('segment_start')
-    } : { time: 0, ts: -1, target: 1, power: 2, cad: 3, hr: 4, speed: -1, dist: -1, left: 5, right: 6 };
+    const fields = {
+      time: ['time_s', 'timesec', 'time', 'elapsed', 'secs', 'seconds'],
+      ts: ['timestamp_iso', 'timestamp', 'datetime', 'date_time'],
+      target: ['target_w', 'targetwatts', 'target'],
+      power: ['power_w', 'actualwatts', 'power', 'watts'],
+      cad: ['cadence_rpm', 'cadencerpm', 'cadence'],
+      hr: ['heart_rate_bpm', 'heartratebpm', 'hr', 'heart'],
+      speed: ['speed_kmh', 'speedkmh', 'speed'],
+      dist: ['distance_km', 'distancekm', 'distance'],
+      left: ['left_balance_pct', 'leftbalancepct', 'left'],
+      right: ['right_balance_pct', 'rightbalancepct', 'right'],
+      segment: ['segment_start']
+    };
+    // Exact header names win over prefixes, and a column claimed exactly is never taken by a prefix:
+    // otherwise "time" would grab a "timestamp" column.
+    const col = {};
+    if (named) {
+      const claimed = new Set();
+      for (const [k, names] of Object.entries(fields)) {
+        col[k] = header.findIndex(h => names.includes(h));
+        if (col[k] >= 0) claimed.add(col[k]);
+      }
+      for (const [k, names] of Object.entries(fields)) {
+        if (col[k] >= 0) continue;
+        for (const n of names) {
+          col[k] = header.findIndex((h, i) => !claimed.has(i) && h.startsWith(n) && !(k === 'time' && h.startsWith('timestamp')));
+          if (col[k] >= 0) { claimed.add(col[k]); break; }
+        }
+      }
+    } else Object.assign(col, { time: 0, ts: -1, target: 1, power: 2, cad: 3, hr: 4, speed: -1, dist: -1, left: 5, right: 6 });
 
     const num = (parts, idx) => {
       if (idx < 0 || idx >= parts.length) return null;
       const v = parseFloat(parts[idx]);
       return Number.isFinite(v) ? v : null;
     };
+    // Seconds from "65", "1:05", "01:01:05" (elapsed) or an ISO date-time (relative to the first row).
+    let firstClock = null;
+    const seconds = (parts, idx) => {
+      if (idx < 0 || idx >= parts.length) return null;
+      const raw = String(parts[idx]).trim();
+      if (/^-?\d+(\.\d+)?$/.test(raw)) return parseFloat(raw);
+      const hms = raw.match(/^(\d+):(\d{1,2})(?::(\d{1,2}(?:\.\d+)?))?$/);
+      if (hms) return hms[3] !== undefined ? +hms[1] * 3600 + +hms[2] * 60 + parseFloat(hms[3]) : +hms[1] * 60 + +hms[2];
+      const ms = /^\d{4}-\d{2}-\d{2}/.test(raw) ? Date.parse(raw) : NaN;
+      if (!Number.isFinite(ms)) return null;
+      if (firstClock === null) firstClock = ms;
+      return (ms - firstClock) / 1000;
+    };
     const samples = [];
+    let firstTs = null;
     for (let i = 1; i < lines.length; i++) {
       const parts = lines[i].split(',');
       if (parts.length < 2) continue;
       const tsRaw = col.ts >= 0 ? parts[col.ts] : null;
       const tsMs = tsRaw ? (/^\d+$/.test(tsRaw) ? Number(tsRaw) : new Date(tsRaw).getTime()) : NaN;
+      if (Number.isFinite(tsMs) && firstTs === null) firstTs = tsMs;
       samples.push({
-        time: num(parts, col.time) ?? (i - 1),
+        time: seconds(parts, col.time) ?? (Number.isFinite(tsMs) ? Math.round((tsMs - firstTs) / 1000) : i - 1),
         timestamp: Number.isFinite(tsMs) ? tsMs : undefined,
         target: num(parts, col.target) ?? 0,
         power: num(parts, col.power) ?? 0,

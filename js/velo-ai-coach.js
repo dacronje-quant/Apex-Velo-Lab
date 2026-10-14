@@ -319,9 +319,28 @@ class VeloAiCoach {
     return Math.max(30, Math.min(150, r5(min)));
   }
 
+  /**
+   * Planned duration, IF and TSS of a list of intervals, computed the way NP is from a ride: the 1 Hz
+   * target is smoothed over 30 s before the 4th-power mean, so 15/15 s surges count as the ~100% FTP the
+   * body sees rather than as 150% bursts.
+   */
   static estimateLoad(intervals) {
-    const totalSec = intervals.reduce((a, iv) => a + (iv.duration || 0), 0) || 1;
-    const p4 = intervals.reduce((a, iv) => a + Math.pow((iv.pctFtp || 0) / 100, 4) * (iv.duration || 0), 0) / totalSec;
+    const pct = [];
+    for (const iv of intervals || []) {
+      const n = Math.max(0, Math.round(Number(iv.duration) || 0)), p = (Number(iv.pctFtp) || 0) / 100;
+      for (let k = 0; k < n; k++) pct.push(p);
+    }
+    const totalSec = pct.length || 1;
+    let p4;
+    if (pct.length >= 30) {
+      let sum = 0, acc = 0, count = 0;
+      for (let i = 0; i < pct.length; i++) {
+        sum += pct[i];
+        if (i >= 30) sum -= pct[i - 30];
+        if (i >= 29) { acc += Math.pow(sum / 30, 4); count++; }
+      }
+      p4 = acc / count;
+    } else p4 = pct.reduce((a, p) => a + Math.pow(p, 4), 0) / totalSec;
     const ifac = Math.pow(p4, 0.25);
     return { durationMin: Math.round(totalSec / 60), if: ifac.toFixed(2), tss: Math.round((totalSec / 3600) * ifac * ifac * 100) };
   }

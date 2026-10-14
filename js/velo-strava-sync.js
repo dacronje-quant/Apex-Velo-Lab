@@ -41,7 +41,8 @@ class VeloStravaSync {
   /**
    * Converts Strava streams ({ time: {data}, watts: {data}, ... } or plain arrays) into the app's
    * 1 Hz samples. Only recorded channels are included. A gap of 2-5 s (a device's "smart recording")
-   * holds the last reading so every sample is one second; a longer gap is a pause and is left out.
+   * holds the last reading so every sample is one second; a longer gap is a pause: its seconds are not filled,
+   * the time channel keeps the gap and the next sample is marked segmentStart.
    * Returns null when there is no power stream.
    */
   static streamsToSamples(raw) {
@@ -60,17 +61,19 @@ class VeloStravaSync {
       if (Dd) s.dist = Math.round(Number(Dd[i]) || 0) / 1000;
       return s;
     };
-    const out = [];
+    // Keep the activity's own clock: a pause (cafe stop) stays a gap in time and starts a new segment, so
+    // rolling peaks, NP and CP never join the efforts either side of it, and W' recovers across it.
+    const out = [], t0 = Number(time[0]) || 0;
     for (let i = 0; i < time.length; i++) {
       const cur = sample(i);
-      if (i > 0) {
-        const gap = Number(time[i]) - Number(time[i - 1]);
-        if (gap > 1 && gap <= VeloStravaSync.STREAM_MAX_GAP_S) {
-          const prev = out[out.length - 1];
-          for (let k = 1; k < gap; k++) out.push({ ...prev, time: out.length + 1 });
-        }
+      const t = Math.round(Number(time[i]) - t0) + 1;
+      const prev = out[out.length - 1];
+      if (prev && !(t > prev.time)) continue; // repeated or out-of-order second
+      const gap = prev ? t - prev.time : 1;
+      if (gap > 1 && gap <= VeloStravaSync.STREAM_MAX_GAP_S) {
+        for (let k = 1; k < gap; k++) out.push({ ...prev, segmentStart: false, time: prev.time + k });
       }
-      out.push({ time: out.length + 1, ...cur });
+      out.push({ time: t, ...cur, ...(gap > VeloStravaSync.STREAM_MAX_GAP_S ? { segmentStart: true } : {}) });
     }
     return out.length >= 60 ? out : null;
   }
