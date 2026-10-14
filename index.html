@@ -892,11 +892,11 @@
           <div><span>Power + Heart Rate</span><strong id="ftpMetricsEstimateValue">—</strong><small id="ftpMetricsEstimateRange">Latest saved estimate</small></div>
         </div>
         <div class="ftp-metrics-tools"><label class="ftp-band-toggle"><input type="checkbox" id="ftpMetricsBand" checked><span class="ftp-band-check" aria-hidden="true"></span><span>Uncertainty band</span></label><label class="ftp-band-toggle"><input type="checkbox" id="ftpMetricsWorkoutDots" checked><span class="ftp-band-check" aria-hidden="true"></span><span>Workout-implied FTP dots</span></label></div>
-        <div class="ftp-metrics-controls" id="ftpMetricsControls" aria-label="FTP history series"></div>
-        <div class="chart-box ftp-metrics-chart"><canvas id="ftpMetricsHistoryCanvas" aria-label="FTP in use and experimental Power plus Heart Rate estimate over time"></canvas></div>
+        <div class="ftp-metrics-controls" id="ftpMetricsControls" role="group" aria-label="FTP history series"></div>
+        <div class="chart-box ftp-metrics-chart"><canvas id="ftpMetricsHistoryCanvas" role="img" aria-label="FTP in use and experimental Power plus Heart Rate estimate over time"></canvas></div>
         <p class="footnote" id="ftpMetricsStatus" role="status">Loading saved calculation history…</p>
         <p class="footnote">The shaded range shows model uncertainty, not validated FTP confidence. Your training setting changes only when you choose to update it.</p>
-        <details class="table-view"><summary>Supporting calculations &amp; history</summary>
+        <details class="table-view" id="ftpMetricsDetails"><summary>Supporting calculations &amp; history</summary>
           <p class="footnote">Power Curve and Bayesian Power Curve model one-hour power. Workout Capacity Floor is a conditional CP floor; Workout Capacity Model is a prior-dependent diagnostic. Easy efforts are not maximal tests, so these checks are not standalone FTP recommendations.</p>
           <button type="button" class="btn btn-sm" id="btnImportFtpMetrics">Import calculation history</button>
           <input type="file" id="ftpMetricsFile" accept=".json,application/json" hidden>

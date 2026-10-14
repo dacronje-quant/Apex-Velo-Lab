@@ -14,3 +14,16 @@ test('active history prioritizes actual profile events, no fake earlier setting'
  const hist=H.activeHistory({ftp:210,ftpHistory:[{date:'2026-10-09',ftp:210}]},[{date:'2026-10-09',ftpAtRide:215}],now);assert.deepEqual(hist.map(p=>p.y),[210,210]);
 });
 test('only settings carry into range; model estimates are not extrapolated',()=>{const pts=[{x:1,y:210},{x:3,y:211}];assert.equal(H.inRange(pts,2,4,true)[0].x,2);assert.deepEqual(H.inRange(pts,2,4,false),[{x:3,y:211}]);assert.deepEqual(H.inRange(pts,4,5,false),[])});
+
+test('rows must be objects, not null or arrays',()=>{for(const row of [null,[],'x',7]){const v=input();v.series.B=[row];assert.throws(()=>H.normalize(v,'p'),/Invalid FTP history point/)}});
+test('omitted context is kept as null so profile inputs are not compared; supplied context is normalised',()=>{
+ assert.equal(H.normalize(input(),'p').context,null);
+ const v=input();v.context={maxHr:175,age:35};assert.deepEqual(H.normalize(v,'p').context,{maxHr:175,lthr:null,age:35});
+ assert.equal(H.normalize(H.exportBundle(H.normalize(input(),'p')),'p').context,null)});
+test('date-only points keep their calendar day west of UTC',t=>{
+ const {spawnSync}=require('node:child_process');
+ const code=`const H=require('./js/velo-ftp-history.js');const x=Date.parse('2026-08-12');console.log(JSON.stringify({off:new Date(x).getTimezoneOffset(),only:H.formatDate(x,true),local:H.formatDate(x,false)}))`;
+ const run=spawnSync(process.execPath,['-e',code],{cwd:require('node:path').resolve(__dirname,'..'),env:{...process.env,TZ:'America/New_York'},encoding:'utf8'});
+ const r=JSON.parse(run.stdout);assert.equal(r.only,'12/08/2026');
+ if(r.off>0)assert.equal(r.local,'11/08/2026'); else t.diagnostic('TZ override not honoured on this platform; local-day shift not asserted');
+});

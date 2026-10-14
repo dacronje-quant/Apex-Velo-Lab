@@ -23,6 +23,7 @@
       const rows = input.series?.[key] || [];
       if (!Array.isArray(rows) || rows.length > 10000) throw new Error('Invalid or oversized FTP history.');
       series[key] = rows.map(p => {
+        if (!p || typeof p !== 'object' || Array.isArray(p)) throw new Error('Invalid FTP history point.');
         const x = time(p.date), y = p.value == null ? null : watts(p.value);
         if (!Number.isFinite(x) || x > asOf || (p.value != null && y === null)) throw new Error('Invalid or future FTP history point.');
         const low = watts(p.low), high = watts(p.high);
@@ -37,7 +38,8 @@
     }
     if (total > 40000) throw new Error('FTP history has too many points.');
     return { schema: input.schema, version: 1, profileId, asOf, series, modelVersion: text(input.modelVersion),
-      context: { maxHr: watts(input.context?.maxHr), lthr: watts(input.context?.lthr), age: watts(input.context?.age) } };
+      // null means the export did not record the profile inputs, so they cannot be compared with the current profile.
+      context: input.context && typeof input.context === 'object' ? { maxHr: watts(input.context.maxHr), lthr: watts(input.context.lthr), age: watts(input.context.age) } : null };
   }
   function exportBundle(bundle) {
     return { ...bundle, asOf: new Date(bundle.asOf).toISOString(), series: Object.fromEntries(Object.entries(bundle.series).map(([key, rows]) =>
@@ -69,7 +71,11 @@
     }
     return result;
   }
-  const api = { METRICS, normalize, exportBundle, activeHistory, inRange, key: id => 'ftp_metric_history:v1:' + id };
+  // Date-only points are UTC midnight; show them in UTC so they never slip to the previous day west of Greenwich.
+  function formatDate(x, dateOnly = false, options = {}) {
+    return new Date(x).toLocaleDateString('en-GB', dateOnly ? { ...options, timeZone: 'UTC' } : options);
+  }
+  const api = { METRICS, normalize, exportBundle, activeHistory, inRange, formatDate, key: id => 'ftp_metric_history:v1:' + id };
   root.VeloFtpHistory = api;
   if (typeof module !== 'undefined' && module.exports) module.exports = api;
 })(typeof window !== 'undefined' ? window : globalThis);
