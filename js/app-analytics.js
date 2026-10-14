@@ -554,6 +554,7 @@
         }
       });
       this.updateFtpDelta(d);
+      if (this.initFtpMetricsChart) this.initFtpMetricsChart();
     },
 
     updateFtpChart() {

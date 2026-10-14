@@ -27,3 +27,5 @@ jobs:
       - run: npm run test:browser
       - run: npm run test:suite
       - run: node tests/ramp-test-browser.cjs
+      - run: node tests/ftp-history-browser.cjs
+      - run: node tests/ftp-history-live-browser.cjs
