@@ -9,7 +9,7 @@ function load() {
   const ctx = vm.createContext({ window: {}, localStorage: {
     getItem: k => values.get(k) || null, setItem: (k, v) => values.set(k, v), removeItem: k => values.delete(k)
   } });
-  for (const file of ['velo-metrics', 'velo-ai-coach', 'velo-block-planner', 'velo-insight']) {
+  for (const file of ['velo-metrics', 'velo-sport-science', 'velo-ai-coach', 'velo-block-planner', 'velo-insight']) {
     const src = fs.readFileSync(`js/${file}.js`, 'utf8');
     vm.runInContext(src, ctx);
   }

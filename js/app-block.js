@@ -21,7 +21,6 @@
       };
       const o = { ...defaults, ...(saved || {}) };
       const set = (id, v) => { const el = document.getElementById(id); if (el) el.value = String(v); };
-      set('selectBlockGoal', o.goal);
       set('selectBlockWeeks', o.weeks);
       set('inputBlockHours', o.hoursPerWeek === null || o.aiChoosesHours ? '' : o.hoursPerWeek);
       set('selectBlockLongDay', o.longDay === null || o.longDay === undefined ? '' : o.longDay);
@@ -33,7 +32,6 @@
           if (b) b.classList.toggle('active');
         });
       }
-      this.on(document.getElementById('btnBuildBlock'), 'click', () => this.buildTrainingBlock());
       this.on(document.getElementById('btnReplanBlock'), 'click', () => this.replanTrainingBlock());
       this.on(document.getElementById('btnDeleteBlock'), 'click', () => {
         if (!confirm('Delete this training block? Your rides are not affected.')) return;
@@ -69,7 +67,7 @@
       const val = (id) => (document.getElementById(id) || {}).value;
       const days = Array.from(document.querySelectorAll('#blockDays [data-dow].active')).map(b => Number(b.dataset.dow));
       return {
-        goal: val('selectBlockGoal') || 'ftp',
+        goal: this.coachGoal || 'ftp',
         weeks: parseInt(val('selectBlockWeeks') || '8', 10),
         startDate: val('inputBlockStart') || P().today(),
         hoursPerWeek: String(val('inputBlockHours') || '').trim() === '' ? null : parseFloat(val('inputBlockHours')),
@@ -79,8 +77,8 @@
       };
     },
 
-    async runBlockTask(btn, label, task) {
-      const timer = document.getElementById(this.blockPlanner && this.blockPlanner.block ? 'blockThinkTimerView' : 'blockThinkTimer');
+    async runBlockTask(btn, label, task, timerId = 'blockThinkTimerView') {
+      const timer = document.getElementById(timerId);
       if (btn) { btn.disabled = true; btn.classList.add('is-loading'); }
       const t0 = performance.now();
       if (timer) { timer.hidden = false; timer.innerHTML = `<span class="spinner"></span>${esc(label)}... 0.0 s`; }
@@ -103,13 +101,15 @@
     async buildTrainingBlock() {
       const opts = this.readBlockOptions();
       if (opts.days.length < 2) { this.showToast('Pick at least two days you can ride.', 'warning'); return; }
+      const current = this.blockPlanner.block;
+      if (current && !confirm(`Replace your current ${current.weeks.length}-week plan with a new one? Your rides are not affected.`)) return;
       if (opts.hoursPerWeek !== null && (!Number.isFinite(opts.hoursPerWeek) || opts.hoursPerWeek < 2 || opts.hoursPerWeek > 25)) {
         this.showToast('Enter weekly hours between 2 and 25, or leave it blank for the coach to choose.', 'warning'); return;
       }
       try { localStorage.setItem(OPTIONS_KEY, JSON.stringify({ goal: opts.goal, weeks: opts.weeks, hoursPerWeek: opts.hoursPerWeek, longDay: opts.longDay, days: opts.days })); } catch (e) { /* ignore */ }
       const c = this.aiCoach;
       const label = c.isLive ? `Planning with ${VeloAiCoach.labelFor(c.model)}` : 'Planning';
-      const res = await this.runBlockTask(document.getElementById('btnBuildBlock'), label, () => this.blockPlanner.create(opts));
+      const res = await this.runBlockTask(document.getElementById('btnGenerateAiCoachRecommendation'), label, () => this.blockPlanner.create(opts), 'aiCoachThinkTimer');
       if (!res) return;
       this.blockPlanner.review(this.completedWorkouts, this.aiCoach.getPhysiologicalContext('auto', 60, opts.goal));
       this.renderTrainingBlock();
@@ -172,15 +172,14 @@
     },
 
     renderTrainingBlock() {
-      const setup = document.getElementById('blockSetup');
-      const view = document.getElementById('blockView');
-      if (!setup || !view || !this.blockPlanner) return;
-      const c = this.aiCoach;
-      const btnLabel = document.getElementById('btnBuildBlockLabel');
-      if (btnLabel) btnLabel.textContent = c.isLive ? `Build block with ${VeloAiCoach.labelFor(c.model)}` : 'Build block (built-in engine)';
+      const card = document.getElementById('trainingBlockCard');
+      const welcome = document.getElementById('planWelcomeCard');
+      if (!card || !this.blockPlanner) return;
       const b = this.blockPlanner.block;
-      setup.hidden = !!b;
-      view.hidden = !b;
+      card.hidden = !b;
+      if (welcome) welcome.hidden = !!b;
+      if (this.updateCoachGoButton) this.updateCoachGoButton();
+      if (this.renderCoachPlanToday) this.renderCoachPlanToday();
       this.setText('blockHeaderChip', b ? `${b.weeks.length} weeks` : 'Periodised plan');
       if (!b) return;
 
@@ -191,8 +190,11 @@
       this.setText('blockSubtitle', `${fmtDay(b.startDate, { month: 'short', day: 'numeric' })} - ${fmtDay(b.endDate, { month: 'short', day: 'numeric', year: 'numeric' })} - ${b.options.aiChoosesHours ? 'Weekly hours chosen from your training' : `Up to ${b.options.hoursPerWeek} h/week`} - ${by}`);
       const sumEl = document.getElementById('blockSummary');
       if (sumEl) {
-        sumEl.innerHTML = esc(b.summary || '') + (b.thinking
-          ? `<details class="block-thinking"><summary>Coach reasoning</summary><div>${esc(b.thinking).replace(/\n/g, '<br>')}</div></details>` : '');
+        const evidence = this.evidenceHtml ? this.evidenceHtml(b.evidence) : '';
+        sumEl.innerHTML = esc(b.summary || '')
+          + (evidence ? `<details class="evidence-box"><summary>The science behind this plan</summary>${evidence}</details>` : '')
+          + (b.thinking
+            ? `<details class="block-thinking"><summary>Coach reasoning</summary><div>${esc(b.thinking).replace(/\n/g, '<br>')}</div></details>` : '');
       }
 
       // Suggestions

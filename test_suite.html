@@ -2172,6 +2172,32 @@
           });
 
           // 50b. Training block: periodisation rules, calendar, post-ride review
+          await suite('Coach Builder: One Workout / Training Plan Switch, Shared Goal, Chip Selects, Single Action & Plan-Today Strip', async () => {
+            const D = frame.contentDocument;
+            const P = W.VeloBlockPlanner;
+            const bp = app.blockPlanner;
+            const saved = { block: bp.block, mode: app.coachMode, goal: app.coachGoal };
+            const shown = (sel) => { const el = D.querySelector(sel); return !!el && W.getComputedStyle(el).display !== 'none'; };
+            app.setCoachMode('plan');
+            const planOk = shown('.mode-pane[data-pane="plan"]') && !shown('.mode-pane[data-pane="session"]') && /plan/.test(D.getElementById('coachGoLabel').textContent);
+            D.querySelector('#aiCoachGoalPills [data-goal="vo2"]').click();
+            const goalShared = app.readBlockOptions().goal === 'vo2' && app.coachGoal === 'vo2';
+            D.querySelector('#selectBlockWeeks + .chip-select [data-value="10"]').click();
+            const chipOk = D.getElementById('selectBlockWeeks').value === '10' && /10-week/.test(D.getElementById('coachGoLabel').textContent)
+              && D.querySelector('#selectBlockWeeks + .chip-select [data-value="10"]').classList.contains('active');
+            app.setCoachMode('session');
+            const sessionOk = shown('.mode-pane[data-pane="session"]') && !shown('.mode-pane[data-pane="plan"]') && /workout/.test(D.getElementById('coachGoLabel').textContent);
+            // A plan with a session today puts a Load strip above the workout result.
+            await bp.create({ goal: 'ftp', weeks: 4, hoursPerWeek: 6, days: [0, 1, 2, 3, 4, 5, 6], longDay: 6, startDate: P.today() }, { useAi: false });
+            app.renderTrainingBlock();
+            const strip = D.getElementById('coachPlanToday');
+            const stripOk = !strip.hidden && !!strip.querySelector('[data-block-load]');
+            bp.block = saved.block; bp.save();
+            D.querySelector(`#aiCoachGoalPills [data-goal="${saved.goal}"]`).click();
+            app.setCoachMode(saved.mode); app.renderTrainingBlock(); app.renderCalendarView();
+            return { ok: planOk && goalShared && chipOk && sessionOk && stripOk, detail: `plan pane:${planOk} shared goal:${goalShared} chips:${chipOk} session pane:${sessionOk} plan-today strip:${stripOk}` };
+          });
+
           await suite('Training Block: 3:1 Periodisation, 48 h Between Key Sessions, Hours Respected, Calendar & Post-Ride Adjustments', async () => {
             const P = W.VeloBlockPlanner;
             const bp = app.blockPlanner;

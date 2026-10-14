@@ -13,8 +13,10 @@
  *  - The block ends with a lighter week and a ramp test to reset FTP and zones.
  *
  * The AI coach (Claude or Gemini) can decide the periodisation (week types, phases,
- * weekly load, key-session types); this engine always places the sessions on the
- * calendar and enforces the safety rules, so the plan is valid whatever the model says.
+ * weekly load, key-session types) from an evidence brief (VeloSportScience); this engine
+ * always places the sessions on the calendar and enforces the safety rules, so the plan is
+ * valid whatever the model says. Key workouts progress through each phase's load weeks
+ * (more repetitions or shorter rests, so more time in zone) and keep their intensity in lighter weeks.
  *
  * After every ride, review() compares what was done with the plan and proposes
  * adjustments (move a missed key session, ease off when fatigued or overloaded, a small
@@ -48,10 +50,12 @@ class VeloBlockPlanner {
       { name: 'Build: VO2 max', keys: ['vo2max', 'threshold', 'vo2max'] },
       { name: 'Peak: VO2 density', keys: ['vo2max', 'vo2max', 'threshold'] }
     ],
+    // Cardiorespiratory fitness is the strongest fitness link to longevity: the weekly key session
+    // becomes a 4 x 4 once the aerobic base is laid (Mandsager 2018; Stensvold 2020).
     longevity: [
-      { name: 'Aerobic base', keys: ['sweetspot', 'threshold'] },
-      { name: 'Durability', keys: ['sweetspot', 'threshold'] },
-      { name: 'Consolidate', keys: ['threshold', 'sweetspot'] }
+      { name: 'Aerobic base', keys: ['sweetspot', 'vo2max'] },
+      { name: 'Durability + aerobic power', keys: ['vo2max', 'sweetspot'] },
+      { name: 'Consolidate', keys: ['vo2max', 'threshold'] }
     ],
     balanced: [
       { name: 'Polarised base', keys: ['vo2max', 'sweetspot', 'threshold'] },
@@ -446,7 +450,9 @@ class VeloBlockPlanner {
     const goal = VeloAiCoach.GOALS[opts.goal] || VeloAiCoach.GOALS.ftp;
     const skel = VeloBlockPlanner.skeleton(opts);
     const dayNames = opts.days.map(d => VeloBlockPlanner.DAY_NAMES[d]).join(', ');
-    return `You are an elite cycling coach and exercise physiologist. Design the periodisation of a ${opts.weeks}-week indoor training block for rider "${ctx.profile.name}".
+    const evidence = typeof VeloSportScience !== 'undefined'
+      ? `${VeloSportScience.brief(opts.goal, { ...ctx, hoursPerWeek: opts.hoursPerWeek }, 'block')}\n\n` : '';
+    return `You are the app's sport scientist: an elite cycling coach and exercise physiologist. Design the periodisation of a ${opts.weeks}-week indoor training block for rider "${ctx.profile.name}".
 
 RIDER: FTP ${ctx.profile.ftp} W, weight ${ctx.profile.weightKg} kg.
 GOAL: ${goal.label} - ${goal.summary}
@@ -458,15 +464,16 @@ ${ctx.otherActivities && ctx.otherActivities.line ? ctx.otherActivities.line : '
 LAST ${ctx.lookbackDays} DAYS: ${h.ridesWin} rides, ${h.hoursPerWeekWin} h/week, intensity mix easy ${h.lowIntensityPct ?? 'n/a'}% / tempo-SweetSpot ${h.midIntensityPct ?? 'n/a'}% / threshold+ ${h.highIntensityPct ?? 'n/a'}%; days since last hard ride ${h.daysSinceHard ?? 'n/a'}; power profile ${h.profileType || 'n/a'}.
 ${ctx.notes ? `RIDER NOTES: ${ctx.notes}\n` : ''}DEFAULT STRUCTURE (adjust if the physiology says so): ${skel.map((s, i) => `W${i + 1} ${s.type}`).join(', ')}.
 
-PRINCIPLES TO APPLY: progressive overload with CTL ramp 2-6 per load week (lower if fatigued or low training age); 3:1 or 2:1 load:recovery; recovery weeks ~40-50% less load but keep brief intensity; phase progression toward the goal (general -> specific); 1-3 key sessions per week depending on hours; most time easy (polarised or pyramidal); final week lighter with an FTP ramp test.
+${evidence}PRINCIPLES TO APPLY: progressive overload with CTL ramp 2-6 per load week (lower if fatigued or low training age); 3:1 or 2:1 load:recovery; recovery weeks ~40-50% less load but keep brief intensity; phase progression toward the goal (general -> specific); 1-3 key sessions per week depending on hours; most time easy (polarised or pyramidal); final week lighter with an FTP ramp test.
 
 WRITING STYLE: Use plain language for a beginner in summary, phase and notes. Explain the plan's purpose, how it builds gradually and when to rest. Do not quote CTL, ATL, TSB, TSS, predicted fitness scores or percentages in prose. Use numbers only when they help the rider act. Explain any essential technical term immediately. Keep numeric planning fields and enum values exact.
 
 Return ONLY JSON:
 {
   "summary": "3-5 sentences: the logic of this block for this rider",
-  "weeks": [ { "week": 1, "type": "build" | "recovery" | "test", "phase": "short phase name", "targetTss": 350, ${opts.aiChoosesHours ? '"recommendedHours": 3, ' : ''}"keySessions": ["sweetspot" | "threshold" | "vo2max", ...], "notes": "one sentence: the week's intent" } ]
-}
+  "weeks": [ { "week": 1, "type": "build" | "recovery" | "test", "phase": "short phase name", "targetTss": 350, ${opts.aiChoosesHours ? '"recommendedHours": 3, ' : ''}"keySessions": ["sweetspot" | "threshold" | "vo2max", ...], "notes": "one sentence: the week's intent and how its hard sessions progress" } ]${evidence ? `,
+  ${VeloSportScience.OUTPUT_FIELD}` : ''}
+}${evidence ? '\nevidence: 3-5 items explaining the main choices of this block, in plain language.' : ''}
 Exactly ${opts.weeks} weeks; the last week has type "test". targetTss is the week's total TSS. keySessions lists the hard sessions in order of priority (the app places them on days, spaces them 48 h apart and adds the easy rides and long ride).`;
   }
 
@@ -532,6 +539,11 @@ Exactly ${opts.weeks} weeks; the last week has type "test". targetTss is the wee
       ? design.summary.trim().slice(0, 1200)
       : VeloBlockPlanner.offlineSummary(opts, built, ctx);
     const last = built.weeks[built.weeks.length - 1];
+    let evidence = [];
+    if (typeof VeloSportScience !== 'undefined') {
+      evidence = design ? VeloSportScience.sanitise(design.evidence) : [];
+      if (!evidence.length) evidence = VeloSportScience.notesFor(opts.goal, { ...ctx, hoursPerWeek: opts.hoursPerWeek }, { kind: 'block', max: 5 });
+    }
     this.block = {
       id: 'blk_' + Date.now(),
       createdAt: new Date().toISOString(),
@@ -544,6 +556,7 @@ Exactly ${opts.weeks} weeks; the last week has type "test". targetTss is the wee
       modelLabel: model ? VeloAiCoach.labelFor(model) : null,
       summary: opts.aiChoosesHours ? `${summary} ${opts.timeBounds.reason}` : summary,
       thinking: thinking ? String(thinking).slice(0, 8000) : '',
+      evidence,
       stats: built.stats,
       weeks: built.weeks,
       suggestions: [],
@@ -776,6 +789,8 @@ Exactly ${opts.weeks} weeks; the last week has type "test". targetTss is the wee
     }
     const focus = s.focus === 'long' ? 'endurance' : s.focus;
     const ctx = this.coach.getPhysiologicalContext(focus, s.durationMin, this.block.goal);
+    // Key sessions get denser through a phase's load weeks (progressive overload).
+    if (typeof VeloSportScience !== 'undefined' && s.key) ctx.progressionStep = VeloSportScience.progressionStep(this.weekOf(s.date));
     const { workout } = this.coach.buildWorkout(focus, ctx);
     return { ...workout, id: 'blk_' + s.id + '_' + Date.now(), title: `${s.title} (${s.durationMin}m)`, category: workout.category };
   }

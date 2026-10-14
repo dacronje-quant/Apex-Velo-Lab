@@ -11,11 +11,15 @@
  * endpoint (keys never reach the browser) and the summarized reasoning is shown.
  * Without the server or a key - or if the call fails - the built-in physiology
  * engine produces an equivalent, fully deterministic plan.
+ *
+ * Both paths follow the graded research in VeloSportScience: the AI gets an evidence brief
+ * for the goal and rider and may cite only its references; the offline engine applies the
+ * same findings and shows them as "The science behind this".
  */
 class VeloAiCoach {
   static GOALS = {
     ftp:       { label: 'Raise FTP',  ctlRampPerWeek: 4, summary: 'Progressive threshold and SweetSpot overload on an aerobic base.' },
-    longevity: { label: 'Longevity',  ctlRampPerWeek: 3, summary: 'Aerobic base, fat oxidation and fatigue resistance (durability) with mostly Zone 2 volume.' },
+    longevity: { label: 'Longevity',  ctlRampPerWeek: 3, summary: 'Cardiorespiratory fitness and durability: mostly Zone 2 volume, one short VO2 session (4 x 4 min) a week and strength work.' },
     vo2:       { label: 'VO2 max',    ctlRampPerWeek: 3, summary: 'Raise the aerobic ceiling with 30/15s and 3-5 min efforts at 106-120% FTP.' },
     balanced:  { label: 'Balanced',   ctlRampPerWeek: 3, summary: 'Polarised mix: ~80% easy, ~20% hard, touching every energy system.' }
   };
@@ -276,7 +280,8 @@ class VeloAiCoach {
     if (ctx.tsb < -12 || hardRecently) return 'endurance';
     switch (ctx.goal) {
       case 'longevity':
-        return (h.daysSinceHard === null || h.daysSinceHard >= 5) && ctx.tsb > -5 ? 'sweetspot' : 'endurance';
+        // Cardiorespiratory fitness is the strongest fitness link to longevity: one short 4 x 4 when fresh.
+        return (h.daysSinceHard === null || h.daysSinceHard >= 5) && ctx.tsb > -5 ? 'vo2max' : 'endurance';
       case 'vo2':
         return ctx.tsb > -8 ? 'vo2max' : 'endurance';
       case 'balanced':
@@ -358,6 +363,10 @@ class VeloAiCoach {
     const ctlLevel = ctx.ctl;
     const iv = [];
     const W = (pct) => Math.round(ftp * pct / 100);
+    // Position in a training block's load weeks (0 early, 1 middle, 2 late): repetitions grow or rests shorten so
+    // more time is spent in the target zone as the weeks go on (volume before intensity). No step = a stand-alone session.
+    const step = [0, 1, 2].includes(ctx.progressionStep) ? ctx.progressionStep : null;
+    const byStep = (base, steps) => (step === null ? base : steps[step]);
     let title = '', desc = '', notes = '';
 
     const warmup = (openers) => {
@@ -395,13 +404,13 @@ class VeloAiCoach {
     } else if (focus === 'sweetspot') {
       warmup(true);
       let block = ctlLevel >= 45 ? 1200 : ctlLevel >= 30 ? 900 : ctlLevel >= 18 ? 600 : 480;
-      const rest = block >= 900 ? 300 : 180;
+      const rest = block >= 900 ? byStep(300, [300, 240, 180]) : byStep(180, [180, 150, 120]);
       const avail = main;
       const reps = VeloAiCoach.fill(avail, block, rest, 4);
       // Stretch the blocks (up to +50%) so the main set fills the available time.
       block = Math.min(Math.round(block * 1.5), Math.floor((avail - (reps - 1) * rest) / reps / 30) * 30);
       for (let r = 1; r <= reps; r++) {
-        iv.push({ name: `SweetSpot ${r}`, duration: block, pctFtp: 88 + Math.min(4, r - 1) * 1, cadence: 92 });
+        iv.push({ name: `SweetSpot ${r}`, duration: block, pctFtp: 88 + byStep(0, [0, 1, 2]) + Math.min(4, r - 1) * 1, cadence: 92 });
         if (r < reps) iv.push({ name: `Recovery ${r}`, duration: rest, pctFtp: 50, cadence: 85 });
       }
       const used = reps * block + (reps - 1) * rest;
@@ -412,7 +421,7 @@ class VeloAiCoach {
       notes = 'Stay seated and pedal smoothly. It should feel comfortably hard, with enough left to finish well.';
     } else if (focus === 'threshold') {
       warmup(true);
-      const rest = 240;
+      const rest = byStep(240, [300, 240, 180]);
       const avail = main;
       const reps = VeloAiCoach.fill(avail, 540, rest, 4);
       // 3-5 under/over cycles (2 min @95% + 1 min @106%) per set, sized to the time available.
@@ -435,9 +444,23 @@ class VeloAiCoach {
       // VO2 max
       warmup(true);
       const avail = main;
-      if (dur >= 60 && ctlLevel >= 25) {
-        const block = 240, rest = 240;
-        const reps = VeloAiCoach.fill(avail, block, rest, 6);
+      if (ctx.goal === 'longevity') {
+        // Norwegian 4 x 4 (Helgerud 2007; Generation 100): 4 min at 85-95% of max heart rate, 3 min easy.
+        const block = 240, rest = 180;
+        const reps = VeloAiCoach.fill(avail, block, rest, 4);
+        const pct = ctlLevel >= 25 ? 110 : 106;
+        for (let r = 1; r <= reps; r++) {
+          iv.push({ name: `Aerobic Power ${r}`, duration: block, pctFtp: pct, cadence: 95 });
+          if (r < reps) iv.push({ name: `Recovery ${r}`, duration: rest, pctFtp: 55, cadence: 85 });
+        }
+        const used = reps * block + (reps - 1) * rest;
+        if (avail - used >= 120) iv.push({ name: 'Zone 2 Top-up', duration: avail - used, pctFtp: 65, cadence: 90 });
+        title = `Health 4x4 Aerobic Power (${dur}m)`;
+        desc = 'Four-minute hard efforts with easy breaks: a proven way to grow the aerobic fitness linked to long-term health.';
+      } else if (dur >= 60 && ctlLevel >= 25) {
+        // Through a block: add repetitions first (4 -> 5 -> 6 x 4 min), then shorter rests.
+        const block = 240, rest = byStep(240, [240, 240, 210]);
+        const reps = VeloAiCoach.fill(avail, block, rest, byStep(6, [4, 5, 6]));
         for (let r = 1; r <= reps; r++) {
           iv.push({ name: `VO2 Effort ${r}`, duration: block, pctFtp: 112, cadence: 100 });
           if (r < reps) iv.push({ name: `Recovery ${r}`, duration: rest, pctFtp: 50, cadence: 85 });
@@ -447,8 +470,8 @@ class VeloAiCoach {
         title = `VO2 Max ${reps}x4 min (${dur}m)`;
         desc = 'Hard efforts with easy breaks to help you handle faster riding.';
       } else {
-        const setSec = 13 * 45 - 15, setRest = 300;
-        const sets = VeloAiCoach.fill(avail, setSec, setRest, 3);
+        const setSec = 13 * 45 - 15, setRest = byStep(300, [300, 300, 180]);
+        const sets = VeloAiCoach.fill(avail, setSec, setRest, byStep(3, [2, 3, 3]));
         for (let s = 1; s <= sets; s++) {
           for (let r = 1; r <= 13; r++) {
             iv.push({ name: `Set ${s} On ${r}`, duration: 30, pctFtp: 120, cadence: 105 });
@@ -462,7 +485,10 @@ class VeloAiCoach {
         desc = 'Short hard pushes with brief easy breaks to build your ability to ride hard.';
       }
       cooldown();
-      notes = 'Use the easy breaks to catch your breath. End the set if you can no longer hold the target smoothly.';
+      const maxHr = Number(ctx.profile.maxHr) || 0;
+      notes = ctx.goal === 'longevity' && maxHr
+        ? `By the end of each effort your heart rate should reach about ${Math.round(maxHr * 0.85)}-${Math.round(maxHr * 0.95)} bpm. Use the easy breaks to recover. Stop the set if you cannot hold the target smoothly.`
+        : 'Use the easy breaks to catch your breath. End the set if you can no longer hold the target smoothly.';
     }
 
     const load = VeloAiCoach.estimateLoad(iv);
@@ -491,6 +517,8 @@ class VeloAiCoach {
     };
     const weights = { recovery: 0.35, endurance: 0.75, 'endurance-long': 1.5, sweetspot: 1.0, threshold: 1.05, vo2max: 0.95, off: 0 };
     const seq = [todayFocus, ...(templates[ctx.goal] || templates.ftp)];
+    // Longevity: one short 4 x 4 a week for aerobic fitness; if today is the 4 x 4, keep the second hard day steady.
+    if (ctx.goal === 'longevity') seq[4] = todayFocus === 'vo2max' ? 'sweetspot' : 'vo2max';
     // Never stack the same hard stimulus within 48 h of today's session.
     const hard = ['threshold', 'vo2max', 'sweetspot'];
     for (let i = 1; i <= 2; i++) if (hard.includes(todayFocus) && hard.includes(seq[i])) seq[i] = 'endurance';
@@ -552,7 +580,7 @@ class VeloAiCoach {
       endurance: h.daysSinceHard !== null && h.daysSinceHard !== undefined && h.daysSinceHard <= 1 ? 'You recently rode hard, so keep today comfortable.' : 'Easy, steady riding helps you build the stamina for longer rides.',
       sweetspot: 'Today uses comfortably hard efforts to help you hold a stronger pace for longer.',
       threshold: 'Today practises holding a strong pace and handling short harder pushes.',
-      vo2max: 'Today uses hard efforts with easy breaks to build your ability to ride faster.'
+      vo2max: ctx.goal === 'longevity' ? 'Today uses four hard efforts with easy breaks to grow the aerobic fitness most closely linked to long-term health.' : 'Today uses hard efforts with easy breaks to build your ability to ride faster.'
     }[focus] || '';
     const fitnessText = {
       fresh: 'Your recent training suggests you may be ready for a harder ride if you feel well.',
@@ -561,6 +589,9 @@ class VeloAiCoach {
       fatigue: 'Your recent training suggests you may be carrying quite a bit of tiredness.',
       overtraining: 'Your recent training suggests you need more recovery. This estimate cannot tell us whether you are overtrained.'
     }[ctx.formKey] || 'Your recent rides help estimate how much training you can comfortably handle.';
+    const fuelText = ctx.durationMin >= 90 && focus !== 'recovery'
+      ? 'For a ride this long, take in about 60-90 g of carbohydrate per hour (drink mix, gels or food) so you finish strongly.'
+      : '';
     const recoveryText = ctx.readiness
       ? ({ red: 'Your recovery readings suggest taking it easy today.', amber: 'Your recovery readings suggest keeping today comfortable.', green: 'Your recovery readings look encouraging; check how you feel before riding hard.' }[ctx.readiness.level] || '')
       : 'Check how you feel before starting; training records cannot measure every part of recovery.';
@@ -574,8 +605,9 @@ class VeloAiCoach {
         formZone: ctx.formZone,
         fitnessDiagnosis: fitnessText,
         fatigueStatus: `${recoveryText} ${ctx.consecutiveDays >= 2 ? 'You have ridden several days in a row, so allow time to recover. ' : ''}${mixText}`,
-        trainingAdvice: `${why} ${this.insightAdvice(ctx, focus)} ${ctx.autoDuration ? `Allow about ${ctx.durationMin} minutes for this ride. ` : ''}${notes}`.replace(/\s+/g, ' ').trim()
+        trainingAdvice: `${why} ${this.insightAdvice(ctx, focus)} ${ctx.autoDuration ? `Allow about ${ctx.durationMin} minutes for this ride. ` : ''}${notes} ${fuelText}`.replace(/\s+/g, ' ').trim()
       },
+      evidence: typeof VeloSportScience !== 'undefined' ? VeloSportScience.notesFor(ctx.goal, ctx, { focus }) : [],
       workout,
       weekPlan
     };
@@ -585,7 +617,8 @@ class VeloAiCoach {
   buildPrompt(ctx) {
     const h = ctx.history || {};
     const goal = VeloAiCoach.GOALS[ctx.goal] || VeloAiCoach.GOALS.ftp;
-    return `You are an elite cycling coach and exercise physiologist. Prescribe today's indoor ERG session and a 7-day outlook for rider "${ctx.profile.name}".
+    const evidence = typeof VeloSportScience !== 'undefined' ? `${VeloSportScience.brief(ctx.goal, ctx, 'session')}\n\n` : '';
+    return `You are the app's sport scientist: an elite cycling coach and exercise physiologist. Prescribe today's indoor ERG session and a 7-day outlook for rider "${ctx.profile.name}".
 
 RIDER: FTP ${ctx.profile.ftp} W, weight ${ctx.profile.weightKg} kg, max HR ${ctx.profile.maxHr} bpm.
 PRIMARY GOAL: ${goal.label} - ${goal.summary}
@@ -606,6 +639,8 @@ ${ctx.insight.lines.map(l => `- ${l}`).join('\n')}
 ` : ''}RIDES IN THE LAST ${ctx.lookbackDays} DAYS (newest first${ctx.windowRideCount > ctx.listedRideCount ? `, ${ctx.listedRideCount} most recent of ${ctx.windowRideCount}` : ''}):
 ${ctx.recentList}
 
+${evidence}METHOD: 1) needs analysis - what limits this rider for the goal, given the data above; 2) choose today's session type and its dose (interval length, intensity, recovery length, total time in the target zone) from the goal model and evidence; 3) safety check - recent hard days, fatigue, recovery readings and strength sessions; adjust before answering.
+
 RULES: scale all targets as % of FTP; include warmup and cooldown; interval durations in seconds; every interval needs a cadence target (rpm); ${ctx.autoDuration ? 'total duration 30-150 min as you judge optimal' : `total duration must be within 3 minutes of ${ctx.durationMin} min`}; respect fatigue (TSB < -25 -> recovery). The weekPlan must contain 7 days starting today; use focus "off" for rest days.
 
 WRITING STYLE: Write for a beginner in plain language. Each assessment field should be one or two short sentences explaining what to do and why. Say fitness base, recent training strain, and freshness instead of CTL, ATL, and TSB. Explain any essential technical term immediately. Do not repeat the input scores, percentages, or statistics in prose. Use numbers only for an actionable duration or target. Give workout and day titles simple, descriptive names. Keep all numeric workout fields, enum values and JSON keys exact; these control the workout.
@@ -614,8 +649,9 @@ Return ONLY JSON matching:
 {
   "coachAssessment": { "formZone": "Fresh" | "Productive" | "Optimal" | "High Fatigue" | "Overtraining", "fitnessDiagnosis": "...", "fatigueStatus": "...", "trainingAdvice": "..." },
   "workout": { "title": "...", "category": "sweetspot" | "vo2" | "threshold" | "endurance", "desc": "...", "intervals": [ { "name": "Warmup", "duration": 600, "pctFtp": 55, "cadence": 88 } ] },
-  "weekPlan": { "days": [ { "dayLabel": "Today", "focus": "sweetspot", "title": "...", "durationMin": 45, "tss": 50 } ] }
-}`;
+  "weekPlan": { "days": [ { "dayLabel": "Today", "focus": "sweetspot", "title": "...", "durationMin": 45, "tss": 50 } ] }${evidence ? `,
+  ${VeloSportScience.OUTPUT_FIELD}` : ''}
+}${evidence ? '\nevidence: 2-4 items, in the same plain language as the assessment.' : ''}`;
   }
 
   async generateRecommendation(targetFocus = 'auto', durationMin = 45, goal = 'ftp', notes = '') {
@@ -684,6 +720,9 @@ Return ONLY JSON matching:
       }
       parsed.coachAssessment = parsed.coachAssessment || {};
       parsed.coachAssessment.formZone = parsed.coachAssessment.formZone || ctx.formZone;
+      // Only references from the evidence base survive, so the app never shows an invented study.
+      parsed.evidence = typeof VeloSportScience !== 'undefined' ? VeloSportScience.sanitise(parsed.evidence) : [];
+      if (!parsed.evidence.length && typeof VeloSportScience !== 'undefined') parsed.evidence = VeloSportScience.notesFor(ctx.goal, ctx, { max: 3 });
       parsed.source = json.provider || provider;
       parsed.model = json.model || model;
       parsed.modelLabel = label;
