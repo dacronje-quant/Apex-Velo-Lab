@@ -183,9 +183,10 @@ test('blocks carry their evidence and load progressive key workouts', async () =
 });
 
 test('both servers use the same sport-scientist system prompt', () => {
-  const js = fs.readFileSync('server.js', 'utf8').match(/const SYSTEM_PROMPT = ([\s\S]*?);\n/)[1];
+  // Line endings are normalised: Windows checkouts use CRLF.
+  const js = fs.readFileSync('server.js', 'utf8').replace(/\r\n/g, '\n').match(/const SYSTEM_PROMPT = ([\s\S]*?);\n/)[1];
   const fromJs = vm.runInNewContext(js);
-  const ps = fs.readFileSync('start_server.ps1', 'utf8').match(/\$systemPrompt = ([\s\S]*?)\n\n/)[1];
+  const ps = fs.readFileSync('start_server.ps1', 'utf8').replace(/\r\n/g, '\n').match(/\$systemPrompt = ([\s\S]*?)\n\n/)[1];
   const fromPs = ps.split(/" \+\s*\n\s*"/).join('').replace(/^"|"$/g, '');
   assert.equal(fromPs, fromJs);
   assert(fromJs.includes('Never invent data, studies or citations'));
