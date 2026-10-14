@@ -519,7 +519,7 @@
             <span class="eyebrow">Goal-driven coaching</span>
             <h2 class="section-title">AI Coach</h2>
             <button type="button" class="link-btn" data-training-guide>Training terms explained</button>
-            <p class="section-sub">Builds today's session and the next 7 days from your real history: fitness, fatigue, form, recent volume, intensity mix and power profile. Uses Claude or Gemini when the local server has the API key, otherwise the built-in physiology engine.</p>
+            <p class="section-sub">One workout for today or a multi-week plan, built from your real history: fitness, fatigue, form, recent volume, intensity mix and power profile. Uses your AI engine when the local server has its API key, otherwise the built-in physiology engine.</p>
           </div>
           <span class="engine-pill" id="aiCoachEngineStatus"><span class="status-indicator-dot"></span>Offline engine</span>
         </div>
@@ -536,64 +536,104 @@
 
       <div class="ai-coach-grid">
         <div class="stack">
-          <div class="card ai-coach-card">
-            <div class="ai-coach-card-title"><span>Session request</span></div>
-            <div class="field"><span>Training goal</span>
+          <div class="card ai-coach-card coach-builder" id="coachBuilder">
+            <div class="ai-coach-card-title"><span>Build</span><span class="chip chip-ghost" id="coachBuilderChip">One workout</span></div>
+            <div class="mode-switch" id="coachModePills" role="radiogroup" aria-label="What to build">
+              <span class="mode-switch-glider" aria-hidden="true"></span>
+              <button type="button" class="mode-tile active" data-coach-mode="session" role="radio" aria-checked="true">
+                <svg class="ic"><use href="#i-bolt"/></svg><strong>One workout</strong><small>Today's session, ready to ride</small>
+              </button>
+              <button type="button" class="mode-tile" data-coach-mode="plan" role="radio" aria-checked="false">
+                <svg class="ic"><use href="#i-calendar"/></svg><strong>Training plan</strong><small>4-12 weeks on your Calendar</small>
+              </button>
+            </div>
+
+            <div class="field"><span>Goal</span>
               <div class="goal-grid" id="aiCoachGoalPills" role="radiogroup" aria-label="Training goal">
                 <button type="button" class="goal-pill active" data-goal="ftp"><strong>Raise FTP</strong><small>Threshold &amp; SweetSpot progression</small></button>
-                <button type="button" class="goal-pill" data-goal="longevity"><strong>Longevity</strong><small>Aerobic base, durability, Z2 volume</small></button>
+                <button type="button" class="goal-pill" data-goal="longevity"><strong>Longevity</strong><small>Aerobic fitness, durability, health</small></button>
                 <button type="button" class="goal-pill" data-goal="vo2"><strong>VO2 max</strong><small>Ceiling &amp; repeatability</small></button>
                 <button type="button" class="goal-pill" data-goal="balanced"><strong>Balanced</strong><small>Polarised mix, all systems</small></button>
               </div>
             </div>
-            <label class="field"><span>Today's focus</span>
-              <select id="selectAiCoachFocus" class="input-field">
-                <option value="auto" selected>Auto (decide from goal, form &amp; fatigue)</option>
-                <option value="threshold">Threshold (over-unders, sustained FTP)</option>
-                <option value="sweetspot">SweetSpot (88-94% FTP)</option>
-                <option value="vo2max">VO2 max (30/30, 4-min efforts)</option>
-                <option value="endurance">Endurance (Z2 durability)</option>
-                <option value="recovery">Active recovery</option>
-              </select>
-            </label>
-            <label class="field"><span>Time available</span>
-              <select id="selectAiCoachDuration" class="input-field">
-                <option value="auto">Auto (coach picks the optimal length)</option>
-                <option value="30">30 min</option>
-                <option value="45" selected>45 min</option>
-                <option value="60">60 min</option>
-                <option value="75">75 min</option>
-                <option value="90">90 min</option>
-                <option value="120">120 min</option>
-              </select>
-            </label>
-            <label class="field"><span>History look-back</span>
-              <select id="selectAiCoachLookback" class="input-field">
-                <option value="7">Last 7 days</option>
-                <option value="14">Last 14 days</option>
-                <option value="28" selected>Last 28 days</option>
-                <option value="42">Last 6 weeks</option>
-                <option value="90">Last 90 days</option>
-              </select>
-            </label>
-            <p class="field-help">How far back the coach reviews your rides, volume and intensity mix (the 30 most recent rides at most). Fitness, fatigue and form always use your full history.</p>
+
+            <div class="mode-pane" data-pane="session">
+              <label class="field"><span>Today's focus</span>
+                <select id="selectAiCoachFocus" class="input-field">
+                  <option value="auto" selected>Auto (decide from goal, form &amp; fatigue)</option>
+                  <option value="threshold">Threshold (over-unders, sustained FTP)</option>
+                  <option value="sweetspot">SweetSpot (88-94% FTP)</option>
+                  <option value="vo2max">VO2 max (30/15s, 4-min efforts)</option>
+                  <option value="endurance">Endurance (Z2 durability)</option>
+                  <option value="recovery">Active recovery</option>
+                </select>
+              </label>
+              <div class="field"><span id="lblAiCoachDuration">Time available</span>
+                <select id="selectAiCoachDuration" class="input-field" data-chips aria-labelledby="lblAiCoachDuration">
+                  <option value="auto" data-chip="Auto">Auto (coach picks the optimal length)</option>
+                  <option value="30" data-chip="30m">30 min</option>
+                  <option value="45" data-chip="45m" selected>45 min</option>
+                  <option value="60" data-chip="60m">60 min</option>
+                  <option value="75" data-chip="75m">75 min</option>
+                  <option value="90" data-chip="90m">90 min</option>
+                  <option value="120" data-chip="2h">120 min</option>
+                </select>
+              </div>
+            </div>
+
+            <div class="mode-pane" data-pane="plan">
+              <div class="field"><span id="lblBlockWeeks">Length</span>
+                <select id="selectBlockWeeks" class="input-field" data-chips aria-labelledby="lblBlockWeeks">
+                  <option value="4" data-chip="4 wk">4 weeks</option>
+                  <option value="6" data-chip="6 wk">6 weeks</option>
+                  <option value="8" data-chip="8 wk" selected>8 weeks</option>
+                  <option value="10" data-chip="10 wk">10 weeks</option>
+                  <option value="12" data-chip="12 wk">12 weeks</option>
+                </select>
+              </div>
+              <div class="field"><span>Days you can ride</span><div class="day-toggle" id="blockDays"><button type="button" class="day-chip" data-dow="0" aria-pressed="false">Mon</button><button type="button" class="day-chip" data-dow="1" aria-pressed="false">Tue</button><button type="button" class="day-chip" data-dow="2" aria-pressed="false">Wed</button><button type="button" class="day-chip" data-dow="3" aria-pressed="false">Thu</button><button type="button" class="day-chip" data-dow="4" aria-pressed="false">Fri</button><button type="button" class="day-chip" data-dow="5" aria-pressed="false">Sat</button><button type="button" class="day-chip" data-dow="6" aria-pressed="false">Sun</button></div></div>
+              <div class="field-pair">
+                <label class="field"><span>Long ride day</span>
+                  <select id="selectBlockLongDay" class="input-field"><option value="">No long ride</option><option value="0">Monday</option><option value="1">Tuesday</option><option value="2">Wednesday</option><option value="3">Thursday</option><option value="4">Friday</option><option value="5">Saturday</option><option value="6">Sunday</option></select>
+                </label>
+                <label class="field"><span>Start</span><input type="date" id="inputBlockStart" class="input-field"></label>
+              </div>
+              <label class="field"><span>Hours per week</span><input type="number" id="inputBlockHours" class="input-field" min="2" max="25" step="0.5" value="6" placeholder="Blank = coach chooses" aria-describedby="blockHoursHelp"></label>
+              <p class="field-help" id="blockHoursHelp">Your weekly limit. Leave it blank and the AI coach picks weekly time from your recent riding and recovery (needs a connected AI coach).</p>
+            </div>
+
             <label class="field"><span>Notes for the coach (optional)</span>
               <input type="text" id="inputAiCoachNotes" class="input-field" placeholder="e.g. legs heavy after yesterday, want low cadence work">
             </label>
-            <button type="button" class="btn btn-ai btn-block" id="btnGenerateAiCoachRecommendation"><svg class="ic"><use href="#i-sparkles"/></svg><span>Analyze &amp; prescribe</span></button>
+            <details class="coach-more">
+              <summary>More options</summary>
+              <label class="field"><span>History look-back</span>
+                <select id="selectAiCoachLookback" class="input-field">
+                  <option value="7">Last 7 days</option>
+                  <option value="14">Last 14 days</option>
+                  <option value="28" selected>Last 28 days</option>
+                  <option value="42">Last 6 weeks</option>
+                  <option value="90">Last 90 days</option>
+                </select>
+              </label>
+              <p class="field-help">How far back the coach reviews your rides, volume and intensity mix (the 30 most recent rides at most). Fitness, fatigue and form always use your full history.</p>
+            </details>
+            <button type="button" class="btn btn-ai btn-block" id="btnGenerateAiCoachRecommendation"><svg class="ic"><use href="#i-sparkles"/></svg><span id="coachGoLabel">Prescribe today's workout</span></button>
+            <p class="coach-go-hint" id="coachGoHint"></p>
             <div class="think-timer num" id="aiCoachThinkTimer" hidden></div>
           </div>
-
         </div>
 
-        <div class="stack">
-          <div class="card ai-coach-card" id="aiCoachWelcomeCard">
-            <div class="ai-coach-card-title"><span>Coaching engine</span><span class="ai-coach-status-badge ai-coach-badge-productive">Ready</span></div>
-            <div class="empty-state">
-              <svg class="ic ic-lg"><use href="#i-brain"/></svg>
-              <p>Pick a goal and press <strong>Analyze &amp; prescribe</strong>. The coach reviews your history and current form, then builds today's session and a 7-day outlook scaled to your FTP.</p>
+        <div class="stack coach-results">
+          <div class="mode-pane stack" data-pane="session">
+            <div class="plan-today" id="coachPlanToday" hidden></div>
+            <div class="card ai-coach-card" id="aiCoachWelcomeCard">
+              <div class="ai-coach-card-title"><span>One workout</span><span class="ai-coach-status-badge ai-coach-badge-productive">Ready</span></div>
+              <div class="empty-state">
+                <svg class="ic ic-lg"><use href="#i-brain"/></svg>
+                <p>Pick a goal and press <strong>Prescribe today's workout</strong>. The coach reviews your history and current form, then builds today's session and a 7-day outlook scaled to your FTP.</p>
+              </div>
             </div>
-          </div>
 
           <div id="aiCoachResultPanel" class="stack" style="display:none;">
             <div class="card ai-coach-card">
@@ -657,62 +697,41 @@
               <div class="week-plan" id="aiCoachWeekPlan"></div>
             </div>
           </div>
-        </div>
-
-        <div class="card ai-coach-card block-card" id="trainingBlockCard">
-          <div class="ai-coach-card-title"><span>Training block</span><span class="chip chip-ghost num" id="blockHeaderChip">Periodised plan</span></div>
-          <div id="blockSetup">
-            <p class="field-help">Builds your riding gradually, with mostly easy rides, harder efforts spaced apart and easier weeks to recover. Sessions go on your Calendar and the plan is reviewed after each ride.</p>
-            <div class="block-form">
-              <label class="field"><span>Goal</span>
-                <select id="selectBlockGoal" class="input-field">
-                  <option value="ftp">Raise FTP</option>
-                  <option value="longevity">Longevity / aerobic base</option>
-                  <option value="vo2">VO2 max</option>
-                  <option value="balanced">Balanced</option>
-                </select>
-              </label>
-              <label class="field"><span>Length</span>
-                <select id="selectBlockWeeks" class="input-field">
-                  <option value="4">4 weeks</option>
-                  <option value="6">6 weeks</option>
-                  <option value="8" selected>8 weeks</option>
-                  <option value="10">10 weeks</option>
-                  <option value="12">12 weeks</option>
-                </select>
-              </label>
-              <label class="field"><span>Start</span><input type="date" id="inputBlockStart" class="input-field"></label>
-              <label class="field"><span>Hours per week (optional)</span><input type="number" id="inputBlockHours" class="input-field" min="2" max="25" step="0.5" value="6" placeholder="Let the coach choose" aria-describedby="blockHoursHelp"></label>
-              <label class="field"><span>Long ride day</span>
-                <select id="selectBlockLongDay" class="input-field"><option value="">No long ride</option><option value="0">Monday</option><option value="1">Tuesday</option><option value="2">Wednesday</option><option value="3">Thursday</option><option value="4">Friday</option><option value="5">Saturday</option><option value="6">Sunday</option></select>
-              </label>
-            </div>
-            <p class="field-help" id="blockHoursHelp">Leave hours blank for the AI to choose weekly ride time from your recent riding and recovery. Enter hours to set your weekly limit. Your selected days still apply. Choosing hours needs a connected AI coach.</p>
-            <div class="field"><span>Days you can ride</span><div class="day-toggle" id="blockDays"><button type="button" class="day-chip" data-dow="0" aria-pressed="false">Mon</button><button type="button" class="day-chip" data-dow="1" aria-pressed="false">Tue</button><button type="button" class="day-chip" data-dow="2" aria-pressed="false">Wed</button><button type="button" class="day-chip" data-dow="3" aria-pressed="false">Thu</button><button type="button" class="day-chip" data-dow="4" aria-pressed="false">Fri</button><button type="button" class="day-chip" data-dow="5" aria-pressed="false">Sat</button><button type="button" class="day-chip" data-dow="6" aria-pressed="false">Sun</button></div></div>
-            <button type="button" class="btn btn-ai btn-block" id="btnBuildBlock"><svg class="ic"><use href="#i-sparkles"/></svg><span id="btnBuildBlockLabel">Build training block</span></button>
-            <div class="think-timer num" id="blockThinkTimer" hidden></div>
           </div>
-          <div id="blockView" hidden>
-            <div class="block-head">
-              <div>
-                <h3 class="rx-title" id="blockTitle">--</h3>
-                <p class="rx-desc" id="blockSubtitle">--</p>
-              </div>
-              <div class="btn-row">
-                <button type="button" class="btn btn-sm" id="btnBlockToCalendar"><svg class="ic"><use href="#i-calendar"/></svg>Calendar</button>
-                <button type="button" class="btn btn-sm" id="btnReplanBlock"><svg class="ic"><use href="#i-sparkles"/></svg>Re-plan from today</button>
-                <button type="button" class="btn btn-sm btn-danger" id="btnDeleteBlock"><svg class="ic"><use href="#i-x"/></svg>Delete</button>
+
+          <div class="mode-pane stack" data-pane="plan">
+            <div class="card ai-coach-card" id="planWelcomeCard">
+              <div class="ai-coach-card-title"><span>Training plan</span><span class="chip chip-ghost">No plan yet</span></div>
+              <div class="empty-state">
+                <svg class="ic ic-lg"><use href="#i-calendar"/></svg>
+                <p>Choose a goal, a length and the days you can ride, then press <strong>Build plan</strong>. You get mostly easy rides, hard sessions at least 48 h apart that progress week by week, an easier week every 3-4 weeks and a test at the end. Sessions go on your Calendar and the plan is reviewed after every ride.</p>
               </div>
             </div>
-            <div class="think-timer num" id="blockThinkTimerView" hidden></div>
-            <div class="block-suggestions" id="blockSuggestions"></div>
-            <div class="block-phases" id="blockPhaseLegend"></div>
-            <div class="block-weeks" id="blockWeeks"></div>
-            <p class="block-summary" id="blockSummary"></p>
-            <div class="ai-coach-card-title"><span id="blockWeekLabel">This week</span><span class="chip chip-ghost num" id="blockWeekTss">--</span></div>
-            <p class="field-help" id="blockWeekNotes"></p>
-            <div class="block-sessions" id="blockThisWeek"></div>
-            <div class="block-sessions" id="blockNextWeek"></div>
+            <div class="card ai-coach-card block-card" id="trainingBlockCard" hidden>
+              <div class="ai-coach-card-title"><span>Your training plan</span><span class="chip chip-ghost num" id="blockHeaderChip">Periodised plan</span></div>
+              <div id="blockView">
+                <div class="block-head">
+                  <div>
+                    <h3 class="rx-title" id="blockTitle">--</h3>
+                    <p class="rx-desc" id="blockSubtitle">--</p>
+                  </div>
+                  <div class="btn-row">
+                    <button type="button" class="btn btn-sm" id="btnBlockToCalendar"><svg class="ic"><use href="#i-calendar"/></svg>Calendar</button>
+                    <button type="button" class="btn btn-sm" id="btnReplanBlock"><svg class="ic"><use href="#i-sparkles"/></svg>Re-plan from today</button>
+                    <button type="button" class="btn btn-sm btn-danger" id="btnDeleteBlock"><svg class="ic"><use href="#i-x"/></svg>Delete</button>
+                  </div>
+                </div>
+                <div class="think-timer num" id="blockThinkTimerView" hidden></div>
+                <div class="block-suggestions" id="blockSuggestions"></div>
+                <div class="block-phases" id="blockPhaseLegend"></div>
+                <div class="block-weeks" id="blockWeeks"></div>
+                <p class="block-summary" id="blockSummary"></p>
+                <div class="ai-coach-card-title"><span id="blockWeekLabel">This week</span><span class="chip chip-ghost num" id="blockWeekTss">--</span></div>
+                <p class="field-help" id="blockWeekNotes"></p>
+                <div class="block-sessions" id="blockThisWeek"></div>
+                <div class="block-sessions" id="blockNextWeek"></div>
+              </div>
+            </div>
           </div>
         </div>
       </div>

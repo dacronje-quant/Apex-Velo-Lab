@@ -1172,7 +1172,6 @@ body.focus-mode #valInstantPower { font-size: clamp(120px, 14vw, 220px); }
 
 /* ---------------------------------------------------------- training block */
 .block-card { grid-column: 1 / -1; }
-.block-form { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 10px; }
 .day-toggle { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 12px; }
 .day-chip { min-width: 52px; height: 34px; padding: 0 12px; border-radius: 999px; border: 1px solid var(--line); background: var(--surface-sunk); color: var(--text-2); font-weight: 700; font-size: 12px; letter-spacing: 0; text-transform: none; cursor: pointer; transition: all .15s; }
 .day-chip:hover { border-color: var(--line-strong); color: var(--text-1); }
@@ -1217,15 +1216,48 @@ body.focus-mode #valInstantPower { font-size: clamp(120px, 14vw, 220px); }
 .calendar-ride-card.planned .crc-meta b { color: var(--violet); }
 .calendar-ride-card.planned.missed { opacity: 0.5; border-color: rgba(255, 107, 138, 0.4); }
 .calendar-ride-card.planned .crc-load { margin-top: 6px; width: 100%; height: 26px; justify-content: center; }
-@media (max-width: 1180px) { .block-form { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
 @media (max-width: 560px) {
-  .block-form { grid-template-columns: 1fr; }
   .bs-date { flex-basis: 100%; }
   .block-sg { flex-direction: column; align-items: flex-start; }
 }
 .block-thinking { margin-top: 8px; font-size: 12px; color: var(--text-3); }
 .block-thinking summary { cursor: pointer; color: var(--violet); font-weight: 600; }
 .block-thinking div { margin-top: 6px; line-height: 1.5; max-height: 240px; overflow: auto; }
+/* Coach builder: one card for a single workout or a multi-week plan */
+.mode-switch { position: relative; display: grid; grid-template-columns: 1fr 1fr; gap: 4px; padding: 4px; margin-bottom: 14px; border-radius: 20px; background: var(--surface-sunk); border: 1px solid var(--line); }
+.mode-switch-glider { position: absolute; top: 4px; bottom: 4px; left: 4px; width: calc(50% - 6px); border-radius: 16px; background: linear-gradient(135deg, rgba(177, 153, 255, 0.28), rgba(124, 200, 255, 0.16)); border: 1px solid rgba(177, 153, 255, 0.5); box-shadow: 0 8px 24px -12px rgba(177, 153, 255, 0.8); transition: transform .45s var(--spring); pointer-events: none; }
+#view-ai-coach[data-coach-mode="plan"] .mode-switch-glider { transform: translateX(calc(100% + 4px)); }
+.mode-tile { position: relative; z-index: 1; display: grid; grid-template-columns: auto 1fr; grid-template-rows: auto auto; column-gap: 10px; align-items: center; padding: 12px; min-height: 64px; border: 0; border-radius: 16px; background: transparent; color: var(--text-2); text-align: left; letter-spacing: 0; text-transform: none; cursor: pointer; transition: color .2s; }
+.mode-tile .ic { grid-row: 1 / 3; width: 22px; height: 22px; color: var(--text-3); transition: color .2s, transform .35s var(--spring); }
+.mode-tile strong { font-size: 14px; color: inherit; }
+.mode-tile small { font-size: 11px; font-weight: 500; color: var(--text-3); line-height: 1.35; }
+.mode-tile:hover { color: var(--text-1); }
+.mode-tile.active { color: var(--text-1); }
+.mode-tile.active .ic { color: var(--violet); transform: scale(1.08); }
+.mode-tile:focus-visible { outline: 2px solid var(--violet); outline-offset: 2px; }
+#view-ai-coach:not([data-coach-mode="plan"]) .mode-pane[data-pane="plan"],
+#view-ai-coach[data-coach-mode="plan"] .mode-pane[data-pane="session"] { display: none; }
+.mode-pane { animation: pane-in .35s var(--ease, ease) both; }
+@keyframes pane-in { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: none; } }
+@media (prefers-reduced-motion: reduce) { .mode-pane { animation: none; } .mode-switch-glider { transition: none; } }
+.chip-select { display: flex; flex-wrap: wrap; gap: 6px; }
+.chip-select > button { min-width: 52px; height: 34px; padding: 0 12px; border-radius: 999px; border: 1px solid var(--line); background: var(--surface-sunk); color: var(--text-2); font-weight: 700; font-size: 12px; letter-spacing: 0; text-transform: none; cursor: pointer; transition: all .15s; }
+.chip-select > button:hover { border-color: var(--line-strong); color: var(--text-1); }
+.chip-select > button.active { border-color: rgba(177, 153, 255, 0.6); background: var(--violet-soft); color: var(--violet); }
+.field-pair { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+/* In the narrow builder, chip rows and ride days sit on one evenly spaced line. */
+.coach-builder .chip-select, .coach-builder .day-toggle { display: grid; grid-auto-flow: column; grid-auto-columns: minmax(0, 1fr); gap: 5px; }
+.coach-builder .chip-select > button, .coach-builder .day-chip { min-width: 0; padding: 0 2px; font-size: 11.5px; }
+.coach-more { margin: -2px 0 12px; font-size: 12px; color: var(--text-3); }
+.coach-more summary { cursor: pointer; font-weight: 600; color: var(--text-2); margin-bottom: 8px; }
+.coach-go-hint { margin: 8px 0 0; font-size: 11.5px; line-height: 1.45; color: var(--text-3); text-align: center; }
+.coach-go-hint:empty { display: none; }
+.plan-today { display: flex; align-items: center; flex-wrap: wrap; gap: 10px 12px; padding: 12px 14px; border-radius: var(--radius-md); background: var(--violet-soft); border: 1px solid rgba(177, 153, 255, 0.35); }
+.plan-today > .ic { width: 20px; height: 20px; color: var(--violet); }
+.plan-today > div:first-of-type { flex: 1; min-width: 160px; font-size: 13px; color: var(--text-1); }
+.plan-today small { display: block; font-size: 10.5px; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase; color: var(--text-3); }
+.plan-today .btn-row { margin: 0; }
+@media (max-width: 380px) { .field-pair { grid-template-columns: 1fr; } .mode-tile small { display: none; } }
 .evidence-box { margin-top: 10px; font-size: 12.5px; color: var(--text-2); }
 .evidence-box summary { cursor: pointer; color: var(--lime); font-weight: 600; }
 .evidence-list { list-style: none; margin: 8px 0 0; padding: 0; display: grid; gap: 8px; }

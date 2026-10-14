@@ -81,8 +81,27 @@
           document.querySelectorAll('#aiCoachGoalPills .goal-pill').forEach(x => x.classList.toggle('active', x === p));
           this.coachGoal = p.dataset.goal;
           try { localStorage.setItem('apex_coach_goal', this.coachGoal); } catch (e) { /* ignore */ }
+          this.updateCoachGoButton();
         });
       });
+
+      // One builder for both: a single workout or a multi-week plan.
+      this.enhanceChipSelects();
+      document.querySelectorAll('#coachModePills [data-coach-mode]').forEach(b => this.on(b, 'click', () => this.setCoachMode(b.dataset.coachMode)));
+      const builder = document.getElementById('coachBuilder');
+      if (builder) {
+        this.on(builder, 'change', () => this.updateCoachGoButton());
+        this.on(builder, 'input', () => this.updateCoachGoButton());
+        this.on(builder, 'click', (e) => { if (e.target.closest('[data-dow]')) this.updateCoachGoButton(); });
+      }
+      this.on(document.getElementById('coachPlanToday'), 'click', (e) => {
+        const load = e.target.closest('[data-block-load]');
+        if (load) this.loadBlockSession(load.dataset.blockLoad);
+        else if (e.target.closest('[data-show-plan]')) this.setCoachMode('plan');
+      });
+      let savedMode = null;
+      try { savedMode = localStorage.getItem('apex_coach_mode'); } catch (e) { /* ignore */ }
+      this.setCoachMode(savedMode === 'plan' ? 'plan' : 'session', { persist: false });
 
       this.on(document.getElementById('btnSaveAiCoachConfig'), 'click', () => {
         this.aiCoach.saveConfig({
@@ -97,6 +116,7 @@
       this.on(document.getElementById('btnRecheckAiEngine'), 'click', () => this.refreshCoachEngine(true));
 
       this.on(generateBtn, 'click', async () => {
+        if (this.coachMode === 'plan') { if (this.buildTrainingBlock) await this.buildTrainingBlock(); return; }
         const focus = document.getElementById('selectAiCoachFocus')?.value || 'auto';
         const durVal = document.getElementById('selectAiCoachDuration')?.value || '45';
         const duration = durVal === 'auto' ? 'auto' : parseInt(durVal, 10);
@@ -154,9 +174,11 @@
           const want = parseInt(b.dataset.planMin, 10);
           const opts = Array.from(dur.options).map(o => parseInt(o.value, 10)).filter(Number.isFinite);
           dur.value = String(opts.reduce((a, c) => (Math.abs(c - want) < Math.abs(a - want) ? c : a), opts[0]));
+          dur.dispatchEvent(new Event('change', { bubbles: true }));
         }
+        this.setCoachMode('session');
         window.scrollTo({ top: 0, behavior: 'smooth' });
-        this.showToast('Request updated from the plan - press Analyze & prescribe.');
+        this.showToast("Request updated from the outlook - press Prescribe today's workout.");
       });
 
       this.updateCoachEngineStatus();
@@ -192,10 +214,95 @@
       else this.showToast(`Local server not running - open the app with Launch-Apex-Velo.bat to use ${c.providerLabel}.`, 'warning');
     },
 
+    /** Turns each <select data-chips> into a row of tappable chips; the select stays the source of truth. */
+    enhanceChipSelects() {
+      document.querySelectorAll('select[data-chips]').forEach(sel => {
+        if (sel.dataset.chipsReady) return;
+        sel.dataset.chipsReady = '1';
+        sel.classList.add('sr-only');
+        sel.tabIndex = -1;
+        const row = document.createElement('div');
+        row.className = 'chip-select';
+        row.setAttribute('role', 'radiogroup');
+        if (sel.getAttribute('aria-labelledby')) row.setAttribute('aria-labelledby', sel.getAttribute('aria-labelledby'));
+        row.innerHTML = Array.from(sel.options).map(o => `<button type="button" role="radio" data-value="${esc(o.value)}" title="${esc(o.textContent)}">${esc(o.dataset.chip || o.textContent)}</button>`).join('');
+        const sync = () => row.querySelectorAll('button').forEach(b => {
+          const on = b.dataset.value === sel.value;
+          b.classList.toggle('active', on);
+          b.setAttribute('aria-checked', on ? 'true' : 'false');
+        });
+        this.on(row, 'click', (e) => {
+          const b = e.target.closest('button[data-value]');
+          if (!b || b.dataset.value === sel.value) return;
+          sel.value = b.dataset.value;
+          sel.dispatchEvent(new Event('change', { bubbles: true }));
+        });
+        this.on(sel, 'change', sync);
+        sel.insertAdjacentElement('afterend', row);
+        sync();
+      });
+    },
+
+    /** Switches the builder between one workout ('session') and a multi-week plan ('plan'). */
+    setCoachMode(mode, { persist = true } = {}) {
+      this.coachMode = mode === 'plan' ? 'plan' : 'session';
+      const view = document.getElementById('view-ai-coach');
+      if (view) view.dataset.coachMode = this.coachMode;
+      document.querySelectorAll('#coachModePills [data-coach-mode]').forEach(b => {
+        const on = b.dataset.coachMode === this.coachMode;
+        b.classList.toggle('active', on);
+        b.setAttribute('aria-checked', on ? 'true' : 'false');
+      });
+      this.setText('coachBuilderChip', this.coachMode === 'plan' ? 'Training plan' : 'One workout');
+      const notes = document.getElementById('inputAiCoachNotes');
+      if (notes) notes.placeholder = this.coachMode === 'plan' ? 'e.g. gran fondo in 10 weeks, no rides on Friday' : 'e.g. legs heavy after yesterday, want low cadence work';
+      if (persist) try { localStorage.setItem('apex_coach_mode', this.coachMode); } catch (e) { /* ignore */ }
+      this.updateCoachGoButton();
+      this.renderCoachPlanToday();
+    },
+
+    /** One action button: its label and a one-line summary of what will be built follow the form. */
+    updateCoachGoButton() {
+      const c = this.aiCoach;
+      if (!c) return;
+      const val = (id) => (document.getElementById(id) || {}).value || '';
+      const goal = (VeloAiCoach.GOALS[this.coachGoal] || VeloAiCoach.GOALS.ftp).label;
+      const engine = c.isLive ? VeloAiCoach.labelFor(c.model) : 'built-in engine';
+      const hint = document.getElementById('coachGoHint');
+      if (this.coachMode === 'plan') {
+        const weeks = parseInt(val('selectBlockWeeks') || '8', 10);
+        const days = document.querySelectorAll('#blockDays [data-dow].active').length;
+        const hours = val('inputBlockHours').trim();
+        const existing = this.blockPlanner && this.blockPlanner.block;
+        this.setText('coachGoLabel', existing ? `Build new ${weeks}-week plan` : `Build ${weeks}-week plan`);
+        if (hint) hint.textContent = `${goal} · ${days} ride day${days === 1 ? '' : 's'} a week · ${hours ? `up to ${hours} h` : 'coach picks the hours'} · ${engine}${existing ? ' · replaces your current plan' : ''}`;
+      } else {
+        const focusSel = document.getElementById('selectAiCoachFocus');
+        const focus = focusSel && focusSel.value !== 'auto' ? focusSel.options[focusSel.selectedIndex].textContent.split(' (')[0] : 'Auto focus';
+        const dur = val('selectAiCoachDuration');
+        this.setText('coachGoLabel', "Prescribe today's workout");
+        if (hint) hint.textContent = `${goal} · ${focus} · ${dur === 'auto' ? 'coach picks the length' : `${dur} min`} · ${engine}`;
+      }
+    },
+
+    /** In workout mode, a strip for today's session from the active plan (load it, or prescribe something else). */
+    renderCoachPlanToday() {
+      const el = document.getElementById('coachPlanToday');
+      if (!el) return;
+      const bp = this.blockPlanner;
+      const today = bp && bp.block ? VeloBlockPlanner.today() : null;
+      const s = today ? (bp.sessionsByDate().get(today) || []).find(x => x.status === 'planned') : null;
+      if (!bp || !bp.block || this.coachMode !== 'session') { el.hidden = true; return; }
+      el.hidden = false;
+      el.innerHTML = s
+        ? `<svg class="ic"><use href="#i-calendar"/></svg><div><small>Today in your plan</small><b>${esc(s.title)}</b> <span class="num">${s.durationMin} min</span></div>
+           <div class="btn-row btn-row-tight"><button type="button" class="btn btn-sm btn-primary" data-block-load="${esc(s.id)}"><svg class="ic"><use href="#i-play"/></svg>Load</button><button type="button" class="btn btn-sm" data-show-plan>View plan</button></div>`
+        : `<svg class="ic"><use href="#i-calendar"/></svg><div><small>Your plan</small><b>Nothing scheduled today</b></div><div class="btn-row btn-row-tight"><button type="button" class="btn btn-sm" data-show-plan>View plan</button></div>`;
+    },
+
     updateCoachEngineStatus() {
       if (this.updateAskEngine) this.updateAskEngine();
-      const bl = document.getElementById('btnBuildBlockLabel');
-      if (bl) bl.textContent = this.aiCoach.isLive ? `Build block with ${VeloAiCoach.labelFor(this.aiCoach.model)}` : 'Build block (built-in engine)';
+      this.updateCoachGoButton();
       const el = document.getElementById('aiCoachEngineStatus');
       const detail = document.getElementById('aiCoachEngineDetail');
       const c = this.aiCoach;
