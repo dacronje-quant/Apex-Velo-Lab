@@ -81,6 +81,32 @@ const {fixture}=require('./sqlite-fixture.cjs');
     await third.evaluate(async()=>{await app.saveHistory();await VeloStorage.flush();});assert.equal(posts.length,0);
     await third.evaluate(async()=>{app.completedWorkouts[1].title='Only this ride changed';await app.saveHistory();await VeloStorage.flush();});
     assert.equal(posts.length,1);assert.deepEqual(posts[0].put.map(r=>r.title),['Only this ride changed']);third.off('request',watch);
+    // An edit reverted while its save is in flight must persist the latest value, touching only that ride.
+    const originalTitle=await third.evaluate(()=>app.completedWorkouts[1].title);
+    let releaseEdit;const editGate=new Promise(r=>releaseEdit=r);
+    const editRequest=third.waitForRequest(r=>r.url().endsWith('/api/storage/save')&&JSON.parse(r.postData()).put?.some(x=>x.title==='Pending edit'));
+    await third.route('**/api/storage/save',async r=>{await editGate;await r.continue();},{times:1});
+    posts.length=0;third.on('request',watch);
+    await third.evaluate(()=>{app.completedWorkouts[1].title='Pending edit';window.firstEdit=app.saveHistory();});await editRequest;
+    await third.evaluate(title=>{app.completedWorkouts[1].title=title;window.undoEdit=app.saveHistory();},originalTitle);
+    releaseEdit();await third.evaluate(async()=>{const saved=await Promise.all([window.firstEdit,window.undoEdit]);if(!saved.every(Boolean))throw new Error('Overlapping saves failed');await VeloStorage.flush();});
+    assert.equal((await disk()).rides.find(r=>r.id==='legacy_ride').title,originalTitle);
+    assert.equal(posts.length,2);assert.ok(posts.every(p=>p.put.length===1),'untouched sample streams are not uploaded');third.off('request',watch);
+    // Reverting an in-flight reorder also needs a second write, even when it matches the committed order.
+    const originalOrder=await third.evaluate(()=>app.completedWorkouts.map(r=>r.id));
+    let releaseOrder;const orderGate=new Promise(r=>releaseOrder=r);
+    const orderRequest=third.waitForRequest(r=>r.url().endsWith('/api/storage/save'));
+    await third.route('**/api/storage/save',async r=>{await orderGate;await r.continue();},{times:1});
+    await third.evaluate(()=>{app.completedWorkouts.reverse();window.firstOrder=app.saveHistory();});await orderRequest;
+    await third.evaluate(()=>{app.completedWorkouts.reverse();window.undoOrder=app.saveHistory();});
+    releaseOrder();await third.evaluate(async()=>{await Promise.all([window.firstOrder,window.undoOrder]);await VeloStorage.flush();});
+    assert.deepEqual((await disk()).rides.map(r=>r.id),originalOrder);
+    // The comparison cache follows a successful retry even though the original caller saw a failed save.
+    await third.route('**/api/storage/save',r=>r.abort('failed'),{times:1});
+    assert.equal(await third.evaluate(async()=>{app.completedWorkouts[1].title='Retry edit';return app.saveHistory();}),false);
+    await third.evaluate(()=>VeloStorage.flush());assert.equal((await disk()).rides.find(r=>r.id==='legacy_ride').title,'Retry edit');
+    await third.evaluate(async title=>{app.completedWorkouts[1].title=title;await app.saveHistory();await VeloStorage.flush();},originalTitle);
+    assert.equal((await disk()).rides.find(r=>r.id==='legacy_ride').title,originalTitle);
     // A save the server refuses (4xx) is reported and dropped; it does not block later saves.
     await third.route('**/api/storage/save',r=>r.fulfill({status:413,contentType:'application/json',body:'{"error":"Request too large"}'}),{times:1});
     await third.evaluate(()=>localStorage.setItem('apex_refused_fixture','x'));await third.waitForFunction(()=>VeloStorage.error);
@@ -112,6 +138,6 @@ const {fixture}=require('./sqlite-fixture.cjs');
       assert.equal((await(await fetch(failedFixture.base+'/api/storage')).json()).initialized,false);
     }finally{await failedContext.close();await failedFixture.close();}
     assert.deepEqual(errors,[]);
-    console.log('Passed: full legacy migration; settings edits; new browser; verified backup/preview/restore and file upload; responsive layout; stale tabs and retained-change export; browser clearing; durable outbox retry; interrupted-ride recovery and confirmed completion; deletion persistence; demo isolation; safe migration abort; no page errors.');
+    console.log('Passed: full legacy migration; settings edits; new browser; verified backup/preview/restore and file upload; responsive layout; stale tabs and retained-change export; browser clearing; durable outbox retry; overlapping edit/order reverts and retry cache; interrupted-ride recovery and confirmed completion; deletion persistence; demo isolation; safe migration abort; no page errors.');
   }finally{await browser.close();await f.close();}
 })().catch(e=>{console.error(e);process.exitCode=1;});

@@ -33,10 +33,10 @@
       : V.pending.length ? 'Saving to this PC...' : `Saved on this PC · ${V.file}`;
     el.classList.toggle('backup-warn', !!V.error);
   };
-  V.enqueue = function (change, url = '/save') {
+  V.enqueue = function (change, url = '/save', { rideSignatures = [], orderKey } = {}) {
     if (!V.enabled) return Promise.reject(new Error('Local database unavailable.'));
     const input = structuredClone(change);
-    const task = { input, url, operationId: uuid(), queuedAt: queuedAt = Math.max(Date.now(), queuedAt + 1) };
+    const task = { input, url, rideSignatures, orderKey, operationId: uuid(), queuedAt: queuedAt = Math.max(Date.now(), queuedAt + 1) };
     task.promise = new Promise((resolve, reject) => { task.resolve = resolve; task.reject = reject; });
     // Always attach a rejection handler, even for callers which rely on the visible save status.
     task.promise.catch(() => {});
@@ -59,6 +59,16 @@
         if (!await native.putSetting({ key: 'sqlite_pending:' + task.operationId, storeId: V.storeId, request: task.request, url: task.url, queuedAt: task.queuedAt })) V.recoveryUnavailable = true;
         const result = await V.request(task.url, task.request);
         V.revision = result.revision; V.error = null;
+        // Update the comparison cache in server commit order, even after the caller saw a retryable failure.
+        // Replayed outbox entries have no in-memory signatures: invalidate their rides rather than skipping
+        // a later save against the old cache. No cache update may wait for an asynchronous browser mirror.
+        const change = task.request;
+        if (change.clear || task.url === '/restore') V.markCommitted([]);
+        for (const r of change.put || []) committed.delete(String(r.id));
+        for (const id of change.del || []) committed.delete(String(id));
+        if (change.put?.length || change.del?.length || change.order) committedOrder = null;
+        for (const [id, sig] of task.rideSignatures || []) committed.set(id, sig);
+        if (task.orderKey !== undefined) committedOrder = task.orderKey;
         await native.deleteSetting('sqlite_pending:' + task.operationId);
         V.pending.shift(); task.resolve(result); V.render();
       }
@@ -190,43 +200,44 @@
         get length() { return cache.size + Object.keys(unrelated).length; }
       };
       Object.defineProperty(window, 'localStorage', { configurable: true, get: () => mirror });
-      const write = async input => {
-        try { await V.enqueue(input); return true; }
+      const write = async (input, cacheState) => {
+        try { await V.enqueue(input, '/save', cacheState); return true; }
         catch { return false; }
       };
       VeloDB.getAllRides = async () => { try { const j = await V.request('/rides'); return j.rides; } catch { return null; } };
       VeloDB.saveRidesBatch = async rides => {
         const sigs = rides.map(signature);
         const changed = [], changedSigs = [];
-        rides.forEach((r, i) => { if (committed.get(String(r.id)) !== sigs[i]) { changed.push(r); changedSigs.push(sigs[i]); } });
+        // A queued write can still change a ride back after this call. Save the latest value of every
+        // touched ride even when it matches the last completed save (edit -> undo while saving).
+        const pending = V.pending.map(t => t.request || t.input);
+        const replacing = pending.some(c => c.clear) || V.pending.some(t => t.url === '/restore');
+        const touched = new Set(pending.flatMap(c => [...(c.put || []).map(r => String(r.id)), ...(c.del || []).map(String)]));
+        const pendingOrder = replacing || pending.some(c => c.order || c.put?.length || c.del?.length);
+        rides.forEach((r, i) => { if (replacing || touched.has(String(r.id)) || committed.get(String(r.id)) !== sigs[i]) { changed.push(r); changedSigs.push(sigs[i]); } });
         const order = rides.map(r => r.id), orderKey = order.map(String).join('\n');
         const fullList = rides.length >= committed.size;
-        const sendOrder = rides.length && !(fullList && orderKey === committedOrder);
+        const sendOrder = rides.length && (pendingOrder || !(fullList && orderKey === committedOrder));
         if (!changed.length && !sendOrder) return true;
         const copy = structuredClone(changed);
-        const saved = write({ put: copy, ...(sendOrder ? { order } : {}) });
+        const saved = write({ put: copy, ...(sendOrder ? { order } : {}) }, {
+          rideSignatures: copy.map((r, i) => [String(r.id), changedSigs[i]]), ...(fullList ? { orderKey } : {}) });
         // Retain full samples locally even if the PC save fails; they can be exported/retried.
         if (copy.length) await native.saveRidesBatch(copy);
-        const ok = await saved;
-        if (ok) {
-          changed.forEach((r, i) => committed.set(String(r.id), changedSigs[i]));
-          if (fullList) committedOrder = orderKey;
-        }
-        return ok;
+        return saved;
       };
       VeloDB.saveRide = ride => VeloDB.saveRidesBatch([ride]);
       VeloDB.applyRideChanges = async (put = [], del = [], { exact = false } = {}) => {
-        const ok = await write({ put, del, exact });
+        const rideSignatures = put.map(r => [String(r.id), signature(r)]);
+        const change = structuredClone({ put, del, exact });
+        const ok = await write(change, { rideSignatures });
         if (ok) {
-          await native.applyRideChanges(put, del, { exact });
-          for (const r of put) committed.set(String(r.id), signature(r));
-          for (const id of del) committed.delete(String(id));
-          committedOrder = null;
+          await native.applyRideChanges(change.put, change.del, { exact });
         }
         return ok;
       };
       VeloDB.deleteRide = id => VeloDB.applyRideChanges([], [id]);
-      VeloDB.clearAllRides = async () => { const ok = await write({ clear: true }); if (ok) { await native.clearAllRides(); V.markCommitted([]); } return ok; };
+      VeloDB.clearAllRides = async () => { const ok = await write({ clear: true }); if (ok) await native.clearAllRides(); return ok; };
       VeloDB.putSetting = obj => write({ dbPut: [obj] });
       VeloDB.deleteSetting = k => write({ dbDelete: [k] });
       VeloDB.listSettings = async prefix => {

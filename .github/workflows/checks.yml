@@ -23,6 +23,7 @@ jobs:
       - run: npm install --ignore-scripts
       - run: npx playwright install --with-deps chromium
       - run: node tests/sqlite-browser.cjs
+      - run: node tests/phone-pairing-browser.cjs
       - run: npm run test:browser
       - run: npm run test:suite
       - run: node tests/ramp-test-browser.cjs
