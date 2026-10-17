@@ -13,7 +13,7 @@ It is the same web app as the desktop version, wrapped with [Capacitor](https://
 | **Workouts** | The full workout library, the custom interval builder, saved workouts, ramp tests, Zen cockpit, audio cues and the offline coach (workouts and multi-week plans) |
 | **Storage** | Rides, profiles and settings are saved in the app on the phone and survive restarts and app updates |
 | **Strava** | Connect your account, send rides (FIT upload), check which rides are already there, and **Sync from Strava** |
-| **Files** | Import FIT/TCX/CSV in History; exports (FIT, TCX, CSV, full JSON backup, workout image) open the Android share sheet |
+| **Ride files** | Every ride recorded on the phone is also saved as a FIT file in **Documents/ApexVelo** (switch: Settings > Ride files), ready for any file manager, Garmin Connect, TrainingPeaks or intervals.icu. History > Export (FIT, TCX, CSV, full JSON backup) saves there too; the workout image opens the share sheet. FIT/TCX/CSV import works in History |
 | **Analytics** | History, calendar, PMC (fitness/fatigue/form), power curve, CP, FTP history |
 
 ## Not in this first version
@@ -30,7 +30,7 @@ Known limits:
 
 - **Keep the app open and on screen while riding.** The screen stays on during a ride. If you switch apps or lock the phone, Android may pause the app, and recording and ERG then stop. Background recording would need an Android foreground service (a possible next step).
 - ANT+ is not supported (Bluetooth only), the same as on the desktop.
-- Rides live in the app's private storage. **Uninstalling the app deletes them.** Export a backup first.
+- Rides live in the app's private storage. **Uninstalling the app deletes them** (the FIT files in Documents/ApexVelo stay). Export a JSON backup first to keep profiles, settings and Strava links too.
 
 ## Install the APK
 

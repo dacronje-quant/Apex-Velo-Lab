@@ -90,7 +90,11 @@ const step = (name) => console.log('  ok -', name);
     const rideId = await page.evaluate(() => app.completedWorkouts.find((r) => r.workoutId === 'native-test').id);
     assert.ok(await page.evaluate(() => __nativeLog.keepAwake.at(-1) === 'off'), 'screen may sleep again after the ride');
     await page.waitForFunction(async (id) => ((await VeloDB.getAllRides()) || []).some((r) => r.id === id), rideId, { timeout: 10000 });
-    step('ride recorded at 200 W and saved on the phone (IndexedDB)');
+    const stem = await page.evaluate((id) => VeloExport.fileStem(app.completedWorkouts.find((r) => r.id === id)), rideId);
+    await page.waitForFunction((p) => __nativeLog.files.some((f) => f.path === p && f.directory === 'DOCUMENTS'), `ApexVelo/${stem}.fit`);
+    const autoFit = await page.evaluate((p) => __nativeLog.files.find((f) => f.path === p).data, `ApexVelo/${stem}.fit`);
+    assert.equal(Buffer.from(autoFit, 'base64').subarray(8, 12).toString(), '.FIT');
+    step(`ride recorded at 200 W, saved on the phone (IndexedDB) and as Documents/ApexVelo/${stem}.fit`);
 
     // ------------------------------------------------------------------------- Strava --
     await page.evaluate(() => app.closeModal('rideSummaryModal'));
@@ -137,13 +141,22 @@ const step = (name) => console.log('  ok -', name);
     step('Strava sync reads activities, details and streams');
 
     // ------------------------------------------------------------------ exports, back key --
-    await page.evaluate((id) => app.downloadFile('ride.fit', new Uint8Array([1, 2, 3]), 'application/octet-stream'), rideId);
+    await page.evaluate(() => { window.__takenFiles = ['ApexVelo/old.fit']; return app.downloadFile('old.fit', new Uint8Array([1, 2, 3]), 'application/octet-stream'); });
+    await page.waitForFunction(() => __nativeLog.files.some((f) => f.path === 'ApexVelo/old_2.fit'));
+    await page.evaluate((id) => app.exportFitForRide(id), rideId);
+    await page.waitForFunction(() => __nativeLog.files.filter((f) => /\.fit$/.test(f.path)).length >= 3);
+    assert.equal(await page.evaluate(() => __nativeLog.shared.length), 0, 'ride files are saved, not shared');
+    await page.evaluate((id) => app.saveStravaImage(id), rideId);
     await page.waitForFunction(() => __nativeLog.shared.length === 1);
-    assert.match(await page.evaluate(() => __nativeLog.shared[0].files[0]), /ride\.fit$/);
+    assert.match(await page.evaluate(() => __nativeLog.shared[0].files[0]), /_workout\.png$/);
+    await page.evaluate(() => app.openSettings('files'));
+    assert.equal(await page.locator('#nativeAutoFit').isChecked(), true);
+    await page.locator('#nativeAutoFit').uncheck();
+    assert.equal(await page.evaluate(() => localStorage.getItem('apex_native_autosave_fit')), '0');
     await page.evaluate(() => app.openSettings('rider'));
     await page.evaluate(() => __fireNative('backButton'));
     assert.equal(await page.evaluate(() => document.getElementById('settingsModal').classList.contains('open')), false);
-    step('exports go to the Android share sheet; back closes the open dialog');
+    step('exports save to Documents/ApexVelo (a name an old install left gets _2), the image goes to the share sheet, auto-save can be turned off; back closes the open dialog');
 
     // -------------------------------------------------------------------- persistence --
     await page.reload();

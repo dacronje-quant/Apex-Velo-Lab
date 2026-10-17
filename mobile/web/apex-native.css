@@ -71,6 +71,10 @@
 .apex-ble-meta { font-size: 12px; color: var(--text-3, #6f7894); white-space: nowrap; font-variant-numeric: tabular-nums; }
 .apex-ble-actions { display: flex; justify-content: flex-end; }
 
+/* Settings > Ride files */
+.native-toggle { display: flex; align-items: center; gap: 10px; margin: 12px 0; font-weight: 600; cursor: pointer; }
+.native-toggle input { width: 20px; height: 20px; accent-color: var(--cyan, #7cc8ff); }
+
 /* Settings > Strava */
 #nativeStravaSettings .form-group { margin: 10px 0; }
 #nativeStravaSettings .input-field { width: 100%; }

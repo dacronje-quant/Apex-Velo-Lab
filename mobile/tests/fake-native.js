@@ -7,7 +7,7 @@
 (() => {
   const FTMS = '00001826-0000-1000-8000-00805f9b34fb', HRS = '0000180d-0000-1000-8000-00805f9b34fb';
   const uuid16 = (n) => '0000' + n.toString(16).padStart(4, '0') + '-0000-1000-8000-00805f9b34fb';
-  const log = window.__nativeLog = { writes: [], http: [], opened: [], keepAwake: [], shared: [], scans: 0 };
+  const log = window.__nativeLog = { writes: [], http: [], opened: [], keepAwake: [], shared: [], files: [], scans: 0 };
   const listeners = window.__nativeListeners = {};
   const notify = new Map();
   const disconnectCb = new Map();
@@ -101,7 +101,16 @@
     },
     Browser: { async open({ url }) { log.opened.push(url); }, async close() {} },
     KeepAwake: { async keepAwake() { log.keepAwake.push('on'); }, async allowSleep() { log.keepAwake.push('off'); } },
-    Filesystem: { async writeFile({ path, data }) { return { uri: 'file:///cache/' + path, size: data.length }; } },
+    Filesystem: {
+      async requestPermissions() { return { publicStorage: 'granted' }; },
+      async mkdir() { if (log.files.length) throw new Error('Directory exists'); },
+      async writeFile({ path, data, directory }) {
+        // A file left by an earlier install cannot be replaced on Android 11+.
+        if (directory === 'DOCUMENTS' && (window.__takenFiles || []).includes(path)) throw new Error('EACCES (Permission denied)');
+        log.files.push({ path, data, directory });
+        return { uri: 'file:///' + directory.toLowerCase() + '/' + path };
+      }
+    },
     Share: { async share(o) { log.shared.push(o); } }
   };
   window.__fireNative = (name, data) => Promise.all((listeners[name] || []).map((cb) => cb(data)));

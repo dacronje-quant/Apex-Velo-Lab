@@ -44,6 +44,15 @@ const TOAST_TEXT = [
   [/Web Bluetooth needs Chrome, Edge or Brave on https:\/\/ or localhost\./, 'Bluetooth is not available on this phone.']
 ];
 
+function filesSection() {
+  return `
+      <section class="settings-section" data-sec="files" id="nativeFileSettings">
+        <p class="field-help">Ride files are saved in <b>Documents/ApexVelo</b> on this phone, where any file manager can open them and Garmin Connect, TrainingPeaks, intervals.icu and others can import them.</p>
+        <label class="native-toggle"><input type="checkbox" id="nativeAutoFit" checked> Save a FIT file of every ride when it finishes</label>
+        <p class="field-help">History &gt; Export (FIT, TCX, CSV and the full JSON backup) saves to the same folder. Rides themselves are always kept in the app as well.</p>
+      </section>`;
+}
+
 function stravaSection() {
   return `
       <section class="settings-section" data-sec="strava" id="nativeStravaSettings">
@@ -73,8 +82,11 @@ function addSettingsUi(doc) {
     b.type = 'button'; b.className = 'cat-pill'; b.dataset.sec = 'strava'; b.textContent = 'Strava';
     const rider = nav.querySelector('[data-sec="rider"]');
     rider ? rider.after(b) : nav.prepend(b);
+    const files = doc.createElement('button');
+    files.type = 'button'; files.className = 'cat-pill'; files.dataset.sec = 'files'; files.textContent = 'Ride files';
+    b.after(files);
     const riderSection = doc.querySelector('#settingsModal .settings-section[data-sec="rider"]');
-    if (riderSection) riderSection.insertAdjacentHTML('afterend', stravaSection());
+    if (riderSection) riderSection.insertAdjacentHTML('afterend', stravaSection() + filesSection());
   }
   const status = doc.getElementById('localStorageStatus');
   if (status) status.textContent = 'Saved on this phone.';
@@ -86,6 +98,36 @@ const blobToBase64 = (blob) => new Promise((resolve, reject) => {
   r.onerror = () => reject(r.error);
   r.readAsDataURL(blob);
 });
+
+const FOLDER = 'ApexVelo';
+const FOLDER_LABEL = 'Documents/ApexVelo';
+const AUTO_FIT_KEY = 'apex_native_autosave_fit';
+const safeName = (name) => String(name).replace(/[^\w.\-]+/g, '_');
+const autoSaveFit = () => { try { return localStorage.getItem(AUTO_FIT_KEY) !== '0'; } catch (e) { return true; } };
+
+let storageAsked = null;
+/**
+ * Writes a file to the phone's public Documents/ApexVelo folder and resolves to its readable path.
+ * Android 10 and older need the storage permission (asked once). On Android 11+ the app may only
+ * replace files it created itself, so a name taken by an earlier install gets a number added.
+ */
+export async function saveRideFile(Filesystem, filename, blob) {
+  if (!storageAsked) storageAsked = Filesystem.requestPermissions().catch(() => null);
+  const perm = await storageAsked;
+  if (perm && perm.publicStorage === 'denied') { storageAsked = null; throw new Error('storage permission was denied'); }
+  await Filesystem.mkdir({ path: FOLDER, directory: 'DOCUMENTS', recursive: true }).catch(() => {});
+  const data = await blobToBase64(blob);
+  const name = safeName(filename), dot = name.lastIndexOf('.');
+  let lastError;
+  for (let i = 1; i <= 5; i++) {
+    const candidate = i === 1 ? name : `${name.slice(0, dot)}_${i}${name.slice(dot)}`;
+    try {
+      await Filesystem.writeFile({ path: `${FOLDER}/${candidate}`, data, directory: 'DOCUMENTS' });
+      return `${FOLDER_LABEL}/${candidate}`;
+    } catch (e) { lastError = e; }
+  }
+  throw lastError;
+}
 
 export function bootNativeApp({ bluetooth, strava, plugins, win = window }) {
   const doc = win.document;
@@ -107,7 +149,7 @@ export function bootNativeApp({ bluetooth, strava, plugins, win = window }) {
     doc.body.classList.add('apex-native');
     addSettingsUi(doc);
     // `class VeloApp` in js/app.js is a global binding of the page's scripts, not a window property.
-    /* global VeloApp */
+    /* global VeloApp, VeloExport */
     const App_ = typeof VeloApp !== 'undefined' ? VeloApp : win.VeloApp;
     const V = win.VeloStorage, P = App_ && App_.prototype;
     if (V) {
@@ -144,16 +186,43 @@ export function bootNativeApp({ bluetooth, strava, plugins, win = window }) {
     };
 
     // -------------------------------------------------------------------- file exports --
+    // Ride files (FIT, TCX, CSV, JSON backup) are saved to Documents/ApexVelo, the phone's counterpart
+    // of the desktop Downloads folder; the workout image goes to the share sheet (gallery, Strava app).
     P.downloadBlob = async function (filename, blob) {
       try {
-        const safe = String(filename).replace(/[^\w.\-]+/g, '_');
-        const res = await Filesystem.writeFile({ path: safe, data: await blobToBase64(blob), directory: 'CACHE' });
-        await Share.share({ title: safe, files: [res.uri] });
+        const res = await Filesystem.writeFile({ path: safeName(filename), data: await blobToBase64(blob), directory: 'CACHE' });
+        await Share.share({ title: safeName(filename), files: [res.uri] });
       } catch (e) {
         if (!/cancel/i.test(String((e && e.message) || e))) this.showToast(`Could not share ${filename}: ${(e && e.message) || e}`, 'error');
       }
     };
-    P.downloadFile = function (filename, content, type) { return this.downloadBlob(filename, new Blob([content], { type })); };
+    P.downloadFile = async function (filename, content, type) {
+      const blob = new Blob([content], { type });
+      try {
+        const saved = await saveRideFile(Filesystem, filename, blob);
+        this.showToast(`Saved to ${saved}.`, 'success');
+      } catch (e) {
+        this.showToast(`Could not save to ${FOLDER_LABEL} (${(e && e.message) || e}). Choose where to send it instead.`, 'warning');
+        return this.downloadBlob(filename, blob);
+      }
+    };
+    // Called by finishWorkout with every new ride (the phone remote's hook, unused in the app):
+    // keep a FIT file of each ride recorded on the phone, outside the app's own storage.
+    P.preparePhoneFit = function (ride) {
+      if (!autoSaveFit() || !ride || !Array.isArray(ride.samples) || !ride.samples.length) return;
+      const name = `${VeloExport.fileStem(ride)}.fit`;
+      saveRideFile(Filesystem, name, new Blob([VeloExport.buildFit(ride, ride.samples)], { type: 'application/vnd.ant.fit' }))
+        .then((saved) => this.showToast(`FIT file saved to ${saved}.`, 'info'))
+        .catch((e) => this.showToast(`Could not save the FIT file (${(e && e.message) || e}). Export it from History.`, 'warning'));
+    };
+    const initSettings = P.initSettings;
+    P.initSettings = function () {
+      initSettings.call(this);
+      const box = doc.getElementById('nativeAutoFit');
+      if (!box) return;
+      box.checked = autoSaveFit();
+      this.on(box, 'change', () => { try { localStorage.setItem(AUTO_FIT_KEY, box.checked ? '1' : '0'); } catch (e) { /* storage unavailable */ } });
+    };
     // Sending to Strava would otherwise pop a share sheet for the workout card every time.
     const prepareImage = P.prepareStravaImage;
     P.prepareStravaImage = function (ride) { return prepareImage.call(this, ride, false); };
