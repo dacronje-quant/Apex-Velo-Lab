@@ -1,0 +1,76 @@
+/* Android app layer: device chooser, safe areas, and features that need the PC server hidden. */
+
+/* --- Not in the app (yet): Ask (cloud AI), phone remote, Apple Health, PC backups, desktop-only tools --- */
+.apex-native .nav-btn[data-tab="ask"],
+.apex-native #view-ask,
+.apex-native #settingsNav [data-sec="ai"],
+.apex-native #settingsNav [data-sec="health"],
+.apex-native #settingsNav [data-sec="backups"],
+.apex-native #settingsNav [data-sec="phone"],
+.apex-native #btnToggleFullscreen,
+.apex-native #btnShowShortcuts {
+  display: none !important;
+}
+
+/* --- Bluetooth device chooser (the app's version of Chrome's picker) --- */
+.apex-ble-chooser {
+  position: fixed;
+  inset: 0;
+  z-index: 10000;
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+  background: rgba(2, 4, 10, 0.72);
+  font-family: Inter, system-ui, sans-serif;
+}
+.apex-ble-sheet {
+  width: min(520px, 100%);
+  max-height: 80vh;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 18px 16px calc(16px + env(safe-area-inset-bottom, 0px));
+  background: var(--bg-2, #0d1122);
+  border: 1px solid var(--line-strong, rgba(255, 255, 255, 0.16));
+  border-radius: 18px 18px 0 0;
+  color: var(--text-1, #f1f4ff);
+}
+@media (min-width: 700px) {
+  .apex-ble-chooser { align-items: center; }
+  .apex-ble-sheet { border-radius: 18px; }
+}
+.apex-ble-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; font-size: 17px; }
+.apex-ble-scan { display: inline-flex; align-items: center; gap: 8px; font-size: 13px; color: var(--text-2, #a4acc6); }
+.apex-ble-spinner {
+  width: 14px; height: 14px; border-radius: 50%;
+  border: 2px solid var(--cyan-soft, rgba(124, 200, 255, 0.14));
+  border-top-color: var(--cyan, #7cc8ff);
+  animation: apex-ble-spin 0.9s linear infinite;
+}
+@keyframes apex-ble-spin { to { transform: rotate(360deg); } }
+.apex-ble-hint, .apex-ble-empty { margin: 0; font-size: 13px; color: var(--text-3, #6f7894); }
+.apex-ble-list { list-style: none; margin: 0; padding: 0; overflow-y: auto; display: flex; flex-direction: column; gap: 6px; }
+.apex-ble-item {
+  width: 100%;
+  min-height: 52px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 12px 14px;
+  background: var(--surface-2, rgba(255, 255, 255, 0.07));
+  border: 1px solid var(--line, rgba(255, 255, 255, 0.09));
+  border-radius: 12px;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+.apex-ble-item:active { border-color: var(--line-glow, rgba(124, 200, 255, 0.35)); background: var(--cyan-soft, rgba(124, 200, 255, 0.14)); }
+.apex-ble-name { font-weight: 600; overflow-wrap: anywhere; }
+.apex-ble-meta { font-size: 12px; color: var(--text-3, #6f7894); white-space: nowrap; font-variant-numeric: tabular-nums; }
+.apex-ble-actions { display: flex; justify-content: flex-end; }
+
+/* Settings > Strava */
+#nativeStravaSettings .form-group { margin: 10px 0; }
+#nativeStravaSettings .input-field { width: 100%; }

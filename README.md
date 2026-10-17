@@ -116,6 +116,7 @@ Everything here is optional. Without an API key the app builds workouts and trai
 - [Local setup, connections and troubleshooting](docs/LOCAL-SETUP.md)
 - [Full feature reference](docs/FEATURES.md) - cockpit, ERG behaviour, devices, coach, training blocks, Strava sync, phone view, analytics, formulas, architecture
 - [Privacy and local data](docs/PRIVACY.md)
+- [Android app (proof of concept)](mobile/README.md) - the cockpit as an APK: Bluetooth trainer control, workouts, on-phone storage and Strava, no PC needed
 - [Maintainer: preparing a release](docs/SHARING.md)
 - `tools/` - optional PowerShell helpers to build a ride archive from a HealthFit `.fit` export folder (not needed for normal use)
 
