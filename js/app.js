@@ -124,6 +124,7 @@ class VeloApp {
     this.initKeyboardShortcuts();
     this.initCalendarEvents();
     this.initAiCoachUi();
+    if (this.initDescribeUi) this.initDescribeUi();
     if (this.initAskUi) this.initAskUi();
     if (this.initStravaUi) this.initStravaUi();
     if (this.initStravaSyncUi) this.initStravaSyncUi();
