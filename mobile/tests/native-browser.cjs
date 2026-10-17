@@ -185,6 +185,26 @@ const step = (name) => console.log('  ok -', name);
     assert.deepEqual(coachCall.data.output_config, { effort: 'low' });
     step('AI coach: the ride breakdown goes through /api/coach on the phone');
 
+    await page.locator('.nav-btn[data-tab="workouts"]').first().click();
+    assert.match(await page.locator('#describeEngine').innerText(), /Claude Opus 5\.5 · only your request and FTP/);
+    await page.locator('#describeExamples [data-example]').first().click();
+    assert.equal(await page.locator('#describeInput').inputValue(), '45 min sweet spot');
+    await page.locator('#describeInput').fill('50 min, 5x3 min at 115% with 3 min easy, high cadence');
+    await page.locator('#btnDescribeCreate').click();
+    await page.locator('#describeResult .describe-card', { hasText: 'Five by Three at 115%' }).waitFor({ timeout: 15000 });
+    const describeCall = await page.evaluate(() => __nativeLog.http.filter((r) => r.url === 'https://api.anthropic.com/v1/messages').at(-1));
+    const sent = describeCall.data.messages[0].content;
+    assert.match(sent, /5x3 min at 115% with 3 min easy/);
+    assert.doesNotMatch(sent, /RIDES IN THE LAST|Native ERG test/, 'no ride history is sent');
+    assert.deepEqual(describeCall.data.output_config, { effort: 'low' });
+    assert.match(await page.locator('#describeResult .w-card-meta').innerText(), /42\s*m/, 'duration computed from the steps (10 + 15 + 12 + 5 min)');
+    await page.locator('#describeResult [data-describe="save"]').click();
+    assert.ok(await page.evaluate(() => app.loadSavedWorkouts().some((w) => w.title === 'Five by Three at 115%')), 'saved to the library');
+    await page.locator('#describeResult [data-describe="ride"]').click();
+    await page.waitForFunction(() => app.activeTab === 'cockpit' && app.currentWorkout.title === 'Five by Three at 115%');
+    assert.equal(await page.evaluate(() => app.currentWorkout.intervals.filter((i) => i.pctFtp === 115).length), 5);
+    step('Describe a workout: built from the request only (no history sent), saved to the library and loaded into the cockpit');
+
     // ------------------------------------------------------------------ exports, back key --
     await page.evaluate(() => { window.__takenFiles = ['ApexVelo/old.fit']; return app.downloadFile('old.fit', new Uint8Array([1, 2, 3]), 'application/octet-stream'); });
     await page.waitForFunction(() => __nativeLog.files.some((f) => f.path === 'ApexVelo/old_2.fit'));

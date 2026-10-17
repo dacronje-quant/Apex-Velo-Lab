@@ -302,6 +302,7 @@
 
     updateCoachEngineStatus() {
       if (this.updateAskEngine) this.updateAskEngine();
+      if (this.updateDescribeEngine) this.updateDescribeEngine();
       this.updateCoachGoButton();
       const el = document.getElementById('aiCoachEngineStatus');
       const detail = document.getElementById('aiCoachEngineDetail');

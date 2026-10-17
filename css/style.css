@@ -593,6 +593,20 @@ main { padding: 18px clamp(12px, 2vw, 28px) 48px; max-width: 1760px; margin: 0 a
 .tag-endurance, .tag-recovery { color: var(--z2); background: rgba(59, 130, 246, 0.12); }
 .tag-assessment, .tag-ramp { color: var(--z7); background: rgba(168, 85, 247, 0.12); }
 .tag-custom { color: var(--violet); background: var(--violet-soft); }
+.tag-ai { color: var(--violet); background: var(--violet-soft); }
+
+/* Workouts tab: "Describe a workout" (js/app-describe.js) */
+.describe-box { display: flex; flex-direction: column; gap: 10px; margin-bottom: 16px; border-color: rgba(177, 153, 255, 0.35); }
+.describe-title { display: flex; align-items: center; gap: 8px; font-weight: 700; font-size: 16px; }
+.describe-title label { cursor: text; }
+.describe-input { width: 100%; min-height: 72px; resize: vertical; font-family: var(--font-sans); font-size: 15px; line-height: 1.4; }
+.describe-examples { display: flex; flex-wrap: wrap; gap: 6px; }
+.describe-examples .chip { cursor: pointer; font: inherit; font-size: 12px; padding: 5px 10px; border-radius: var(--radius-full); border: 1px solid var(--line); background: var(--surface-2); color: var(--text-2); }
+.describe-examples .chip:hover { color: var(--text-1); border-color: var(--line-strong); }
+.describe-engine { margin: 0; }
+.describe-note { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; font-size: 14px; color: var(--text-2); }
+.describe-error { color: var(--rose); }
+.describe-card { margin-top: 4px; }
 .tag-hardstart { color: var(--amber); background: var(--amber-soft); }
 .w-card-title { font-size: 15px; font-weight: 700; letter-spacing: -0.01em; }
 .w-card-profile { width: 100%; height: 42px; display: block; border-radius: 6px; background: var(--surface-sunk); }

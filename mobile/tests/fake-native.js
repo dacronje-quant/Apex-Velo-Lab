@@ -85,6 +85,13 @@
         if (opts.headers['x-api-key'] !== window.__aiKey) return { status: 401, headers: {}, data: { type: 'error', error: { type: 'authentication_error', message: 'invalid x-api-key' } } };
         if (u.pathname === '/v1/models') return ok({ data: [{ id: 'claude-opus-5-5', display_name: 'Claude Opus 5.5' }, { id: 'claude-haiku-5-5', display_name: 'Claude Haiku 5.5' }] });
         if (u.pathname === '/v1/messages') {
+          if (/DIRECT WORKOUT REQUEST/.test(opts.data.messages[0].content)) {
+            const iv = [{ name: 'Warmup', duration: 600, pctFtp: 55 }];
+            for (let i = 1; i <= 5; i++) iv.push({ name: `VO2 ${i}`, duration: 180, pctFtp: 115, cadence: 105 }, ...(i < 5 ? [{ name: `Easy ${i}`, duration: 180, pctFtp: 50 }] : []));
+            iv.push({ name: 'Cooldown', duration: 300, pctFtp: 45 });
+            return ok({ model: opts.data.model, stop_reason: 'end_turn', usage: { input_tokens: 400, output_tokens: 300 },
+              content: [{ type: 'text', text: JSON.stringify({ title: 'Five by Three at 115%', category: 'vo2', desc: 'Five 3-minute efforts at 115% FTP.', intervals: iv }) }] });
+          }
           const ask = Array.isArray(opts.data.system);
           return ok({ model: opts.data.model, stop_reason: 'end_turn', usage: { input_tokens: 900, output_tokens: 60 },
             content: [{ type: 'thinking', thinking: 'Looking at the data.' }, { type: 'text', text: ask ? 'You rode **1 ride** this week (test answer).' : 'Steps held well (test breakdown).' }] });
