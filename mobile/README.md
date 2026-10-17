@@ -15,12 +15,12 @@ It is the same web app as the desktop version, wrapped with [Capacitor](https://
 | **Strava** | Connect your account, send rides (FIT upload), check which rides are already there, and **Sync from Strava** |
 | **Ride files** | Every ride recorded on the phone is also saved as a FIT file in **Documents/ApexVelo** (switch: Settings > Ride files), ready for any file manager, Garmin Connect, TrainingPeaks or intervals.icu. History > Export (FIT, TCX, CSV, full JSON backup) saves there too; the workout image opens the share sheet. FIT/TCX/CSV import works in History |
 | **Analytics** | History, calendar, PMC (fitness/fatigue/form), power curve, CP, FTP history |
+| **AI** | **Ask** (questions about your own training), the **AI coach** (sessions and multi-week plans) and ride **interval breakdowns**, with Claude, Gemini or ChatGPT and your own API key. Without a key the built-in offline coach is used |
 
 ## Not in this first version
 
 These need the PC server or another device, so they are switched off in the app:
 
-- **Ask** tab and the cloud **AI engine** (Claude/ChatGPT/Gemini keys). The built-in offline coach still builds workouts and plans.
 - **Phone remote view** (the app *is* the phone view now).
 - **Apple Health** import (iPhone-only feature).
 - **PC backups** (Settings > Backups). Use **History > Export** for a full JSON backup instead.
@@ -52,6 +52,18 @@ The app uses your own free Strava API application, the same as the desktop setup
 
 The secret and tokens are kept in the app's private Android storage (not in the web storage or in exports). Strava's API is called directly from the phone.
 
+## Add an AI key
+
+Ask, the AI coach and the interval breakdowns call the AI provider straight from the phone. No PC is involved.
+
+1. Create an API key: Anthropic at [platform.claude.com/settings/keys](https://platform.claude.com/settings/keys), Google Gemini at [aistudio.google.com/apikey](https://aistudio.google.com/apikey) or OpenAI at [platform.openai.com/api-keys](https://platform.openai.com/api-keys). One is enough.
+2. In the app: **Settings (gear) > AI engine**, paste the key and press **Save keys**. The app reads that provider's model list, and the status line says **Ready**.
+3. Pick the provider, model and reasoning effort in the same section. **Low** effort answers fastest and costs least. Keep the app open while a long answer is on its way.
+
+Keys are kept in the app's private Android storage (Capacitor Preferences), not in the web storage or in exports, and each key is only sent to its own provider. Each question is billed to your API account. The prompts and requests are the same as the desktop server's (`mobile/src/native-ai.js`, checked against `server.js` by `tests/native-ai.test.mjs`).
+
+Don't share an APK from a phone where you've saved keys, and don't build one with a key inside: the debug signing key is in this repository.
+
 ## Build it yourself
 
 You need Node.js 22+, JDK 21 and the Android SDK (or Android Studio).
@@ -72,11 +84,11 @@ Run `npm run build && npx cap sync android` again after changing anything in the
 ## Tests
 
 ```bash
-npm test               # unit tests: Bluetooth shim, Strava client (Node, no browser)
-npm run test:browser   # the built app in Chromium with a simulated FTMS trainer, HR strap and Strava
+npm test               # unit tests: Bluetooth shim, Strava client, AI engine vs server.js (Node, no browser)
+npm run test:browser   # the built app in Chromium with a simulated FTMS trainer, HR strap, Strava and Claude
 ```
 
-The browser test pairs the trainer through the in-app chooser and rides an ERG workout. It checks the trainer gets its targets, drops and reconnects the link, saves the ride, signs in to Strava, uploads the FIT file, syncs and reloads the app. The **Android app** GitHub workflow runs both, then builds the APK.
+The browser test pairs the trainer through the in-app chooser and rides an ERG workout. It checks the trainer gets its targets, drops and reconnects the link, saves the ride, signs in to Strava, uploads the FIT file, syncs, saves an AI key, asks a question in Ask, gets an AI interval breakdown and reloads the app. The **Android app** GitHub workflow runs both, then builds the APK.
 
 ## How it works
 

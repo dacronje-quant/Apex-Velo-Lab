@@ -3,30 +3,46 @@
  *
  * Runs on DOMContentLoaded, after every app script has loaded but before js/app.js creates VeloApp
  * (this listener is registered first, from <head>). It:
- *   - answers /api/ requests on the phone (Strava; everything else that needs the PC is switched off),
+ *   - answers /api/ requests on the phone (Strava, the AI coach and Ask; everything else that needs the
+ *     PC is switched off),
  *   - keeps rides and settings in the app's own storage (IndexedDB + localStorage in the WebView),
  *   - adds Settings > Strava for the rider's own Strava API application, and the sign-in redirect,
+ *   - adds the API key fields to Settings > AI engine (the keys stay in Android app storage),
  *   - keeps the screen on during a ride, shares exported files, and handles the Android back button.
  *
- * Dropped in this first version (they need the PC server or another device): phone remote view,
- * Apple Health import, server backups, and the cloud AI engine / Ask tab (the offline coach still
- * builds workouts and plans).
+ * Dropped in this version (they need the PC server or another device): phone remote view,
+ * Apple Health import and server backups.
  */
 
 const json = (status, body) => new Response(JSON.stringify(body), { status, headers: { 'Content-Type': 'application/json' } });
+const AI_PATHS = ['/api/coach', '/api/coach/status', '/api/ask'];
 
-/** Same-origin /api/ calls never leave the phone: Strava is answered here, the rest reports "not in the app". */
-export function installApiRoutes(strava, win = window) {
+/**
+ * Same-origin /api/ calls never leave the WebView as such: Strava and the AI engine are answered here,
+ * the rest reports "not in the app". `routes` is { strava, ai }.
+ */
+export function installApiRoutes(routes, win = window) {
   if (win.__APEX_DEMO_MODE__) return; // the demo playground blocks /api/ itself
+  const { strava, ai } = routes;
   const realFetch = win.fetch.bind(win);
   win.fetch = async function (input, options = {}) {
     const url = new URL(typeof input === 'string' ? input : (input && input.url) || String(input), win.location.href);
     if (url.origin !== win.location.origin || !url.pathname.startsWith('/api/')) return realFetch(input, options);
     const method = String(options.method || (input && input.method) || 'GET').toUpperCase();
+    const readBody = async () => typeof options.body === 'string' ? options.body : options.body ? await new Response(options.body).text() : '';
+    if (ai && AI_PATHS.includes(url.pathname)) {
+      const signal = options.signal || (input && input.signal) || undefined;
+      try {
+        const r = await ai.route(url.pathname, method, url.searchParams, await readBody(), signal);
+        if (r) return json(r.status, r.body);
+      } catch (e) {
+        if (e && e.name === 'AbortError') throw e; // cancelled or timed out by the app, as a real fetch would
+        return json(502, { error: `Could not reach the AI service (${(e && e.message) || e}). Check your internet connection.` });
+      }
+    }
     try {
       if (url.pathname.startsWith('/api/strava/')) {
-        const body = typeof options.body === 'string' ? options.body : options.body ? await new Response(options.body).text() : '';
-        const r = await strava.route(url.pathname, method, url.searchParams, body);
+        const r = await strava.route(url.pathname, method, url.searchParams, await readBody());
         if (r) return json(r.status, r.body);
       }
       if (url.pathname === '/api/local-history') return json(200, { rides: null });
@@ -41,8 +57,53 @@ const TOAST_TEXT = [
   [/Could not reach the local server\.? ?(\(([^)]*)\))?\.? ?Is Launch-Apex-Velo\.bat running\?/i, 'Could not reach Strava. Check your internet connection.'],
   [/The workout image is saved and on your clipboard - add it to the activity\./, 'Use "Save image" in the ride summary to share the workout card.'],
   [/Allow Bluetooth for localhost in Chrome site settings\./, 'Allow "Nearby devices" for Apex Velo in Android settings.'],
-  [/Web Bluetooth needs Chrome, Edge or Brave on https:\/\/ or localhost\./, 'Bluetooth is not available on this phone.']
+  [/Web Bluetooth needs Chrome, Edge or Brave on https:\/\/ or localhost\./, 'Bluetooth is not available on this phone.'],
+  [/Server found, but no \w+ yet\. Add it to \.env and restart Launch-Apex-Velo\.bat\./, 'No API key for this AI engine yet. Add it in Settings > AI engine.'],
+  [/Local server not running - open the app with Launch-Apex-Velo\.bat to use ([^.]+)\./, 'Add an API key in Settings > AI engine to use $1.'],
+  [/The AI coach is offline - start Launch-Apex-Velo\.bat and add an API key\./, 'The AI coach needs an API key: add one in Settings > AI engine.']
 ];
+
+const AI_KEY_FIELDS = [
+  { id: 'claude', label: 'Anthropic (Claude) API key', placeholder: 'sk-ant-...', link: 'https://platform.claude.com/settings/keys', site: 'platform.claude.com' },
+  { id: 'gemini', label: 'Google Gemini API key', placeholder: 'AIza...', link: 'https://aistudio.google.com/apikey', site: 'aistudio.google.com' },
+  { id: 'openai', label: 'OpenAI (ChatGPT) API key', placeholder: 'sk-...', link: 'https://platform.openai.com/api-keys', site: 'platform.openai.com' }
+];
+
+function aiKeysSection() {
+  return `
+        <div id="nativeAiKeys">
+          <p class="field-help">Ask, the AI coach and the ride breakdowns call Claude, Gemini or ChatGPT straight from this phone with your own API key. One key is enough; without one the built-in offline coach is used.</p>
+          ${AI_KEY_FIELDS.map((f) => `
+          <div class="form-group">
+            <label for="nativeAiKey-${f.id}">${f.label}</label>
+            <div class="native-key-row">
+              <input type="password" id="nativeAiKey-${f.id}" class="input-field" autocomplete="off" autocapitalize="off" spellcheck="false" placeholder="${f.placeholder}">
+              <button type="button" class="btn btn-ghost" data-native-ai-remove="${f.id}" hidden>Remove</button>
+            </div>
+            <p class="field-help native-key-link">Get one at <a href="${f.link}" target="_blank" rel="noopener">${f.site}</a></p>
+          </div>`).join('')}
+          <div class="btn-row"><button type="button" class="btn btn-primary" id="btnNativeAiSaveKeys">Save keys</button></div>
+          <p class="field-help">Keys stay in this app's private storage on the phone and go only to their own provider. They are not part of exports. Each question uses your API account and is billed there.</p>
+        </div>`;
+}
+
+/** Settings > AI engine on the phone: key fields instead of the .env instructions. */
+function addAiSettingsUi(doc) {
+  const card = doc.getElementById('aiCoachConfigCard');
+  if (!card || doc.getElementById('nativeAiKeys')) return;
+  const detail = doc.getElementById('aiCoachEngineDetail');
+  if (detail) { detail.textContent = 'Checking your API keys...'; detail.insertAdjacentHTML('afterend', aiKeysSection()); }
+  const help = [...card.querySelectorAll('.field-help')].find((p) => /\.env/.test(p.textContent));
+  if (help) help.innerHTML = 'The model lists are read live from each provider whose key is saved, so new models show up after <b>Re-check keys</b>. For Gemini, effort sets the thinking level; for ChatGPT, the reasoning effort. Low effort is fastest and cheapest, and answers sooner on a phone.';
+  const recheck = doc.getElementById('btnRecheckAiEngine');
+  if (recheck) recheck.textContent = 'Re-check keys';
+  const def = doc.querySelector('#selectCoachEffort option[value=""]');
+  if (def) def.textContent = 'Default (low)';
+  // Static wording elsewhere that talks about the PC server.
+  const askNote = doc.getElementById('askDataSize') && doc.getElementById('askDataSize').closest('.footnote');
+  if (askNote) askNote.innerHTML = 'This summary of the period is sent with your question (<span id="askDataSize"></span>) to the AI engine you chose. Nothing else leaves this phone.';
+  doc.querySelectorAll('.section-sub').forEach((p) => { p.innerHTML = p.innerHTML.replace('when the local server has its API key', 'when its API key is saved in Settings'); });
+}
 
 function filesSection() {
   return `
@@ -129,11 +190,11 @@ export async function saveRideFile(Filesystem, filename, blob) {
   throw lastError;
 }
 
-export function bootNativeApp({ bluetooth, strava, plugins, win = window }) {
+export function bootNativeApp({ bluetooth, strava, ai, plugins, win = window }) {
   const doc = win.document;
   const { App, Browser, KeepAwake, Filesystem, Share } = plugins;
   doc.documentElement.classList.add('apex-native');
-  installApiRoutes(strava, win);
+  installApiRoutes({ strava, ai }, win);
 
   // External links (Strava activity pages, the API settings page) open in the system browser.
   doc.addEventListener('click', (e) => {
@@ -148,6 +209,7 @@ export function bootNativeApp({ bluetooth, strava, plugins, win = window }) {
   win.addEventListener('DOMContentLoaded', () => {
     doc.body.classList.add('apex-native');
     addSettingsUi(doc);
+    if (ai) addAiSettingsUi(doc);
     // `class VeloApp` in js/app.js is a global binding of the page's scripts, not a window property.
     /* global VeloApp, VeloExport */
     const App_ = typeof VeloApp !== 'undefined' ? VeloApp : win.VeloApp;
@@ -284,10 +346,87 @@ export function bootNativeApp({ bluetooth, strava, plugins, win = window }) {
     };
     const showSection = P.showSettingsSection;
     P.showSettingsSection = function (sec) {
-      if (['ai', 'health', 'backups', 'phone'].includes(sec)) sec = 'rider'; // sections that need the PC
+      if (['health', 'backups', 'phone'].includes(sec) || (sec === 'ai' && !ai)) sec = 'rider'; // sections that need the PC
       showSection.call(this, sec);
       if (sec === 'strava' && this._renderNativeStrava) this._renderNativeStrava().catch(() => {});
+      if (sec === 'ai' && this._renderNativeAiKeys) this._renderNativeAiKeys().catch(() => {});
     };
+
+    // ----------------------------------------------------------------------- AI engine --
+    if (ai) {
+      const esc = (v) => String(v ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+      /* global VeloAiCoach */
+      const AC = typeof VeloAiCoach !== 'undefined' ? VeloAiCoach : win.VeloAiCoach;
+      // The coach status text: "on this phone" instead of the local server and .env.
+      const updateEngine = P.updateCoachEngineStatus;
+      P.updateCoachEngineStatus = function () {
+        updateEngine.call(this);
+        const detail = doc.getElementById('aiCoachEngineDetail'), c = this.aiCoach;
+        if (!detail || !c || !AC) return;
+        const m = c.model;
+        const modelText = `${AC.labelFor(m)}${AC.supportsEffort(m) ? ` - ${c.effort} effort` : ''}`;
+        const keys = Object.values(c.engine.providers || {}).map((p) => `${esc(p.label)} ${p.configured ? 'key saved' : 'no key'}`).join(' &middot; ');
+        detail.innerHTML = c.isLive
+          ? `<strong>Ready.</strong> Requests go from this phone to ${esc(modelText)}. <span style="opacity:.7">(${keys})</span>`
+          : `<strong>No ${esc(c.providerLabel)} API key.</strong> Paste it below and press Save keys, or pick a provider whose key is saved. Until then the offline engine is used. <span style="opacity:.7">(${keys})</span>`;
+        const pill = doc.getElementById('aiCoachEngineStatus');
+        if (pill && !c.isLive) pill.innerHTML = `<span class="status-indicator-dot"></span>${esc(c.providerLabel)}: add an API key`;
+      };
+      const updateAsk = P.updateAskEngine;
+      if (updateAsk) {
+        P.updateAskEngine = function () {
+          updateAsk.call(this);
+          const c = this.aiCoach;
+          if (c && !c.isLive) this.setText('askEngineWarnText', `Ask needs a ${c.providerLabel} API key. Add it in Settings > AI engine.`);
+        };
+      }
+      const breakdown = P.intervalBreakdownHtml;
+      if (breakdown) {
+        P.intervalBreakdownHtml = function (record) {
+          return String(breakdown.call(this, record) || '').replace('Add an Anthropic, Gemini or OpenAI key to .env for an AI coach breakdown', 'Add an Anthropic, Gemini or OpenAI key in Settings &gt; AI engine for an AI coach breakdown');
+        };
+      }
+      const initSettingsAi = P.initSettings;
+      P.initSettings = function () {
+        initSettingsAi.call(this);
+        const app = this;
+        const field = (id) => doc.getElementById(`nativeAiKey-${id}`);
+        const render = async () => {
+          const keys = await ai.keys();
+          for (const f of AI_KEY_FIELDS) {
+            const input = field(f.id);
+            if (input) input.placeholder = keys[f.id] ? `Saved (...${keys[f.id].slice(-4)}) - leave blank to keep it` : f.placeholder;
+            const rm = doc.querySelector(`[data-native-ai-remove="${f.id}"]`);
+            if (rm) rm.hidden = !keys[f.id];
+          }
+        };
+        this._renderNativeAiKeys = render;
+        this.on(doc.getElementById('btnNativeAiSaveKeys'), 'click', async () => {
+          let saved = 0;
+          try {
+            for (const f of AI_KEY_FIELDS) {
+              const input = field(f.id);
+              if (!input || !input.value.trim()) continue;
+              await ai.setKey(f.id, input.value);
+              input.value = '';
+              saved++;
+            }
+          } catch (e) { app.showToast(e.message, 'warning'); await render(); return; }
+          await render();
+          if (!saved) { app.showToast('Paste an API key first.', 'info'); return; }
+          if (app.refreshCoachEngine) await app.refreshCoachEngine(true); // reads the live model lists and says whether the key works
+        });
+        this.on(doc.getElementById('nativeAiKeys'), 'click', async (e) => {
+          const b = e.target.closest('[data-native-ai-remove]');
+          if (!b) return;
+          await ai.setKey(b.dataset.nativeAiRemove, '');
+          await render();
+          if (app.refreshCoachEngine) await app.refreshCoachEngine(false);
+          app.showToast('API key removed from this phone.', 'success');
+        });
+        render().catch(() => {});
+      };
+    }
   });
 
   // Strava sign-in returns through the apexvelo:// link (also when Android restarted the app meanwhile).

@@ -1,9 +1,6 @@
 /* Android app layer: device chooser, safe areas, and features that need the PC server hidden. */
 
-/* --- Not in the app (yet): Ask (cloud AI), phone remote, Apple Health, PC backups, desktop-only tools --- */
-.apex-native .nav-btn[data-tab="ask"],
-.apex-native #view-ask,
-.apex-native #settingsNav [data-sec="ai"],
+/* --- Not in the app (yet): phone remote, Apple Health, PC backups, desktop-only tools --- */
 .apex-native #settingsNav [data-sec="health"],
 .apex-native #settingsNav [data-sec="backups"],
 .apex-native #settingsNav [data-sec="phone"],
@@ -78,3 +75,10 @@
 /* Settings > Strava */
 #nativeStravaSettings .form-group { margin: 10px 0; }
 #nativeStravaSettings .input-field { width: 100%; }
+
+/* Settings > AI engine: API keys */
+#nativeAiKeys { margin: 12px 0 18px; }
+#nativeAiKeys .form-group { margin: 10px 0; }
+#nativeAiKeys .native-key-link { margin: 4px 0 0; }
+.native-key-row { display: flex; gap: 8px; align-items: center; }
+.native-key-row .input-field { flex: 1; min-width: 0; }

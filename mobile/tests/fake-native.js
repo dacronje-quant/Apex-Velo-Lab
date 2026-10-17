@@ -1,7 +1,7 @@
 /**
  * Browser-test stand-in for the native side (loaded with page.addInitScript before the app).
  * window.__APEX_NATIVE_FAKE__ gives the Android layer a scripted FTMS trainer and heart-rate strap
- * (BleClient API), a scripted Strava (CapacitorHttp API) and recording plugin stubs.
+ * (BleClient API), a scripted Strava and Claude API (CapacitorHttp API) and recording plugin stubs.
  * Never part of the app build.
  */
 (() => {
@@ -80,6 +80,16 @@
         return { status: 400, headers: {}, data: { message: 'Bad Request' } };
       }
       if (u.pathname === '/oauth/deauthorize') return ok({});
+      // ------------------------------------------------------------ AI (Claude) --
+      if (u.host === 'api.anthropic.com') {
+        if (opts.headers['x-api-key'] !== window.__aiKey) return { status: 401, headers: {}, data: { type: 'error', error: { type: 'authentication_error', message: 'invalid x-api-key' } } };
+        if (u.pathname === '/v1/models') return ok({ data: [{ id: 'claude-opus-5-5', display_name: 'Claude Opus 5.5' }, { id: 'claude-haiku-5-5', display_name: 'Claude Haiku 5.5' }] });
+        if (u.pathname === '/v1/messages') {
+          const ask = Array.isArray(opts.data.system);
+          return ok({ model: opts.data.model, stop_reason: 'end_turn', usage: { input_tokens: 900, output_tokens: 60 },
+            content: [{ type: 'thinking', thinking: 'Looking at the data.' }, { type: 'text', text: ask ? 'You rode **1 ride** this week (test answer).' : 'Steps held well (test breakdown).' }] });
+        }
+      }
       if (opts.headers.Authorization !== 'Bearer acc1' && opts.headers.Authorization !== 'Bearer acc2') return { status: 401, headers: {}, data: { message: 'Authorization Error' } };
       if (u.pathname === '/api/v3/uploads' && opts.method === 'POST') return ok({ id: 991, id_str: '991', status: 'Your activity is still being processed.', error: null, activity_id: null });
       if (u.pathname === '/api/v3/uploads/991') return ok(++strava.uploadPolls < 2 ? { id: 991, status: 'processing', activity_id: null } : { id: 991, status: 'Your activity is ready.', activity_id: 5550001 });

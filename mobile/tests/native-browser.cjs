@@ -1,7 +1,7 @@
 // End-to-end check of the Android layer in Chromium: the built www/ served at https://localhost (the
 // origin Capacitor uses), with tests/fake-native.js standing in for the BLE plugin, native HTTP and
 // the other plugins. Covers pairing, ERG control, recording and saving a ride, auto-reconnect,
-// Strava sign-in, upload and sync. Run `npm run build` first.
+// Strava sign-in, upload and sync, and the on-phone AI engine (API key, Ask, coach). Run `npm run build` first.
 const { chromium } = require('playwright');
 const fs = require('node:fs');
 const path = require('node:path');
@@ -36,7 +36,7 @@ const step = (name) => console.log('  ok -', name);
     assert.equal(await page.evaluate(() => typeof navigator.bluetooth.requestDevice), 'function');
     assert.equal(await page.evaluate(() => VeloStorage.enabled), false);
     assert.equal(await page.evaluate(() => app._remoteEnabled), false, 'phone remote must stay off at https://localhost');
-    assert.equal(await page.locator('.nav-btn[data-tab="ask"]').isVisible(), false);
+    assert.equal(await page.locator('.nav-btn[data-tab="health"]').count() === 0 || !(await page.locator('#settingsNav [data-sec="health"]').isVisible()), true);
     step('app boots in native mode (Web Bluetooth shim, phone storage, PC-only features off)');
 
     // ------------------------------------------------------------------ pair the trainer --
@@ -139,6 +139,51 @@ const step = (name) => console.log('  ok -', name);
     const streams = await page.evaluate(() => app.stravaSyncFetch('api/strava/sync?streams=4001'));
     assert.deepEqual(streams.streams.watts.data, [100, 200]);
     step('Strava sync reads activities, details and streams');
+
+    // ---------------------------------------------------------------------- AI engine --
+    await page.evaluate(() => app.closeModal('settingsModal'));
+    await page.evaluate(() => app.openSettings('ai'));
+    assert.equal(await page.locator('#settingsNav [data-sec="ai"]').isVisible(), true, 'Settings > AI engine is offered');
+    assert.equal(await page.locator('#aiCoachConfigCard').isVisible(), true);
+    assert.match(await page.locator('#aiCoachEngineDetail').innerText(), /No Claude API key/);
+    assert.doesNotMatch(await page.locator('#aiCoachConfigCard').innerText(), /\.env|Launch-Apex-Velo|local server/);
+    await page.locator('#nativeAiKey-claude').fill('not a key');
+    await page.locator('#btnNativeAiSaveKeys').click();
+    await page.locator('.toast-msg', { hasText: 'paste the whole key' }).first().waitFor();
+    const aiKey = 'sk-ant-api03-' + 'k'.repeat(48);
+    await page.evaluate((k) => { window.__aiKey = k; }, aiKey);
+    await page.locator('#nativeAiKey-claude').fill(aiKey);
+    await page.locator('#btnNativeAiSaveKeys').click();
+    await page.waitForFunction(() => app.aiCoach.isLive);
+    assert.match(await page.locator('#aiCoachEngineDetail').innerText(), /Ready\. Requests go from this phone to Claude Opus 5\.5/);
+    assert.equal(await page.locator('#nativeAiKey-claude').inputValue(), '');
+    await fs.promises.mkdir(path.join(__dirname, '..', 'test-output'), { recursive: true });
+    await page.screenshot({ path: path.join(__dirname, '..', 'test-output', 'native-ai-settings.png') }).catch(() => {});
+    assert.match(await page.locator('#nativeAiKey-claude').getAttribute('placeholder'), /Saved \(\.\.\.kkkk\)/);
+    assert.ok(await page.evaluate(() => [...document.querySelectorAll('#selectCoachModel option')].some((o) => o.value === 'claude-haiku-5-5')), 'live model list from the key');
+    assert.equal(await page.evaluate((k) => Object.keys(localStorage).some((x) => (localStorage.getItem(x) || '').includes(k)), aiKey), false, 'the key stays out of WebView storage');
+    step('Settings > AI engine: a bad key is refused, a good one is saved on the phone, and the live model list loads');
+
+    await page.evaluate(() => app.closeModal('settingsModal'));
+    await page.locator('.nav-btn[data-tab="ask"]').first().click();
+    assert.equal(await page.locator('#askEngineWarn').isVisible(), false);
+    await page.locator('#askInput').fill('How many rides did I do this week?');
+    await page.locator('#askForm').evaluate((f) => f.requestSubmit());
+    await page.locator('#askThread', { hasText: 'You rode 1 ride this week' }).waitFor({ timeout: 15000 });
+    const askCall = await page.evaluate(() => __nativeLog.http.filter((r) => r.url === 'https://api.anthropic.com/v1/messages').at(-1));
+    assert.equal(askCall.headers['x-api-key'], aiKey);
+    assert.equal(askCall.data.model, 'claude-opus-5-5');
+    assert.equal(askCall.data.messages.at(-1).content, 'How many rides did I do this week?');
+    assert.match(askCall.data.system[1].text, /^TRAINING DATA\n/);
+    await page.screenshot({ path: path.join(__dirname, '..', 'test-output', 'native-ask.png') }).catch(() => {});
+    step('Ask: the question and the period summary go from the phone to Claude, and the answer shows in the thread');
+
+    const breakdown = await page.evaluate((id) => app.requestAiBreakdown(id), rideId);
+    assert.ok(breakdown && /test breakdown/.test(breakdown.text), 'the coach answered the interval breakdown');
+    const coachCall = await page.evaluate(() => __nativeLog.http.filter((r) => r.url === 'https://api.anthropic.com/v1/messages').at(-1));
+    assert.equal(typeof coachCall.data.system, 'string');
+    assert.deepEqual(coachCall.data.output_config, { effort: 'low' });
+    step('AI coach: the ride breakdown goes through /api/coach on the phone');
 
     // ------------------------------------------------------------------ exports, back key --
     await page.evaluate(() => { window.__takenFiles = ['ApexVelo/old.fit']; return app.downloadFile('old.fit', new Uint8Array([1, 2, 3]), 'application/octet-stream'); });
