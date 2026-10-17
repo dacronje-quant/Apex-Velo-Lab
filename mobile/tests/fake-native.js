@@ -1,7 +1,7 @@
 /**
  * Browser-test stand-in for the native side (loaded with page.addInitScript before the app).
  * window.__APEX_NATIVE_FAKE__ gives the Android layer a scripted FTMS trainer and heart-rate strap
- * (BleClient API), a scripted Strava and Claude API (CapacitorHttp API) and recording plugin stubs.
+ * (BleClient API), a scripted Strava, Claude and intervals.icu API (CapacitorHttp API) and recording plugin stubs.
  * Never part of the app build.
  */
 (() => {
@@ -95,6 +95,21 @@
           const ask = Array.isArray(opts.data.system);
           return ok({ model: opts.data.model, stop_reason: 'end_turn', usage: { input_tokens: 900, output_tokens: 60 },
             content: [{ type: 'thinking', thinking: 'Looking at the data.' }, { type: 'text', text: ask ? 'You rode **1 ride** this week (test answer).' : 'Steps held well (test breakdown).' }] });
+        }
+      }
+      // ------------------------------------------------------------ intervals.icu --
+      if (u.host === 'intervals.icu') {
+        if (opts.headers.Authorization !== 'Basic ' + btoa('API_KEY:' + window.__icuKey)) return { status: 401, headers: {}, data: { status: 401, error: 'Access denied' } };
+        if (u.pathname === '/api/v1/athlete/0') return ok({ id: 'i4242', name: 'Test Rider' });
+        if (u.pathname === '/api/v1/athlete/0/wellness') {
+          // 30 days of Apple Watch data (SDNN, as HealthFit sends it), steady so readiness is green.
+          const newest = u.searchParams.get('newest'), rows = [];
+          for (let i = 29; i >= 0; i--) {
+            const d = new Date(newest + 'T12:00:00Z'); d.setUTCDate(d.getUTCDate() - i);
+            rows.push({ id: d.toISOString().slice(0, 10), restingHR: 48 + (i % 3), hrvSDNN: 62 + (i % 3), hrv: i < 3 ? 70 : null, sleepSecs: 27000 + (i % 4) * 600, weight: 72 });
+          }
+          rows.push({ id: '2020-01-01', weight: 70 }); // a day without recovery data
+          return ok(rows.filter((r) => r.id >= u.searchParams.get('oldest') || r.id === '2020-01-01'));
         }
       }
       if (opts.headers.Authorization !== 'Bearer acc1' && opts.headers.Authorization !== 'Bearer acc2') return { status: 401, headers: {}, data: { message: 'Authorization Error' } };

@@ -14,6 +14,7 @@ import { KeepAwake } from '@capacitor-community/keep-awake';
 import { installNativeBluetooth } from './native-ble.js';
 import { NativeStrava } from './native-strava.js';
 import { NativeAi } from './native-ai.js';
+import { NativeIcu } from './native-icu.js';
 import { bootNativeApp } from './native-app.js';
 
 const fake = window.__APEX_NATIVE_FAKE__;
@@ -27,6 +28,7 @@ if (fake || Capacitor.isNativePlatform()) {
   const bluetooth = installNativeBluetooth((fake && fake.ble) || BleClient);
   const strava = new NativeStrava({ http: (fake && fake.http) || CapacitorHttp, prefs, openUrl: (url) => plugins.Browser.open({ url }) });
   const ai = new NativeAi({ http: (fake && (fake.aiHttp || fake.http)) || CapacitorHttp, prefs, ...(fake && fake.aiBases ? { bases: fake.aiBases } : {}) });
-  window.ApexNative = { bluetooth, strava, ai, platform: fake ? 'test' : Capacitor.getPlatform() };
-  bootNativeApp({ bluetooth, strava, ai, plugins });
+  const icu = new NativeIcu({ http: (fake && fake.http) || CapacitorHttp, prefs });
+  window.ApexNative = { bluetooth, strava, ai, icu, platform: fake ? 'test' : Capacitor.getPlatform() };
+  bootNativeApp({ bluetooth, strava, ai, icu, plugins });
 }

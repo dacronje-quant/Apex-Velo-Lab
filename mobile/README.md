@@ -14,6 +14,7 @@ It is the same web app as the desktop version, wrapped with [Capacitor](https://
 | **Storage** | Rides, profiles and settings are saved in the app on the phone and survive restarts and app updates |
 | **Strava** | Connect your account, send rides (FIT upload), check which rides are already there, and **Sync from Strava** |
 | **Ride files** | Every ride recorded on the phone is also saved as a FIT file in **Documents/ApexVelo** (switch: Settings > Ride files), ready for any file manager, Garmin Connect, TrainingPeaks or intervals.icu. History > Export (FIT, TCX, CSV, full JSON backup) saves there too; the workout image opens the share sheet. FIT/TCX/CSV import works in History |
+| **Health** | Resting HR, HRV and sleep read from **intervals.icu** (your watch's wellness data there), for the readiness score, the calendar recovery strip and the recovery trends. One-time backfill of all history, then the last week is refreshed automatically |
 | **Analytics** | History, calendar, PMC (fitness/fatigue/form), power curve, CP, FTP history |
 | **AI** | **Ask** (questions about your own training), the **AI coach** (sessions and multi-week plans) and ride **interval breakdowns**, with Claude, Gemini or ChatGPT and your own API key. Without a key the built-in offline coach is used |
 
@@ -22,7 +23,7 @@ It is the same web app as the desktop version, wrapped with [Capacitor](https://
 These need the PC server or another device, so they are switched off in the app:
 
 - **Phone remote view** (the app *is* the phone view now).
-- **Apple Health** import (iPhone-only feature).
+- **Apple Health via Health Auto Export** (it sends to the PC). The app reads the same data from intervals.icu instead.
 - **PC backups** (Settings > Backups). Use **History > Export** for a full JSON backup instead.
 - Fullscreen button and keyboard shortcuts.
 
@@ -51,6 +52,16 @@ The app uses your own free Strava API application, the same as the desktop setup
 3. Approve on the Strava page, keeping **Upload your activities** and **View data about your activities** ticked. You return to the app automatically (`apexvelo://localhost/strava`).
 
 The secret and tokens are kept in the app's private Android storage (not in the web storage or in exports). Strava's API is called directly from the phone.
+
+## Connect intervals.icu (health data)
+
+The app reads your recovery data from intervals.icu, so it needs to be there already (from Garmin, Oura, Whoop, or an Apple Watch through HealthFit or a similar app).
+
+1. On [intervals.icu/settings](https://intervals.icu/settings), open **Developer settings** and copy your **API key**.
+2. In the app: **Settings (gear) > Health**, paste the key and press **Save and backfill**. The key is checked, then all your wellness history is read once (up to about two years, which is what the app keeps). Readiness and the calendar fill in straight away.
+3. After that the last 7 days are refreshed when the app starts or comes back to the screen, at most once an hour. **Sync now** refreshes immediately; **Backfill all again** re-reads everything.
+
+The app uses resting HR (`restingHR`), HRV and total sleep (`sleepSecs`). HRV is taken from one column for every day, so the baselines never mix two scales: rMSSD (`hrv`) or Apple Watch SDNN (`hrvSDNN`), whichever most of your days have. Settings > Health shows which. intervals.icu keeps one value per day and no sleep stages, so deep/REM sleep are not shown. The app only reads; nothing is written to intervals.icu. The key is kept in the app's private Android storage, like the Strava and AI keys.
 
 ## Add an AI key
 
@@ -84,11 +95,11 @@ Run `npm run build && npx cap sync android` again after changing anything in the
 ## Tests
 
 ```bash
-npm test               # unit tests: Bluetooth shim, Strava client, AI engine vs server.js (Node, no browser)
-npm run test:browser   # the built app in Chromium with a simulated FTMS trainer, HR strap, Strava and Claude
+npm test               # unit tests: Bluetooth shim, Strava client, AI engine vs server.js, intervals.icu wellness (Node, no browser)
+npm run test:browser   # the built app in Chromium with a simulated FTMS trainer, HR strap, Strava, Claude and intervals.icu
 ```
 
-The browser test pairs the trainer through the in-app chooser and rides an ERG workout. It checks the trainer gets its targets, drops and reconnects the link, saves the ride, signs in to Strava, uploads the FIT file, syncs, saves an AI key, asks a question in Ask, gets an AI interval breakdown and reloads the app. The **Android app** GitHub workflow runs both, then builds the APK.
+The browser test pairs the trainer through the in-app chooser and rides an ERG workout. It checks the trainer gets its targets, drops and reconnects the link, saves the ride, signs in to Strava, uploads the FIT file, syncs, saves an AI key, asks a question in Ask, gets an AI interval breakdown, backfills health data from intervals.icu and reloads the app. The **Android app** GitHub workflow runs both, then builds the APK.
 
 ## How it works
 
@@ -96,6 +107,7 @@ The browser test pairs the trainer through the in-app chooser and rides an ERG w
 |---|---|
 | `src/native-ble.js` | `navigator.bluetooth` (Web Bluetooth) on top of the native BLE plugin, including an in-app device chooser. `js/velo-ble.js` runs unchanged |
 | `src/native-strava.js` | The desktop server's `/api/strava/*` routes, answered on the phone with native HTTP and the mobile OAuth flow |
+| `src/native-icu.js` | Reads intervals.icu wellness (resting HR, HRV, sleep) and turns it into the day records `js/velo-health.js` uses |
 | `src/native-app.js` | Answers `/api/` calls on the phone, switches storage to the phone, adds Settings > Strava, keeps the screen on, shares exports, handles the back button, hides PC-only features |
 | `src/index.js` | Entry point. Does nothing in a normal browser |
 | `scripts/build-web.cjs` | Copies the desktop app into `www/` and adds the two tags that load the layer |

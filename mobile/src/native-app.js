@@ -8,11 +8,15 @@
  *   - keeps rides and settings in the app's own storage (IndexedDB + localStorage in the WebView),
  *   - adds Settings > Strava for the rider's own Strava API application, and the sign-in redirect,
  *   - adds the API key fields to Settings > AI engine (the keys stay in Android app storage),
+ *   - reads resting HR, HRV and sleep from intervals.icu (Settings > Health) instead of Apple Health
+ *     via the PC, for readiness, the calendar and the recovery trends,
  *   - keeps the screen on during a ride, shares exported files, and handles the Android back button.
  *
  * Dropped in this version (they need the PC server or another device): phone remote view,
- * Apple Health import and server backups.
+ * the Apple Health inbox (replaced by intervals.icu) and server backups.
  */
+
+import { BACKFILL_DAYS, RECENT_DAYS } from './native-icu.js';
 
 const json = (status, body) => new Response(JSON.stringify(body), { status, headers: { 'Content-Type': 'application/json' } });
 const AI_PATHS = ['/api/coach', '/api/coach/status', '/api/ask'];
@@ -135,8 +139,29 @@ function stravaSection() {
       </section>`;
 }
 
+function healthSection() {
+  return `
+        <p class="field-help">Resting heart rate, HRV and sleep are read from your <b>intervals.icu</b> wellness data (synced there from your watch). They drive the readiness score, the calendar recovery strip and the recovery trends.</p>
+        <ol class="setup-steps">
+          <li>On <a href="https://intervals.icu/settings" target="_blank" rel="noopener">intervals.icu/settings</a>, open <b>Developer settings</b> and copy your <b>API key</b>.</li>
+          <li>Paste it here and press <b>Save and backfill</b>. All your history (up to about two years) is read once; after that the last week is refreshed when the app opens and every hour.</li>
+        </ol>
+        <div class="form-group">
+          <label for="nativeIcuKey">intervals.icu API key</label>
+          <input type="password" id="nativeIcuKey" class="input-field" autocomplete="off" autocapitalize="off" spellcheck="false" placeholder="Letters and numbers">
+        </div>
+        <div class="settings-kv" id="healthStatus" aria-live="polite"><span class="dim">Checking...</span></div>
+        <div class="btn-row">
+          <button type="button" class="btn btn-primary" id="btnNativeIcuSave">Save and backfill</button>
+          <button type="button" class="btn" id="btnHealthRefresh">Sync now</button>
+          <button type="button" class="btn btn-ghost" id="btnNativeIcuBackfill">Backfill all again</button>
+          <button type="button" class="btn btn-ghost" id="btnNativeIcuRemove">Remove</button>
+        </div>
+        <p class="field-help">The key stays in this app's private storage on the phone, goes only to intervals.icu and is not part of exports. The app only reads your wellness data.</p>`;
+}
+
 /** Settings > Strava: the DOM must exist before VeloApp binds the settings tabs. */
-function addSettingsUi(doc) {
+function addSettingsUi(doc, icu) {
   const nav = doc.getElementById('settingsNav');
   if (nav && !nav.querySelector('[data-sec="strava"]')) {
     const b = doc.createElement('button');
@@ -151,6 +176,17 @@ function addSettingsUi(doc) {
   }
   const status = doc.getElementById('localStorageStatus');
   if (status) status.textContent = 'Saved on this phone.';
+  const health = doc.getElementById('healthSettings');
+  if (icu && health && !doc.getElementById('nativeIcuKey')) {
+    health.innerHTML = healthSection();
+    const pill = nav && nav.querySelector('[data-sec="health"]');
+    if (pill) pill.textContent = 'Health';
+    // Static wording that names Apple Health / Health Auto Export as the source.
+    const note = doc.getElementById('recoveryTrendNote');
+    if (note) note.textContent = 'From your watch via intervals.icu (Settings > Health). Falling resting HR and rising HRV over months = adaptation. Lines are 7-day averages.';
+    doc.querySelectorAll('[title*="Apple Health"]').forEach((el) => { el.title = el.title.replace('Apple Health', 'intervals.icu'); });
+    doc.querySelectorAll('#calRecoveryHint, #recoveryTrendLabel').forEach((el) => { el.textContent = el.textContent.replace('Apple Health', 'intervals.icu'); });
+  }
 }
 
 const blobToBase64 = (blob) => new Promise((resolve, reject) => {
@@ -190,7 +226,10 @@ export async function saveRideFile(Filesystem, filename, blob) {
   throw lastError;
 }
 
-export function bootNativeApp({ bluetooth, strava, ai, plugins, win = window }) {
+const HEALTH_SYNC_EVERY_MS = 60 * 60 * 1000;
+const localDay = (d = new Date()) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+
+export function bootNativeApp({ bluetooth, strava, ai, icu, plugins, win = window }) {
   const doc = win.document;
   const { App, Browser, KeepAwake, Filesystem, Share } = plugins;
   doc.documentElement.classList.add('apex-native');
@@ -208,7 +247,7 @@ export function bootNativeApp({ bluetooth, strava, ai, plugins, win = window }) 
 
   win.addEventListener('DOMContentLoaded', () => {
     doc.body.classList.add('apex-native');
-    addSettingsUi(doc);
+    addSettingsUi(doc, icu);
     if (ai) addAiSettingsUi(doc);
     // `class VeloApp` in js/app.js is a global binding of the page's scripts, not a window property.
     /* global VeloApp, VeloExport */
@@ -223,8 +262,10 @@ export function bootNativeApp({ bluetooth, strava, ai, plugins, win = window }) 
 
     // ------------------------------------------------------------ features that need the PC --
     P.initRemoteView = function () { this.remoteTrace = []; this.remoteLastTraceSecond = -1; this._remoteEnabled = false; };
-    P.pullHealthInbox = async function () {};
-    P.fetchHealthStatus = async function () { return null; };
+    if (!icu) {
+      P.pullHealthInbox = async function () {};
+      P.fetchHealthStatus = async function () { return null; };
+    }
     P.runAutoBackup = async function () { return { ok: false, error: 'Backups to the PC are not available in the app. Use History > Export.' }; };
     P.scheduleAutoBackup = function () {};
 
@@ -346,11 +387,115 @@ export function bootNativeApp({ bluetooth, strava, ai, plugins, win = window }) 
     };
     const showSection = P.showSettingsSection;
     P.showSettingsSection = function (sec) {
-      if (['health', 'backups', 'phone'].includes(sec) || (sec === 'ai' && !ai)) sec = 'rider'; // sections that need the PC
+      if (['backups', 'phone'].includes(sec) || (sec === 'ai' && !ai) || (sec === 'health' && !icu)) sec = 'rider'; // sections that need the PC
       showSection.call(this, sec);
       if (sec === 'strava' && this._renderNativeStrava) this._renderNativeStrava().catch(() => {});
       if (sec === 'ai' && this._renderNativeAiKeys) this._renderNativeAiKeys().catch(() => {});
     };
+
+    // ------------------------------------------------------------ health (intervals.icu) --
+    if (icu) {
+      const esc = (v) => String(v ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+      const fromIcu = (t) => String(t ?? '').replace(/Apple Health/g, 'intervals.icu');
+      /**
+       * Replaces the PC's Health Auto Export inbox: reads intervals.icu wellness into the same day store.
+       * The first read (or `backfill`) takes all history velo-health keeps; later ones the last week, at
+       * most once an hour unless forced. intervals.icu days replace whatever the store had for that day.
+       */
+      P.pullHealthInbox = async function ({ force = false, announce = false, backfill = false } = {}) {
+        if (this._healthBusy) return { ok: false };
+        const st = await icu.status();
+        if (!st.configured) {
+          if (announce) this.showToast('Add your intervals.icu API key in Settings > Health first.', 'info');
+          return { ok: false };
+        }
+        const full = backfill || !st.lastSync;
+        if (!full && !force && Date.now() - st.lastSync < HEALTH_SYNC_EVERY_MS) return { ok: true, added: 0 };
+        this._healthBusy = true;
+        let added = 0, days = 0;
+        try {
+          const r = await icu.wellness(localDay(), full ? BACKFILL_DAYS : RECENT_DAYS);
+          for (const [day, rec] of Object.entries(r.days)) {
+            days++;
+            if (JSON.stringify(this.healthStore.days[day]) === JSON.stringify(rec)) continue;
+            this.healthStore.days[day] = rec;
+            added++;
+          }
+          if (added) this.saveHealthStore();
+          this._healthError = null;
+        } catch (e) {
+          this._healthError = (e && e.message) || String(e);
+          if (!e || !e.status) this._healthError = `Could not reach intervals.icu (${this._healthError}). Check your internet connection.`;
+        } finally {
+          this._healthBusy = false;
+        }
+        if (added) { this.refreshHealthDerived(); this.afterHealthChange(); }
+        if (announce) {
+          this.showToast(this._healthError || (full ? `intervals.icu: ${days} day${days === 1 ? '' : 's'} with health data read, ${added} new or changed.` : added ? `intervals.icu: ${added} day${added === 1 ? '' : 's'} updated.` : 'intervals.icu: up to date.'), this._healthError ? 'warning' : 'success');
+        }
+        return { ok: !this._healthError, added, days };
+      };
+      P.fetchHealthStatus = async function () { this._healthStatus = await icu.status(); return this._healthStatus; };
+      P.renderHealthSettings = async function () {
+        const st = await this.fetchHealthStatus();
+        const box = doc.getElementById('healthStatus');
+        if (!box) return;
+        const keyField = doc.getElementById('nativeIcuKey');
+        if (keyField) keyField.placeholder = st.configured ? 'Saved - leave blank to keep it' : 'Letters and numbers';
+        ['btnHealthRefresh', 'btnNativeIcuBackfill', 'btnNativeIcuRemove'].forEach((id) => { const b = doc.getElementById(id); if (b) b.hidden = !st.configured; });
+        if (!st.configured) { box.innerHTML = '<span class="dim">Not set up yet.</span>'; return; }
+        const days = this.healthDays || [];
+        const last = days[days.length - 1];
+        const when = st.lastSync ? new Date(st.lastSync).toLocaleString('en-GB', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' }) : 'not yet';
+        const kv = (k, v) => `<div><span>${esc(k)}</span><b>${v}</b></div>`;
+        box.innerHTML = [
+          kv('Account', esc((st.athlete && st.athlete.name) || 'connected')),
+          kv('Last sync', esc(when)),
+          kv('Days stored', `${days.length}${last ? ` <small class="dim">latest ${esc(last.day)}</small>` : ''}`),
+          kv('HRV', st.hrvField === 'hrvSDNN' ? 'SDNN (Apple Watch)' : st.hrvField === 'hrv' ? 'rMSSD' : '<span class="dim">none yet</span>'),
+          kv('Readiness', esc(this.readinessText(this.healthReadiness()))),
+          this._healthError ? `<div class="backup-warn">${esc(this._healthError)}</div>` : ''
+        ].join('');
+      };
+      const setText = P.setText;
+      const RENAMED = new Set(['calRecoveryHint', 'recoveryTrendLabel', 'anaReadinessNote']);
+      P.setText = function (id, text) { return setText.call(this, id, RENAMED.has(id) ? fromIcu(text) : text); };
+      const chips = P.renderReadinessChips;
+      P.renderReadinessChips = function () {
+        chips.call(this);
+        ['cockpitReadinessChip', 'coachReadinessChip', 'anaReadinessChip'].forEach((id) => {
+          const el = doc.getElementById(id);
+          if (!el) return;
+          el.textContent = fromIcu(el.textContent).replace('No intervals.icu data', 'No health data');
+          el.title = fromIcu(el.title).replace('Set up intervals.icu in Settings.', 'Add your intervals.icu API key in Settings > Health.');
+        });
+      };
+      const initHealth = P.initHealth;
+      P.initHealth = function () {
+        initHealth.call(this);
+        const app = this;
+        const $ = (id) => doc.getElementById(id);
+        const busy = async (btn, fn) => {
+          if (btn) btn.disabled = true;
+          try { await fn(); } finally { if (btn) btn.disabled = false; app.renderHealthSettings().catch(() => {}); }
+        };
+        this.on($('btnNativeIcuSave'), 'click', (e) => busy(e.currentTarget, async () => {
+          const input = $('nativeIcuKey');
+          const value = input && input.value.trim();
+          if (value) {
+            try { await icu.setKey(value); input.value = ''; }
+            catch (err) { app.showToast(err.message, 'warning'); return; }
+          } else if (!(await icu.status()).configured) { app.showToast('Paste your intervals.icu API key first.', 'info'); return; }
+          await app.pullHealthInbox({ force: true, announce: true, backfill: true });
+        }));
+        this.on($('btnNativeIcuBackfill'), 'click', (e) => busy(e.currentTarget, () => app.pullHealthInbox({ force: true, announce: true, backfill: true })));
+        this.on($('btnNativeIcuRemove'), 'click', (e) => busy(e.currentTarget, async () => {
+          if (!confirm('Remove the intervals.icu API key from this phone? The health days already stored stay.')) return;
+          await icu.removeKey();
+          app.showToast('intervals.icu API key removed from this phone.', 'success');
+        }));
+      };
+    }
 
     // ----------------------------------------------------------------------- AI engine --
     if (ai) {
@@ -444,7 +589,12 @@ export function bootNativeApp({ bluetooth, strava, ai, plugins, win = window }) 
   };
   App.addListener('appUrlOpen', onAppUrl);
   App.getLaunchUrl().then((r) => { if (r && r.url) onAppUrl(r); }).catch(() => {});
-  App.addListener('resume', () => { const app = win.app; if (app && app._awaitingStravaConnect) app.refreshStravaStatus(true); });
+  App.addListener('resume', () => {
+    const app = win.app;
+    if (!app) return;
+    if (app._awaitingStravaConnect) app.refreshStravaStatus(true);
+    if (icu && app.pullHealthInbox) app.pullHealthInbox().catch(() => {}); // at most hourly
+  });
 
   // Android back: close the chooser, then the top dialog, then Zen; never quit mid-ride.
   App.addListener('backButton', () => {

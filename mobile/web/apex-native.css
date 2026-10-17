@@ -1,7 +1,6 @@
 /* Android app layer: device chooser, safe areas, and features that need the PC server hidden. */
 
-/* --- Not in the app (yet): phone remote, Apple Health, PC backups, desktop-only tools --- */
-.apex-native #settingsNav [data-sec="health"],
+/* --- Not in the app (yet): phone remote, PC backups, desktop-only tools --- */
 .apex-native #settingsNav [data-sec="backups"],
 .apex-native #settingsNav [data-sec="phone"],
 .apex-native #btnToggleFullscreen,

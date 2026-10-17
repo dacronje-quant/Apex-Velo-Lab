@@ -1,7 +1,7 @@
 // End-to-end check of the Android layer in Chromium: the built www/ served at https://localhost (the
 // origin Capacitor uses), with tests/fake-native.js standing in for the BLE plugin, native HTTP and
 // the other plugins. Covers pairing, ERG control, recording and saving a ride, auto-reconnect,
-// Strava sign-in, upload and sync, and the on-phone AI engine (API key, Ask, coach). Run `npm run build` first.
+// Strava sign-in, upload and sync, the on-phone AI engine (API key, Ask, coach) and intervals.icu health. Run `npm run build` first.
 const { chromium } = require('playwright');
 const fs = require('node:fs');
 const path = require('node:path');
@@ -36,7 +36,8 @@ const step = (name) => console.log('  ok -', name);
     assert.equal(await page.evaluate(() => typeof navigator.bluetooth.requestDevice), 'function');
     assert.equal(await page.evaluate(() => VeloStorage.enabled), false);
     assert.equal(await page.evaluate(() => app._remoteEnabled), false, 'phone remote must stay off at https://localhost');
-    assert.equal(await page.locator('.nav-btn[data-tab="health"]').count() === 0 || !(await page.locator('#settingsNav [data-sec="health"]').isVisible()), true);
+    assert.equal(await page.locator('#settingsNav [data-sec="backups"]').isVisible(), false);
+    assert.equal(await page.evaluate(() => app.healthDays.length), 0);
     step('app boots in native mode (Web Bluetooth shim, phone storage, PC-only features off)');
 
     // ------------------------------------------------------------------ pair the trainer --
@@ -205,6 +206,40 @@ const step = (name) => console.log('  ok -', name);
     assert.equal(await page.evaluate(() => app.currentWorkout.intervals.filter((i) => i.pctFtp === 115).length), 5);
     step('Describe a workout: built from the request only (no history sent), saved to the library and loaded into the cockpit');
 
+    // ------------------------------------------------------------- health (intervals.icu) --
+    const icuKey = 'abc123def456ghi789jkl0';
+    await page.evaluate((k) => { window.__icuKey = k; }, icuKey);
+    await page.evaluate(() => app.openSettings('health'));
+    assert.equal(await page.locator('#settingsNav [data-sec="health"]').innerText(), 'Health');
+    await page.locator('#nativeIcuKey').fill('wrongkey00000000');
+    await page.locator('#btnNativeIcuSave').click();
+    await page.waitForFunction(() => /did not accept the API key/.test(document.body.innerText));
+    await page.locator('#nativeIcuKey').fill(icuKey);
+    await page.locator('#btnNativeIcuSave').click();
+    await page.waitForFunction(() => app.healthDays.length === 30, null, { timeout: 10000 });
+    const today = await page.evaluate(() => app.localDayKey(new Date()));
+    const backfill = await page.evaluate(() => __nativeLog.http.filter((r) => r.url.includes('/wellness')).at(-1).url);
+    assert.equal(new URL(backfill).searchParams.get('newest'), today);
+    assert.equal(new URL(backfill).searchParams.get('oldest'), await page.evaluate((d) => VeloHealth.addDays(d, -799), today), 'the backfill reads all the history the app keeps');
+    const latest = await page.evaluate(() => app.healthDays.at(-1));
+    assert.equal(latest.day, today);
+    assert.equal(latest.hrv, 62, 'SDNN is used for every day: most days only have SDNN');
+    assert.equal(latest.rhr, 48);
+    assert.equal(latest.sleepH, 7.5);
+    assert.equal(await page.evaluate(() => app.healthReadiness().level), 'green');
+    await page.locator('#healthStatus', { hasText: 'Test Rider' }).waitFor();
+    assert.match(await page.locator('#healthStatus').innerText(), /SDNN/);
+    assert.match(await page.locator('#coachReadinessChip').innerText(), /Ready/);
+    assert.equal(await page.evaluate((k) => Object.keys(localStorage).some((x) => (localStorage.getItem(x) || '').includes(k)), icuKey), false, 'the key stays out of WebView storage');
+    await page.locator('#btnHealthRefresh').click();
+    await page.waitForFunction(() => __nativeLog.http.filter((r) => r.url.includes('/wellness')).length === 2);
+    const recent = await page.evaluate(() => __nativeLog.http.filter((r) => r.url.includes('/wellness')).at(-1).url);
+    assert.equal(new URL(recent).searchParams.get('oldest'), await page.evaluate((d) => VeloHealth.addDays(d, -7), today), 'later syncs read the last week');
+    await page.evaluate(() => app.pullHealthInbox());
+    assert.equal(await page.evaluate(() => __nativeLog.http.filter((r) => r.url.includes('/wellness')).length), 2, 'automatic syncs wait an hour');
+    await page.evaluate(() => app.closeModal('settingsModal'));
+    step('health: intervals.icu key checked, all history backfilled into readiness (SDNN kept consistent), later syncs read the last week at most hourly');
+
     // ------------------------------------------------------------------ exports, back key --
     await page.evaluate(() => { window.__takenFiles = ['ApexVelo/old.fit']; return app.downloadFile('old.fit', new Uint8Array([1, 2, 3]), 'application/octet-stream'); });
     await page.waitForFunction(() => __nativeLog.files.some((f) => f.path === 'ApexVelo/old_2.fit'));
@@ -227,7 +262,8 @@ const step = (name) => console.log('  ok -', name);
     await page.reload();
     await page.waitForFunction(() => window.app && app.completedWorkouts);
     await page.waitForFunction((id) => app.completedWorkouts.some((r) => r.id === id && r.strava?.state === 'sent'), rideId, { timeout: 10000 });
-    step('after an app restart the ride and its Strava link are still there');
+    assert.equal(await page.evaluate(() => app.healthDays.length), 30);
+    step('after an app restart the ride, its Strava link and the health days are still there');
 
     const unexpected = errors.filter((e) => !/ResizeObserver/.test(e));
     assert.deepEqual(unexpected, [], 'no uncaught page errors');
