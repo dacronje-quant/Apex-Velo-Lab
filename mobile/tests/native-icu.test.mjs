@@ -40,6 +40,15 @@ test('one HRV scale throughout: the field most days have, rMSSD on a tie', () =>
   assert.equal(toHealthDays([{ id: '2026-10-15', hrv: 70, hrvSDNN: 60 }], 'hrvSDNN')['2026-10-15'].summary.hrv, 60);
 });
 
+test('sleep stages come from the DeepSleep, LightSleep and REMSleep custom fields', () => {
+  const s = toHealthDays([{ id: '2026-10-15', sleepSecs: 27000, DeepSleep: 3960, LightSleep: 17280, REMSleep: 5760 }])['2026-10-15'].summary;
+  assert.deepEqual([s.sleepH, s.deepH, s.coreH, s.remH], [7.5, 1.1, 4.8, 1.6]);
+  const [d] = VeloHealth.daily({ v: 1, days: toHealthDays([{ id: '2026-10-15', sleepSecs: 27000, DeepSleep: 3960, REMSleep: 5760 }]) });
+  assert.deepEqual([d.deepH, d.remH, d.coreH], [1.1, 1.6, null]);
+  const none = toHealthDays([{ id: '2026-10-15', restingHR: 50, DeepSleep: 3600 }])['2026-10-15'].summary;
+  assert.equal(none.deepH, null, 'no stages without a night of sleep');
+});
+
 test('the key is checked with Basic auth before it is kept; a rejected key is not stored', async () => {
   const { icu, store, requests, replies } = setup();
   await assert.rejects(icu.setKey('x'), /API key/);
@@ -77,6 +86,13 @@ test('wellness reads a date range, keeps the HRV field from the first read, and 
   await icu.setKey(KEY);
   assert.equal((await icu.status()).hrvField, null);
   assert.equal((await icu.status()).lastSync, null, 'a new account is backfilled again');
+  await icu.setHrvMode('hrv');
+  replies.push(ok([{ id: '2026-10-17', hrvSDNN: 62, hrv: 75 }]));
+  assert.equal((await icu.wellness('2026-10-17', 7)).days['2026-10-17'].summary.hrv, 75, 'a chosen kind is used');
+  await icu.setHrvMode('auto');
+  replies.push(ok([{ id: '2026-10-16', hrvSDNN: 60 }, { id: '2026-10-17', hrvSDNN: 62, hrv: 75 }]));
+  assert.equal((await icu.wellness('2026-10-17', BACKFILL_DAYS)).hrvField, 'hrvSDNN', 'automatic picks again');
+  await assert.rejects(icu.setHrvMode('x'), /Unknown/);
   await icu.removeKey();
   assert.equal((await icu.status()).configured, false);
 });

@@ -151,6 +151,16 @@ function healthSection() {
           <input type="password" id="nativeIcuKey" class="input-field" autocomplete="off" autocapitalize="off" spellcheck="false" placeholder="Letters and numbers">
         </div>
         <div class="settings-kv" id="healthStatus" aria-live="polite"><span class="dim">Checking...</span></div>
+        <div class="form-group" id="nativeIcuHrvGroup" hidden>
+          <label for="nativeIcuHrv">HRV used for readiness</label>
+          <select id="nativeIcuHrv" class="input-field">
+            <option value="auto">Automatic (the kind most of your days have)</option>
+            <option value="hrv">Overnight rMSSD</option>
+            <option value="hrvSDNN">SDNN (Apple Watch spot checks)</option>
+          </select>
+          <p class="field-help">One kind is used for every day, so your normal range never mixes the two. Changing it reads your history again.</p>
+        </div>
+        <p class="field-help">Sleep stages are read from the custom wellness fields <code>DeepSleep</code>, <code>LightSleep</code> and <code>REMSleep</code> (seconds), when your intervals.icu account has them.</p>
         <div class="btn-row">
           <button type="button" class="btn btn-primary" id="btnNativeIcuSave">Save and backfill</button>
           <button type="button" class="btn" id="btnHealthRefresh">Sync now</button>
@@ -442,7 +452,9 @@ export function bootNativeApp({ bluetooth, strava, ai, icu, plugins, win = windo
         if (!box) return;
         const keyField = doc.getElementById('nativeIcuKey');
         if (keyField) keyField.placeholder = st.configured ? 'Saved - leave blank to keep it' : 'Letters and numbers';
-        ['btnHealthRefresh', 'btnNativeIcuBackfill', 'btnNativeIcuRemove'].forEach((id) => { const b = doc.getElementById(id); if (b) b.hidden = !st.configured; });
+        ['btnHealthRefresh', 'btnNativeIcuBackfill', 'btnNativeIcuRemove', 'nativeIcuHrvGroup'].forEach((id) => { const b = doc.getElementById(id); if (b) b.hidden = !st.configured; });
+        const hrvSelect = doc.getElementById('nativeIcuHrv');
+        if (hrvSelect) hrvSelect.value = st.hrvMode;
         if (!st.configured) { box.innerHTML = '<span class="dim">Not set up yet.</span>'; return; }
         const days = this.healthDays || [];
         const last = days[days.length - 1];
@@ -452,7 +464,8 @@ export function bootNativeApp({ bluetooth, strava, ai, icu, plugins, win = windo
           kv('Account', esc((st.athlete && st.athlete.name) || 'connected')),
           kv('Last sync', esc(when)),
           kv('Days stored', `${days.length}${last ? ` <small class="dim">latest ${esc(last.day)}</small>` : ''}`),
-          kv('HRV', st.hrvField === 'hrvSDNN' ? 'SDNN (Apple Watch)' : st.hrvField === 'hrv' ? 'rMSSD' : '<span class="dim">none yet</span>'),
+          kv('HRV', st.hrvField === 'hrvSDNN' ? 'SDNN (Apple Watch)' : st.hrvField === 'hrv' ? 'Overnight rMSSD' : '<span class="dim">none yet</span>'),
+          kv('Sleep stages', days.some((d) => d.deepH !== null && d.deepH !== undefined) ? 'deep, light (core) and REM' : '<span class="dim">total sleep only</span>'),
           kv('Readiness', esc(this.readinessText(this.healthReadiness()))),
           this._healthError ? `<div class="backup-warn">${esc(this._healthError)}</div>` : ''
         ].join('');
@@ -486,6 +499,10 @@ export function bootNativeApp({ bluetooth, strava, ai, icu, plugins, win = windo
             try { await icu.setKey(value); input.value = ''; }
             catch (err) { app.showToast(err.message, 'warning'); return; }
           } else if (!(await icu.status()).configured) { app.showToast('Paste your intervals.icu API key first.', 'info'); return; }
+          await app.pullHealthInbox({ force: true, announce: true, backfill: true });
+        }));
+        this.on($('nativeIcuHrv'), 'change', (e) => busy(e.currentTarget, async () => {
+          await icu.setHrvMode($('nativeIcuHrv').value);
           await app.pullHealthInbox({ force: true, announce: true, backfill: true });
         }));
         this.on($('btnNativeIcuBackfill'), 'click', (e) => busy(e.currentTarget, () => app.pullHealthInbox({ force: true, announce: true, backfill: true })));

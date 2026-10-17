@@ -8,10 +8,14 @@
  *
  * toHealthDays() turns intervals.icu's one-row-per-day wellness into js/velo-health.js day records
  * ({ summary: {...} }), so readiness, the calendar strip and the recovery trends run unchanged.
+ * Sleep stages come from the custom numeric wellness fields DeepSleep, LightSleep and REMSleep (seconds),
+ * the codes the iPhone wellness-sync apps write; intervals.icu returns custom fields under their code.
  */
 
 export const ICU_BASE = 'https://intervals.icu';
-const KEYS = { key: 'icu_api_key', athlete: 'icu_athlete', hrvField: 'icu_hrv_field', lastSync: 'icu_last_sync' };
+const KEYS = { key: 'icu_api_key', athlete: 'icu_athlete', hrvField: 'icu_hrv_field', hrvMode: 'icu_hrv_mode', lastSync: 'icu_last_sync' };
+/** HRV choice in Settings: 'auto' (the column most days have), or one column for every day. */
+export const HRV_MODES = ['auto', 'hrv', 'hrvSDNN'];
 const TIMEOUT_MS = 30000;
 /** velo-health keeps 800 days (VeloHealth.compact), so a backfill asks for no more than that. */
 export const BACKFILL_DAYS = 799;
@@ -47,12 +51,14 @@ export function toHealthDays(rows, hrvField = 'hrv') {
   for (const r of rows || []) {
     const day = r && typeof r.id === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(r.id) ? r.id : null;
     if (!day) continue;
-    const rhrV = num(r.restingHR), hrvV = num(r[hrvField]), sleepS = num(r.sleepSecs);
+    const rhrV = num(r.restingHR), hrvV = num(r[hrvField]);
     const rhr = rhrV !== null && rhrV >= 25 && rhrV <= 130 ? Math.round(rhrV) : null;
     const hrv = hrvV !== null && hrvV > 0 && hrvV <= 300 ? Math.round(hrvV) : null;
-    const sleepH = sleepS !== null && sleepS > 0 && sleepS <= 20 * 3600 ? round1(sleepS / 3600) : null;
+    const hours = (v, max) => { const n = num(v); return n !== null && n > 0 && n <= max * 3600 ? round1(n / 3600) : null; };
+    const sleepH = hours(r.sleepSecs, 20);
     if (rhr === null && hrv === null && sleepH === null) continue;
-    days[day] = { summary: { rhr, hrv, sleepH, deepH: null, remH: null, coreH: null, awakeH: null, rhrSrc: 'icu', hrvSrc: 'icu', hrvKind: hrvField === 'hrvSDNN' ? 'sdnn' : 'rmssd' }, src: 'icu' };
+    const stages = sleepH !== null ? { deepH: hours(r.DeepSleep, 16), remH: hours(r.REMSleep, 16), coreH: hours(r.LightSleep, 16) } : { deepH: null, remH: null, coreH: null };
+    days[day] = { summary: { rhr, hrv, sleepH, ...stages, awakeH: null, rhrSrc: 'icu', hrvSrc: 'icu', hrvKind: hrvField === 'hrvSDNN' ? 'sdnn' : 'rmssd' }, src: 'icu' };
   }
   return days;
 }
@@ -78,7 +84,15 @@ export class NativeIcu {
     const [key, athlete, last] = await Promise.all([this.prefs.get(KEYS.key), this.prefs.get(KEYS.athlete), this.prefs.get(KEYS.lastSync)]);
     let a = null;
     try { a = JSON.parse(athlete || 'null'); } catch (e) { /* ignore */ }
-    return { configured: !!key, athlete: a, lastSync: last ? Number(last) : null, hrvField: await this.prefs.get(KEYS.hrvField) };
+    return { configured: !!key, athlete: a, lastSync: last ? Number(last) : null, hrvField: await this.prefs.get(KEYS.hrvField), hrvMode: (await this.prefs.get(KEYS.hrvMode)) || 'auto' };
+  }
+
+  /** Sets the HRV column ('auto', 'hrv' = rMSSD, 'hrvSDNN'). The caller backfills again, so every day uses it. */
+  async setHrvMode(mode) {
+    if (!HRV_MODES.includes(mode)) throw new Error('Unknown HRV choice.');
+    await this.prefs.set(KEYS.hrvMode, mode);
+    if (mode === 'auto') await this.prefs.remove(KEYS.hrvField); // picked again on the next read
+    else await this.prefs.set(KEYS.hrvField, mode);
   }
 
   /** Checks the key against intervals.icu, then keeps it. A different account starts its HRV choice afresh. */
@@ -88,7 +102,7 @@ export class NativeIcu {
     const me = await this._get(key, '');
     const athlete = { id: String((me && me.id) || ''), name: String((me && me.name) || '').slice(0, 80) };
     const old = (await this.status()).athlete;
-    if (!old || old.id !== athlete.id) { await this.prefs.remove(KEYS.hrvField); await this.prefs.remove(KEYS.lastSync); }
+    if (!old || old.id !== athlete.id) { for (const k of [KEYS.hrvField, KEYS.hrvMode, KEYS.lastSync]) await this.prefs.remove(k); }
     await this.prefs.set(KEYS.key, key);
     await this.prefs.set(KEYS.athlete, JSON.stringify(athlete));
     return athlete;
@@ -100,7 +114,8 @@ export class NativeIcu {
 
   /**
    * Reads wellness for `days` days up to `today` and returns { days, count, hrvField }.
-   * The HRV field is chosen on the first (longest) read and kept, so later short reads use the same one.
+   * The HRV field is the one set in Settings, or (auto) chosen on the first, longest read and kept, so
+   * later short reads use the same one.
    */
   async wellness(today, days) {
     const key = await this.prefs.get(KEYS.key);

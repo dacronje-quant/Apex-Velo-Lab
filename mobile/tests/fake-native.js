@@ -106,7 +106,7 @@
           const newest = u.searchParams.get('newest'), rows = [];
           for (let i = 29; i >= 0; i--) {
             const d = new Date(newest + 'T12:00:00Z'); d.setUTCDate(d.getUTCDate() - i);
-            rows.push({ id: d.toISOString().slice(0, 10), restingHR: 48 + (i % 3), hrvSDNN: 62 + (i % 3), hrv: i < 3 ? 70 : null, sleepSecs: 27000 + (i % 4) * 600, weight: 72 });
+            rows.push({ id: d.toISOString().slice(0, 10), restingHR: 48 + (i % 3), hrvSDNN: 62 + (i % 3), hrv: i < 3 ? 70 : null, sleepSecs: 27000 + (i % 4) * 600, DeepSleep: 3600, LightSleep: 18000, REMSleep: 5400, weight: 72 });
           }
           rows.push({ id: '2020-01-01', weight: 70 }); // a day without recovery data
           return ok(rows.filter((r) => r.id >= u.searchParams.get('oldest') || r.id === '2020-01-01'));

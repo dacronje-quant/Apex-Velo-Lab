@@ -61,7 +61,7 @@ The app reads your recovery data from intervals.icu, so it needs to be there alr
 2. In the app: **Settings (gear) > Health**, paste the key and press **Save and backfill**. The key is checked, then all your wellness history is read once (up to about two years, which is what the app keeps). Readiness and the calendar fill in straight away.
 3. After that the last 7 days are refreshed when the app starts or comes back to the screen, at most once an hour. **Sync now** refreshes immediately; **Backfill all again** re-reads everything.
 
-The app uses resting HR (`restingHR`), HRV and total sleep (`sleepSecs`). HRV is taken from one column for every day, so the baselines never mix two scales: rMSSD (`hrv`) or Apple Watch SDNN (`hrvSDNN`), whichever most of your days have. Settings > Health shows which. intervals.icu keeps one value per day and no sleep stages, so deep/REM sleep are not shown. The app only reads; nothing is written to intervals.icu. The key is kept in the app's private Android storage, like the Strava and AI keys.
+The app uses resting HR (`restingHR`), HRV and sleep (`sleepSecs`, plus the stages from the custom numeric wellness fields `DeepSleep`, `LightSleep` and `REMSleep` in seconds, when your account has them; the iPhone wellness-sync apps write those codes). HRV is taken from one column for every day, so the baselines never mix two scales: **HRV used for readiness** in Settings > Health is Automatic (whichever most of your days have), overnight rMSSD (`hrv`) or Apple Watch SDNN (`hrvSDNN`). Changing it reads your history again. The app only reads; nothing is written to intervals.icu. The key is kept in the app's private Android storage, like the Strava and AI keys.
 
 ## Add an AI key
 
