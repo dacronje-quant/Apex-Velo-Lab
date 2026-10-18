@@ -3,7 +3,7 @@
  *
  * Today strip (readiness, form, fitness, ramp rate, FTP), six progression tiles (value, trend
  * sparkline over the page range, change vs 6 weeks ago), the power profile table and the
- * efficiency-factor, resting HR / HRV and pedal-balance trend charts. Everything is derived
+ * efficiency-factor and pedal-balance trend charts (resting HR and HRV live in Analytics > Health). Everything is derived
  * from recorded rides and Apple Health days; a metric without data shows "--", never a guess.
  */
 (function () {
@@ -13,7 +13,7 @@
   /** Plain-English subtext for each progression tile (js/velo-glossary.js). */
   const TILE_TERMS = { ftp: 'ftp', ctl: 'ctl', ef: 'ef', p20: 'peak20', rhr: 'rhr', hrv: 'hrv' };
   /** Where each tile drills to: analytics module and the card brought into view. */
-  const TILE_GOTO = { ftp: ['ftp', 'anaCardFtpHistory'], ctl: ['load', 'anaCardPmc'], ef: ['aerobic', 'anaCardEf'], p20: ['power', 'anaCardProfile'], rhr: ['body', 'anaCardRecovery'], hrv: ['body', 'anaCardRecovery'] };
+  const TILE_GOTO = { ftp: ['ftp', 'anaCardFtpHistory'], ctl: ['load', 'anaCardPmc'], ef: ['aerobic', 'anaCardEf'], p20: ['power', 'anaCardProfile'], rhr: ['health', 'anaCardHealthHr'], hrv: ['health', 'anaCardHealthHrv'] };
 
   /** Trailing `days`-day mean of field `key` at each point that has it (two pointers, O(n)). */
   function trailingMeans(points, key, days) {
@@ -64,25 +64,6 @@
             onClick: (evt, els) => { const d = els && els[0] && els[0].datasetIndex === 0 ? this.efChart.data.datasets[0].data[els[0].index] : null; if (d && d.id) this.showRideSummaryById(d.id); },
             scales: { x: timeAxis(), y: axis({ title: { display: true, text: 'W per bpm', color: INK.muted } }) },
             plugins: { tooltip: tip((c) => c.datasetIndex === 0 ? ` EF ${c.raw.y.toFixed(2)} - ${c.raw.np} W @ ${c.raw.hr} bpm - ${c.raw.title || ''}` : ` 30-day avg ${c.parsed.y.toFixed(2)}`) }
-          }
-        });
-      }
-      const ctxR = document.getElementById('recoveryTrendCanvas')?.getContext('2d');
-      if (ctxR) {
-        this.recoveryChart = new Chart(ctxR, {
-          type: 'line',
-          data: { datasets: [
-            { label: 'Resting HR (bpm)', data: [], borderColor: VIZ.rose, backgroundColor: VIZ.rose, tension: 0.3, pointRadius: 0, spanGaps: true, yAxisID: 'y' },
-            { label: 'HRV (ms)', data: [], borderColor: VIZ.violet, backgroundColor: VIZ.violet, tension: 0.3, pointRadius: 0, spanGaps: true, yAxisID: 'y1' }
-          ] },
-          options: {
-            responsive: true, maintainAspectRatio: false, animation: { duration: 300 }, interaction: { mode: 'index', intersect: false },
-            scales: {
-              x: timeAxis(),
-              y: lane(1, { title: { display: true, text: 'bpm', color: INK.muted } }),
-              y1: lane(1, { title: { display: true, text: 'ms', color: INK.muted } })
-            },
-            plugins: { legend, tooltip: tip((c) => ` ${c.dataset.label.replace(/ \(.*/, '')} (7-day) ${Math.round(c.parsed.y)} ${c.datasetIndex === 0 ? 'bpm' : 'ms'}`) }
           }
         });
       }
@@ -264,7 +245,7 @@
 
     updateDashboardCharts(d) {
       const inRange = (t) => t >= d.start && t <= d.now + DAY;
-      [this.efChart, this.recoveryChart, this.balanceChart, this.cpHistoryChart].forEach(c => { if (c) { c.options.scales.x.min = d.start; c.options.scales.x.max = d.now; } });
+      [this.efChart, this.balanceChart, this.cpHistoryChart].forEach(c => { if (c) { c.options.scales.x.min = d.start; c.options.scales.x.max = d.now; } });
       if (this.efChart) {
         const pts = d.efPts.filter(p => inRange(p.t));
         this.efChart.data.datasets[0].data = pts.map(p => ({ x: p.t, y: p.ef, np: p.np, hr: p.hr, id: p.id, title: p.title }));
@@ -272,13 +253,6 @@
         this.efChart.update();
         const first = VeloTrends.rollingMean(d.efPts, d.start + 30 * DAY, 30), last = VeloTrends.rollingMean(d.efPts, d.now, 30);
         this.setText('efTrendLabel', pts.length ? (first && last ? `${last.toFixed(2)} (${last >= first ? '+' : ''}${(((last - first) / first) * 100).toFixed(1)}% in range)` : `${pts.length} ride${pts.length === 1 ? '' : 's'}`) : 'no steady rides with HR');
-      }
-      if (this.recoveryChart) {
-        const hd = d.hd.filter(x => inRange(x.t));
-        this.recoveryChart.data.datasets[0].data = trailingMeans(d.hd, 'rhr', 7).filter(p => inRange(p.x));
-        this.recoveryChart.data.datasets[1].data = trailingMeans(d.hd, 'hrv', 7).filter(p => inRange(p.x));
-        this.recoveryChart.update();
-        this.setText('recoveryTrendLabel', hd.length ? `${hd.length} day${hd.length === 1 ? '' : 's'}` : 'no Apple Health data yet');
       }
       if (this.balanceChart) {
         const all = VeloTrends.balancePoints(d.rides);

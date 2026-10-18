@@ -192,10 +192,8 @@ function addSettingsUi(doc, icu) {
     const pill = nav && nav.querySelector('[data-sec="health"]');
     if (pill) pill.textContent = 'Health';
     // Static wording that names Apple Health / Health Auto Export as the source.
-    const note = doc.getElementById('recoveryTrendNote');
-    if (note) note.textContent = 'From your watch via intervals.icu (Settings > Health). Falling resting HR and rising HRV over months = adaptation. Lines are 7-day averages.';
     doc.querySelectorAll('[title*="Apple Health"]').forEach((el) => { el.title = el.title.replace('Apple Health', 'intervals.icu'); });
-    doc.querySelectorAll('#calRecoveryHint, #recoveryTrendLabel').forEach((el) => { el.textContent = el.textContent.replace('Apple Health', 'intervals.icu'); });
+    doc.querySelectorAll('#calRecoveryHint').forEach((el) => { el.textContent = el.textContent.replace('Apple Health', 'intervals.icu'); });
   }
 }
 
@@ -471,7 +469,7 @@ export function bootNativeApp({ bluetooth, strava, ai, icu, plugins, win = windo
         ].join('');
       };
       const setText = P.setText;
-      const RENAMED = new Set(['calRecoveryHint', 'recoveryTrendLabel', 'anaReadinessNote']);
+      const RENAMED = new Set(['calRecoveryHint', 'anaReadinessNote']);
       P.setText = function (id, text) { return setText.call(this, id, RENAMED.has(id) ? fromIcu(text) : text); };
       const chips = P.renderReadinessChips;
       P.renderReadinessChips = function () {
