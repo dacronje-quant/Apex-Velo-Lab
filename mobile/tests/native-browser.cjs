@@ -266,6 +266,48 @@ const step = (name) => console.log('  ok -', name);
     assert.match(await page.locator('#anaModStat-health').innerText(), /\d+ ms/);
     await page.locator('.hl-legend[data-hl="healthHrCanvas"] .lg-toggle', { hasText: 'Sleeping HR' }).click();
     assert.equal(await page.evaluate(() => { const c = app._healthCharts.healthHrCanvas; return c.data.datasets.filter((d, i) => d.hlKey === 'sleepHr' && c.isDatasetVisible(i)).length; }), 0, 'the legend hides a metric');
+    // Linked crosshair: hovering one date chart marks the same day on the others.
+    await page.locator('#healthHrCanvas').scrollIntoViewIfNeeded();
+    const hrBox = await page.locator('#healthHrCanvas').boundingBox();
+    await page.mouse.move(hrBox.x + hrBox.width * 0.85, hrBox.y + hrBox.height * 0.5);
+    await page.waitForFunction(() => { const c = app._healthCharts.healthHrvCanvas; return !!c; });
+    // Tap a day on a chart opens that day.
+    await page.locator('#healthHrCanvas').click({ position: { x: hrBox.width * 0.85, y: hrBox.height * 0.6 } });
+    await page.locator('#anaDayModal.open #anaDayBody .day-health').waitFor();
+    assert.match(await page.locator('#anaDayBody').innerText(), /RESTING HR/i);
+    await page.locator('#btnAnaDayPrev').click();
+    await page.locator('#btnAnaDayClose').click();
+    // Sleep timeline (intervals.icu: how each night was split) and the correlation explorer.
+    assert.equal(await page.locator('#anaCardSleepTimeline').isVisible(), true);
+    assert.equal(await page.locator('#sleepBars .sb-row').count(), 14);
+    await page.locator('#corrVerdict', { hasText: /link|Too few|Not enough/ }).waitFor();
+    assert.equal(await page.locator('#corrX').inputValue(), 't:tss');
+    assert.equal(await page.locator('#corrY').inputValue(), 'h:hrv');
+    step('Analytics: tap a day on a chart opens it (prev / next), sleep timeline of 14 nights, correlation explorer');
+
+    await page.evaluate(() => app.showAnalyticsPanel('overview', { instant: true }));
+    await page.locator('#anaReadyRing svg').waitFor();
+    assert.match(await page.locator('#anaReadyRing').getAttribute('data-level'), /green|amber|red/);
+    assert.equal(await page.locator('#anaReadyParts .ready-part').count(), 3, 'HRV, resting HR and sleep');
+    assert.match(await page.locator('#anaStoryText').innerText(), /Next:/, 'the week from the numbers, without AI');
+    await page.locator('#btnAnaStory').click();
+    await page.locator('#anaStoryText', { hasText: 'test breakdown' }).waitFor({ timeout: 10000 });
+    assert.match(await page.locator('#anaStoryNote').innerText(), /Written by Claude Opus 5\.5/);
+    const storyCall = await page.evaluate(() => __nativeLog.http.filter((r) => r.url === 'https://api.anthropic.com/v1/messages').at(-1));
+    assert.match(storyCall.data.messages[0].content, /WEEKLY STORY/);
+    assert.equal(await page.locator('#anaSectionNav .ana-mod-stat.skel').count(), 0, 'skeletons are gone once the numbers are in');
+    // Pin the heart-rate chart to Overview.
+    await page.evaluate(() => app.showAnalyticsPanel('health', { instant: true }));
+    await page.locator('#anaCardHealthHr .ana-pin-btn').click();
+    assert.equal(await page.evaluate(() => !!document.querySelector('#anaPinnedGrid #anaCardHealthHr')), true);
+    // Training year heatmap: today's cell opens the day with the ride.
+    await page.evaluate(() => app.showAnalyticsPanel('load', { instant: true }));
+    const todayKey = await page.evaluate(() => app.localDayKey(new Date()));
+    await page.locator(`#anaYearGrid [data-day="${todayKey}"]`).click();
+    await page.locator('#anaDayBody .ride-chip', { hasText: 'Native ERG test' }).waitFor();
+    await page.locator('#btnAnaDayClose').click();
+    step('Analytics: readiness ring, the week in three sentences (offline, then by Claude), skeletons cleared, pin to Overview, training year heatmap opens a day');
+
     step('Analytics > Health: tiles, heart rate, HRV with its normal range, both HRV kinds, sleep stages, scores, stress, breathing and weight; cards without data stay hidden');
     step('health: intervals.icu key checked, all history backfilled into readiness with sleep stages, HRV kind switchable (never mixed), later syncs read the last week at most hourly');
 
@@ -292,7 +334,8 @@ const step = (name) => console.log('  ok -', name);
     await page.waitForFunction(() => window.app && app.completedWorkouts);
     await page.waitForFunction((id) => app.completedWorkouts.some((r) => r.id === id && r.strava?.state === 'sent'), rideId, { timeout: 10000 });
     assert.equal(await page.evaluate(() => app.healthDays.length), 30);
-    step('after an app restart the ride, its Strava link and the health days are still there');
+    assert.equal(await page.evaluate(() => !!document.querySelector('#anaPinnedGrid #anaCardHealthHr')), true, 'pins are kept');
+    step('after an app restart the ride, its Strava link, the health days and the pinned chart are still there');
 
     const unexpected = errors.filter((e) => !/ResizeObserver/.test(e));
     assert.deepEqual(unexpected, [], 'no uncaught page errors');

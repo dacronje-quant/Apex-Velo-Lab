@@ -88,6 +88,8 @@
       <symbol id="i-dumbbell" viewBox="0 0 24 24"><path d="M6.5 6.5v11M17.5 6.5v11M3.5 9v6M20.5 9v6M6.5 12h11"/></symbol>
       <symbol id="i-footsteps" viewBox="0 0 24 24"><path d="M8 3c1.7 0 3 1.8 3 4.5S10 12 8.5 12 6 10.3 6 8c0-2.6.4-5 2-5zM6.5 15h4v1.8a2 2 0 0 1-4 0zM16 7c1.6 0 2 2.4 2 5 0 2.3-1 4-2.5 4S13 14.2 13 11.5 14.3 7 16 7zM13.5 19h4v1.2a2 2 0 0 1-4 0z"/></symbol>
       <symbol id="i-heart" viewBox="0 0 24 24"><path d="M12 20s-7-4.4-9-9.2C1.7 7.6 3.8 4.5 7 4.5c2 0 3.3 1.1 5 3 1.7-1.9 3-3 5-3 3.2 0 5.3 3.1 4 6.3-2 4.8-9 9.2-9 9.2z"/><path d="M3.5 12h4l1.5-3 2.5 6 1.5-3h7.5"/></symbol>
+      <symbol id="i-pin" viewBox="0 0 24 24"><path d="M9 3h6l-1 6 4 4v2h-5v6l-1 1-1-1v-6H6v-2l4-4z"/></symbol>
+      <symbol id="i-moon" viewBox="0 0 24 24"><path d="M20 14.5A8 8 0 0 1 9.5 4a8 8 0 1 0 10.5 10.5z"/></symbol>
       <symbol id="i-lotus" viewBox="0 0 24 24"><path d="M12 20c-4 0-8-2-9-6 3-.5 6 .5 9 3 3-2.5 6-3.5 9-3-1 4-5 6-9 6zM12 17c-2-2-3-5-3-8 1.2.5 2.2 1.3 3 2.4.8-1.1 1.8-1.9 3-2.4 0 3-1 6-3 8z"/></symbol>
       <symbol id="i-refresh" viewBox="0 0 24 24"><path d="M21 12a9 9 0 0 1-15.5 6.2L3 16M3 12a9 9 0 0 1 15.5-6.2L21 8"/><path d="M21 3v5h-5M3 21v-5h5"/></symbol>
       <symbol id="i-x" viewBox="0 0 24 24"><path d="M18 6 6 18M6 6l12 12"/></symbol>
@@ -820,43 +822,59 @@
         <span class="ana-dock-glider" aria-hidden="true"></span>
         <button type="button" class="ana-mod" role="tab" id="anaTab-overview" data-panel="overview" aria-controls="ana-panel-overview" aria-selected="true">
           <span class="ana-mod-top"><svg class="ic"><use href="#i-grid"/></svg><span class="ana-mod-name">Overview</span><kbd class="ana-mod-key">1</kbd></span>
-          <span class="ana-mod-stat num" id="anaModStat-overview">--</span><span class="ana-mod-sub" id="anaModSub-overview">form today</span>
+          <span class="ana-mod-stat num skel" id="anaModStat-overview">--</span><span class="ana-mod-sub" id="anaModSub-overview">form today</span>
         </button>
         <button type="button" class="ana-mod" role="tab" id="anaTab-load" data-panel="load" aria-controls="ana-panel-load" aria-selected="false" tabindex="-1">
           <span class="ana-mod-top"><svg class="ic"><use href="#i-activity"/></svg><span class="ana-mod-name">Fitness &amp; load</span><kbd class="ana-mod-key">2</kbd></span>
-          <span class="ana-mod-stat num" id="anaModStat-load">--</span><span class="ana-mod-sub" id="anaModSub-load">fitness (CTL)</span>
+          <span class="ana-mod-stat num skel" id="anaModStat-load">--</span><span class="ana-mod-sub" id="anaModSub-load">fitness (CTL)</span>
         </button>
         <button type="button" class="ana-mod" role="tab" id="anaTab-power" data-panel="power" aria-controls="ana-panel-power" aria-selected="false" tabindex="-1">
           <span class="ana-mod-top"><svg class="ic"><use href="#i-bolt"/></svg><span class="ana-mod-name">Power &amp; CP</span><kbd class="ana-mod-key">3</kbd></span>
-          <span class="ana-mod-stat num" id="anaModStat-power">--</span><span class="ana-mod-sub" id="anaModSub-power">critical power</span>
+          <span class="ana-mod-stat num skel" id="anaModStat-power">--</span><span class="ana-mod-sub" id="anaModSub-power">critical power</span>
         </button>
         <button type="button" class="ana-mod" role="tab" id="anaTab-ftp" data-panel="ftp" aria-controls="ana-panel-ftp" aria-selected="false" tabindex="-1">
           <span class="ana-mod-top"><svg class="ic"><use href="#i-target"/></svg><span class="ana-mod-name">FTP</span><kbd class="ana-mod-key">4</kbd></span>
-          <span class="ana-mod-stat num" id="anaModStat-ftp">--</span><span class="ana-mod-sub" id="anaModSub-ftp">in use</span>
+          <span class="ana-mod-stat num skel" id="anaModStat-ftp">--</span><span class="ana-mod-sub" id="anaModSub-ftp">in use</span>
         </button>
         <button type="button" class="ana-mod" role="tab" id="anaTab-intensity" data-panel="intensity" aria-controls="ana-panel-intensity" aria-selected="false" tabindex="-1">
           <span class="ana-mod-top"><svg class="ic"><use href="#i-focus"/></svg><span class="ana-mod-name">Intensity</span><kbd class="ana-mod-key">5</kbd></span>
-          <span class="ana-mod-stat" id="anaModStat-intensity">--</span><span class="ana-mod-sub" id="anaModSub-intensity">distribution</span>
+          <span class="ana-mod-stat skel" id="anaModStat-intensity">--</span><span class="ana-mod-sub" id="anaModSub-intensity">distribution</span>
         </button>
         <button type="button" class="ana-mod" role="tab" id="anaTab-aerobic" data-panel="aerobic" aria-controls="ana-panel-aerobic" aria-selected="false" tabindex="-1">
           <span class="ana-mod-top"><svg class="ic"><use href="#i-crank"/></svg><span class="ana-mod-name">Aerobic engine</span><kbd class="ana-mod-key">6</kbd></span>
-          <span class="ana-mod-stat num" id="anaModStat-aerobic">--</span><span class="ana-mod-sub" id="anaModSub-aerobic">efficiency (EF)</span>
+          <span class="ana-mod-stat num skel" id="anaModStat-aerobic">--</span><span class="ana-mod-sub" id="anaModSub-aerobic">efficiency (EF)</span>
         </button>
         <button type="button" class="ana-mod" role="tab" id="anaTab-body" data-panel="body" aria-controls="ana-panel-body" aria-selected="false" tabindex="-1">
           <span class="ana-mod-top"><svg class="ic"><use href="#i-lotus"/></svg><span class="ana-mod-name">Recovery &amp; balance</span><kbd class="ana-mod-key">7</kbd></span>
-          <span class="ana-mod-stat num" id="anaModStat-body">--</span><span class="ana-mod-sub" id="anaModSub-body">resting HR</span>
+          <span class="ana-mod-stat num skel" id="anaModStat-body">--</span><span class="ana-mod-sub" id="anaModSub-body">resting HR</span>
         </button>
         <button type="button" class="ana-mod" role="tab" id="anaTab-health" data-panel="health" aria-controls="ana-panel-health" aria-selected="false" tabindex="-1">
           <span class="ana-mod-top"><svg class="ic"><use href="#i-heart"/></svg><span class="ana-mod-name">Health</span><kbd class="ana-mod-key">8</kbd></span>
-          <span class="ana-mod-stat num" id="anaModStat-health">--</span><span class="ana-mod-sub" id="anaModSub-health">HRV · 7 days</span>
+          <span class="ana-mod-stat num skel" id="anaModStat-health">--</span><span class="ana-mod-sub" id="anaModSub-health">HRV · 7 days</span>
         </button>
       </nav>
 
       <div class="ana-stage" id="anaStage">
         <!-- OVERVIEW -->
         <div class="ana-panel" id="ana-panel-overview" data-panel="overview" role="tabpanel" aria-labelledby="anaTab-overview" tabindex="-1">
+          <!-- Readiness ring and the week in three sentences (js/app-ana-plus.js) -->
+          <div class="ana-hero" id="anaHero">
+            <div class="card hero-ready" id="anaCardReady">
+              <div class="card-title"><span>Readiness today<span class="plain">From your HRV, resting HR and sleep against your own normal - tap for the day</span></span></div>
+              <div class="hero-ready-body">
+                <button type="button" class="ready-ring" id="anaReadyRing" aria-label="Readiness today: open the day"><span class="skel skel-ring"></span></button>
+                <div class="ready-parts" id="anaReadyParts"><span class="skel skel-line"></span><span class="skel skel-line"></span><span class="skel skel-line"></span></div>
+              </div>
+            </div>
+            <div class="card hero-story" id="anaCardStory">
+              <div class="card-title"><span>Your week<span class="plain">What changed, why, and what to do next</span></span>
+                <button type="button" class="btn btn-sm" id="btnAnaStory"><svg class="ic"><use href="#i-sparkles"/></svg><span>Write with AI</span></button></div>
+              <div class="story-text" id="anaStoryText" aria-live="polite"><span class="skel skel-line"></span><span class="skel skel-line"></span><span class="skel skel-line short"></span></div>
+              <p class="footnote" id="anaStoryNote"></p>
+            </div>
+          </div>
           <div class="pmc-status-row today-strip" id="anaTodayStrip">
-            <div class="pmc-stat-pill" data-accent="lime"><span class="title" data-term="readiness">Readiness &middot; today</span><span class="val"><button type="button" class="readiness-chip" id="anaReadinessChip" data-level="none">Readiness --</button></span><span class="desc" id="anaReadinessNote">Resting HR, HRV &amp; sleep</span></div>
+            <div class="pmc-stat-pill" data-accent="lime" hidden><span class="title" data-term="readiness">Readiness &middot; today</span><span class="val"><button type="button" class="readiness-chip" id="anaReadinessChip" data-level="none">Readiness --</button></span><span class="desc" id="anaReadinessNote">Resting HR, HRV &amp; sleep</span></div>
             <div class="pmc-stat-pill ana-link" data-accent="amber" data-goto="load" data-spot="anaCardPmc" role="button" tabindex="0" aria-label="Form (TSB): open the performance management chart"><span class="title" data-term="tsb">TSB &middot; Form</span><span class="val num" id="pmcValTsb">--</span><span class="desc"><span class="form-badge" id="pmcFormStatus">--</span></span></div>
             <div class="pmc-stat-pill ana-link" data-accent="cyan" data-goto="load" data-spot="anaCardPmc" role="button" tabindex="0" aria-label="Fitness (CTL): open the performance management chart"><span class="title" data-term="ctl">CTL &middot; Fitness</span><span class="val num" id="pmcValCtl">--</span><span class="desc" data-term-tip="atl">Recent strain (ATL) <b class="num" id="pmcValAtl">--</b></span></div>
             <div class="pmc-stat-pill ana-link" data-accent="violet" data-goto="load" data-spot="anaCardWeekly" role="button" tabindex="0" aria-label="Ramp rate: open weekly training load"><span class="title" data-term="ramp">Ramp rate &middot; 7 days</span><span class="val num" id="anaRampVal">--</span><span class="desc" id="anaRampNote">CTL change per week</span></div>
@@ -864,7 +882,15 @@
           </div>
 
           <!-- PROGRESSION TILES (click one to open its chart) -->
-          <div class="tile-grid" id="anaTiles"></div>
+          <div class="tile-grid" id="anaTiles">
+            <div class="tile skel-tile"></div><div class="tile skel-tile"></div><div class="tile skel-tile"></div><div class="tile skel-tile"></div><div class="tile skel-tile"></div><div class="tile skel-tile"></div>
+          </div>
+
+          <!-- Charts pinned from any module (pin button on each chart card) -->
+          <div class="ana-pinned" id="anaPinned" hidden>
+            <div class="sub-title"><span>Pinned charts</span><span class="hint">Pin up to 4 charts from any module with their pin button</span></div>
+            <div class="ana-pinned-grid" id="anaPinnedGrid"></div>
+          </div>
 
           <div class="ana-grid">
             <div class="card ana-w-7" id="anaCardInsights">
@@ -906,6 +932,11 @@
             <div class="sub-title"><span>Consistency week by week</span><span class="hint" id="progWeeklyHint">Click a week to list its rides</span></div>
             <div class="chart-box" style="height:230px;"><canvas id="progWeeklyChart"></canvas></div>
             <div class="week-rides" id="progWeekRides"></div>
+          </div>
+          <div class="card" id="anaCardYear">
+            <div class="card-title"><span>Training year<span class="plain">Every day of the last 12 months, coloured by training load - tap a day to open it</span></span><span class="chip chip-ghost num" id="anaYearChip">--</span></div>
+            <div class="yh-wrap" id="anaYearWrap"><div class="yh-months" id="anaYearMonths" aria-hidden="true"></div><div class="yh-grid" id="anaYearGrid" role="grid" aria-label="Training load per day, last 12 months"></div></div>
+            <div class="yh-legend" id="anaYearLegend"></div>
           </div>
         </div>
 
@@ -1086,6 +1117,12 @@
             <div class="chart-box" style="height:260px;"><canvas id="healthSleepCanvas"></canvas></div>
             <p class="footnote" id="anaCardHealthSleepNote">--</p>
           </div>
+          <div class="card hl-card" id="anaCardSleepTimeline" hidden>
+            <div class="card-title"><span><span id="sleepTlTitle">Sleep timeline</span><span class="plain" id="sleepTlSub">Your last nights</span></span><span class="chip chip-ghost num" id="sleepTlChip">--</span></div>
+            <div class="sleep-hypno" id="sleepHypno"></div>
+            <div class="sleep-bars" id="sleepBars"></div>
+            <p class="footnote" id="sleepTlNote"></p>
+          </div>
           <div class="card hl-card" id="anaCardHealthScores" data-expandable hidden>
             <div class="card-title"><span>Sleep &amp; readiness scores<span class="plain">The 0-100 scores your sync app writes to intervals.icu</span></span><span class="chip chip-ghost num" id="anaCardHealthScoresChip">--</span></div>
             <div class="legend-inline hl-legend" data-hl="healthScoresCanvas"></div>
@@ -1120,6 +1157,17 @@
             <div class="card-title"><span>How training changes your next morning<span class="plain">Average HRV, resting HR and sleep after rest days and after easy and hard riding</span></span><span class="chip chip-ghost num" id="anaCardHealthLoadChip">--</span></div>
             <div class="hl-load" id="healthLoadTable"></div>
             <p class="footnote" id="anaCardHealthLoadNote">Each morning is grouped by the TSS you rode the day before and compared with the average of all mornings in this period. Only mornings after your first recorded ride count.</p>
+          </div>
+          <div class="card" id="anaCardCorr" data-expandable>
+            <div class="card-title"><span>Explore: does one thing follow another?<span class="plain">Pick two measures - each dot is a day; tap one to open it</span></span><span class="chip chip-ghost num" id="anaCorrChip">--</span></div>
+            <div class="corr-controls">
+              <label><span>Across</span><select id="corrX" class="input-field"></select></label>
+              <label><span>Up</span><select id="corrY" class="input-field"></select></label>
+              <label class="native-toggle corr-lag"><input type="checkbox" id="corrLag" checked> Up = the next morning</label>
+            </div>
+            <p class="corr-verdict" id="corrVerdict"></p>
+            <div class="chart-box" style="height:280px;"><canvas id="corrCanvas"></canvas></div>
+            <p class="footnote">A link is not proof that one causes the other: illness, travel or a busy week can move both. Links from fewer than 20 days are a rough guide only.</p>
           </div>
         </div>
 
@@ -1600,6 +1648,21 @@
     </div>
   </div>
 
+  <!-- ============================== MODAL: ONE DAY (Analytics) ============================== -->
+  <div class="modal-overlay" id="anaDayModal" role="dialog" aria-modal="true" aria-labelledby="anaDayTitle">
+    <div class="modal-content ana-day-modal">
+      <div class="modal-header">
+        <div><span class="eyebrow" id="anaDayEyebrow">Day</span><h3 id="anaDayTitle">--</h3></div>
+        <div class="btn-row btn-row-tight">
+          <button type="button" class="icon-btn" id="btnAnaDayPrev" title="Day before"><svg class="ic"><use href="#i-left"/></svg></button>
+          <button type="button" class="icon-btn" id="btnAnaDayNext" title="Day after"><svg class="ic"><use href="#i-right"/></svg></button>
+          <button type="button" class="close-modal icon-btn" id="btnAnaDayClose" aria-label="Close"><svg class="ic"><use href="#i-x"/></svg></button>
+        </div>
+      </div>
+      <div id="anaDayBody"></div>
+    </div>
+  </div>
+
   <!-- ============================== MODAL: SHORTCUTS ============================== -->
   <div class="modal-overlay" id="stravaSyncModal" role="dialog" aria-modal="true" aria-labelledby="stravaSyncTitle">
     <div class="modal-content strava-sync-modal">
@@ -1793,6 +1856,7 @@
   <script src="js/app-dashboard.js"></script>
   <script src="js/app-health-ana.js"></script>
   <script src="js/app-ana-studio.js"></script>
+  <script src="js/app-ana-plus.js"></script>
   <script src="js/app-ftp-history.js"></script>
   <script src="js/app-history.js"></script>
   <script src="js/app-coach.js"></script>

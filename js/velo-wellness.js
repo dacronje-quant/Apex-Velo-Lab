@@ -15,6 +15,10 @@
  *   weekly(pts)                 -> weekly averages (Monday-start), for long ranges
  *   sleepMix(days, from, to)    -> average sleep and its stages over a period
  *   loadResponse(days, rides)   -> next-morning HRV, resting HR and sleep after rest, easy and hard days
+ *   readinessScore(r)           -> the readiness verdict as a 0-100 score with its HRV / resting HR / sleep parts
+ *   dailyTraining(rides)        -> TSS, hours, kJ, NP and IF per day
+ *   correlate(pts), linkWords   -> Pearson r with the fitted line, and how strong that is in words
+ *   tssLevel(tss)               -> 0-4 colour step for the training heatmap
  */
 (function (root) {
   'use strict';
@@ -206,7 +210,76 @@
     return m.dec ? v.toFixed(m.dec) : String(Math.round(v));
   }
 
-  const VeloWellness = { METRICS, BY_KEY, value, points, present, stats, trailing, normalBand, weekly, weekOf, sleepMix, loadResponse, BUCKETS, fmt, addDays };
+  /**
+   * Readiness as a 0-100 score from VeloHealth.readiness() (r): HRV 45%, resting HR 30%, sleep 25%.
+   *  - HRV: the 7-day average against your normal on a log scale; at your normal = 75, each SD = 25 points.
+   *  - Resting HR: at your average = 85, each bpm above takes 6 points (below adds them, to 100).
+   *  - Sleep: last night against 8 h (8 h or more = 100).
+   * Missing parts are left out and the weights re-scaled. The verdict colour stays the readiness level.
+   */
+  function readinessScore(r) {
+    if (!r || ['none', 'stale', 'baseline'].includes(r.level)) return null;
+    const clamp = (v) => Math.max(0, Math.min(100, Math.round(v)));
+    const parts = [];
+    if (r.hrv && r.hrv.normalLow > 0 && r.hrv.base > 0) {
+      // high/low = exp(+-0.5 SD); both are rounded to whole ms, so a very steady HRV can show low = high.
+      const sdLog = Math.max(Math.log(r.hrv.normalHigh / r.hrv.normalLow), 0.03);
+      const z = Math.log(r.hrv.avg7 / r.hrv.base) / sdLog;
+      parts.push({ key: 'hrv', label: 'HRV', w: 0.45, score: clamp(75 + 25 * z), value: r.hrv.avg7, unit: 'ms', note: `7-day ${r.hrv.avg7} ms · normal ${r.hrv.normalLow}-${r.hrv.normalHigh}` });
+    }
+    if (r.rhr) parts.push({ key: 'rhr', label: 'Resting HR', w: 0.3, score: clamp(85 - 6 * r.rhr.delta), value: r.rhr.today, unit: 'bpm', note: r.rhr.delta ? `${r.rhr.delta > 0 ? '+' : ''}${r.rhr.delta} vs your ${r.rhr.base} bpm` : `at your usual ${r.rhr.base} bpm` });
+    if (r.sleep) parts.push({ key: 'sleep', label: 'Sleep', w: 0.25, score: clamp((r.sleep.last / 8) * 100), value: r.sleep.last, unit: 'h', note: r.sleep.avg ? `average ${fmt('sleepH', r.sleep.avg)}` : '' });
+    if (!parts.length) return null;
+    const wsum = parts.reduce((a, p) => a + p.w, 0);
+    return { score: clamp(parts.reduce((a, p) => a + p.score * p.w, 0) / wsum), parts, level: r.level };
+  }
+
+  /** Per-day training from rides ({ date, tss, duration (s), np, kj, if }): { 'YYYY-MM-DD': { tss, hours, kj, np, if } }. */
+  function dailyTraining(rides, dayKey) {
+    const out = {};
+    for (const r of rides || []) {
+      const day = r && r.date ? dayKey(r.date) : null;
+      if (!day) continue;
+      const e = out[day] || (out[day] = { tss: 0, hours: 0, kj: 0, rides: 0, npW: 0, npS: 0, ifMax: 0 });
+      const sec = Number(r.duration) || 0;
+      e.tss += Number(r.tss) || 0; e.hours += sec / 3600; e.kj += Number(r.kj) || 0; e.rides++;
+      if (Number(r.np) > 0 && sec > 0) { e.npW += r.np * sec; e.npS += sec; }
+      if (Number(r.if) > e.ifMax) e.ifMax = Number(r.if);
+    }
+    for (const e of Object.values(out)) {
+      e.np = e.npS ? e.npW / e.npS : null; e.if = e.ifMax || null;
+      delete e.npW; delete e.npS; delete e.ifMax;
+    }
+    return out;
+  }
+
+  /** Pearson r and the least-squares line through [{ x, y }]. */
+  function correlate(pts) {
+    const n = pts.length;
+    if (n < 3) return null;
+    const mx = mean(pts.map(p => p.x)), my = mean(pts.map(p => p.y));
+    let sxy = 0, sxx = 0, syy = 0;
+    for (const p of pts) { sxy += (p.x - mx) * (p.y - my); sxx += (p.x - mx) ** 2; syy += (p.y - my) ** 2; }
+    if (!sxx || !syy) return null;
+    const slope = sxy / sxx;
+    return { n, r: sxy / Math.sqrt(sxx * syy), slope, intercept: my - slope * mx };
+  }
+
+  /** "Weak", "moderate" or "strong" link in words; under |r| 0.1 (or too few days) there is none to speak of. */
+  function linkWords(c) {
+    if (!c) return { strength: 'none', text: 'Not enough days with both values yet.' };
+    const a = Math.abs(c.r);
+    const strength = c.n < 10 ? 'unclear' : a < 0.1 ? 'none' : a < 0.3 ? 'weak' : a < 0.5 ? 'moderate' : 'strong';
+    return { strength, dir: c.r > 0 ? 'up' : 'down' };
+  }
+
+  /** Heatmap level 0-4 for a day's TSS: 0 rest, then quartiles of 1-50, 50-100, 100-150, 150+. */
+  function tssLevel(tss) {
+    if (!(tss > 0)) return 0;
+    return tss < 50 ? 1 : tss < 100 ? 2 : tss < 150 ? 3 : 4;
+  }
+
+  const VeloWellness = { METRICS, BY_KEY, value, points, present, stats, trailing, normalBand, weekly, weekOf, sleepMix, loadResponse, BUCKETS, fmt, addDays, readinessScore, dailyTraining, correlate, linkWords, tssLevel };
   if (typeof module !== 'undefined' && module.exports) module.exports = VeloWellness;
   if (root) root.VeloWellness = VeloWellness;
 })(typeof window !== 'undefined' ? window : null);

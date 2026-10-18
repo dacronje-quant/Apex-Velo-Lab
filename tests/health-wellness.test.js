@@ -80,4 +80,40 @@ check('formatting: hours as h:mm, decimals from the catalogue', () => {
   assert.strictEqual(W.fmt('rhr', null), '--');
 });
 
+check('readiness score: HRV at normal 75, resting HR at average 85, sleep against 8 h; parts re-weighted when missing', () => {
+  const base = { level: 'green', hrv: { avg7: 60, base: 60, normalLow: 55, normalHigh: 65 }, rhr: { today: 50, base: 50, delta: 0 }, sleep: { last: 8, avg: 7.5 } };
+  const s = W.readinessScore(base);
+  assert.deepStrictEqual(s.parts.map(p => p.score), [75, 85, 100]);
+  assert.strictEqual(s.score, Math.round(75 * 0.45 + 85 * 0.3 + 100 * 0.25));
+  const low = W.readinessScore({ ...base, level: 'amber', hrv: { avg7: 50, base: 60, normalLow: 55, normalHigh: 65 }, rhr: { today: 56, base: 50, delta: 6 } });
+  assert.ok(low.score < s.score && low.parts[0].score < 75 && low.parts[1].score === 49);
+  assert.strictEqual(W.readinessScore({ level: 'green', sleep: { last: 6 } }).score, 75, 'sleep alone');
+  assert.strictEqual(W.readinessScore({ level: 'baseline' }), null);
+});
+
+check('daily training: rides on one day add up; NP is time-weighted; rest days are absent', () => {
+  const t = W.dailyTraining([
+    { date: '2026-10-17T07:00:00', tss: 80, duration: 3600, np: 200, kj: 700, if: 0.8 },
+    { date: '2026-10-17T18:00:00', tss: 20, duration: 1800, np: 140, kj: 200, if: 0.6 },
+    { date: '2026-10-15T07:00:00', tss: 40, duration: 3600 }
+  ], (d) => String(d).slice(0, 10));
+  assert.deepStrictEqual(Object.keys(t).sort(), ['2026-10-15', '2026-10-17']);
+  assert.deepStrictEqual([t['2026-10-17'].tss, t['2026-10-17'].hours, t['2026-10-17'].kj, t['2026-10-17'].rides, t['2026-10-17'].if], [100, 1.5, 900, 2, 0.8]);
+  assert.strictEqual(t['2026-10-17'].np, 180);
+  assert.strictEqual(t['2026-10-15'].np, null);
+});
+
+check('correlation: Pearson r and the fitted line; words for its strength', () => {
+  const c = W.correlate([{ x: 0, y: 1 }, { x: 1, y: 3 }, { x: 2, y: 5 }, { x: 3, y: 7 }]);
+  assert.ok(Math.abs(c.r - 1) < 1e-12); assert.strictEqual(c.slope, 2); assert.strictEqual(c.intercept, 1);
+  assert.strictEqual(W.correlate([{ x: 1, y: 1 }, { x: 1, y: 2 }, { x: 1, y: 3 }]), null, 'no spread in x');
+  assert.strictEqual(W.linkWords({ r: -0.6, n: 40 }).strength, 'strong');
+  assert.strictEqual(W.linkWords({ r: 0.2, n: 40 }).strength, 'weak');
+  assert.strictEqual(W.linkWords({ r: 0.9, n: 5 }).strength, 'unclear');
+});
+
+check('heatmap levels', () => {
+  assert.deepStrictEqual([0, 10, 50, 120, 200].map(W.tssLevel), [0, 1, 2, 3, 4]);
+});
+
 console.log(`\n${n} checks passed`);
