@@ -306,7 +306,11 @@ const step = (name) => console.log('  ok -', name);
     await page.locator(`#anaYearGrid [data-day="${todayKey}"]`).click();
     await page.locator('#anaDayBody .ride-chip', { hasText: 'Native ERG test' }).waitFor();
     await page.locator('#btnAnaDayClose').click();
-    step('Analytics: readiness ring, the week in three sentences (offline, then by Claude), skeletons cleared, pin to Overview, training year heatmap opens a day');
+    // FTP over time is calculated on the phone (no imported research history needed).
+    await page.evaluate(() => app.showAnalyticsPanel('ftp', { instant: true }));
+    await page.locator('#ftpMetricsStatus', { hasText: 'Calculated in the app from' }).waitFor();
+    assert.equal(await page.locator('#ftpMetricsSourceWrap').isVisible(), false);
+    step('Analytics: readiness ring, the week in three sentences (offline, then by Claude), skeletons cleared, pin to Overview, training year heatmap opens a day, FTP over time calculated on the phone');
 
     step('Analytics > Health: tiles, heart rate, HRV with its normal range, both HRV kinds, sleep stages, scores, stress, breathing and weight; cards without data stay hidden');
     step('health: intervals.icu key checked, all history backfilled into readiness with sleep stages, HRV kind switchable (never mixed), later syncs read the last week at most hourly');
