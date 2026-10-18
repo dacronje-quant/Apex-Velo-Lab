@@ -15,7 +15,7 @@
 export const ICU_BASE = 'https://intervals.icu';
 const KEYS = { key: 'icu_api_key', athlete: 'icu_athlete', hrvField: 'icu_hrv_field', hrvMode: 'icu_hrv_mode', lastSync: 'icu_last_sync', schema: 'icu_schema' };
 /** Bumped when toHealthDays keeps more fields: the next sync reads all history again. */
-export const SCHEMA = '2';
+export const SCHEMA = '3';
 /** HRV choice in Settings: 'auto' (the column most days have), or one column for every day. */
 export const HRV_MODES = ['auto', 'hrv', 'hrvSDNN'];
 const TIMEOUT_MS = 30000;
@@ -61,9 +61,6 @@ const EXTRA = [
   ['resp', 'respiration', 4, 60, 1],
   ['spo2', 'spO2', 50, 100, 1],
   ['weight', 'weight', 20, 300, 1],
-  ['bodyFat', 'bodyFat', 2, 70, 1],
-  ['vo2max', 'vo2max', 10, 100, 1],
-  ['steps', 'steps', 0, 200000, 0],
   ['bpSys', 'systolic', 60, 260, 0],
   ['bpDia', 'diastolic', 30, 160, 0],
   ['glucose', 'bloodGlucose', 1, 40, 1],

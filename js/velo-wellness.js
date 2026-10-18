@@ -3,8 +3,8 @@
  *
  * Works on js/velo-health.js daily records. Apple Health days carry resting HR, HRV (SDNN) and sleep
  * with stages; intervals.icu days (the Android app) add sleeping HR, both HRV kinds, sleep and
- * readiness scores, Baevsky stress index, SpO2, respiration, weight, body fat, VO2max, steps, blood
- * pressure, glucose and calories. Every function skips a metric a day does not have, never guesses.
+ * readiness scores, Baevsky stress index, SpO2, respiration, weight, blood pressure, glucose and
+ * calories. Every function skips a metric a day does not have, never guesses.
  *
  *   METRICS                     -> the catalogue: label, unit, decimals, which direction is better
  *   value(day, key)             -> one day's value or null
@@ -47,9 +47,6 @@
     { key: 'resp', label: 'Respiratory rate', unit: 'br/min', dec: 1, good: null },
     { key: 'spo2', label: 'Blood oxygen', unit: '%', dec: 1, good: 'up' },
     { key: 'weight', label: 'Weight', unit: 'kg', dec: 1, good: null },
-    { key: 'bodyFat', label: 'Body fat', unit: '%', dec: 1, good: 'down' },
-    { key: 'vo2max', label: 'VO2max', unit: 'ml/kg/min', dec: 1, good: 'up' },
-    { key: 'steps', label: 'Steps', unit: '', dec: 0, good: 'up' },
     { key: 'bpSys', label: 'Systolic BP', unit: 'mmHg', dec: 0, good: 'down' },
     { key: 'bpDia', label: 'Diastolic BP', unit: 'mmHg', dec: 0, good: 'down' },
     { key: 'glucose', label: 'Blood glucose', unit: 'mmol/L', dec: 1, good: null },
@@ -206,7 +203,6 @@
     if (!fin(v)) return '--';
     const m = BY_KEY[key] || {};
     if (m.fmt === 'h') { const mins = Math.round(v * 60); return `${Math.floor(mins / 60)}:${String(mins % 60).padStart(2, '0')}`; }
-    if (key === 'steps') return Math.round(v).toLocaleString('en-GB');
     return m.dec ? v.toFixed(m.dec) : String(Math.round(v));
   }
 

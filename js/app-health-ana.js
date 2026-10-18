@@ -4,7 +4,7 @@
  * Every daily health value over the page range: tiles (latest, 30-day average and the change from the
  * 30 days before), resting and sleeping heart rate, HRV against its personal normal range, both HRV
  * kinds, sleep stages per night, the sync app's sleep and readiness scores, Baevsky stress index,
- * breathing and SpO2, body, steps, blood pressure / glucose / food, and how next-morning HRV, resting
+ * breathing and SpO2, weight, blood pressure / glucose / food, and how next-morning HRV, resting
  * HR and sleep answer the previous day's training. Cards and series without data stay hidden.
  * The numbers come from js/velo-wellness.js; the charts follow the conventions of app-dashboard.js.
  */
@@ -26,13 +26,13 @@
     { card: 'anaCardHealthScores', canvas: 'healthScoresCanvas', lanes: [{ unit: 'score', min: 0, max: 100, series: [['sleepScore', 'cyan'], ['icuReadiness', 'lime']] }] },
     { card: 'anaCardHealthStress', canvas: 'healthStressCanvas', lanes: [{ unit: 'SI', series: [['baevsky', 'amber']] }] },
     { card: 'anaCardHealthBreath', canvas: 'healthBreathCanvas', lanes: [{ unit: 'br/min', series: [['resp', 'cyan']] }, { unit: '%', series: [['spo2', 'rose']] }] },
-    { card: 'anaCardHealthBody', canvas: 'healthBodyCanvas', lanes: [{ unit: 'kg', series: [['weight', 'cyan']] }, { unit: '%', series: [['bodyFat', 'amber']] }, { unit: 'ml/kg/min', series: [['vo2max', 'lime']] }] },
+    { card: 'anaCardHealthBody', canvas: 'healthBodyCanvas', lanes: [{ unit: 'kg', series: [['weight', 'cyan']] }] },
     { card: 'anaCardHealthVitals', canvas: 'healthVitalsCanvas', lanes: [{ unit: 'mmHg', series: [['bpSys', 'rose'], ['bpDia', 'violet']] }, { unit: 'mmol/L', series: [['glucose', 'amber']] }, { unit: 'kcal', series: [['kcalIn', 'lime']] }] }
   ];
   /** Tiles in this order, for whichever metrics have data. */
-  const TILE_KEYS = ['rhr', 'sleepHr', 'hrvRmssd', 'hrvSdnn', 'sleepH', 'deepH', 'remH', 'coreH', 'sleepScore', 'icuReadiness', 'baevsky', 'resp', 'spo2', 'weight', 'bodyFat', 'vo2max', 'steps', 'bpSys', 'glucose'];
-  const TILE_SPOT = { rhr: 'anaCardHealthHr', sleepHr: 'anaCardHealthHr', hrvRmssd: 'anaCardHealthHrv', hrvSdnn: 'anaCardHealthHrv', sleepH: 'anaCardHealthSleep', deepH: 'anaCardHealthSleep', remH: 'anaCardHealthSleep', coreH: 'anaCardHealthSleep', sleepScore: 'anaCardHealthScores', icuReadiness: 'anaCardHealthScores', baevsky: 'anaCardHealthStress', resp: 'anaCardHealthBreath', spo2: 'anaCardHealthBreath', weight: 'anaCardHealthBody', bodyFat: 'anaCardHealthBody', vo2max: 'anaCardHealthBody', steps: 'anaCardHealthSteps', bpSys: 'anaCardHealthVitals', glucose: 'anaCardHealthVitals' };
-  const TILE_COLOR = { rhr: 'rose', sleepHr: 'amber', hrvRmssd: 'violet', hrvSdnn: 'cyan', sleepH: 'violet', deepH: 'violet', remH: 'amber', coreH: 'cyan', sleepScore: 'cyan', icuReadiness: 'lime', baevsky: 'amber', resp: 'cyan', spo2: 'rose', weight: 'cyan', bodyFat: 'amber', vo2max: 'lime', steps: 'lime', bpSys: 'rose', glucose: 'amber' };
+  const TILE_KEYS = ['rhr', 'sleepHr', 'hrvRmssd', 'hrvSdnn', 'sleepH', 'deepH', 'remH', 'coreH', 'sleepScore', 'icuReadiness', 'baevsky', 'resp', 'spo2', 'weight', 'bpSys', 'glucose'];
+  const TILE_SPOT = { rhr: 'anaCardHealthHr', sleepHr: 'anaCardHealthHr', hrvRmssd: 'anaCardHealthHrv', hrvSdnn: 'anaCardHealthHrv', sleepH: 'anaCardHealthSleep', deepH: 'anaCardHealthSleep', remH: 'anaCardHealthSleep', coreH: 'anaCardHealthSleep', sleepScore: 'anaCardHealthScores', icuReadiness: 'anaCardHealthScores', baevsky: 'anaCardHealthStress', resp: 'anaCardHealthBreath', spo2: 'anaCardHealthBreath', weight: 'anaCardHealthBody', bpSys: 'anaCardHealthVitals', glucose: 'anaCardHealthVitals' };
+  const TILE_COLOR = { rhr: 'rose', sleepHr: 'amber', hrvRmssd: 'violet', hrvSdnn: 'cyan', sleepH: 'violet', deepH: 'violet', remH: 'amber', coreH: 'cyan', sleepScore: 'cyan', icuReadiness: 'lime', baevsky: 'amber', resp: 'cyan', spo2: 'rose', weight: 'cyan', bpSys: 'rose', glucose: 'amber' };
   const STAGES = [['deepH', 'Deep', 'violet'], ['coreH', 'Light (core)', 'cyan'], ['remH', 'REM', 'amber'], ['awakeH', 'Awake', 'grey']];
 
   const base = VeloApp.prototype.renderDashboard;
@@ -70,7 +70,6 @@
       for (const spec of LINE_CARDS) this.renderHealthLineCard(spec, all, days, range);
       this.renderHealthHrvCard(all, days, range);
       this.renderHealthSleepCard(days, range);
-      this.renderHealthStepsCard(days, range);
       this.renderHealthLoadCard(all, range);
       this.renderHealthModStat(all, today);
     },
@@ -346,36 +345,6 @@
         ].join('') : '';
       }
       this.setText('anaCardHealthSleepNote', `${weeklyMode ? 'Each bar is the average night of a week. ' : ''}Adults who train usually do best on 7-9 hours. Deep sleep (often 13-23% of the night) is when most physical repair happens; REM (often 20-25%) helps learning and mood. Wearables estimate stages, so watch your own trend rather than single nights.`);
-    },
-
-    /** Daily steps (weekly averages on long ranges) with a 7-day average line. */
-    renderHealthStepsCard(days, range) {
-      const card = document.getElementById('anaCardHealthSteps');
-      if (!card) return;
-      const Wl = W(), { VIZ, INK, axis } = VeloApp.CHART;
-      const pts = Wl.points(days, 'steps');
-      card.hidden = !pts.length;
-      if (card.hidden) return;
-      const chart = this.healthChart('healthStepsCanvas', 'bar');
-      if (!chart) return;
-      const weeklyMode = range.days > 120;
-      const bars = weeklyMode ? Wl.weekly(pts).map(p => ({ x: p.t, y: Math.round(p.v), week: true, n: p.n })) : pts.map(p => ({ x: p.t, y: p.v }));
-      const fmtN = (v) => Math.round(v).toLocaleString('en-GB');
-      chart.data.datasets = [
-        { hlKey: 'steps', label: 'Steps', data: bars, backgroundColor: alpha(VIZ.lime, 0.55), borderRadius: 2, borderSkipped: false, maxBarThickness: 22,
-          hlLabel: (cx) => ` ${fmtN(cx.parsed.y)} steps${cx.raw.week ? ` a day (average of ${cx.raw.n} days)` : ''}` },
-        ...(weeklyMode ? [] : [{ type: 'line', hlKey: 'avg', label: '7-day average', data: Wl.trailing(pts, 7).map(p => ({ x: p.t, y: Math.round(p.v) })), borderColor: VIZ.lime, borderWidth: 2, tension: 0.3, pointRadius: 0,
-          hlLabel: (cx) => ` 7-day average ${fmtN(cx.parsed.y)}` }])
-      ];
-      const barMs = (weeklyMode ? 7 : 1) * DAY;
-      chart.options.interaction = { mode: 'index', intersect: false };
-      chart.options.scales = { x: this.healthTimeAxis(range, { offset: false, min: range.x0 - barMs / 2, max: range.x1 + barMs / 2 }), y: axis({ beginAtZero: true, ticks: { color: INK.muted, padding: 6, callback: (v) => v >= 1000 ? `${v / 1000}k` : v } }) };
-      chart.update();
-      const box = document.querySelector('.hl-legend[data-hl="healthStepsCanvas"]');
-      if (box) box.hidden = true;
-      const avg = pts.reduce((a, p) => a + p.v, 0) / pts.length;
-      this.setText('anaCardHealthStepsChip', `avg ${fmtN(avg)} / day`);
-      this.setText('anaCardHealthStepsNote', weeklyMode ? 'Each bar is the daily average of a week.' : 'Bars are single days, the line is the 7-day average. Easy walking on rest days helps recovery; very high step counts before a key session add fatigue.');
     },
 
     /** Next-morning HRV, resting HR and sleep grouped by the previous day's TSS. */

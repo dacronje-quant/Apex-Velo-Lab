@@ -123,8 +123,8 @@
       <button type="button" class="nav-btn" data-tab="ai-coach" title="AI Coach"><svg class="ic"><use href="#i-sparkles"/></svg><span>Coach</span></button>
       <button type="button" class="nav-btn" data-tab="ask" title="Ask anything about your training"><svg class="ic"><use href="#i-chat"/></svg><span>Ask</span></button>
       <button type="button" class="nav-btn" data-tab="analytics" title="Analytics &amp; progression"><svg class="ic"><use href="#i-activity"/></svg><span>Analytics</span></button>
-      <button type="button" class="nav-btn" data-tab="history" title="History &amp; Sync"><svg class="ic"><use href="#i-history"/></svg><span>History</span></button>
       <button type="button" class="nav-btn" data-tab="calendar" title="Training Calendar"><svg class="ic"><use href="#i-calendar"/></svg><span>Calendar</span></button>
+      <button type="button" class="nav-btn" data-tab="history" title="History &amp; Sync"><svg class="ic"><use href="#i-history"/></svg><span>History</span></button>
     </nav>
 
     <div class="header-actions">
@@ -788,6 +788,7 @@
         </div>
         <div class="ask-thread" id="askThread" aria-live="polite"></div>
         <form class="ask-composer" id="askForm" autocomplete="off">
+          <button type="button" class="btn btn-ghost ask-clear" id="btnAskClear" hidden title="Clear this chat" aria-label="Clear this chat"><svg class="ic"><use href="#i-trash"/></svg><span>Clear</span></button>
           <label for="askInput" class="sr-only">Your question</label>
           <textarea id="askInput" rows="1" maxlength="4000" placeholder="Ask about your rides, fitness, power or recovery..."></textarea>
           <button type="submit" class="btn btn-primary" id="btnAskSend"><svg class="ic"><use href="#i-chat"/></svg>Ask</button>
@@ -1104,16 +1105,10 @@
             <p class="footnote" id="anaCardHealthBreathNote">Each measure has its own scale. Dots are single days, lines are 7-day averages.</p>
           </div>
           <div class="card hl-card" id="anaCardHealthBody" data-expandable hidden>
-            <div class="card-title"><span>Body<span class="plain">Weight, body fat and VO2max</span></span><span class="chip chip-ghost num" id="anaCardHealthBodyChip">--</span></div>
+            <div class="card-title"><span>Weight<span class="plain">Morning weight from your scale or the sync app</span></span><span class="chip chip-ghost num" id="anaCardHealthBodyChip">--</span></div>
             <div class="legend-inline hl-legend" data-hl="healthBodyCanvas"></div>
-            <div class="chart-box" style="height:300px;"><canvas id="healthBodyCanvas"></canvas></div>
-            <p class="footnote" id="anaCardHealthBodyNote">Each measure has its own scale. Dots are single days, lines are 7-day averages.</p>
-          </div>
-          <div class="card hl-card" id="anaCardHealthSteps" data-expandable hidden>
-            <div class="card-title"><span>Steps<span class="plain">Daily movement off the bike</span></span><span class="chip chip-ghost num" id="anaCardHealthStepsChip">--</span></div>
-            <div class="legend-inline hl-legend" data-hl="healthStepsCanvas"></div>
-            <div class="chart-box" style="height:200px;"><canvas id="healthStepsCanvas"></canvas></div>
-            <p class="footnote" id="anaCardHealthStepsNote">--</p>
+            <div class="chart-box" style="height:200px;"><canvas id="healthBodyCanvas"></canvas></div>
+            <p class="footnote" id="anaCardHealthBodyNote">Dots are single days, the line is the 7-day average. Day-to-day changes are mostly water; watch the average.</p>
           </div>
           <div class="card hl-card" id="anaCardHealthVitals" data-expandable hidden>
             <div class="card-title"><span>Blood pressure, glucose &amp; food<span class="plain">Logged or measured values from your sync app</span></span><span class="chip chip-ghost num" id="anaCardHealthVitalsChip">--</span></div>

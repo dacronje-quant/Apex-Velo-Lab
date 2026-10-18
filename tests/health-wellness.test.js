@@ -16,14 +16,14 @@ check('values: missing metrics are null; Apple Health HRV counts as SDNN, interv
   assert.strictEqual(W.value({ day: '2026-10-17', hrv: 55 }, 'hrvSdnn'), 55, 'Apple Health day: hrv is the watch SDNN');
   assert.strictEqual(W.value({ day: '2026-10-17', hrv: 70, hrvSrc: 'icu', hrvSdnn: 52 }, 'hrvSdnn'), 52);
   assert.strictEqual(W.value({ day: '2026-10-17', hrv: 70, hrvSrc: 'icu' }, 'hrvSdnn'), null, 'an intervals.icu rMSSD is never shown as SDNN');
-  assert.deepStrictEqual(W.present([{ day: '2026-10-17', rhr: 50, steps: 4000 }]), ['rhr', 'steps']);
+  assert.deepStrictEqual(W.present([{ day: '2026-10-17', rhr: 50, spo2: 97 }]), ['rhr', 'spo2']);
 });
 
 check('tile stats: latest, last 30 days and the 30 before', () => {
   const days = series(60, (i) => ({ rhr: i < 30 ? 48 : 52 }));
   const s = W.stats(days, 'rhr', '2026-10-17', 30);
   assert.deepStrictEqual([s.last, s.avg, s.prev, s.n, s.nPrev], [48, 48, 52, 30, 30]);
-  assert.strictEqual(W.stats(days, 'steps', '2026-10-17'), null);
+  assert.strictEqual(W.stats(days, 'spo2', '2026-10-17'), null);
 });
 
 check('7-day trailing average uses calendar days, so a gap does not stretch the window', () => {
@@ -74,9 +74,8 @@ check('load response: next morning grouped by the day before, never counting tim
   assert.strictEqual(W.loadResponse(days, []), null, 'no rides, no comparison');
 });
 
-check('formatting: hours as h:mm, steps with separators, decimals from the catalogue', () => {
+check('formatting: hours as h:mm, decimals from the catalogue', () => {
   assert.strictEqual(W.fmt('sleepH', 7.5), '7:30');
-  assert.strictEqual(W.fmt('steps', 12345.4), '12,345');
   assert.strictEqual(W.fmt('spo2', 96.44), '96.4');
   assert.strictEqual(W.fmt('rhr', null), '--');
 });

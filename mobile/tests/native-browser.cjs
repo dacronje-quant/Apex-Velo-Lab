@@ -178,6 +178,12 @@ const step = (name) => console.log('  ok -', name);
     assert.match(askCall.data.system[1].text, /^TRAINING DATA\n/);
     await page.screenshot({ path: path.join(__dirname, '..', 'test-output', 'native-ask.png') }).catch(() => {});
     step('Ask: the question and the period summary go from the phone to Claude, and the answer shows in the thread');
+    assert.equal(await page.locator('#btnAskClear').isVisible(), true, 'Clear sits next to the question box once there is a chat');
+    await page.locator('#btnAskClear').click();
+    await page.locator('#askThread .ask-empty').waitFor();
+    assert.equal(await page.evaluate(() => JSON.parse(localStorage.getItem('apex_ask_v1')).messages.length), 0, 'the cleared chat is not kept');
+    assert.equal(await page.locator('#btnAskClear').isVisible(), false);
+    step('Ask: Clear empties the chat on the phone');
 
     const breakdown = await page.evaluate((id) => app.requestAiBreakdown(id), rideId);
     assert.ok(breakdown && /test breakdown/.test(breakdown.text), 'the coach answered the interval breakdown');
@@ -249,8 +255,9 @@ const step = (name) => console.log('  ok -', name);
     await page.locator('.nav-btn[data-tab="analytics"]').first().click();
     await page.evaluate(() => app.showAnalyticsPanel('health', { instant: true }));
     await page.locator('#anaHealthTiles .tile', { hasText: 'Sleeping HR' }).waitFor();
-    assert.equal(await page.locator('#anaHealthTiles .tile').count(), 16, 'a tile for every metric with data');
-    for (const id of ['anaCardHealthHr', 'anaCardHealthHrv', 'anaCardHealthHrvBoth', 'anaCardHealthSleep', 'anaCardHealthScores', 'anaCardHealthStress', 'anaCardHealthBreath', 'anaCardHealthBody', 'anaCardHealthSteps']) {
+    assert.equal(await page.locator('#anaHealthTiles .tile').count(), 14, 'a tile for every metric with data');
+    assert.equal(await page.locator('#anaHealthTiles .tile', { hasText: /Steps|VO2max|Body fat/ }).count(), 0, 'steps, body fat and VO2max are not shown');
+    for (const id of ['anaCardHealthHr', 'anaCardHealthHrv', 'anaCardHealthHrvBoth', 'anaCardHealthSleep', 'anaCardHealthScores', 'anaCardHealthStress', 'anaCardHealthBreath', 'anaCardHealthBody']) {
       assert.equal(await page.locator('#' + id).isVisible(), true, id + ' shows');
     }
     assert.equal(await page.locator('#anaCardHealthVitals').isVisible(), false, 'no blood pressure, glucose or food data: the card stays hidden');
@@ -259,7 +266,7 @@ const step = (name) => console.log('  ok -', name);
     assert.match(await page.locator('#anaModStat-health').innerText(), /\d+ ms/);
     await page.locator('.hl-legend[data-hl="healthHrCanvas"] .lg-toggle', { hasText: 'Sleeping HR' }).click();
     assert.equal(await page.evaluate(() => { const c = app._healthCharts.healthHrCanvas; return c.data.datasets.filter((d, i) => d.hlKey === 'sleepHr' && c.isDatasetVisible(i)).length; }), 0, 'the legend hides a metric');
-    step('Analytics > Health: tiles, heart rate, HRV with its normal range, both HRV kinds, sleep stages, scores, stress, breathing, body and steps; cards without data stay hidden');
+    step('Analytics > Health: tiles, heart rate, HRV with its normal range, both HRV kinds, sleep stages, scores, stress, breathing and weight; cards without data stay hidden');
     step('health: intervals.icu key checked, all history backfilled into readiness with sleep stages, HRV kind switchable (never mixed), later syncs read the last week at most hourly');
 
     // ------------------------------------------------------------------ exports, back key --
