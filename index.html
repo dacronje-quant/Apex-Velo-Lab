@@ -844,12 +844,8 @@
           <span class="ana-mod-top"><svg class="ic"><use href="#i-crank"/></svg><span class="ana-mod-name">Aerobic engine</span><kbd class="ana-mod-key">6</kbd></span>
           <span class="ana-mod-stat num skel" id="anaModStat-aerobic">--</span><span class="ana-mod-sub" id="anaModSub-aerobic">efficiency (EF)</span>
         </button>
-        <button type="button" class="ana-mod" role="tab" id="anaTab-body" data-panel="body" aria-controls="ana-panel-body" aria-selected="false" tabindex="-1">
-          <span class="ana-mod-top"><svg class="ic"><use href="#i-lotus"/></svg><span class="ana-mod-name">Recovery &amp; balance</span><kbd class="ana-mod-key">7</kbd></span>
-          <span class="ana-mod-stat num skel" id="anaModStat-body">--</span><span class="ana-mod-sub" id="anaModSub-body">resting HR</span>
-        </button>
         <button type="button" class="ana-mod" role="tab" id="anaTab-health" data-panel="health" aria-controls="ana-panel-health" aria-selected="false" tabindex="-1">
-          <span class="ana-mod-top"><svg class="ic"><use href="#i-heart"/></svg><span class="ana-mod-name">Health</span><kbd class="ana-mod-key">8</kbd></span>
+          <span class="ana-mod-top"><svg class="ic"><use href="#i-heart"/></svg><span class="ana-mod-name">Health</span><kbd class="ana-mod-key">7</kbd></span>
           <span class="ana-mod-stat num skel" id="anaModStat-health">--</span><span class="ana-mod-sub" id="anaModSub-health">HRV · 7 days</span>
         </button>
       </nav>
@@ -984,6 +980,11 @@
               <div class="chart-box" style="height:280px;"><canvas id="cpHistoryCanvas" aria-label="Critical power and W prime over time"></canvas></div>
               <p class="footnote" id="cpHistoryNote">Each point is the model fitted to the best efforts of the 90 days before it. CP rising = more sustainable power; W&prime; rising = more punch above CP.</p>
             </div>
+            <div class="card ana-w-12" id="anaCardBalance" data-expandable>
+              <div class="card-title"><span data-term="lr">Left / right balance per ride</span><span class="chip chip-ghost num" id="balanceTrendLabel">--</span></div>
+              <div class="chart-box" style="height:220px;"><canvas id="balanceTrendCanvas"></canvas></div>
+              <p class="footnote">Average left-leg share per ride, measured by the pedals (50% = even). The shaded band is 48-52%, the usual range; the line is the 10-ride average - a steady drift one way is worth watching.</p>
+            </div>
           </div>
         </div>
 
@@ -1067,21 +1068,6 @@
               <div class="chart-box" style="height:240px;"><canvas id="driftTrendCanvas"></canvas></div>
               <p class="footnote" id="driftTrendNote">Each point is a steady ride (Zone 2, tempo, sweet spot) with heart rate: how much power per heartbeat dropped from the first to the second half. 3.5% or less = base consolidated, under 5% = coupled; a falling trend at the same power means your aerobic base is improving.</p>
             </div>
-          </div>
-        </div>
-
-        <!-- RECOVERY & BALANCE -->
-        <div class="ana-panel" id="ana-panel-body" data-panel="body" role="tabpanel" aria-labelledby="anaTab-body" tabindex="-1" hidden>
-          <div class="ana-panel-head"><h3 class="ana-section" id="ana-balance">Recovery &amp; balance</h3><p>How is your body handling the training?</p></div>
-          <div class="card" id="anaCardRecovery" data-expandable>
-            <div class="card-title"><span data-term="recovery">Resting HR &amp; HRV</span><span class="chip chip-ghost num" id="recoveryTrendLabel">Apple Health</span></div>
-            <div class="chart-box" style="height:260px;"><canvas id="recoveryTrendCanvas"></canvas></div>
-            <p class="footnote" id="recoveryTrendNote">From your Apple Watch via Health Auto Export (Settings &rsaquo; Apple Health). Falling resting HR and rising HRV over months = adaptation. Lines are 7-day averages.</p>
-          </div>
-          <div class="card" id="anaCardBalance" data-expandable>
-            <div class="card-title"><span data-term="lr">Left / right balance per ride</span><span class="chip chip-ghost num" id="balanceTrendLabel">--</span></div>
-            <div class="chart-box" style="height:220px;"><canvas id="balanceTrendCanvas"></canvas></div>
-            <p class="footnote">Average left-leg share per ride, measured by the pedals (50% = even). The shaded band is 48-52%, the usual range; the line is the 10-ride average - a steady drift one way is worth watching.</p>
           </div>
         </div>
 

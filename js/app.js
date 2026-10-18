@@ -2342,7 +2342,7 @@ class VeloApp {
     this.clock.destroy();
     this._disposers.forEach(fn => { try { fn(); } catch (e) { /* ignore */ } });
     this._disposers = [];
-    [this.telemetryChart, this.pmcChart, this.mmpChart, this.ftpChart, this.driftChart, this.currentScrubChart, this.progWeeklyChart, this.progScatterChart, this.efChart, this.recoveryChart, this.balanceChart, this.cpHistoryChart]
+    [this.telemetryChart, this.pmcChart, this.mmpChart, this.ftpChart, this.driftChart, this.currentScrubChart, this.progWeeklyChart, this.progScatterChart, this.efChart, this.balanceChart, this.cpHistoryChart]
       .forEach(c => { if (c) c.destroy(); });
     if (this.destroyReviewCharts) this.destroyReviewCharts();
     if (this._resizeObserver) this._resizeObserver.disconnect();
@@ -2365,7 +2365,7 @@ class VeloApp {
     else if (tabKey === 'analytics') {
       requestAnimationFrame(() => {
         this.refreshAnalytics();
-        [this.pmcChart, this.mmpChart, this.ftpChart, this.driftChart, this.progWeeklyChart, this.progScatterChart, this.efChart, this.recoveryChart, this.balanceChart, this.cpHistoryChart].forEach(c => c && c.resize());
+        [this.pmcChart, this.mmpChart, this.ftpChart, this.driftChart, this.progWeeklyChart, this.progScatterChart, this.efChart, this.balanceChart, this.cpHistoryChart].forEach(c => c && c.resize());
         if (this.moveAnaGlider) this.moveAnaGlider(false);
       });
     } else if (tabKey === 'cockpit') {
