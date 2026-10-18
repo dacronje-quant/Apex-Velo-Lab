@@ -47,6 +47,9 @@
       }
       this.on(document.getElementById('btnAskStop'), 'click', () => { if (this._askAbort) this._askAbort.abort('stop'); });
       this.on(document.getElementById('btnAskNew'), 'click', () => this.newAskChat());
+      this.on(document.getElementById('btnAskClear'), 'click', () => {
+        if (this.askMessages.length && confirm('Clear this chat? The questions and answers are removed from this device.')) this.newAskChat();
+      });
       this.on(document.getElementById('btnAskEngine'), 'click', () => this.openSettings && this.openSettings('ai'));
       this.on(document.getElementById('btnAskEngineWarn'), 'click', () => this.openSettings && this.openSettings('ai'));
       const thread = document.getElementById('askThread');
@@ -383,6 +386,8 @@
       if (!thread) return;
       const newBtn = document.getElementById('btnAskNew');
       if (newBtn) newBtn.hidden = !this.askMessages.length;
+      const clearBtn = document.getElementById('btnAskClear');
+      if (clearBtn) clearBtn.hidden = !this.askMessages.length;
       if (!this.askMessages.length && !this._askBusy) {
         const r = this.askRange();
         thread.innerHTML = `

@@ -185,6 +185,11 @@
     const hrv = sleepHrv.length ? sleepHrv : (rec.hrv ? Object.values(rec.hrv).filter(Number.isFinite) : []);
     if (hrv.length) { out.hrv = Math.round(mean(hrv)); out.hrvSrc = sleepHrv.length ? 'sleep' : 'day'; }
 
+    // Bedtime and wake-up as wall-clock minutes after midnight (kept in the compacted summary too).
+    if (windows.length) {
+      const a = Math.min(...windows.map(w => w[0])), b = Math.max(...windows.map(w => w[1]));
+      if (Number.isFinite(a) && Number.isFinite(b) && b > a) { out.bed = ((a % 1440) + 1440) % 1440; out.wake = ((b % 1440) + 1440) % 1440; }
+    }
     const nights = items.filter(x => x.night).map(x => x.night);
     if (nights.length) {
       // Several sources for the same night (watch + phone): keep the longest, never add them up.
@@ -231,6 +236,28 @@
       }
     }
     return segs.length ? segs : inBed.length ? inBed : nights;
+  }
+
+  /**
+   * The night's stage segments for a hypnogram: [{ stage: 'deep'|'core'|'rem'|'awake', a, b }] in wall-clock
+   * minutes (b may pass midnight: minutes keep counting). Only days still holding raw readings have them.
+   */
+  function sleepSegments(store, day) {
+    const rec = store && store.days && store.days[day];
+    if (!rec || !rec.sleep) return [];
+    const out = [];
+    for (const [k, x] of Object.entries(rec.sleep)) {
+      if (!x || !x.seg) continue;
+      const p = k.split('|');   // seg|stage|start|end
+      const stage = p[1] === 'asleep' || p[1] === 'asleepunspecified' ? 'core' : p[1];
+      if (!['deep', 'core', 'rem', 'awake'].includes(stage)) continue;
+      const a = wallMin(p[2]), b = wallMin(p[3]);
+      if (a === null || b === null || b <= a) continue;
+      out.push({ stage, a, b });
+    }
+    if (!out.length) return [];
+    const t0 = Math.min(...out.map(s => s.a)), base = t0 - (t0 % 1440);
+    return out.map(s => ({ stage: s.stage, a: s.a - base, b: s.b - base })).sort((x, y) => x.a - y.a);
   }
 
   /** Every stored day with at least one value, oldest first. */
@@ -362,7 +389,7 @@
     return `${Math.floor(m / 60)}:${String(m % 60).padStart(2, '0')}`;
   }
 
-  const VeloHealth = { parsePayload, merge, daily, compact, readiness, dayFlags, periodAverages, baselines, emptyStore, fmtH, addDays, MIN_NIGHTS };
+  const VeloHealth = { parsePayload, merge, daily, sleepSegments, compact, readiness, dayFlags, periodAverages, baselines, emptyStore, fmtH, addDays, MIN_NIGHTS };
   if (typeof module !== 'undefined' && module.exports) module.exports = VeloHealth;
   if (root) root.VeloHealth = VeloHealth;
 })(typeof window !== 'undefined' ? window : null);

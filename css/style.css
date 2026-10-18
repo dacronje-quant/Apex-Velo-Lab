@@ -1765,6 +1765,9 @@ details.menu > summary::-webkit-details-marker { display: none; }
 .ask-composer textarea { flex: 1; min-height: 40px; max-height: 160px; resize: none; padding: 10px 12px; border: 0; outline: 0; background: transparent; color: var(--text-1); font: inherit; font-size: 14.5px; line-height: 1.45; }
 .ask-composer textarea::placeholder { color: var(--text-3); }
 .ask-composer .btn { height: 40px; border-radius: 12px; }
+.ask-composer .ask-clear { padding: 0 12px; color: var(--text-2); }
+.ask-composer .ask-clear[hidden] { display: none; }
+@media (max-width: 560px) { .ask-composer .ask-clear span { display: none; } .ask-composer .ask-clear { padding: 0 10px; } }
 .ask-privacy { text-align: center; font-size: 11px; color: var(--text-3); margin: 8px 0 4px; }
 @media (max-width: 560px) {
   .ask-head .section-title { font-size: 18px; }
