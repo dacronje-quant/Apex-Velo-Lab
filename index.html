@@ -87,6 +87,9 @@
       <symbol id="i-folder" viewBox="0 0 24 24"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/></symbol>
       <symbol id="i-dumbbell" viewBox="0 0 24 24"><path d="M6.5 6.5v11M17.5 6.5v11M3.5 9v6M20.5 9v6M6.5 12h11"/></symbol>
       <symbol id="i-footsteps" viewBox="0 0 24 24"><path d="M8 3c1.7 0 3 1.8 3 4.5S10 12 8.5 12 6 10.3 6 8c0-2.6.4-5 2-5zM6.5 15h4v1.8a2 2 0 0 1-4 0zM16 7c1.6 0 2 2.4 2 5 0 2.3-1 4-2.5 4S13 14.2 13 11.5 14.3 7 16 7zM13.5 19h4v1.2a2 2 0 0 1-4 0z"/></symbol>
+      <symbol id="i-heart" viewBox="0 0 24 24"><path d="M12 20s-7-4.4-9-9.2C1.7 7.6 3.8 4.5 7 4.5c2 0 3.3 1.1 5 3 1.7-1.9 3-3 5-3 3.2 0 5.3 3.1 4 6.3-2 4.8-9 9.2-9 9.2z"/><path d="M3.5 12h4l1.5-3 2.5 6 1.5-3h7.5"/></symbol>
+      <symbol id="i-pin" viewBox="0 0 24 24"><path d="M9 3h6l-1 6 4 4v2h-5v6l-1 1-1-1v-6H6v-2l4-4z"/></symbol>
+      <symbol id="i-moon" viewBox="0 0 24 24"><path d="M20 14.5A8 8 0 0 1 9.5 4a8 8 0 1 0 10.5 10.5z"/></symbol>
       <symbol id="i-lotus" viewBox="0 0 24 24"><path d="M12 20c-4 0-8-2-9-6 3-.5 6 .5 9 3 3-2.5 6-3.5 9-3-1 4-5 6-9 6zM12 17c-2-2-3-5-3-8 1.2.5 2.2 1.3 3 2.4.8-1.1 1.8-1.9 3-2.4 0 3-1 6-3 8z"/></symbol>
       <symbol id="i-refresh" viewBox="0 0 24 24"><path d="M21 12a9 9 0 0 1-15.5 6.2L3 16M3 12a9 9 0 0 1 15.5-6.2L21 8"/><path d="M21 3v5h-5M3 21v-5h5"/></symbol>
       <symbol id="i-x" viewBox="0 0 24 24"><path d="M18 6 6 18M6 6l12 12"/></symbol>
@@ -122,8 +125,8 @@
       <button type="button" class="nav-btn" data-tab="ai-coach" title="AI Coach"><svg class="ic"><use href="#i-sparkles"/></svg><span>Coach</span></button>
       <button type="button" class="nav-btn" data-tab="ask" title="Ask anything about your training"><svg class="ic"><use href="#i-chat"/></svg><span>Ask</span></button>
       <button type="button" class="nav-btn" data-tab="analytics" title="Analytics &amp; progression"><svg class="ic"><use href="#i-activity"/></svg><span>Analytics</span></button>
-      <button type="button" class="nav-btn" data-tab="history" title="History &amp; Sync"><svg class="ic"><use href="#i-history"/></svg><span>History</span></button>
       <button type="button" class="nav-btn" data-tab="calendar" title="Training Calendar"><svg class="ic"><use href="#i-calendar"/></svg><span>Calendar</span></button>
+      <button type="button" class="nav-btn" data-tab="history" title="History &amp; Sync"><svg class="ic"><use href="#i-history"/></svg><span>History</span></button>
     </nav>
 
     <div class="header-actions">
@@ -787,6 +790,7 @@
         </div>
         <div class="ask-thread" id="askThread" aria-live="polite"></div>
         <form class="ask-composer" id="askForm" autocomplete="off">
+          <button type="button" class="btn btn-ghost ask-clear" id="btnAskClear" hidden title="Clear this chat" aria-label="Clear this chat"><svg class="ic"><use href="#i-trash"/></svg><span>Clear</span></button>
           <label for="askInput" class="sr-only">Your question</label>
           <textarea id="askInput" rows="1" maxlength="4000" placeholder="Ask about your rides, fitness, power or recovery..."></textarea>
           <button type="submit" class="btn btn-primary" id="btnAskSend"><svg class="ic"><use href="#i-chat"/></svg>Ask</button>
@@ -818,39 +822,59 @@
         <span class="ana-dock-glider" aria-hidden="true"></span>
         <button type="button" class="ana-mod" role="tab" id="anaTab-overview" data-panel="overview" aria-controls="ana-panel-overview" aria-selected="true">
           <span class="ana-mod-top"><svg class="ic"><use href="#i-grid"/></svg><span class="ana-mod-name">Overview</span><kbd class="ana-mod-key">1</kbd></span>
-          <span class="ana-mod-stat num" id="anaModStat-overview">--</span><span class="ana-mod-sub" id="anaModSub-overview">form today</span>
+          <span class="ana-mod-stat num skel" id="anaModStat-overview">--</span><span class="ana-mod-sub" id="anaModSub-overview">form today</span>
         </button>
         <button type="button" class="ana-mod" role="tab" id="anaTab-load" data-panel="load" aria-controls="ana-panel-load" aria-selected="false" tabindex="-1">
           <span class="ana-mod-top"><svg class="ic"><use href="#i-activity"/></svg><span class="ana-mod-name">Fitness &amp; load</span><kbd class="ana-mod-key">2</kbd></span>
-          <span class="ana-mod-stat num" id="anaModStat-load">--</span><span class="ana-mod-sub" id="anaModSub-load">fitness (CTL)</span>
+          <span class="ana-mod-stat num skel" id="anaModStat-load">--</span><span class="ana-mod-sub" id="anaModSub-load">fitness (CTL)</span>
         </button>
         <button type="button" class="ana-mod" role="tab" id="anaTab-power" data-panel="power" aria-controls="ana-panel-power" aria-selected="false" tabindex="-1">
           <span class="ana-mod-top"><svg class="ic"><use href="#i-bolt"/></svg><span class="ana-mod-name">Power &amp; CP</span><kbd class="ana-mod-key">3</kbd></span>
-          <span class="ana-mod-stat num" id="anaModStat-power">--</span><span class="ana-mod-sub" id="anaModSub-power">critical power</span>
+          <span class="ana-mod-stat num skel" id="anaModStat-power">--</span><span class="ana-mod-sub" id="anaModSub-power">critical power</span>
         </button>
         <button type="button" class="ana-mod" role="tab" id="anaTab-ftp" data-panel="ftp" aria-controls="ana-panel-ftp" aria-selected="false" tabindex="-1">
           <span class="ana-mod-top"><svg class="ic"><use href="#i-target"/></svg><span class="ana-mod-name">FTP</span><kbd class="ana-mod-key">4</kbd></span>
-          <span class="ana-mod-stat num" id="anaModStat-ftp">--</span><span class="ana-mod-sub" id="anaModSub-ftp">in use</span>
+          <span class="ana-mod-stat num skel" id="anaModStat-ftp">--</span><span class="ana-mod-sub" id="anaModSub-ftp">in use</span>
         </button>
         <button type="button" class="ana-mod" role="tab" id="anaTab-intensity" data-panel="intensity" aria-controls="ana-panel-intensity" aria-selected="false" tabindex="-1">
           <span class="ana-mod-top"><svg class="ic"><use href="#i-focus"/></svg><span class="ana-mod-name">Intensity</span><kbd class="ana-mod-key">5</kbd></span>
-          <span class="ana-mod-stat" id="anaModStat-intensity">--</span><span class="ana-mod-sub" id="anaModSub-intensity">distribution</span>
+          <span class="ana-mod-stat skel" id="anaModStat-intensity">--</span><span class="ana-mod-sub" id="anaModSub-intensity">distribution</span>
         </button>
         <button type="button" class="ana-mod" role="tab" id="anaTab-aerobic" data-panel="aerobic" aria-controls="ana-panel-aerobic" aria-selected="false" tabindex="-1">
           <span class="ana-mod-top"><svg class="ic"><use href="#i-crank"/></svg><span class="ana-mod-name">Aerobic engine</span><kbd class="ana-mod-key">6</kbd></span>
-          <span class="ana-mod-stat num" id="anaModStat-aerobic">--</span><span class="ana-mod-sub" id="anaModSub-aerobic">efficiency (EF)</span>
+          <span class="ana-mod-stat num skel" id="anaModStat-aerobic">--</span><span class="ana-mod-sub" id="anaModSub-aerobic">efficiency (EF)</span>
         </button>
         <button type="button" class="ana-mod" role="tab" id="anaTab-body" data-panel="body" aria-controls="ana-panel-body" aria-selected="false" tabindex="-1">
           <span class="ana-mod-top"><svg class="ic"><use href="#i-lotus"/></svg><span class="ana-mod-name">Recovery &amp; balance</span><kbd class="ana-mod-key">7</kbd></span>
-          <span class="ana-mod-stat num" id="anaModStat-body">--</span><span class="ana-mod-sub" id="anaModSub-body">resting HR</span>
+          <span class="ana-mod-stat num skel" id="anaModStat-body">--</span><span class="ana-mod-sub" id="anaModSub-body">resting HR</span>
+        </button>
+        <button type="button" class="ana-mod" role="tab" id="anaTab-health" data-panel="health" aria-controls="ana-panel-health" aria-selected="false" tabindex="-1">
+          <span class="ana-mod-top"><svg class="ic"><use href="#i-heart"/></svg><span class="ana-mod-name">Health</span><kbd class="ana-mod-key">8</kbd></span>
+          <span class="ana-mod-stat num skel" id="anaModStat-health">--</span><span class="ana-mod-sub" id="anaModSub-health">HRV · 7 days</span>
         </button>
       </nav>
 
       <div class="ana-stage" id="anaStage">
         <!-- OVERVIEW -->
         <div class="ana-panel" id="ana-panel-overview" data-panel="overview" role="tabpanel" aria-labelledby="anaTab-overview" tabindex="-1">
+          <!-- Readiness ring and the week in three sentences (js/app-ana-plus.js) -->
+          <div class="ana-hero" id="anaHero">
+            <div class="card hero-ready" id="anaCardReady">
+              <div class="card-title"><span>Readiness today<span class="plain">From your HRV, resting HR and sleep against your own normal - tap for the day</span></span></div>
+              <div class="hero-ready-body">
+                <button type="button" class="ready-ring" id="anaReadyRing" aria-label="Readiness today: open the day"><span class="skel skel-ring"></span></button>
+                <div class="ready-parts" id="anaReadyParts"><span class="skel skel-line"></span><span class="skel skel-line"></span><span class="skel skel-line"></span></div>
+              </div>
+            </div>
+            <div class="card hero-story" id="anaCardStory">
+              <div class="card-title"><span>Your week<span class="plain">What changed, why, and what to do next</span></span>
+                <button type="button" class="btn btn-sm" id="btnAnaStory"><svg class="ic"><use href="#i-sparkles"/></svg><span>Write with AI</span></button></div>
+              <div class="story-text" id="anaStoryText" aria-live="polite"><span class="skel skel-line"></span><span class="skel skel-line"></span><span class="skel skel-line short"></span></div>
+              <p class="footnote" id="anaStoryNote"></p>
+            </div>
+          </div>
           <div class="pmc-status-row today-strip" id="anaTodayStrip">
-            <div class="pmc-stat-pill" data-accent="lime"><span class="title" data-term="readiness">Readiness &middot; today</span><span class="val"><button type="button" class="readiness-chip" id="anaReadinessChip" data-level="none">Readiness --</button></span><span class="desc" id="anaReadinessNote">Resting HR, HRV &amp; sleep</span></div>
+            <div class="pmc-stat-pill" data-accent="lime" hidden><span class="title" data-term="readiness">Readiness &middot; today</span><span class="val"><button type="button" class="readiness-chip" id="anaReadinessChip" data-level="none">Readiness --</button></span><span class="desc" id="anaReadinessNote">Resting HR, HRV &amp; sleep</span></div>
             <div class="pmc-stat-pill ana-link" data-accent="amber" data-goto="load" data-spot="anaCardPmc" role="button" tabindex="0" aria-label="Form (TSB): open the performance management chart"><span class="title" data-term="tsb">TSB &middot; Form</span><span class="val num" id="pmcValTsb">--</span><span class="desc"><span class="form-badge" id="pmcFormStatus">--</span></span></div>
             <div class="pmc-stat-pill ana-link" data-accent="cyan" data-goto="load" data-spot="anaCardPmc" role="button" tabindex="0" aria-label="Fitness (CTL): open the performance management chart"><span class="title" data-term="ctl">CTL &middot; Fitness</span><span class="val num" id="pmcValCtl">--</span><span class="desc" data-term-tip="atl">Recent strain (ATL) <b class="num" id="pmcValAtl">--</b></span></div>
             <div class="pmc-stat-pill ana-link" data-accent="violet" data-goto="load" data-spot="anaCardWeekly" role="button" tabindex="0" aria-label="Ramp rate: open weekly training load"><span class="title" data-term="ramp">Ramp rate &middot; 7 days</span><span class="val num" id="anaRampVal">--</span><span class="desc" id="anaRampNote">CTL change per week</span></div>
@@ -858,7 +882,15 @@
           </div>
 
           <!-- PROGRESSION TILES (click one to open its chart) -->
-          <div class="tile-grid" id="anaTiles"></div>
+          <div class="tile-grid" id="anaTiles">
+            <div class="tile skel-tile"></div><div class="tile skel-tile"></div><div class="tile skel-tile"></div><div class="tile skel-tile"></div><div class="tile skel-tile"></div><div class="tile skel-tile"></div>
+          </div>
+
+          <!-- Charts pinned from any module (pin button on each chart card) -->
+          <div class="ana-pinned" id="anaPinned" hidden>
+            <div class="sub-title"><span>Pinned charts</span><span class="hint">Pin up to 4 charts from any module with their pin button</span></div>
+            <div class="ana-pinned-grid" id="anaPinnedGrid"></div>
+          </div>
 
           <div class="ana-grid">
             <div class="card ana-w-7" id="anaCardInsights">
@@ -900,6 +932,11 @@
             <div class="sub-title"><span>Consistency week by week</span><span class="hint" id="progWeeklyHint">Click a week to list its rides</span></div>
             <div class="chart-box" style="height:230px;"><canvas id="progWeeklyChart"></canvas></div>
             <div class="week-rides" id="progWeekRides"></div>
+          </div>
+          <div class="card" id="anaCardYear">
+            <div class="card-title"><span>Training year<span class="plain">Every day of the last 12 months, coloured by training load - tap a day to open it</span></span><span class="chip chip-ghost num" id="anaYearChip">--</span></div>
+            <div class="yh-wrap" id="anaYearWrap"><div class="yh-months" id="anaYearMonths" aria-hidden="true"></div><div class="yh-grid" id="anaYearGrid" role="grid" aria-label="Training load per day, last 12 months"></div></div>
+            <div class="yh-legend" id="anaYearLegend"></div>
           </div>
         </div>
 
@@ -1045,6 +1082,92 @@
             <div class="card-title"><span data-term="lr">Left / right balance per ride</span><span class="chip chip-ghost num" id="balanceTrendLabel">--</span></div>
             <div class="chart-box" style="height:220px;"><canvas id="balanceTrendCanvas"></canvas></div>
             <p class="footnote">Average left-leg share per ride, measured by the pedals (50% = even). The shaded band is 48-52%, the usual range; the line is the 10-ride average - a steady drift one way is worth watching.</p>
+          </div>
+        </div>
+
+        <!-- HEALTH (resting HR, HRV, sleep and every other daily wellness value: js/app-health-ana.js) -->
+        <div class="ana-panel" id="ana-panel-health" data-panel="health" role="tabpanel" aria-labelledby="anaTab-health" tabindex="-1" hidden>
+          <div class="ana-panel-head"><h3 class="ana-section" id="ana-health">Health</h3><p>How are your heart, sleep and body trending - and how do they answer training?</p></div>
+          <div class="card hl-empty" id="anaHealthEmpty" hidden>
+            <div class="cp-empty"><svg class="ic ic-lg"><use href="#i-heart"/></svg><div><b>No health data in this period</b><p id="anaHealthEmptyText">Resting HR, HRV and sleep appear here once health data is set up in Settings.</p></div></div>
+          </div>
+          <div class="tile-grid hl-tiles" id="anaHealthTiles"></div>
+          <div class="card hl-card" id="anaCardHealthHr" data-expandable hidden>
+            <div class="card-title"><span>Resting &amp; sleeping heart rate<span class="plain">Lower over months usually means fitter; a jump of 5+ bpm can mean fatigue or illness</span></span><span class="chip chip-ghost num" id="anaCardHealthHrChip">--</span></div>
+            <div class="legend-inline hl-legend" data-hl="healthHrCanvas"></div>
+            <div class="chart-box" style="height:240px;"><canvas id="healthHrCanvas"></canvas></div>
+            <p class="footnote" id="anaCardHealthHrNote">Dots are single days, lines are 7-day averages. Resting HR is the lowest steady heart rate of the day; sleeping HR the average while asleep.</p>
+          </div>
+          <div class="card hl-card" id="anaCardHealthHrv" data-expandable hidden>
+            <div class="card-title"><span>HRV and your normal range<span class="plain">The 7-day average inside the band = recovered; below it = go easier</span></span><span class="chip chip-ghost num" id="anaCardHealthHrvChip">--</span></div>
+            <div class="legend-inline hl-legend" data-hl="healthHrvCanvas"></div>
+            <div class="chart-box" style="height:260px;"><canvas id="healthHrvCanvas"></canvas></div>
+            <p class="footnote" id="anaCardHealthHrvNote">--</p>
+          </div>
+          <div class="card hl-card" id="anaCardHealthHrvBoth" data-expandable hidden>
+            <div class="card-title"><span>rMSSD and SDNN<span class="plain">Two ways to measure HRV - compare each with itself, not with each other</span></span><span class="chip chip-ghost num" id="anaCardHealthHrvBothChip">--</span></div>
+            <div class="legend-inline hl-legend" data-hl="healthHrvBothCanvas"></div>
+            <div class="chart-box" style="height:220px;"><canvas id="healthHrvBothCanvas"></canvas></div>
+            <p class="footnote" id="anaCardHealthHrvBothNote">rMSSD is measured overnight; SDNN comes from Apple Watch spot checks. Lines are 7-day averages.</p>
+          </div>
+          <div class="card hl-card" id="anaCardHealthSleep" data-expandable hidden>
+            <div class="card-title"><span>Sleep and its stages<span class="plain">Each bar is a night: deep, light (core), REM and awake time</span></span><span class="chip chip-ghost num" id="anaCardHealthSleepChip">--</span></div>
+            <div class="legend-inline hl-legend" data-hl="healthSleepCanvas"></div>
+            <div class="hl-sleepmix" id="healthSleepMix"></div>
+            <div class="chart-box" style="height:260px;"><canvas id="healthSleepCanvas"></canvas></div>
+            <p class="footnote" id="anaCardHealthSleepNote">--</p>
+          </div>
+          <div class="card hl-card" id="anaCardSleepTimeline" hidden>
+            <div class="card-title"><span><span id="sleepTlTitle">Sleep timeline</span><span class="plain" id="sleepTlSub">Your last nights</span></span><span class="chip chip-ghost num" id="sleepTlChip">--</span></div>
+            <div class="sleep-hypno" id="sleepHypno"></div>
+            <div class="sleep-bars" id="sleepBars"></div>
+            <p class="footnote" id="sleepTlNote"></p>
+          </div>
+          <div class="card hl-card" id="anaCardHealthScores" data-expandable hidden>
+            <div class="card-title"><span>Sleep &amp; readiness scores<span class="plain">The 0-100 scores your sync app writes to intervals.icu</span></span><span class="chip chip-ghost num" id="anaCardHealthScoresChip">--</span></div>
+            <div class="legend-inline hl-legend" data-hl="healthScoresCanvas"></div>
+            <div class="chart-box" style="height:220px;"><canvas id="healthScoresCanvas"></canvas></div>
+            <p class="footnote" id="anaCardHealthScoresNote">Dots are single days, lines are 7-day averages. These are the sync app's own scores; the readiness light in Apex Velo is worked out separately from your HRV, resting HR and sleep.</p>
+          </div>
+          <div class="card hl-card" id="anaCardHealthStress" data-expandable hidden>
+            <div class="card-title"><span>Stress index (Baevsky SI)<span class="plain">From heart-rate variability while asleep - higher means more strain on the body</span></span><span class="chip chip-ghost num" id="anaCardHealthStressChip">--</span></div>
+            <div class="legend-inline hl-legend" data-hl="healthStressCanvas"></div>
+            <div class="chart-box" style="height:200px;"><canvas id="healthStressCanvas"></canvas></div>
+            <p class="footnote" id="anaCardHealthStressNote">Compare it with your own usual level, not with other people: a run of high values with a low HRV is a sign to back off.</p>
+          </div>
+          <div class="card hl-card" id="anaCardHealthBreath" data-expandable hidden>
+            <div class="card-title"><span>Breathing &amp; blood oxygen<span class="plain">Respiratory rate 1-2 breaths/min above your normal often comes before illness</span></span><span class="chip chip-ghost num" id="anaCardHealthBreathChip">--</span></div>
+            <div class="legend-inline hl-legend" data-hl="healthBreathCanvas"></div>
+            <div class="chart-box" style="height:260px;"><canvas id="healthBreathCanvas"></canvas></div>
+            <p class="footnote" id="anaCardHealthBreathNote">Each measure has its own scale. Dots are single days, lines are 7-day averages.</p>
+          </div>
+          <div class="card hl-card" id="anaCardHealthBody" data-expandable hidden>
+            <div class="card-title"><span>Weight<span class="plain">Morning weight from your scale or the sync app</span></span><span class="chip chip-ghost num" id="anaCardHealthBodyChip">--</span></div>
+            <div class="legend-inline hl-legend" data-hl="healthBodyCanvas"></div>
+            <div class="chart-box" style="height:200px;"><canvas id="healthBodyCanvas"></canvas></div>
+            <p class="footnote" id="anaCardHealthBodyNote">Dots are single days, the line is the 7-day average. Day-to-day changes are mostly water; watch the average.</p>
+          </div>
+          <div class="card hl-card" id="anaCardHealthVitals" data-expandable hidden>
+            <div class="card-title"><span>Blood pressure, glucose &amp; food<span class="plain">Logged or measured values from your sync app</span></span><span class="chip chip-ghost num" id="anaCardHealthVitalsChip">--</span></div>
+            <div class="legend-inline hl-legend" data-hl="healthVitalsCanvas"></div>
+            <div class="chart-box" style="height:300px;"><canvas id="healthVitalsCanvas"></canvas></div>
+            <p class="footnote" id="anaCardHealthVitalsNote">Each measure has its own scale. Dots are single days, lines are 7-day averages.</p>
+          </div>
+          <div class="card hl-card" id="anaCardHealthLoad" hidden>
+            <div class="card-title"><span>How training changes your next morning<span class="plain">Average HRV, resting HR and sleep after rest days and after easy and hard riding</span></span><span class="chip chip-ghost num" id="anaCardHealthLoadChip">--</span></div>
+            <div class="hl-load" id="healthLoadTable"></div>
+            <p class="footnote" id="anaCardHealthLoadNote">Each morning is grouped by the TSS you rode the day before and compared with the average of all mornings in this period. Only mornings after your first recorded ride count.</p>
+          </div>
+          <div class="card" id="anaCardCorr" data-expandable>
+            <div class="card-title"><span>Explore: does one thing follow another?<span class="plain">Pick two measures - each dot is a day; tap one to open it</span></span><span class="chip chip-ghost num" id="anaCorrChip">--</span></div>
+            <div class="corr-controls">
+              <label><span>Across</span><select id="corrX" class="input-field"></select></label>
+              <label><span>Up</span><select id="corrY" class="input-field"></select></label>
+              <label class="corr-lag"><input type="checkbox" id="corrLag" checked> Up = the next morning</label>
+            </div>
+            <p class="corr-verdict" id="corrVerdict"></p>
+            <div class="chart-box" style="height:280px;"><canvas id="corrCanvas"></canvas></div>
+            <p class="footnote">A link is not proof that one causes the other: illness, travel or a busy week can move both. Links from fewer than 20 days are a rough guide only.</p>
           </div>
         </div>
 
@@ -1525,6 +1648,21 @@
     </div>
   </div>
 
+  <!-- ============================== MODAL: ONE DAY (Analytics) ============================== -->
+  <div class="modal-overlay" id="anaDayModal" role="dialog" aria-modal="true" aria-labelledby="anaDayTitle">
+    <div class="modal-content ana-day-modal">
+      <div class="modal-header">
+        <div><span class="eyebrow" id="anaDayEyebrow">Day</span><h3 id="anaDayTitle">--</h3></div>
+        <div class="btn-row btn-row-tight">
+          <button type="button" class="icon-btn" id="btnAnaDayPrev" title="Day before"><svg class="ic"><use href="#i-left"/></svg></button>
+          <button type="button" class="icon-btn" id="btnAnaDayNext" title="Day after"><svg class="ic"><use href="#i-right"/></svg></button>
+          <button type="button" class="close-modal icon-btn" id="btnAnaDayClose" aria-label="Close"><svg class="ic"><use href="#i-x"/></svg></button>
+        </div>
+      </div>
+      <div id="anaDayBody"></div>
+    </div>
+  </div>
+
   <!-- ============================== MODAL: SHORTCUTS ============================== -->
   <div class="modal-overlay" id="stravaSyncModal" role="dialog" aria-modal="true" aria-labelledby="stravaSyncTitle">
     <div class="modal-content strava-sync-modal">
@@ -1704,6 +1842,7 @@
   <script src="js/velo-dedupe.js"></script>
   <script src="js/velo-strava-sync.js"></script>
   <script src="js/velo-health.js"></script>
+  <script src="js/velo-wellness.js"></script>
   <script src="js/velo-trends.js"></script>
   <script src="js/velo-power.js"></script>
   <script src="js/velo-ftp-history.js"></script>
@@ -1715,7 +1854,9 @@
   <script src="js/app-ride-analysis.js"></script>
   <script src="js/app-ask.js"></script>
   <script src="js/app-dashboard.js"></script>
+  <script src="js/app-health-ana.js"></script>
   <script src="js/app-ana-studio.js"></script>
+  <script src="js/app-ana-plus.js"></script>
   <script src="js/app-ftp-history.js"></script>
   <script src="js/app-history.js"></script>
   <script src="js/app-coach.js"></script>

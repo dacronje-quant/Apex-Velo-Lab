@@ -265,6 +265,7 @@
         st.drag = null;
         if (!d) return;
         if (Math.abs(d.x1 - d.x0) < 12) { chart.draw(); return; }
+        st.dragEnd = Date.now(); // the click that ends a zoom drag is not a tap on a day
         const xs = chart.scales.x;
         let min = xs.getValueForPixel(Math.min(d.x0, d.x1)), max = xs.getValueForPixel(Math.max(d.x0, d.x1));
         if (kind === 'category') {

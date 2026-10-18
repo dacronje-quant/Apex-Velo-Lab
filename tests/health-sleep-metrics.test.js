@@ -71,4 +71,17 @@ check('re-sending the same heart rate data counts nothing twice; compacted days 
   assert.deepStrictEqual([after.rhr, after.hrv, after.rhrSrc], [before.rhr, before.hrv, 'sleep']);
 });
 
+check('bedtime, wake-up and stage segments for the hypnogram', () => {
+  const { store } = H.merge(H.emptyStore(), H.parsePayload(night()));
+  const d = dayOf(store, '2026-09-28');
+  assert.strictEqual(d.bed, 23 * 60);
+  assert.strictEqual(d.wake, 6 * 60 + 30);
+  const segs = H.sleepSegments(store, '2026-09-28');
+  assert.deepStrictEqual(segs.map(s => s.stage), ['core', 'awake', 'deep', 'rem']);
+  assert.deepStrictEqual([segs[0].a, segs[segs.length - 1].b], [23 * 60, 30 * 60 + 30], 'minutes keep counting past midnight');
+  H.compact(store, '2026-10-30');
+  assert.strictEqual(dayOf(store, '2026-09-28').bed, 23 * 60, 'kept after compacting');
+  assert.deepStrictEqual(H.sleepSegments(store, '2026-09-28'), [], 'segments only while the raw readings are kept');
+});
+
 console.log(`\n${n} checks passed`);
