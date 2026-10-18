@@ -146,6 +146,7 @@
       this.recalculatePmc();
       this.renderProgression();
       this.updateMmpChart();
+      if (this.updateDriftChart) this.updateDriftChart();
       if (this.renderDashboard) this.renderDashboard();
     },
 

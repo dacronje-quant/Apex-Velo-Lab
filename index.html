@@ -1011,13 +1011,15 @@
               <div><span>FTP in Use</span><strong id="ftpMetricsActiveValue">—</strong><small>Your training setting</small></div>
               <div><span>Power + Heart Rate</span><strong id="ftpMetricsEstimateValue">—</strong><small id="ftpMetricsEstimateRange">Latest saved estimate</small></div>
             </div>
-            <div class="ftp-metrics-tools"><label class="ftp-band-toggle"><input type="checkbox" id="ftpMetricsBand" checked><span class="ftp-band-check" aria-hidden="true"></span><span>Uncertainty band</span></label><label class="ftp-band-toggle"><input type="checkbox" id="ftpMetricsWorkoutDots" checked><span class="ftp-band-check" aria-hidden="true"></span><span>Workout-implied FTP dots</span></label></div>
+            <div class="ftp-metrics-tools"><label class="ftp-band-toggle"><input type="checkbox" id="ftpMetricsBand" checked><span class="ftp-band-check" aria-hidden="true"></span><span>Uncertainty band</span></label><label class="ftp-band-toggle"><input type="checkbox" id="ftpMetricsWorkoutDots" checked><span class="ftp-band-check" aria-hidden="true"></span><span>Workout-implied FTP dots</span></label>
+              <label class="ftp-source" id="ftpMetricsSourceWrap" hidden><span>Source</span><select id="ftpMetricsSource" class="input-field"><option value="app">Calculated in the app (updates after every ride)</option><option value="import">Imported research history</option></select></label></div>
             <div class="ftp-metrics-controls" id="ftpMetricsControls" role="group" aria-label="FTP history series"></div>
             <div class="chart-box ftp-metrics-chart"><canvas id="ftpMetricsHistoryCanvas" role="img" aria-label="FTP in use and experimental Power plus Heart Rate estimate over time"></canvas></div>
-            <p class="footnote" id="ftpMetricsStatus" role="status">Loading saved calculation history…</p>
+            <p class="footnote" id="ftpMetricsStatus" role="status">Calculating…</p>
             <p class="footnote">The shaded range shows model uncertainty, not validated FTP confidence. Your training setting changes only when you choose to update it.</p>
             <details class="table-view" id="ftpMetricsDetails"><summary>Supporting calculations &amp; history</summary>
               <p class="footnote">Power Curve and Bayesian Power Curve model one-hour power. Workout Capacity Floor is a conditional CP floor; Workout Capacity Model is a prior-dependent diagnostic. Easy efforts are not maximal tests, so these checks are not standalone FTP recommendations.</p>
+              <p class="footnote" id="ftpMetricsMethod">In the app: <b>Power Curve</b> = critical power of the 90-day power curve (0.95 × best 20 min when it cannot be modelled), weekly. <b>Bayesian Power Curve</b> = that through a Kalman filter (about 0.5% drift a week). <b>Power + Heart Rate</b> = for each ride, power against heart rate over steady minutes read at your threshold heart rate (the dots), filtered the same way with its 90% range. <b>Workout Capacity Floor</b> = what a ride proves (60 min, 0.97 × 45 min, 0.93 × 20 min). <b>Workout Capacity Model</b> = the strongest recent floor, aged after two weeks and leaning back to your FTP in use when there is none. Tick a series above the chart to draw it.</p>
               <button type="button" class="btn btn-sm" id="btnImportFtpMetrics">Import calculation history</button>
               <input type="file" id="ftpMetricsFile" accept=".json,application/json" hidden>
               <div class="table-scroll ftp-metrics-table"><table class="data-table"><thead><tr><th>Date</th><th>Metric</th><th>Watts</th><th>Range</th><th>Evidence</th></tr></thead><tbody id="ftpMetricsTable"></tbody></table></div>
@@ -1832,6 +1834,7 @@
   <script src="js/velo-trends.js"></script>
   <script src="js/velo-power.js"></script>
   <script src="js/velo-ftp-history.js"></script>
+  <script src="js/velo-ftp-model.js"></script>
   <script src="js/velo-ask.js"></script>
   <script src="js/velo-describe.js"></script>
   <script src="js/app.js"></script>
