@@ -375,7 +375,7 @@ html.ana-zoom-lock { overflow: hidden; }
 .corr-controls { display: flex; flex-wrap: wrap; gap: 10px 14px; align-items: flex-end; margin-bottom: 8px; }
 .corr-controls label { display: flex; flex-direction: column; gap: 4px; font-size: 11px; font-weight: 700; letter-spacing: .06em; text-transform: uppercase; color: var(--text-3); min-width: 0; }
 .corr-controls select { min-width: 190px; max-width: 100%; }
-.corr-controls .corr-lag { flex-direction: row; align-items: center; text-transform: none; letter-spacing: 0; font-weight: 500; font-size: 13px; color: var(--text-2); padding-bottom: 8px; }
+.corr-controls .corr-lag { gap: 8px; flex-direction: row; align-items: center; text-transform: none; letter-spacing: 0; font-weight: 500; font-size: 13px; color: var(--text-2); padding-bottom: 8px; }
 .corr-verdict { margin: 4px 0 10px; font-size: 14px; color: var(--text-1); line-height: 1.5; }
 .corr-verdict .num { color: var(--text-3); font-size: 12px; }
 @media (max-width: 560px) { .corr-controls label:not(.corr-lag) { flex: 1 1 100%; } .corr-controls select { min-width: 0; width: 100%; } }
@@ -399,3 +399,4 @@ html.ana-zoom-lock { overflow: hidden; }
 .day-sleep-head b { font-size: 16px; color: var(--text-1); }
 .day-sleep .legend-inline { margin-top: 8px; }
 .card.is-zoomed .ana-pin-btn { display: none; }
+.corr-lag input { width: 16px; height: 16px; margin: 0; accent-color: var(--cyan); }
