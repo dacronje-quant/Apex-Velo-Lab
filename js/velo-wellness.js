@@ -43,7 +43,7 @@
     { key: 'awakeH', label: 'Awake', unit: 'h', fmt: 'h', good: 'down' },
     { key: 'sleepScore', label: 'Sleep score', unit: '', dec: 0, good: 'up' },
     { key: 'icuReadiness', label: 'Readiness score', unit: '', dec: 0, good: 'up' },
-    { key: 'baevsky', label: 'Stress index', unit: '', dec: 0, good: 'down' },
+    { key: 'baevsky', label: 'Stress index', unit: '', dec: 2, good: 'down' },
     { key: 'resp', label: 'Respiratory rate', unit: 'br/min', dec: 1, good: null },
     { key: 'spo2', label: 'Blood oxygen', unit: '%', dec: 1, good: 'up' },
     { key: 'weight', label: 'Weight', unit: 'kg', dec: 1, good: null },

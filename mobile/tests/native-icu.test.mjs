@@ -37,7 +37,7 @@ test('every other wellness value is kept for Analytics > Health; implausible val
   const s = toHealthDays([{ id: '2026-10-15', restingHR: 48, hrv: 71.4, hrvSDNN: 55.6, avgSleepingHR: 52.4, sleepScore: 83, readiness: 77, baevskySI: 104.26,
     respiration: 14.62, spO2: 96.84, weight: 71.86, bodyFat: 13.84, vo2max: 54.06, steps: 9123, systolic: 118, diastolic: 76, bloodGlucose: 5.24, kcalConsumed: 2450, comments: 'x' }])['2026-10-15'].summary;
   assert.deepEqual([s.sleepHr, s.hrvRmssd, s.hrvSdnn, s.sleepScore, s.icuReadiness, s.baevsky, s.resp, s.spo2, s.weight, s.bodyFat, s.vo2max, s.steps, s.bpSys, s.bpDia, s.glucose, s.kcalIn],
-    [52, 71, 56, 83, 77, 104.3, 14.6, 96.8, 71.9, 13.8, 54.1, 9123, 118, 76, 5.2, 2450]);
+    [52, 71, 56, 83, 77, 104.26, 14.6, 96.8, 71.9, 13.8, 54.1, 9123, 118, 76, 5.2, 2450]);
   assert.equal(s.comments, undefined);
   const bad = toHealthDays([{ id: '2026-10-15', restingHR: 48, spO2: 30, weight: 0, avgSleepingHR: 300 }])['2026-10-15'].summary;
   assert.deepEqual([bad.spo2, bad.weight, bad.sleepHr], [undefined, undefined, undefined]);

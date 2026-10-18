@@ -57,7 +57,7 @@ const EXTRA = [
   ['hrvSdnn', 'hrvSDNN', 1, 300, 0],
   ['sleepScore', 'sleepScore', 0, 100, 0],
   ['icuReadiness', 'readiness', 0, 100, 0],
-  ['baevsky', 'baevskySI', 0, 3000, 1],
+  ['baevsky', 'baevskySI', 0, 3000, 2],
   ['resp', 'respiration', 4, 60, 1],
   ['spo2', 'spO2', 50, 100, 1],
   ['weight', 'weight', 20, 300, 1],

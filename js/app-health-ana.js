@@ -85,7 +85,7 @@
       el.innerHTML = tiles.map(({ m, s }) => {
         const delta = s.prev !== null ? s.avg - s.prev : null;
         const unit = m.unit === 'h' || m.unit.length > 6 ? '' : m.unit; // long units go in the line below
-        const step = m.fmt === 'h' ? 0.05 : m.dec === 1 ? 0.1 : 1;
+        const step = m.fmt === 'h' ? 0.05 : m.dec ? 10 ** -m.dec : 1;
         const moved = delta !== null && Math.abs(delta) >= step;
         const tone = !moved || !m.good ? 'flat' : (m.good === 'up') === (delta > 0) ? 'good' : 'bad';
         const arrow = !moved ? '&rarr;' : delta > 0 ? '&#9650;' : '&#9660;';
@@ -218,7 +218,7 @@
         }
         // Lanes zoom to their own data (a fixed 0-100 lane keeps its range).
         if (lane.min === undefined && vals.length) {
-          const lo = Math.min(...vals), hi = Math.max(...vals), pad = Math.max((hi - lo) * 0.12, Math.abs(hi) * 0.02, 1);
+          const lo = Math.min(...vals), hi = Math.max(...vals), pad = Math.max((hi - lo) * 0.12, Math.abs(hi) * 0.02, 0.05);
           laneScales[id].suggestedMin = lo - pad; laneScales[id].suggestedMax = hi + pad;
         }
       });
