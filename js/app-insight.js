@@ -154,16 +154,20 @@
     },
 
     // ------------------------------------------------------ drift trend --
-    /** Decoupling of every steady ride with heart rate (oldest first, the latest 40). Cached per ride. */
-    driftTrendData(limit = 40) {
+    /**
+     * Decoupling of every steady ride with heart rate, oldest first. Cached per ride. A ride whose date
+     * cannot be read is left out (it would otherwise scramble the order); limit keeps the latest ones.
+     */
+    driftTrendData(limit = 400) {
       this._decCache = this._decCache || new Map();
       const pts = [];
-      this.cyclingRides().filter(VeloInsight.hasSamples).sort((a, b) => new Date(a.date) - new Date(b.date)).forEach(r => {
+      this.cyclingRides().filter(VeloInsight.hasSamples).map(r => ({ r, t: Date.parse(r.date) })).filter(e => Number.isFinite(e.t))
+        .sort((a, b) => a.t - b.t).forEach(({ r, t }) => {
         const key = `${r.id}|${r.samples.length}`;
         if (!this._decCache.has(key)) this._decCache.set(key, VeloInsight.decoupling(r.samples));
         const d = this._decCache.get(key);
-        if (d.status === 'ok') pts.push({ id: r.id, date: r.date, title: r.title, pct: d.pct, level: d.level, minutes: d.minutes, np: r.np || r.avgWatts || null });
-      });
+        if (d.status === 'ok') pts.push({ id: r.id, t, date: r.date, title: r.title, pct: d.pct, level: d.level, minutes: d.minutes, np: r.np || r.avgWatts || null });
+        });
       return pts.slice(-limit);
     },
 
@@ -175,7 +179,7 @@
       const grid = 'rgba(148,163,184,0.12)';
       this.driftChart = new Chart(cv.getContext('2d'), {
         type: 'line',
-        data: { labels: [], datasets: [
+        data: { datasets: [
           { label: 'Pw:HR drift %', data: [], borderColor: 'rgba(148,163,184,0.5)', borderWidth: 1.5, tension: 0.25, pointRadius: 5, pointHoverRadius: 7, pointBackgroundColor: [], pointBorderColor: [] },
           { label: '5% (coupled below)', data: [], borderColor: 'rgba(101,163,13,0.7)', borderDash: [6, 5], borderWidth: 1, pointRadius: 0 }
         ] },
@@ -183,7 +187,8 @@
           responsive: true, maintainAspectRatio: false,
           onClick: (e, els) => { const el = els && els[0]; if (el && el.datasetIndex === 0 && this._driftPts && this._driftPts[el.index]) this.showRideSummaryById(this._driftPts[el.index].id); },
           scales: {
-            x: { ticks: { color: ink, maxRotation: 0, autoSkip: true, maxTicksLimit: 8 }, grid: { display: false } },
+            // A time axis: rides sit at their dates, so gaps between them are real gaps.
+            x: { type: 'linear', ticks: { color: ink, maxRotation: 0, maxTicksLimit: 8, callback: (v) => new Date(v).toLocaleDateString('en-GB', { day: 'numeric', month: 'short' }) }, grid: { display: false } },
             y: { suggestedMin: 0, suggestedMax: 10, ticks: { color: ink, callback: (v) => `${v}%` }, grid: { color: grid } }
           },
           plugins: {
@@ -201,14 +206,17 @@
 
     updateDriftChart() {
       if (!this.driftChart) return;
-      const pts = this.driftTrendData();
+      // The page range applies here as on the other time charts.
+      const now = Date.now(), start = this.anaRangeStart ? this.anaRangeStart(now) : now - 182 * 86400000;
+      const pts = this.driftTrendData().filter(p => p.t >= start && p.t <= now);
       this._driftPts = pts;
       const ds = this.driftChart.data.datasets;
-      this.driftChart.data.labels = pts.map(p => new Date(p.date).toLocaleDateString('en-GB', { day: 'numeric', month: 'short' }));
-      ds[0].data = pts.map(p => p.pct);
+      ds[0].data = pts.map(p => ({ x: p.t, y: p.pct }));
       ds[0].pointBackgroundColor = pts.map(p => this._driftColor[p.level]);
       ds[0].pointBorderColor = pts.map(p => this._driftColor[p.level]);
-      ds[1].data = pts.map(() => 5);
+      ds[1].data = [{ x: start, y: 5 }, { x: now, y: 5 }];
+      this.driftChart.options.scales.x.min = start;
+      this.driftChart.options.scales.x.max = now;
       this.driftChart.update();
       const label = document.getElementById('driftTrendLabel');
       if (label) {
