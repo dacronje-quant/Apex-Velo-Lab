@@ -100,7 +100,7 @@
       }));
 
       // Drag-to-zoom (mouse / pen) on the long time-series charts.
-      [[this.pmcChart, 'category'], [this.efChart, 'linear'], [this.recoveryChart, 'linear'], [this.balanceChart, 'linear'], [this.cpHistoryChart, 'linear']]
+      [[this.pmcChart, 'category'], [this.efChart, 'linear'], [this.balanceChart, 'linear'], [this.cpHistoryChart, 'linear']]
         .forEach(([c, kind]) => this.attachBrushZoom(c, kind));
 
       this.initAnaExpand();
@@ -378,10 +378,6 @@
       setMod('intensity', s ? s.label : '--', s ? `${Math.round(s.pct[0])}% easy · ${Math.round(s.pct[2])}% hard` : 'needs power data');
       const ef = tile('ef');
       setMod('aerobic', fin(ef.now) ? ef.now.toFixed(2) : '--', fin(ef.now) ? 'W per bpm · 30 days' : 'efficiency (EF)', trend(ef, 0.01));
-      const rhr = tile('rhr'), bal = text('balanceTrendLabel').match(/avg ([\d.]+) \/ ([\d.]+)/);
-      if (fin(rhr.now)) setMod('body', `${Math.round(rhr.now)} bpm`, 'resting HR · 30 days', trend(rhr, 1));
-      else if (bal) setMod('body', `${bal[1]}/${bal[2]}`, 'L / R balance');
-      else setMod('body', '--', 'no data yet');
       this.renderAnaInsights(d);
     },
 
@@ -445,7 +441,7 @@
       const rhr = tile('rhr'), hrv = tile('hrv');
       if (fin(rhr.now) || fin(hrv.now)) {
         const dr = fin(rhr.now) && fin(rhr.then) ? rhr.now - rhr.then : null;
-        add({ goto: 'body', spot: 'anaCardRecovery', icon: 'i-lotus', tone: dr === null || Math.abs(dr) < 1 ? 'flat' : dr < 0 ? 'good' : 'bad',
+        add({ goto: 'health', spot: 'anaCardHealthHr', icon: 'i-heart', tone: dr === null || Math.abs(dr) < 1 ? 'flat' : dr < 0 ? 'good' : 'bad',
           title: fin(rhr.now) ? `Resting HR ${Math.round(rhr.now)} bpm` : `HRV ${Math.round(hrv.now)} ms`, value: dr === null ? '' : `${signed(dr)} bpm`,
           text: [fin(hrv.now) && fin(rhr.now) ? `HRV ${Math.round(hrv.now)} ms` : '', '30-day averages from Apple Health'].filter(Boolean).join(' · ') });
       }
