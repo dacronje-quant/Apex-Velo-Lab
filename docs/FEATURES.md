@@ -100,6 +100,10 @@ Your Apple Watch's **resting heart rate**, **HRV** (Apple's SDNN, in ms) and **s
 
 **How it works.** The server only stores what arrives (`data\health\inbox`, never served, git-ignored) - after checking the token; the app on the PC collects it at start-up, every 10 minutes and when Settings opens, folds it into one record per day and then lets the server delete the payloads. Every reading is keyed by its own timestamp (sleep by stage and start/end), so hourly exports that overlap, or the same data sent twice, never count twice. A new token (Settings) stops the old one working. Missed days fill in on the next sync (the phone must be on home Wi-Fi and the PC server running).
 
+**Backfill from files (Google Drive, iCloud).** Health Auto Export can also save one JSON file per day to Google Drive or iCloud Drive (*Automations > New automation > Google Drive / iCloud Drive*, data type **Health Metrics**, format **JSON**). In **Settings > Apple Health** (*Health* in the Android app) press **Import Health Auto Export files** and pick as many of those files as you like, or a **.zip** of the folder downloaded from drive.google.com. All files are read together first, so a night split over two daily files (the evening in one, the morning in the next) is complete. The last 7 days keep their readings like a live sync; older days store their values and replace earlier Apple Health values for that day, metric by metric. Importing the same files again changes nothing. Respiratory rate while asleep is read too (Analytics > Health).
+
+**Apple Watch first.** When several apps write the same metric to Apple Health (WHOOP, Athlytic, Oura, AutoSleep...), each day uses only its best source per metric: the Apple Watch, then readings without a source (Health Auto Export's merged values, e.g. heart rate), then other apps. On the Android app, intervals.icu values are kept beside a day's Apple Health values: the watch's resting HR, HRV, breathing and sleep win, intervals.icu fills the days and metrics the files lack and keeps its own values (sleep score, stress index, SpO2, weight...). A sync never overwrites imported days. Once Apple Watch HRV (SDNN) is in the store, intervals.icu days also give their SDNN, never rMSSD, so your normal range stays on one scale.
+
 **Sleeping resting HR and HRV.** Both are taken from the night, not the whole day. Resting HR is the **floor of your heart rate while asleep** - the 10th percentile of the readings inside your sleep stages, so one bad low optical reading cannot set it and REM or restless spells do not lift it. It falls back to Apple's daily *Resting Heart Rate* on a night with fewer than 20 heart rate readings asleep. HRV is the average of the readings taken asleep (all of that night's readings, 18:00 on, when none were). Heart rate is kept only overnight (18:00-12:00). Nights from before *Heart Rate* was exported keep Apple's daily value, which usually sits a few bpm higher - so the resting HR baseline takes about 30 nights to be fully sleep-based.
 
 **Readiness** (advisory - it never blocks a workout), against your own normal:
@@ -244,7 +248,7 @@ A thin zone-coloured bar of the whole workout sits above the controls on every s
   - *PowerMatch* - the trim is a pedal/trainer calibration, so it carries to the next step in proportion to the new target (short intervals start already matched). After any target change it waits 6 s before adjusting, it is off during a ramp, and it never adds watts while cadence is low, so it can't overshoot a step or deepen a stall.
 - **The simulator never touches a real ride.** It switches off as soon as a device connects, and once a ride has used real hardware a dropout is recorded as no power (`NONE`), never filled with simulated values.
 - **Heart rate.** A strap reporting no skin contact or 0 bpm (a Polar H10 does this while the electrodes are dry) shows `--` and is not recorded; the last value is never frozen on screen.
-- **Apple Health.** Recovery values appear only for days that have them - no carrying forward, no averages dressed up as a day. Implausible readings are dropped (resting HR outside 25-130 bpm, HRV of 0 or above 300 ms, more than 20 h of sleep); several sleep sources for one night are never added together (the longest is kept).
+- **Apple Health.** Recovery values appear only for days that have them - no carrying forward, no averages dressed up as a day. Implausible readings are dropped (resting HR outside 25-130 bpm, HRV of 0 or above 300 ms, more than 20 h of sleep); several sleep sources for one night are never added together (the Apple Watch's night is used, else the longest).
 
 ## Features
 
@@ -346,7 +350,8 @@ js/
   velo-block-planner.js  Training blocks: periodisation, session placement, post-ride review
   velo-workouts.js    Workout library
   velo-biomech.js     Pedal-stroke polar view (phone Pedal screen)
-  velo-health.js      Apple Health: payload parsing, per-day de-duplication, readiness, calendar flags (pure)
+  velo-health.js      Apple Health: payload parsing, file backfill, source priority, per-day de-duplication, readiness, calendar flags (pure)
+  velo-unzip.js       Reads the JSON files inside a .zip (Drive folder download) for the health backfill (pure)
   velo-trends.js      Dashboard maths: efficiency factor, ramp rate, power profile, balance trend, sparklines (pure)
   velo-power.js       Power maths: 1 s-4 h mean-maximal curve, CP model (CP, W', Pmax), W' balance, matches, TRIMP, quadrant analysis, polarization (pure)
   velo-sound.js, velo-pip.js, velo-folder-sync.js

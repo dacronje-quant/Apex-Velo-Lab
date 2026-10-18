@@ -1477,6 +1477,11 @@
           <button type="button" class="btn btn-ghost" id="btnHealthNewToken" title="Makes a new token - the old one stops working">New token</button>
           <button type="button" class="btn btn-ghost" id="btnHealthRefresh"><svg class="ic"><use href="#i-refresh"/></svg>Check now</button>
         </div>
+        <p class="field-help" id="healthImportHelp"><b>Backfill from files.</b> Health Auto Export can also save one JSON file per day to Google Drive or iCloud Drive. Pick those files here (as many as you like), or a <b>.zip</b> of the folder downloaded from drive.google.com. Importing again never counts anything twice, and your Apple Watch's readings win over other apps (WHOOP, Athlytic...).</p>
+        <div class="btn-row">
+          <button type="button" class="btn" id="btnHealthImport">Import Health Auto Export files</button>
+          <input type="file" id="healthImportFile" accept=".json,.zip,application/json,application/zip" multiple hidden>
+        </div>
       </section>
 
       <section class="settings-section" data-sec="backups">
@@ -1842,6 +1847,7 @@
   <script src="js/velo-dedupe.js"></script>
   <script src="js/velo-strava-sync.js"></script>
   <script src="js/velo-health.js"></script>
+  <script src="js/velo-unzip.js"></script>
   <script src="js/velo-wellness.js"></script>
   <script src="js/velo-trends.js"></script>
   <script src="js/velo-power.js"></script>

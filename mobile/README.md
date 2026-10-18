@@ -14,7 +14,7 @@ It is the same web app as the desktop version, wrapped with [Capacitor](https://
 | **Storage** | Rides, profiles and settings are saved in the app on the phone and survive restarts and app updates |
 | **Strava** | Connect your account, send rides (FIT upload), check which rides are already there, and **Sync from Strava** |
 | **Ride files** | Every ride recorded on the phone is also saved as a FIT file in **Documents/ApexVelo** (switch: Settings > Ride files), ready for any file manager, Garmin Connect, TrainingPeaks or intervals.icu. History > Export (FIT, TCX, CSV, full JSON backup) saves there too; the workout image opens the share sheet. FIT/TCX/CSV import works in History |
-| **Health** | Resting HR, HRV and sleep read from **intervals.icu** (your watch's wellness data there), for the readiness score, the calendar recovery strip and the recovery trends. One-time backfill of all history, then the last week is refreshed automatically |
+| **Health** | Resting HR, HRV and sleep from **Health Auto Export files** (Google Drive backfill, Apple Watch first) and/or **intervals.icu** (your watch's wellness data there), for the readiness score, the calendar recovery strip and the recovery trends. One-time backfill of all history, then the last week is refreshed automatically |
 | **Analytics** | History, calendar, PMC (fitness/fatigue/form), power curve, CP, FTP history, and **Health**: every intervals.icu wellness value over time (resting and sleeping HR, HRV rMSSD and SDNN with your normal range, sleep stages, sleep and readiness scores, Baevsky stress index, breathing, SpO2, weight, blood pressure, glucose) and how your next-morning HRV, resting HR and sleep answer the previous day's training |
 | **AI** | **Ask** (questions about your own training), the **AI coach** (sessions and multi-week plans) and ride **interval breakdowns**, with Claude, Gemini or ChatGPT and your own API key. Without a key the built-in offline coach is used |
 
@@ -23,7 +23,7 @@ It is the same web app as the desktop version, wrapped with [Capacitor](https://
 These need the PC server or another device, so they are switched off in the app:
 
 - **Phone remote view** (the app *is* the phone view now).
-- **Apple Health via Health Auto Export** (it sends to the PC). The app reads the same data from intervals.icu instead.
+- **Apple Health via Health Auto Export's REST automation** (it sends to the PC). Import its daily files from Google Drive instead (below), and/or read intervals.icu.
 - **PC backups** (Settings > Backups). Use **History > Export** for a full JSON backup instead.
 - Fullscreen button and keyboard shortcuts.
 
@@ -52,6 +52,16 @@ The app uses your own free Strava API application, the same as the desktop setup
 3. Approve on the Strava page, keeping **Upload your activities** and **View data about your activities** ticked. You return to the app automatically (`apexvelo://localhost/strava`).
 
 The secret and tokens are kept in the app's private Android storage (not in the web storage or in exports). Strava's API is called directly from the phone.
+
+## Backfill health from Google Drive (Health Auto Export files)
+
+If Health Auto Export saves your health data to Google Drive (one `HealthAutoExport-YYYY-MM-DD.json` per day), the app can read those files directly, with no intervals.icu day-by-day uploads:
+
+1. In **Settings (gear) > Health** press **Import Health Auto Export files**.
+2. In Android's file picker choose **Drive**, open the Health Auto Export folder, long-press one file, then **Select all** (or tick the days you want) and **Select**.
+3. A message says how many files and days were read. Readiness, the calendar and Analytics > Health fill in straight away.
+
+Import new files the same way whenever you like: importing again never counts anything twice. Your **Apple Watch comes first**: over other apps writing the same metric (WHOOP, Athlytic...) and over intervals.icu, which still fills the days and values the files don't have (sleep score, stress index, SpO2, weight...) and never overwrites an imported day. With Apple Watch HRV imported, every day's HRV is SDNN (intervals.icu days give their SDNN too), so your normal range stays on one scale.
 
 ## Connect intervals.icu (health data)
 

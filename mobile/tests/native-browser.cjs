@@ -311,6 +311,35 @@ const step = (name) => console.log('  ok -', name);
     step('Analytics > Health: tiles, heart rate, HRV with its normal range, both HRV kinds, sleep stages, scores, stress, breathing and weight; cards without data stay hidden');
     step('health: intervals.icu key checked, all history backfilled into readiness with sleep stages, HRV kind switchable (never mixed), later syncs read the last week at most hourly');
 
+    // ---------------------------------------------- health: Health Auto Export files (Drive) --
+    // Yesterday's file as Health Auto Export saves it to Google Drive: the watch, plus WHOOP for the same metrics.
+    const yday = await page.evaluate((d) => VeloHealth.addDays(d, -1), today);
+    const before = await page.evaluate((d) => app.healthDays.find((x) => x.day === d), yday);
+    const at = (h, m) => `${yday} ${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}:00 +0000`;
+    const watch = 'Test Rider’s Apple Watch', hr = [];
+    for (let m = 0; m <= 6 * 60; m += 5) hr.push({ date: at(Math.floor(m / 60), m % 60), Min: 44, Avg: 44 + (m % 3), Max: 47 });
+    const haeFile = { data: { metrics: [
+      { name: 'sleep_analysis', units: 'hr', data: [{ date: at(0, 0), source: watch, totalSleep: 6.9, deep: 0.8, rem: 1.6, core: 4.5, awake: 0.4, sleepStart: at(0, 0), sleepEnd: at(6, 54) }, { date: at(0, 0), source: 'WHOOP', totalSleep: 8.2, sleepStart: at(0, 0), sleepEnd: at(7, 30) }] },
+      { name: 'heart_rate_variability', units: 'ms', data: [{ date: at(2, 0), qty: 54, source: watch }, { date: at(4, 0), qty: 56, source: watch }, { date: at(5, 0), qty: 99, source: 'WHOOP' }] },
+      { name: 'resting_heart_rate', units: 'count/min', data: [{ date: at(0, 3), qty: 60, source: watch }, { date: at(7, 0), qty: 41, source: 'WHOOP' }] },
+      { name: 'heart_rate', units: 'count/min', data: hr }
+    ] } };
+    await page.evaluate(() => app.openSettings('health'));
+    await page.locator('#healthImportFile').setInputFiles([
+      { name: `HealthAutoExport-${yday}.json`, mimeType: 'application/json', buffer: Buffer.from(JSON.stringify(haeFile)) },
+      { name: 'notes.json', mimeType: 'application/json', buffer: Buffer.from('{"hello": 1}') }
+    ]);
+    await page.waitForFunction((d) => app.healthDays.find((x) => x.day === d).hrv === 55, yday, { timeout: 10000 });
+    const fromFile = await page.evaluate((d) => app.healthDays.find((x) => x.day === d), yday);
+    assert.equal(fromFile.rhr, 44, 'resting HR from the watch\'s night, not intervals.icu\'s or WHOOP\'s');
+    assert.deepEqual([fromFile.sleepH, fromFile.deepH, fromFile.remH], [6.9, 0.8, 1.6], 'the watch\'s night, not WHOOP\'s longer one');
+    assert.equal(fromFile.sleepScore, before.sleepScore, 'intervals.icu\'s own values stay');
+    await page.locator('#healthStatus', { hasText: 'From Apple Health files' }).waitFor();
+    assert.match(await page.locator('#healthStatus').innerText(), /SDNN \(Apple Watch files first\)/);
+    await page.evaluate(() => app.pullHealthInbox({ force: true }));
+    assert.equal(await page.evaluate((d) => app.healthDays.find((x) => x.day === d).hrv, yday), 55, 'an intervals.icu sync never replaces the file\'s values');
+    step('health: Health Auto Export files imported in Settings > Health; Apple Watch values win over WHOOP and intervals.icu, which keeps its own values and never overwrites them');
+
     // ------------------------------------------------------------------ exports, back key --
     await page.evaluate(() => { window.__takenFiles = ['ApexVelo/old.fit']; return app.downloadFile('old.fit', new Uint8Array([1, 2, 3]), 'application/octet-stream'); });
     await page.waitForFunction(() => __nativeLog.files.some((f) => f.path === 'ApexVelo/old_2.fit'));

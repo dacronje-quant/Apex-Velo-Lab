@@ -9,7 +9,8 @@
  *   - adds Settings > Strava for the rider's own Strava API application, and the sign-in redirect,
  *   - adds the API key fields to Settings > AI engine (the keys stay in Android app storage),
  *   - reads resting HR, HRV and sleep from intervals.icu (Settings > Health) instead of Apple Health
- *     via the PC, for readiness, the calendar and the recovery trends,
+ *     via the PC, for readiness, the calendar and the recovery trends; Health Auto Export's daily files
+ *     (Google Drive) can be imported there too, and their Apple Watch values come first,
  *   - keeps the screen on during a ride, shares exported files, and handles the Android back button.
  *
  * Dropped in this version (they need the PC server or another device): phone remote view,
@@ -141,7 +142,12 @@ function stravaSection() {
 
 function healthSection() {
   return `
-        <p class="field-help">Resting heart rate, HRV and sleep are read from your <b>intervals.icu</b> wellness data (synced there from your watch). They drive the readiness score, the calendar recovery strip and the recovery trends.</p>
+        <p class="field-help">Resting heart rate, HRV and sleep come from <b>Health Auto Export</b> files (your Apple Watch) and/or your <b>intervals.icu</b> wellness data. They drive the readiness score, the calendar recovery strip and the recovery trends.</p>
+        <p class="field-help" id="healthImportHelp"><b>Backfill from Google Drive.</b> Health Auto Export can save one JSON file per day to Google Drive. Press <b>Import Health Auto Export files</b>, choose <b>Drive</b>, open that folder and select the files (long-press one, then <b>Select all</b>). Importing again never counts anything twice. Your Apple Watch's readings come first: over other apps (WHOOP, Athlytic...) and over intervals.icu, which fills the days and values the files don't have.</p>
+        <div class="btn-row">
+          <button type="button" class="btn" id="btnHealthImport">Import Health Auto Export files</button>
+          <input type="file" id="healthImportFile" accept=".json,.zip,application/json,application/zip" multiple hidden>
+        </div>
         <ol class="setup-steps">
           <li>On <a href="https://intervals.icu/settings" target="_blank" rel="noopener">intervals.icu/settings</a>, open <b>Developer settings</b> and copy your <b>API key</b>.</li>
           <li>Paste it here and press <b>Save and backfill</b>. All your history (up to about two years) is read once; after that the last week is refreshed when the app opens and every hour.</li>
@@ -158,7 +164,7 @@ function healthSection() {
             <option value="hrv">Overnight rMSSD</option>
             <option value="hrvSDNN">SDNN (Apple Watch spot checks)</option>
           </select>
-          <p class="field-help">One kind is used for every day, so your normal range never mixes the two. Changing it reads your history again.</p>
+          <p class="field-help">One kind is used for every day, so your normal range never mixes the two. Changing it reads your history again. Once Apple Health files are imported, their Apple Watch SDNN is used, and intervals.icu days give their SDNN too.</p>
         </div>
         <p class="field-help">Sleep stages are read from the custom wellness fields <code>DeepSleep</code>, <code>LightSleep</code> and <code>REMSleep</code> (seconds), when your intervals.icu account has them.</p>
         <div class="btn-row">
@@ -193,7 +199,7 @@ function addSettingsUi(doc, icu) {
     if (pill) pill.textContent = 'Health';
     // Static wording that names Apple Health / Health Auto Export as the source.
     const note = doc.getElementById('recoveryTrendNote');
-    if (note) note.textContent = 'From your watch via intervals.icu (Settings > Health). Falling resting HR and rising HRV over months = adaptation. Lines are 7-day averages.';
+    if (note) note.textContent = 'From your watch: Health Auto Export files or intervals.icu (Settings > Health). Falling resting HR and rising HRV over months = adaptation. Lines are 7-day averages.';
     doc.querySelectorAll('[title*="Apple Health"]').forEach((el) => { el.title = el.title.replace('Apple Health', 'intervals.icu'); });
     doc.querySelectorAll('#calRecoveryHint, #recoveryTrendLabel').forEach((el) => { el.textContent = el.textContent.replace('Apple Health', 'intervals.icu'); });
   }
@@ -410,7 +416,8 @@ export function bootNativeApp({ bluetooth, strava, ai, icu, plugins, win = windo
       /**
        * Replaces the PC's Health Auto Export inbox: reads intervals.icu wellness into the same day store.
        * The first read (or `backfill`) takes all history velo-health keeps; later ones the last week, at
-       * most once an hour unless forced. intervals.icu days replace whatever the store had for that day.
+       * most once an hour unless forced. intervals.icu values are kept beside a day's Apple Health values
+       * (imported Health Auto Export files), which come first (VeloHealth.setIcu).
        */
       P.pullHealthInbox = async function ({ force = false, announce = false, backfill = false } = {}) {
         if (this._healthBusy) return { ok: false };
@@ -427,9 +434,7 @@ export function bootNativeApp({ bluetooth, strava, ai, icu, plugins, win = windo
           const r = await icu.wellness(localDay(), full ? BACKFILL_DAYS : RECENT_DAYS);
           for (const [day, rec] of Object.entries(r.days)) {
             days++;
-            if (JSON.stringify(this.healthStore.days[day]) === JSON.stringify(rec)) continue;
-            this.healthStore.days[day] = rec;
-            added++;
+            if (win.VeloHealth.setIcu(this.healthStore, day, rec.summary)) added++;
           }
           if (added) this.saveHealthStore();
           this._healthError = null;
@@ -455,16 +460,25 @@ export function bootNativeApp({ bluetooth, strava, ai, icu, plugins, win = windo
         ['btnHealthRefresh', 'btnNativeIcuBackfill', 'btnNativeIcuRemove', 'nativeIcuHrvGroup'].forEach((id) => { const b = doc.getElementById(id); if (b) b.hidden = !st.configured; });
         const hrvSelect = doc.getElementById('nativeIcuHrv');
         if (hrvSelect) hrvSelect.value = st.hrvMode;
-        if (!st.configured) { box.innerHTML = '<span class="dim">Not set up yet.</span>'; return; }
         const days = this.healthDays || [];
         const last = days[days.length - 1];
-        const when = st.lastSync ? new Date(st.lastSync).toLocaleString('en-GB', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' }) : 'not yet';
+        const src = win.VeloHealth.sources(this.healthStore);
         const kv = (k, v) => `<div><span>${esc(k)}</span><b>${v}</b></div>`;
+        const stored = kv('Days stored', `${days.length}${last ? ` <small class="dim">latest ${esc(last.day)}</small>` : ''}`);
+        const files = kv('From Apple Health files', `${src.apple} day${src.apple === 1 ? '' : 's'}`);
+        if (!st.configured) {
+          box.innerHTML = src.apple ? [stored, files, kv('Readiness', esc(this.readinessText(this.healthReadiness()))), kv('intervals.icu', '<span class="dim">not set up</span>')].join('') : '<span class="dim">Not set up yet.</span>';
+          return;
+        }
+        const when = st.lastSync ? new Date(st.lastSync).toLocaleString('en-GB', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' }) : 'not yet';
+        // Apple Watch HRV from the files makes SDNN the scale for every day (VeloHealth.daily).
+        const hrv = days.some((d) => d.hrv !== null && d.hrvSrc !== 'icu') ? 'SDNN (Apple Watch files first)' : st.hrvField === 'hrvSDNN' ? 'SDNN (Apple Watch)' : st.hrvField === 'hrv' ? 'Overnight rMSSD' : '<span class="dim">none yet</span>';
         box.innerHTML = [
           kv('Account', esc((st.athlete && st.athlete.name) || 'connected')),
           kv('Last sync', esc(when)),
-          kv('Days stored', `${days.length}${last ? ` <small class="dim">latest ${esc(last.day)}</small>` : ''}`),
-          kv('HRV', st.hrvField === 'hrvSDNN' ? 'SDNN (Apple Watch)' : st.hrvField === 'hrv' ? 'Overnight rMSSD' : '<span class="dim">none yet</span>'),
+          stored,
+          src.apple ? files : '',
+          kv('HRV', hrv),
           kv('Sleep stages', days.some((d) => d.deepH !== null && d.deepH !== undefined) ? 'deep, light (core) and REM' : '<span class="dim">total sleep only</span>'),
           kv('Readiness', esc(this.readinessText(this.healthReadiness()))),
           this._healthError ? `<div class="backup-warn">${esc(this._healthError)}</div>` : ''

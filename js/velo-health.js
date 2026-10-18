@@ -1,22 +1,27 @@
 /**
  * APEX VELO // LAB - Apple Health recovery data (resting HR, HRV, sleep) and daily readiness.
  *
- * Source: the Health Auto Export iPhone app, which POSTs JSON to the local server (/api/health).
- * The server stores payloads untouched; this module turns them into one record per day:
+ * Source: the Health Auto Export iPhone app, which POSTs JSON to the local server (/api/health), or
+ * its daily export files (saved to Google Drive / iCloud) imported in Settings. On the Android app,
+ * intervals.icu adds its values per day (setIcu). This module turns them into one record per day:
  *
- *   parsePayload(json)  -> readings found in one payload (heart rate, resting HR, HRV samples, sleep)
+ *   parsePayload(json)  -> readings found in one payload (heart rate, resting HR, HRV samples, breathing, sleep)
  *   merge(store, parsed)-> folds them into the stored days. Every reading is keyed by its own
- *                          timestamp (sleep by stage + start + end), so the same data sent twice,
- *                          or overlapping hourly exports, never counts twice.
+ *                          timestamp and source (sleep by stage + start + end), so the same data sent
+ *                          twice, or overlapping hourly exports, never counts twice.
+ *   importExports(store, payloads, today) / importer() -> a backfill from many export files at once
+ *   setIcu(store, day, summary) -> intervals.icu's values for a day, kept beside the Apple Health ones
  *   daily(store)        -> [{ day, rhr, hrv, sleepH, deepH, remH, coreH, awakeH }] oldest first
  *   readiness(days, day)-> green / amber / red from your own baselines, or "building baseline"
  *   dayFlags(days, day) -> per-metric colour for the calendar (ok / warn / bad vs your normal)
  *
  * Days are the phone's local calendar dates as Health Auto Export writes them. Sleep belongs to the
- * morning you wake up, and so do heart rate and HRV readings taken from 18:00 on.
+ * morning you wake up, and so do heart rate, breathing and HRV readings taken from 18:00 on.
  * Resting HR is the 10th percentile of heart rate while asleep (Apple's daily value when a night has
  * too few readings); HRV is the average of the readings taken asleep (all of that night's otherwise).
  * HRV is Apple's SDNN in ms (the watch does not record rMSSD).
+ * Source priority: when several apps write a metric (WHOOP, Athlytic...), the Apple Watch's readings
+ * win, and Apple Health values win over intervals.icu's, metric group by metric group.
  * Pure functions, no DOM: used by the app and by the Node tests.
  */
 (function (root) {
@@ -84,15 +89,41 @@
     resting_heart_rate: 'rhr',
     heart_rate_variability: 'hrv',
     heart_rate_variability_sdnn: 'hrv',
+    respiratory_rate: 'resp',
     sleep_analysis: 'sleep'
   };
+  const BUCKETS = ['rhr', 'hrv', 'hr', 'resp', 'sleep'];
+  const has = (v) => typeof v === 'number' && Number.isFinite(v);
+
+  // Several apps write the same metric to Apple Health (WHOOP, Athlytic, Oura, AutoSleep...). For each
+  // metric a day uses only its best source: the Apple Watch, then readings with no source (Health Auto
+  // Export's merged values), then any other app. Sources live at the end of the reading's key.
+  const srcRank = (src) => (!src ? 1 : /watch/i.test(src) ? 0 : 2);
+  const srcOf = (r) => String((r && (r.source || r.sleepSource)) || '').replace(/\|/g, '+').trim();
+  function bestSource(entries, srcAt) {
+    if (entries.length < 2) return entries;
+    const rank = ([k]) => srcRank(k.split('|')[srcAt(k)]);
+    const top = Math.min.apply(null, entries.map(rank));
+    return entries.filter(e => rank(e) === top);
+  }
+  /** Readings of one metric ("time" or "time|source" keys) from the day's best source. */
+  function readings(bucket) {
+    const all = Object.entries(bucket || {}).filter(([, v]) => Number.isFinite(v));
+    // A reading stored before sources were kept is dropped once the same reading arrives with its source.
+    const sourced = new Set(all.filter(([k]) => k.includes('|')).map(([k]) => k.split('|')[0]));
+    return bestSource(all.filter(([k]) => k.includes('|') || !sourced.has(k)), () => 1);
+  }
+  /** Sleep items (night|day|source, seg|stage|start|end|source) from the night's best source. */
+  function sleepItems(bucket) {
+    return bestSource(Object.entries(bucket || {}).filter(([, x]) => x && (x.seg || x.night)), (k) => (k.startsWith('seg|') ? 4 : 2));
+  }
 
   /**
    * Reads one Health Auto Export payload ({ data: { metrics: [...] } }, older exports put metrics at the top).
    * Unknown metrics are listed in `ignored`, never guessed at.
    */
   function parsePayload(json) {
-    const out = { rhr: [], hrv: [], hr: [], sleep: [], ignored: [] };
+    const out = { rhr: [], hrv: [], hr: [], resp: [], sleep: [], ignored: [] };
     const metrics = (json && json.data && Array.isArray(json.data.metrics) ? json.data.metrics : null) ||
       (json && Array.isArray(json.metrics) ? json.metrics : null) || [];
     for (const m of metrics) {
@@ -100,7 +131,7 @@
       const kind = METRIC[name];
       const rows = Array.isArray(m && m.data) ? m.data : [];
       if (!kind) { if (name && out.ignored.indexOf(name) < 0) out.ignored.push(name); continue; }
-      if (kind === 'rhr' || kind === 'hrv' || kind === 'hr') {
+      if (kind !== 'sleep') {
         for (const r of rows) {
           const st = stamp(r.date || r.startDate);
           const v = num(r.qty !== undefined ? r.qty : (r.Avg !== undefined ? r.Avg : r.avg));
@@ -108,19 +139,22 @@
           if (kind === 'rhr' && (v < 25 || v > 130)) continue;   // not a resting heart rate
           if (kind === 'hrv' && (v <= 0 || v > 300)) continue;   // not a plausible SDNN
           if (kind === 'hr' && (v < 25 || v > 230)) continue;    // not a heart rate
-          // Heart rate is only needed overnight: 18:00-12:00, filed (like HRV) under the morning you wake up.
-          if (kind === 'hr' && st.hour >= 12 && st.hour < 18) continue;
-          out[kind].push({ day: kind === 'rhr' ? st.day : nightOf(st), key: st.key, v });
+          if (kind === 'resp' && (v < 4 || v > 60)) continue;    // not a breathing rate
+          // Heart rate and breathing are only needed overnight: 18:00-12:00, filed (like HRV) under the morning you wake up.
+          if ((kind === 'hr' || kind === 'resp') && st.hour >= 12 && st.hour < 18) continue;
+          const src = srcOf(r);
+          out[kind].push({ day: kind === 'rhr' ? st.day : nightOf(st), key: src ? `${st.key}|${src}` : st.key, v });
         }
       } else {
         for (const r of rows) {
+          const src = srcOf(r);
           if (r.value !== undefined && (r.startDate || r.endDate)) {
             // Unaggregated: one row per sleep stage segment.
             const s0 = stamp(r.startDate), s1 = stamp(r.endDate);
             const h = hoursOf(r.qty, m.units);
             if (!s1 || h === null || h <= 0) continue;
             const stage = String(r.value).toLowerCase().replace(/\s+/g, '');
-            out.sleep.push({ day: nightOf(s1), key: `seg|${stage}|${s0 ? s0.key : ''}|${s1.key}`, seg: { stage, h } });
+            out.sleep.push({ day: nightOf(s1), key: `seg|${stage}|${s0 ? s0.key : ''}|${s1.key}${src ? '|' + src : ''}`, seg: { stage, h } });
           } else {
             // Aggregated: one row per night.
             const end = stamp(r.sleepEnd || r.inBedEnd) || stamp(r.date);
@@ -133,7 +167,7 @@
             if (total === null || total <= 0 || total > 20) continue;
             const endKey = r.sleepEnd || r.inBedEnd || null;
             const startKey = r.sleepStart || r.inBedStart || null;
-            out.sleep.push({ day, key: `night|${day}|${r.source || r.sleepSource || ''}`, night: { total, deep, rem, core, awake: part('awake'), inBed: part('inBed'), start: startKey, end: endKey } });
+            out.sleep.push({ day, key: `night|${day}|${src}`, night: { total, deep, rem, core, awake: part('awake'), inBed: part('inBed'), start: startKey, end: endKey } });
           }
         }
       }
@@ -143,18 +177,27 @@
 
   function emptyStore() { return { v: 1, days: {} }; }
 
+  /**
+   * A stored day holds Apple Health readings (rhr / hrv / hr / resp / sleep buckets, or `summary` once
+   * compacted) and, on the Android app, intervals.icu's values for that day in `icu`. The app first
+   * stored intervals.icu days as { summary, src: 'icu' }; those read as `icu` and are rewritten so.
+   */
+  const norm = (rec) => (rec && rec.src === 'icu' && rec.summary ? { icu: rec.summary } : rec || {});
+  const hasRaw = (rec) => !!rec && BUCKETS.some(b => rec[b]);
+  const icuOf = (rec) => (rec && (rec.icu || (rec.src === 'icu' ? rec.summary : null))) || null;
+
   /** Folds parsed readings into the store. Returns how many new or changed readings it took. */
   function merge(store, parsed) {
     const st = store && store.days ? store : emptyStore();
     let added = 0;
-    const dayRec = (d) => (st.days[d] = st.days[d] || {});
+    const dayRec = (d) => (st.days[d] = norm(st.days[d]));
     const put = (bucket, key, val) => {
       const same = JSON.stringify(bucket[key]) === JSON.stringify(val);
       if (!same) { bucket[key] = val; added++; }
     };
-    for (const r of parsed.rhr || []) { const d = dayRec(r.day); d.rhr = d.rhr || {}; put(d.rhr, r.key, r.v); }
-    for (const r of parsed.hrv || []) { const d = dayRec(r.day); d.hrv = d.hrv || {}; put(d.hrv, r.key, r.v); }
-    for (const r of parsed.hr || []) { const d = dayRec(r.day); d.hr = d.hr || {}; put(d.hr, r.key, r.v); }
+    for (const kind of ['rhr', 'hrv', 'hr', 'resp']) {
+      for (const r of parsed[kind] || []) { const d = dayRec(r.day); d[kind] = d[kind] || {}; put(d[kind], r.key, r.v); }
+    }
     for (const r of parsed.sleep || []) {
       const d = dayRec(r.day);
       d.sleep = d.sleep || {};
@@ -163,27 +206,30 @@
     return { store: st, added };
   }
 
-  /** One derived record for a stored day. */
-  function summarizeDay(day, rec) {
-    const out = { day, rhr: null, hrv: null, sleepH: null, deepH: null, remH: null, coreH: null, awakeH: null };
-    if (!rec) return out;
-    if (rec.summary) return Object.assign(out, rec.summary, { day });
-    const items = rec.sleep ? Object.values(rec.sleep) : [];
+  /** Apple Health values of a day computed from its readings (resting HR, HRV, breathing and sleep). */
+  function fromReadings(rec) {
+    const out = { rhr: null, hrv: null, sleepH: null, deepH: null, remH: null, coreH: null, awakeH: null };
+    const items = sleepItems(rec.sleep).map(([, x]) => x);
     const windows = sleepWindows(rec.sleep);
     const asleep = (key) => { const t = wallMin(key); return t !== null && windows.some(w => t >= w[0] && t <= w[1]); };
-    const during = (bucket) => Object.entries(bucket || {}).filter(([k, v]) => Number.isFinite(v) && asleep(k)).map(([, v]) => v);
+    const during = (bucket) => readings(bucket).filter(([k]) => asleep(k)).map(([, v]) => v);
+    const all = (bucket) => readings(bucket).map(([, v]) => v);
 
     // Resting HR: the floor of the night's heart rate; Apple's daily resting HR when the night has too few readings.
     const sleepHr = during(rec.hr);
-    const rhr = rec.rhr ? Object.values(rec.rhr).filter(Number.isFinite) : [];
+    const rhr = all(rec.rhr);
     if (sleepHr.length >= MIN_SLEEP_HR) { out.rhr = Math.round(percentile(sleepHr, 0.10)); out.rhrSrc = 'sleep'; }
     // Apple writes one resting HR per day; if an export holds a few, the lowest is the resting one.
     else if (rhr.length) { out.rhr = Math.round(Math.min.apply(null, rhr)); out.rhrSrc = 'apple'; }
 
     // HRV: the average of the readings taken asleep; every reading filed to that night when none were.
     const sleepHrv = during(rec.hrv);
-    const hrv = sleepHrv.length ? sleepHrv : (rec.hrv ? Object.values(rec.hrv).filter(Number.isFinite) : []);
+    const hrv = sleepHrv.length ? sleepHrv : all(rec.hrv);
     if (hrv.length) { out.hrv = Math.round(mean(hrv)); out.hrvSrc = sleepHrv.length ? 'sleep' : 'day'; }
+
+    // Breathing rate: the average while asleep (daytime readings mean little).
+    const resp = during(rec.resp);
+    if (resp.length) out.resp = round1(mean(resp));
 
     // Bedtime and wake-up as wall-clock minutes after midnight (kept in the compacted summary too).
     if (windows.length) {
@@ -192,7 +238,7 @@
     }
     const nights = items.filter(x => x.night).map(x => x.night);
     if (nights.length) {
-      // Several sources for the same night (watch + phone): keep the longest, never add them up.
+      // Several nights from the same source (two exports, a nap): keep the longest, never add them up.
       const n = nights.reduce((a, b) => (b.total > a.total ? b : a));
       out.sleepH = round1(n.total);
       out.deepH = n.deep !== null && n.deep !== undefined ? round1(n.deep) : null;
@@ -205,8 +251,8 @@
         const by = {};
         segs.forEach(s => { by[s.stage] = (by[s.stage] || 0) + s.h; });
         const staged = (by.core || 0) + (by.deep || 0) + (by.rem || 0);
-        const asleep = staged > 0 ? staged : (by.asleep || by.asleepunspecified || 0);
-        if (asleep > 0) out.sleepH = round1(asleep);
+        const asleepH = staged > 0 ? staged : (by.asleep || by.asleepunspecified || 0);
+        if (asleepH > 0) out.sleepH = round1(asleepH);
         if (by.deep) out.deepH = round1(by.deep);
         if (by.rem) out.remH = round1(by.rem);
         if (by.core) out.coreH = round1(by.core);
@@ -216,20 +262,64 @@
     return out;
   }
 
+  // Values that belong together: a day takes each group whole from one source, so sleep stages
+  // from one app are never shown against another app's total.
+  const GROUPS = [['rhr', 'rhrSrc'], ['hrv', 'hrvSrc'], ['resp'], ['sleepH', 'deepH', 'remH', 'coreH', 'awakeH', 'bed', 'wake']];
+  /** `top` with every group it lacks taken from `under`. */
+  function fill(top, under) {
+    const out = Object.assign({}, top);
+    for (const g of GROUPS) {
+      if (has(out[g[0]]) || !under || !has(under[g[0]])) continue;
+      g.forEach(k => { if (under[k] === undefined) delete out[k]; else out[k] = under[k]; });
+    }
+    return out;
+  }
+
+  /** The Apple Health values of a stored day (readings first, then what was compacted), or null. */
+  function appleOf(rec) {
+    const sum = rec && rec.summary && rec.src !== 'icu' ? rec.summary : null;
+    if (hasRaw(rec)) return sum ? fill(fromReadings(rec), sum) : fromReadings(rec);
+    return sum;
+  }
+
+  /**
+   * One derived record for a stored day. Apple Health (your watch, read from Health Auto Export) comes
+   * first, group by group; intervals.icu fills what it lacks and adds its own values (sleep score,
+   * stress index...). `sdnn`: Apple Watch HRV exists in the store, so intervals.icu days give their
+   * SDNN too (never rMSSD) and your normal range stays on one scale.
+   */
+  function summarizeDay(day, rec, sdnn = false) {
+    const out = { day, rhr: null, hrv: null, sleepH: null, deepH: null, remH: null, coreH: null, awakeH: null };
+    if (!rec) return out;
+    const apple = appleOf(rec), icu = icuOf(rec);
+    if (!icu) return Object.assign(out, apple, { day });
+    const fromIcu = Object.assign({}, icu);
+    if (sdnn && fromIcu.hrvKind !== 'sdnn') { fromIcu.hrv = has(fromIcu.hrvSdnn) ? fromIcu.hrvSdnn : null; fromIcu.hrvKind = 'sdnn'; }
+    const merged = apple ? Object.assign({}, fromIcu, pick(apple)) : fromIcu;
+    if (apple && has(apple.hrv)) { merged.hrvSdnn = apple.hrv; merged.hrvKind = 'sdnn'; }
+    return Object.assign(out, merged, { day });
+  }
+  /** The groups `v` has a value for (the rest stay to be filled). */
+  function pick(v) {
+    const out = {};
+    for (const g of GROUPS) if (has(v[g[0]])) g.forEach(k => { if (v[k] !== undefined) out[k] = v[k]; });
+    return out;
+  }
+
   /**
    * The night's asleep periods as [startMin, endMin] wall-clock minutes: the stage segments
    * (core / deep / REM / asleep; in-bed only when nothing else), else the per-night start-end.
    */
   function sleepWindows(bucket) {
     const segs = [], inBed = [], nights = [];
-    for (const [k, x] of Object.entries(bucket || {})) {
-      if (x && x.seg) {
-        const p = k.split('|');   // seg|stage|start|end
+    for (const [k, x] of sleepItems(bucket)) {
+      if (x.seg) {
+        const p = k.split('|');   // seg|stage|start|end|source
         const a = wallMin(p[2]), b = wallMin(p[3]);
         if (b === null) continue;
         const w = [a !== null ? a : b - x.seg.h * 60, b];
         if (x.seg.stage === 'inbed') inBed.push(w); else if (x.seg.stage !== 'awake') segs.push(w);
-      } else if (x && x.night && x.night.end) {
+      } else if (x.night && x.night.end) {
         const b = wallMin(x.night.end), a = wallMin(x.night.start);
         const len = x.night.inBed || (x.night.total || 0) + (x.night.awake || 0);
         if (b !== null) nights.push([a !== null ? a : b - len * 60, b]);
@@ -246,9 +336,9 @@
     const rec = store && store.days && store.days[day];
     if (!rec || !rec.sleep) return [];
     const out = [];
-    for (const [k, x] of Object.entries(rec.sleep)) {
-      if (!x || !x.seg) continue;
-      const p = k.split('|');   // seg|stage|start|end
+    for (const [k, x] of sleepItems(rec.sleep)) {
+      if (!x.seg) continue;
+      const p = k.split('|');   // seg|stage|start|end|source
       const stage = p[1] === 'asleep' || p[1] === 'asleepunspecified' ? 'core' : p[1];
       if (!['deep', 'core', 'rem', 'awake'].includes(stage)) continue;
       const a = wallMin(p[2]), b = wallMin(p[3]);
@@ -263,7 +353,8 @@
   /** Every stored day with at least one value, oldest first. */
   function daily(store) {
     const days = store && store.days ? store.days : {};
-    return Object.keys(days).sort().map(d => summarizeDay(d, days[d]))
+    const sdnn = Object.values(days).some(r => { const a = appleOf(r); return !!a && has(a.hrv); });
+    return Object.keys(days).sort().map(d => summarizeDay(d, days[d], sdnn))
       .filter(r => r.rhr !== null || r.hrv !== null || r.sleepH !== null);
   }
 
@@ -276,13 +367,86 @@
     const rawCut = addDays(today, -keepRawDays), dropCut = addDays(today, -maxDays);
     for (const d of Object.keys(store.days)) {
       if (d < dropCut) { delete store.days[d]; continue; }
-      if (d < rawCut && !store.days[d].summary) {
-        const s = summarizeDay(d, store.days[d]);
-        delete s.day;
-        store.days[d] = { summary: s };
+      const rec = store.days[d];
+      if (d < rawCut && hasRaw(rec)) {
+        const icu = icuOf(rec);
+        store.days[d] = icu ? { summary: appleOf(rec), icu } : { summary: appleOf(rec) };
       }
     }
     return store;
+  }
+
+  /** How many stored days hold Apple Health values, and how many intervals.icu values. */
+  function sources(store) {
+    let apple = 0, icu = 0;
+    for (const r of Object.values((store && store.days) || {})) { if (appleOf(r)) apple++; if (icuOf(r)) icu++; }
+    return { apple, icu };
+  }
+
+  /** Stores intervals.icu's values for a day next to any Apple Health data. Returns true when the day changed. */
+  function setIcu(store, day, summary) {
+    const before = store.days[day];
+    const rec = Object.assign({}, norm(before), { icu: summary });
+    if (JSON.stringify(before) === JSON.stringify(rec)) return false;
+    store.days[day] = rec;
+    return true;
+  }
+
+  /**
+   * Imports many Health Auto Export files at once (a backfill from the files it saves to Google Drive,
+   * iCloud or Dropbox). All files are read together first, so a night that spans two daily files
+   * (the evening in one, the morning in the next) is complete. The last `keepRawDays` keep their
+   * readings like a live sync; older days store their derived values, replacing earlier Apple Health
+   * values for that day group by group. intervals.icu values are kept beside them.
+   * Returns { files, skipped (files without readings), days (days with data), changed }.
+   */
+  function importExports(store, payloads, today, keepRawDays = 7) {
+    const imp = importer();
+    (payloads || []).forEach(p => imp.add(p));
+    return imp.apply(store, today, keepRawDays);
+  }
+
+  /**
+   * The same in steps, for many files: add(payload) reads one file (only its readings are kept, so
+   * hundreds of files never sit in memory together), apply(store, today) stores the result.
+   */
+  function importer() {
+    const tmp = emptyStore();
+    let files = 0, skipped = 0;
+    return {
+      add(payload) {
+        const parsed = parsePayload(payload);
+        if (!BUCKETS.some(b => parsed[b].length)) { skipped++; return false; }
+        merge(tmp, parsed);
+        files++;
+        return true;
+      },
+      apply(store, today, keepRawDays = 7) {
+        const st = store && store.days ? store : emptyStore();
+        const rawCut = addDays(today, -keepRawDays);
+        let days = 0, changed = 0;
+        for (const d of Object.keys(tmp.days).sort()) {
+          const fresh = tmp.days[d];
+          const before = JSON.stringify(st.days[d] === undefined ? null : st.days[d]);
+          const rec = Object.assign({}, norm(st.days[d]));
+          if (d >= rawCut) {
+            for (const b of BUCKETS) if (fresh[b]) rec[b] = Object.assign({}, rec[b], fresh[b]);
+            st.days[d] = rec;
+          } else {
+            // Only the evening before a day that was not exported (heart rate after 18:00): not a day yet.
+            if (!fresh.sleep && !fresh.rhr) continue;
+            const s = fromReadings(fresh);
+            if (!has(s.rhr) && !has(s.hrv) && !has(s.sleepH)) continue;
+            const old = appleOf(rec), icu = icuOf(rec);
+            const next = old ? fill(s, old) : s;
+            st.days[d] = icu ? { summary: next, icu } : { summary: next };
+          }
+          days++;
+          if (JSON.stringify(st.days[d]) !== before) changed++;
+        }
+        return { store: st, files, skipped, days, changed };
+      }
+    };
   }
 
   function byDay(days) { const m = {}; (days || []).forEach(r => { m[r.day] = r; }); return m; }
@@ -389,7 +553,7 @@
     return `${Math.floor(m / 60)}:${String(m % 60).padStart(2, '0')}`;
   }
 
-  const VeloHealth = { parsePayload, merge, daily, sleepSegments, compact, readiness, dayFlags, periodAverages, baselines, emptyStore, fmtH, addDays, MIN_NIGHTS };
+  const VeloHealth = { parsePayload, merge, importExports, importer, setIcu, sources, daily, sleepSegments, compact, readiness, dayFlags, periodAverages, baselines, emptyStore, fmtH, addDays, MIN_NIGHTS };
   if (typeof module !== 'undefined' && module.exports) module.exports = VeloHealth;
   if (root) root.VeloHealth = VeloHealth;
 })(typeof window !== 'undefined' ? window : null);

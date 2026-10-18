@@ -5,7 +5,8 @@
  * the payloads in data\health\inbox. This mixin collects them (at start-up, every 10 minutes and
  * when Settings opens), folds them into one record per day (js/velo-health.js - duplicates never
  * count twice), stores that in this browser and in the automatic backups, and then tells the server
- * to delete the processed payloads. Readiness is advisory only - it never blocks a workout.
+ * to delete the processed payloads. Health Auto Export's daily files (Google Drive, iCloud) can also
+ * be imported in Settings for a backfill. Readiness is advisory only - it never blocks a workout.
  */
 (function () {
   const esc = (v) => String(v ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
@@ -31,6 +32,12 @@
           this.renderHealthSettings(this._healthStatus);
           this.showToast('New token made - update it in Health Auto Export.', 'success');
         } catch (e) { this.showToast('Could not make a new token - is the local server running?', 'error'); }
+      });
+      on('btnHealthImport', () => document.getElementById('healthImportFile').click());
+      this.on(document.getElementById('healthImportFile'), 'change', async (e) => {
+        const input = e.currentTarget, btn = document.getElementById('btnHealthImport');
+        if (btn) btn.disabled = true;
+        try { await this.importHealthFiles(input.files); } finally { input.value = ''; if (btn) btn.disabled = false; }
       });
       on('cockpitReadinessChip', () => this.showReadinessDetail());
       on('coachReadinessChip', () => this.showReadinessDetail());
@@ -84,6 +91,40 @@
       const { store, added } = VeloHealth.merge(this.healthStore, parsed);
       this.healthStore = store;
       return { added, ignored: parsed.ignored, found: parsed.rhr.length + parsed.hrv.length + parsed.hr.length + parsed.sleep.length };
+    },
+
+    /**
+     * Backfill from Health Auto Export files (the daily JSON files it saves to Google Drive or iCloud),
+     * picked in Settings > Health: many .json files, or a .zip of the folder. Files are read one at a
+     * time and imported together, so a night split over two daily files is complete.
+     */
+    async importHealthFiles(fileList) {
+      const files = Array.from(fileList || []);
+      if (!files.length) return null;
+      const imp = VeloHealth.importer();
+      let unreadable = 0;
+      const add = (text) => { try { imp.add(JSON.parse(text)); } catch (e) { unreadable++; } };
+      this.showToast(`Reading ${files.length} file${files.length === 1 ? '' : 's'}...`, 'info');
+      for (const f of files) {
+        try {
+          if (/\.zip$/i.test(f.name) || /zip/.test(f.type || '')) await VeloUnzip.each(f, (n) => /\.json$/i.test(n), (n, text) => add(text));
+          else add(await f.text());
+        } catch (e) { unreadable++; }
+      }
+      const r = imp.apply(this.healthStore, localDay());
+      if (r.changed) {
+        try { this.saveHealthStore(); }
+        catch (e) { this.showToast(e.name === 'QuotaExceededError' ? 'Storage is full - the health import was not saved.' : 'The health import could not be saved.', 'error'); return null; }
+        if (window.VeloStorage?.enabled) await VeloStorage.flush();
+        this.refreshHealthDerived();
+        this.afterHealthChange();
+        if (this.scheduleAutoBackup) this.scheduleAutoBackup();
+      }
+      const bad = r.skipped + unreadable;
+      const tail = bad ? ` ${bad} file${bad === 1 ? ' was' : 's were'} not Health Auto Export data.` : '';
+      this.showToast(r.files ? `Apple Health files: ${r.files} read, ${r.days} day${r.days === 1 ? '' : 's'} with data, ${r.changed} new or updated.${tail}` : `No Apple Health readings found in ${files.length === 1 ? 'that file' : 'those files'}.${tail}`, r.files ? 'success' : 'warning');
+      if (this.renderHealthSettings) this.renderHealthSettings().catch(() => {});
+      return r;
     },
 
     /** Collects the payloads waiting on the server, stores them, then lets the server delete them. */
