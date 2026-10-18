@@ -6,15 +6,27 @@ The main chart shows **FTP in Use** and **Power + Heart Rate**, the leading expe
 
 **Supporting calculations & history** is collapsed initially and contains a table of Power Curve, Bayesian Power Curve, Workout Capacity Floor, and the prior-dependent Workout Capacity Model alongside the main histories. These checks do not crowd the main chart and are not standalone FTP recommendations. Neither recorded nor forecast TrainerRoad FTP appears in Analytics; it was a research benchmark only. Existing benchmark records remain preserved in old exports/backups for compatibility.
 
+## Calculated in the app
+
+Without an imported history (or with **Source: Calculated in the app**), the card shows the same five histories calculated from the rides on this device by `js/velo-ftp-model.js`. They are recalculated after every workout, on the PC and in the Android app. They are transparent stand-ins for the private research models, not copies of them, so values differ from an imported history and the status line says which source is shown:
+
+- **Power Curve:** critical power of the 90-day power-duration curve (0.95 × best 20 min while the curve cannot be modelled), weekly.
+- **Bayesian Power Curve:** the Power Curve through a random-walk Kalman filter (about 0.5 % drift a week, observation error 3-7 % by fit quality), with a 90 % range.
+- **Power + Heart Rate:** for each ride, power against heart rate over steady minutes (after the first five; power CV under 15 % within the minute, above 40 % of FTP; heart rate 30 s later), read at the threshold heart rate: the profile LTHR, else 90 % of max HR. A ride counts with 12+ such minutes, 12+ bpm of heart-rate spread, R² ≥ 0.4, a rising line and its hardest minute within 20 bpm of threshold. That reading is the **workout-implied FTP dot**; the line runs the readings through the same Kalman filter, its error being the regression's prediction error plus 4 %, and the band is the filter's 90 % range.
+- **Workout Capacity Floor:** what one ride proves: the most of 60 min, 0.97 × 45 min and 0.93 × 20 min power, shown when it is at least 90 % of FTP in use.
+- **Workout Capacity Model:** the strongest floor of the last 120 days, aged 0.3 % a day after two weeks; with no floor in six weeks it leans half-way back to the FTP in use (prior-dependent).
+
+Every series can be ticked above the chart (FTP in Use and Power + Heart Rate start ticked). When an imported research history exists, **Source** switches between the two; a fresh import is shown straight away.
+
 ## What updates by itself
 
-Finishing a workout (or importing/syncing rides, accepting an FTP suggestion, editing the profile or changing the page range) refreshes every Analytics view without a reload, including while the Analytics tab is hidden: FTP in Use gains the ride's recorded FTP, the summary tiles, fitness/fatigue and the other charts are recalculated, and the status line counts the workouts newer than the saved snapshot. The model estimates themselves (Power + Heart Rate, its band and the workout-implied dots) come from the private research pipeline and are **not** recomputed in the browser, so a new workout has no estimate until a fresh calculation history is imported; the card says so instead of inventing one.
+Finishing a workout (or importing/syncing rides, accepting an FTP suggestion, editing the profile or changing the page range) refreshes every Analytics view without a reload, including while the Analytics tab is hidden: FTP in Use gains the ride's recorded FTP, the in-app estimates are recalculated, and with an imported history the status line counts the workouts newer than the saved snapshot. Imported research estimates are not recomputed in the browser: a new workout gets one only when a fresh calculation history is imported.
 
 `index.html#ftp-metrics` opens Analytics at this card once the saved history has loaded.
 
 ## Calculation histories
 
-This view consumes saved derived calculation results. It does not run the experimental Python estimators in the browser and does not implement automatic FTP setting updates. If workouts postdate the saved snapshot (the notice says how many) or profile age/max HR/LTHR differ from the snapshot's recorded `context`, the chart displays a refresh notice. An export without `context` skips the profile-input comparison. Settings are never changed by importing estimates.
+An imported history holds saved derived calculation results. The app does not run the experimental Python estimators in the browser and does not implement automatic FTP setting updates. If workouts postdate the saved snapshot (the notice says how many) or profile age/max HR/LTHR differ from the snapshot's recorded `context`, the chart displays a refresh notice. An export without `context` skips the profile-input comparison. Settings are never changed by importing estimates.
 
 Use **Import calculation history** to load an `apex-ftp-history` version-1 JSON export for the active profile. Histories are scoped by exact profile ID, persisted through the existing VeloDB/SQLite layer, included in database backups, and isolated when switching profiles. The current rider's research results can be converted to this format using the private research pipeline's export helper after regenerating the model results. No personal data is bundled in the application files.
 

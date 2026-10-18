@@ -22,3 +22,6 @@
 .ftp-metrics-table { max-height:280px; overflow:auto; }
 .ftp-metrics-table td:last-child { min-width:180px; white-space:normal; }
 @media(max-width:640px) { #ftpMetricsHistoryCard { scroll-margin-top:190px; } .ftp-metrics-chart { height:290px; } .ftp-metrics-tools { align-items:flex-start; } .ftp-metrics-tools label { flex-wrap:wrap; } }
+.ftp-metrics-tools .ftp-source { gap:8px; }
+.ftp-metrics-tools .ftp-source[hidden] { display:none; }
+.ftp-metrics-tools .ftp-source select { min-width:0; max-width:100%; height:38px; padding:0 10px; font-size:12.5px; }
