@@ -1604,7 +1604,7 @@
             await new Promise(r => setTimeout(r, 300));
             const tiles = D.querySelectorAll('#anaTiles .tile').length;
             const profile = D.querySelectorAll('#anaPowerProfile .pp-cell').length;
-            const charts = !!(app.efChart && app.recoveryChart && app.balanceChart);
+            const charts = !!(app.efChart && app.balanceChart) && !app.recoveryChart && !!D.querySelector('#ana-panel-power #anaCardBalance'); // resting HR / HRV live in Health
             D.querySelector('#anaRangePills [data-range="3m"]').click();
             const rangeOk = app.efChart.options.scales.x.max - app.efChart.options.scales.x.min > 90 * DAY && app.efChart.options.scales.x.max - app.efChart.options.scales.x.min < 92 * DAY;
             D.querySelector('#anaRangePills [data-range="6m"]').click();
