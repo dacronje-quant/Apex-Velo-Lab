@@ -235,3 +235,37 @@ html.ana-zoom-lock { overflow: hidden; }
   .ana-dock-glider, .ana-link, .ana-insight, .ana-pager-btn, .ana-expand-btn { transition: none; }
   .ana-enter .card, .ana-enter .tile, .ana-enter .pmc-stat-pill, .ana-enter .ana-panel-head, .ana-zoom[open], .card.ana-spot, .ana-zoom-reset { animation: none; }
 }
+
+/* ---------------------------------------------------------------- health (js/app-health-ana.js) */
+#ana-panel-health > .card { margin-bottom: var(--gap); }
+.hl-tiles { margin: 0 0 var(--gap); grid-template-columns: repeat(auto-fill, minmax(170px, 1fr)); }
+.hl-tile[data-hl-color="rose"] { color: var(--rose); }
+.hl-tile[data-hl-color="amber"] { color: var(--amber); }
+.hl-tile[data-hl-color="violet"] { color: var(--violet); }
+.hl-tile[data-hl-color="lime"] { color: var(--lime); }
+.hl-tile[data-hl-color="cyan"] { color: var(--cyan); }
+.hl-legend { margin: -2px 0 8px; }
+.hl-legend[hidden] { display: none; }
+.hl-sleepmix { display: grid; grid-template-columns: repeat(auto-fit, minmax(96px, 1fr)); gap: 8px; margin: 2px 0 12px; }
+.hl-sleepmix > div { display: flex; flex-direction: column; gap: 2px; padding: 8px 10px; border-radius: 12px; background: rgba(255, 255, 255, 0.03); border: 1px solid var(--line); min-width: 0; }
+.hl-sleepmix span { font-size: 10.5px; font-weight: 700; letter-spacing: .08em; text-transform: uppercase; color: var(--text-3); }
+.hl-sleepmix b { font-size: 16px; color: var(--text-1); }
+.hl-sleepmix small { font-size: 11px; font-weight: 500; color: var(--text-3); }
+.hl-load { overflow-x: auto; }
+.hl-load-table { width: 100%; border-collapse: collapse; font-size: 13px; }
+.hl-load-table th, .hl-load-table td { padding: 9px 10px; text-align: left; border-bottom: 1px solid var(--line); white-space: nowrap; }
+.hl-load-table thead th { font-size: 10.5px; font-weight: 700; letter-spacing: .08em; text-transform: uppercase; color: var(--text-3); }
+.hl-load-table tbody th, .hl-load-table tfoot th { font-weight: 600; color: var(--text-1); }
+.hl-load-table td { color: var(--text-1); }
+.hl-load-table .num { text-align: right; }
+.hl-load-table tfoot th, .hl-load-table tfoot td { color: var(--text-2); border-bottom: 0; }
+.hl-n { display: block; margin-top: 2px; font-size: 11px; font-weight: 500; color: var(--text-3); }
+@media (max-width: 560px) {
+  .hl-load-table { font-size: 12px; }
+  .hl-load-table th, .hl-load-table td { padding: 8px 5px; white-space: normal; }
+  .hl-load-table thead th { letter-spacing: .04em; }
+}
+.hl-d { display: block; font-size: 11px; font-weight: 600; }
+.hl-d.good { color: var(--lime); }
+.hl-d.bad { color: var(--amber); }
+.hl-d.flat { color: var(--text-3); font-weight: 500; }

@@ -419,7 +419,7 @@ export function bootNativeApp({ bluetooth, strava, ai, icu, plugins, win = windo
           if (announce) this.showToast('Add your intervals.icu API key in Settings > Health first.', 'info');
           return { ok: false };
         }
-        const full = backfill || !st.lastSync;
+        const full = backfill || st.needsBackfill; // first sync, or the app now keeps more fields
         if (!full && !force && Date.now() - st.lastSync < HEALTH_SYNC_EVERY_MS) return { ok: true, added: 0 };
         this._healthBusy = true;
         let added = 0, days = 0;

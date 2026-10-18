@@ -13,7 +13,9 @@
  */
 
 export const ICU_BASE = 'https://intervals.icu';
-const KEYS = { key: 'icu_api_key', athlete: 'icu_athlete', hrvField: 'icu_hrv_field', hrvMode: 'icu_hrv_mode', lastSync: 'icu_last_sync' };
+const KEYS = { key: 'icu_api_key', athlete: 'icu_athlete', hrvField: 'icu_hrv_field', hrvMode: 'icu_hrv_mode', lastSync: 'icu_last_sync', schema: 'icu_schema' };
+/** Bumped when toHealthDays keeps more fields: the next sync reads all history again. */
+export const SCHEMA = '2';
 /** HRV choice in Settings: 'auto' (the column most days have), or one column for every day. */
 export const HRV_MODES = ['auto', 'hrv', 'hrvSDNN'];
 const TIMEOUT_MS = 30000;
@@ -45,6 +47,29 @@ export function pickHrvField(rows) {
   return sdnn > rmssd ? 'hrvSDNN' : 'hrv';
 }
 
+/**
+ * The other wellness fields kept for Analytics > Health (js/velo-wellness.js): store key, intervals.icu
+ * field, plausible range and decimals. A value outside its range is dropped, never clamped.
+ */
+const EXTRA = [
+  ['sleepHr', 'avgSleepingHR', 25, 150, 0],
+  ['hrvRmssd', 'hrv', 1, 300, 0],
+  ['hrvSdnn', 'hrvSDNN', 1, 300, 0],
+  ['sleepScore', 'sleepScore', 0, 100, 0],
+  ['icuReadiness', 'readiness', 0, 100, 0],
+  ['baevsky', 'baevskySI', 0, 3000, 1],
+  ['resp', 'respiration', 4, 60, 1],
+  ['spo2', 'spO2', 50, 100, 1],
+  ['weight', 'weight', 20, 300, 1],
+  ['bodyFat', 'bodyFat', 2, 70, 1],
+  ['vo2max', 'vo2max', 10, 100, 1],
+  ['steps', 'steps', 0, 200000, 0],
+  ['bpSys', 'systolic', 60, 260, 0],
+  ['bpDia', 'diastolic', 30, 160, 0],
+  ['glucose', 'bloodGlucose', 1, 40, 1],
+  ['kcalIn', 'kcalConsumed', 1, 20000, 0]
+];
+
 /** intervals.icu wellness rows -> { 'YYYY-MM-DD': { summary } } for days with resting HR, HRV or sleep. */
 export function toHealthDays(rows, hrvField = 'hrv') {
   const days = {};
@@ -58,7 +83,12 @@ export function toHealthDays(rows, hrvField = 'hrv') {
     const sleepH = hours(r.sleepSecs, 20);
     if (rhr === null && hrv === null && sleepH === null) continue;
     const stages = sleepH !== null ? { deepH: hours(r.DeepSleep, 16), remH: hours(r.REMSleep, 16), coreH: hours(r.LightSleep, 16) } : { deepH: null, remH: null, coreH: null };
-    days[day] = { summary: { rhr, hrv, sleepH, ...stages, awakeH: null, rhrSrc: 'icu', hrvSrc: 'icu', hrvKind: hrvField === 'hrvSDNN' ? 'sdnn' : 'rmssd' }, src: 'icu' };
+    const summary = { rhr, hrv, sleepH, ...stages, awakeH: null, rhrSrc: 'icu', hrvSrc: 'icu', hrvKind: hrvField === 'hrvSDNN' ? 'sdnn' : 'rmssd' };
+    for (const [key, field, lo, hi, dec] of EXTRA) {
+      const v = num(r[field]);
+      if (v !== null && v >= lo && v <= hi) summary[key] = dec ? Math.round(v * 10 ** dec) / 10 ** dec : Math.round(v);
+    }
+    days[day] = { summary, src: 'icu' };
   }
   return days;
 }
@@ -84,7 +114,8 @@ export class NativeIcu {
     const [key, athlete, last] = await Promise.all([this.prefs.get(KEYS.key), this.prefs.get(KEYS.athlete), this.prefs.get(KEYS.lastSync)]);
     let a = null;
     try { a = JSON.parse(athlete || 'null'); } catch (e) { /* ignore */ }
-    return { configured: !!key, athlete: a, lastSync: last ? Number(last) : null, hrvField: await this.prefs.get(KEYS.hrvField), hrvMode: (await this.prefs.get(KEYS.hrvMode)) || 'auto' };
+    const schema = await this.prefs.get(KEYS.schema);
+    return { configured: !!key, athlete: a, lastSync: last ? Number(last) : null, needsBackfill: !last || schema !== SCHEMA, hrvField: await this.prefs.get(KEYS.hrvField), hrvMode: (await this.prefs.get(KEYS.hrvMode)) || 'auto' };
   }
 
   /** Sets the HRV column ('auto', 'hrv' = rMSSD, 'hrvSDNN'). The caller backfills again, so every day uses it. */
@@ -102,7 +133,7 @@ export class NativeIcu {
     const me = await this._get(key, '');
     const athlete = { id: String((me && me.id) || ''), name: String((me && me.name) || '').slice(0, 80) };
     const old = (await this.status()).athlete;
-    if (!old || old.id !== athlete.id) { for (const k of [KEYS.hrvField, KEYS.hrvMode, KEYS.lastSync]) await this.prefs.remove(k); }
+    if (!old || old.id !== athlete.id) { for (const k of [KEYS.hrvField, KEYS.hrvMode, KEYS.lastSync, KEYS.schema]) await this.prefs.remove(k); }
     await this.prefs.set(KEYS.key, key);
     await this.prefs.set(KEYS.athlete, JSON.stringify(athlete));
     return athlete;
@@ -129,6 +160,7 @@ export class NativeIcu {
       if (field) await this.prefs.set(KEYS.hrvField, field);
     }
     await this.prefs.set(KEYS.lastSync, String(this.now()));
+    if (days >= BACKFILL_DAYS) await this.prefs.set(KEYS.schema, SCHEMA);
     return { days: toHealthDays(list, field || 'hrv'), count: list.length, hrvField: field };
   }
 }

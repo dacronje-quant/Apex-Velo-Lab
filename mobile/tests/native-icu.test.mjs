@@ -33,6 +33,18 @@ test('wellness rows become velo-health days; days without recovery data are skip
   assert.deepEqual(VeloHealth.daily(store)[0], d, 'compacting keeps intervals.icu days as they are');
 });
 
+test('every other wellness value is kept for Analytics > Health; implausible values are dropped', () => {
+  const s = toHealthDays([{ id: '2026-10-15', restingHR: 48, hrv: 71.4, hrvSDNN: 55.6, avgSleepingHR: 52.4, sleepScore: 83, readiness: 77, baevskySI: 104.26,
+    respiration: 14.62, spO2: 96.84, weight: 71.86, bodyFat: 13.84, vo2max: 54.06, steps: 9123, systolic: 118, diastolic: 76, bloodGlucose: 5.24, kcalConsumed: 2450, comments: 'x' }])['2026-10-15'].summary;
+  assert.deepEqual([s.sleepHr, s.hrvRmssd, s.hrvSdnn, s.sleepScore, s.icuReadiness, s.baevsky, s.resp, s.spo2, s.weight, s.bodyFat, s.vo2max, s.steps, s.bpSys, s.bpDia, s.glucose, s.kcalIn],
+    [52, 71, 56, 83, 77, 104.3, 14.6, 96.8, 71.9, 13.8, 54.1, 9123, 118, 76, 5.2, 2450]);
+  assert.equal(s.comments, undefined);
+  const bad = toHealthDays([{ id: '2026-10-15', restingHR: 48, spO2: 30, weight: 0, avgSleepingHR: 300 }])['2026-10-15'].summary;
+  assert.deepEqual([bad.spo2, bad.weight, bad.sleepHr], [undefined, undefined, undefined]);
+  const [d] = VeloHealth.daily({ v: 1, days: toHealthDays([{ id: '2026-10-15', restingHR: 48, steps: 9000 }]) });
+  assert.equal(d.steps, 9000, 'extra values reach the daily records');
+});
+
 test('one HRV scale throughout: the field most days have, rMSSD on a tie', () => {
   assert.equal(pickHrvField([{ hrvSDNN: 60 }, { hrvSDNN: 61, hrv: 70 }]), 'hrvSDNN');
   assert.equal(pickHrvField([{ hrvSDNN: 60, hrv: 70 }]), 'hrv');
@@ -79,6 +91,11 @@ test('wellness reads a date range, keeps the HRV field from the first read, and 
   replies.push(ok([{ id: '2026-10-17', hrvSDNN: 62, hrv: 75 }]));
   assert.equal((await icu.wellness('2026-10-17', 7)).hrvField, 'hrvSDNN', 'a short read with rMSSD does not switch scales');
   assert.equal((await icu.status()).lastSync, 1_800_000_000_000);
+  assert.equal((await icu.status()).needsBackfill, false, 'a full read stores the current field set');
+  await icu.prefs.set('icu_schema', '1');
+  assert.equal((await icu.status()).needsBackfill, true, 'an older field set reads all history again');
+  replies.push(ok([]));
+  await icu.wellness('2026-10-17', BACKFILL_DAYS);
   replies.push(ok({ id: 'i42', name: 'A' }));
   await icu.setKey(KEY);
   assert.equal((await icu.status()).hrvField, 'hrvSDNN', 'same account keeps its choice');

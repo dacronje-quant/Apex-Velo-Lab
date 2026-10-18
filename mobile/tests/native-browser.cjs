@@ -246,6 +246,20 @@ const step = (name) => console.log('  ok -', name);
     await page.evaluate(() => app.pullHealthInbox());
     assert.equal(await page.evaluate(() => __nativeLog.http.filter((r) => r.url.includes('/wellness')).length), 4, 'automatic syncs wait an hour');
     await page.evaluate(() => app.closeModal('settingsModal'));
+    await page.locator('.nav-btn[data-tab="analytics"]').first().click();
+    await page.evaluate(() => app.showAnalyticsPanel('health', { instant: true }));
+    await page.locator('#anaHealthTiles .tile', { hasText: 'Sleeping HR' }).waitFor();
+    assert.equal(await page.locator('#anaHealthTiles .tile').count(), 16, 'a tile for every metric with data');
+    for (const id of ['anaCardHealthHr', 'anaCardHealthHrv', 'anaCardHealthHrvBoth', 'anaCardHealthSleep', 'anaCardHealthScores', 'anaCardHealthStress', 'anaCardHealthBreath', 'anaCardHealthBody', 'anaCardHealthSteps']) {
+      assert.equal(await page.locator('#' + id).isVisible(), true, id + ' shows');
+    }
+    assert.equal(await page.locator('#anaCardHealthVitals').isVisible(), false, 'no blood pressure, glucose or food data: the card stays hidden');
+    assert.equal(await page.locator('.hl-legend[data-hl="healthSleepCanvas"] .lg-toggle').count(), 3, 'deep, light and REM');
+    assert.match(await page.locator('#healthSleepMix').innerText(), /DEEP\s*1:00/i);
+    assert.match(await page.locator('#anaModStat-health').innerText(), /\d+ ms/);
+    await page.locator('.hl-legend[data-hl="healthHrCanvas"] .lg-toggle', { hasText: 'Sleeping HR' }).click();
+    assert.equal(await page.evaluate(() => { const c = app._healthCharts.healthHrCanvas; return c.data.datasets.filter((d, i) => d.hlKey === 'sleepHr' && c.isDatasetVisible(i)).length; }), 0, 'the legend hides a metric');
+    step('Analytics > Health: tiles, heart rate, HRV with its normal range, both HRV kinds, sleep stages, scores, stress, breathing, body and steps; cards without data stay hidden');
     step('health: intervals.icu key checked, all history backfilled into readiness with sleep stages, HRV kind switchable (never mixed), later syncs read the last week at most hourly');
 
     // ------------------------------------------------------------------ exports, back key --
