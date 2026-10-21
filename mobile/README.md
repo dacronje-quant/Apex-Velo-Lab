@@ -1,6 +1,6 @@
 # Apex Velo for Android (proof of concept)
 
-The Apex Velo Lab cockpit as an installable Android app (APK). It pairs your Bluetooth trainer and sensors from the phone, runs ERG workouts, keeps your rides on the phone and sends them to (and syncs them from) Strava. No PC or local server is needed.
+The Apex Velo Lab cockpit as an installable Android app (APK). It pairs your Bluetooth trainer and sensors from the phone, runs ERG workouts, keeps your rides on the phone and sends them to Strava (upload only). No PC or local server is needed.
 
 It is the same web app as the desktop version, wrapped with [Capacitor](https://capacitorjs.com). The files in the repository root (`index.html`, `js/`, `css/`) are not changed; a small Android layer in `mobile/src/` fills in what a browser on the PC normally provides.
 
@@ -12,7 +12,7 @@ It is the same web app as the desktop version, wrapped with [Capacitor](https://
 | **Sensors** | Bluetooth power meters (Cycling Power Service, incl. calibration), heart-rate straps, KICKR HEADWIND |
 | **Workouts** | The full workout library, the custom interval builder, saved workouts, ramp tests, Zen cockpit, audio cues and the offline coach (workouts and multi-week plans) |
 | **Storage** | Rides, profiles and settings are saved in the app on the phone and survive restarts and app updates |
-| **Strava** | Connect your account, send rides (FIT upload), check which rides are already there, and **Sync from Strava** |
+| **Strava** | Connect your account and send rides (FIT upload): per ride, or automatically when a ride finishes. Upload only: the app never reads your Strava activities |
 | **Ride files** | Every ride recorded on the phone is also saved as a FIT file in **Documents/ApexVelo** (switch: Settings > Ride files), ready for any file manager, Garmin Connect, TrainingPeaks or intervals.icu. History > Export (FIT, TCX, CSV, full JSON backup) saves there too; the workout image opens the share sheet. FIT/TCX/CSV import works in History |
 | **Health** | Resting HR, HRV and sleep read from **intervals.icu** (your watch's wellness data there), for the readiness score, the calendar recovery strip and the recovery trends. One-time backfill of all history, then the last week is refreshed automatically |
 | **Analytics** | History, calendar, PMC (fitness/fatigue/form), power curve, CP, FTP history, and **Health**: every intervals.icu wellness value over time (resting and sleeping HR, HRV rMSSD and SDNN with your normal range, sleep stages, sleep and readiness scores, Baevsky stress index, breathing, SpO2, weight, blood pressure, glucose) and how your next-morning HRV, resting HR and sleep answer the previous day's training |
@@ -51,9 +51,13 @@ The app uses your own free Strava API application, the same as the desktop setup
 
 1. At [strava.com/settings/api](https://www.strava.com/settings/api), create an application (or reuse your desktop one). **Authorization Callback Domain** must be `localhost`.
 2. In the app: **Settings (gear) > Strava**, enter the **Client ID** and **Client Secret**, press **Save**, then **Connect Strava**.
-3. Approve on the Strava page, keeping **Upload your activities** and **View data about your activities** ticked. You return to the app automatically (`apexvelo://localhost/strava`).
+3. Approve on the Strava page, keeping **Upload your activities** ticked (the app asks for nothing else). You return to the app automatically (`apexvelo://localhost/strava`).
 
 The secret and tokens are kept in the app's private Android storage (not in the web storage or in exports). Strava's API is called directly from the phone.
+
+**Sending rides.** Open a ride and press **Send to Strava**, or switch on **Auto-upload new rides to Strava** in Settings > Strava to send each ride recorded on the phone when it finishes. Without a connection the ride waits in a queue and is retried when the app opens or comes back to the screen, with growing gaps (1 min, 5 min, 15 min, 1 h, then every 6 h; it gives up after 8 tries, and **Send now** on the ride tries again). Settings > Strava shows how many rides are waiting.
+
+**Upload only.** The phone never lists or reads Strava activities, so there is no **Sync from Strava** or **Check Strava** in the app (the desktop keeps both). A ride counts as on Strava when this phone uploaded it: the activity id Strava returned is kept in the app's sync record (and a ride Strava already has is linked to the existing activity). Rides that came from Strava are never sent back. To bring your history in, use your own export files (Strava "Download your data", Garmin, Wahoo, intervals.icu).
 
 ## Connect intervals.icu (health data)
 
@@ -144,20 +148,21 @@ Without them, `bundleRelease`/`assembleRelease` still work but leave the output 
 ## Tests
 
 ```bash
-npm test               # unit tests: Bluetooth shim, Strava client, AI engine vs server.js, intervals.icu wellness (Node, no browser)
+npm test               # unit tests: Bluetooth shim, Strava upload client and token exchangers, upload queue and ledger, AI engine vs server.js, intervals.icu wellness (Node, no browser)
 npm run test:browser   # the built app in Chromium with a simulated FTMS trainer, HR strap, Strava, Claude and intervals.icu
 ```
 
-The browser test pairs the trainer through the in-app chooser and rides an ERG workout. It checks the trainer gets its targets, drops and reconnects the link, saves the ride, signs in to Strava, uploads the FIT file, syncs, saves an AI key, asks a question in Ask, gets an AI interval breakdown, backfills health data from intervals.icu and reloads the app. The **Android app** GitHub workflow runs both, then builds the APK.
+The browser test pairs the trainer through the in-app chooser and rides an ERG workout. It checks the trainer gets its targets, drops and reconnects the link, saves the ride, signs in to Strava, uploads the FIT file and records it in the ledger, checks that no Strava activity is ever read, queues an auto-upload while offline and sends it on resume, saves an AI key, asks a question in Ask, gets an AI interval breakdown, backfills health data from intervals.icu and reloads the app. The **Android app** GitHub workflow runs both, then builds the APK.
 
 ## How it works
 
 | File | Role |
 |---|---|
 | `src/native-ble.js` | `navigator.bluetooth` (Web Bluetooth) on top of the native BLE plugin, including an in-app device chooser. `js/velo-ble.js` runs unchanged |
-| `src/native-strava.js` | The desktop server's `/api/strava/*` routes, answered on the phone with native HTTP and the mobile OAuth flow |
+| `src/native-strava.js` | The upload subset of the desktop server's `/api/strava/*` routes, answered on the phone with native HTTP and the mobile OAuth flow; the `TokenExchanger` for sign-in (`ByoExchanger`: your own client id and secret; `BrokerExchanger`: a token broker URL, no secret on the phone); `StravaDestination` for the upload queue |
+| `src/native-outbox.js` | The sync ledger (one row per ride and destination, kept under `apex_sync_` keys until the SQLite `sync_ledger` table exists) and the offline upload queue with backoff |
 | `src/native-icu.js` | Reads intervals.icu wellness (resting HR, HRV, sleep) and turns it into the day records `js/velo-health.js` uses |
-| `src/native-app.js` | Answers `/api/` calls on the phone, switches storage to the phone, adds Settings > Strava, keeps the screen on, shares exports, handles the back button, hides PC-only features |
+| `src/native-app.js` | Answers `/api/` calls on the phone, switches storage to the phone, adds Settings > Strava (with auto-upload), hides Sync from Strava, keeps the screen on, shares exports, handles the back button, hides PC-only features |
 | `src/index.js` | Entry point. Does nothing in a normal browser |
 | `scripts/build-web.cjs` | Copies the desktop app into `www/` and adds the two tags that load the layer |
 | `android/` | The Capacitor Android project (permissions, `apexvelo://` link, icons, signing) |

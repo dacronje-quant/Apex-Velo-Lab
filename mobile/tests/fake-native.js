@@ -1,7 +1,7 @@
 /**
  * Browser-test stand-in for the native side (loaded with page.addInitScript before the app).
  * window.__APEX_NATIVE_FAKE__ gives the Android layer a scripted FTMS trainer and heart-rate strap
- * (BleClient API), a scripted Strava, Claude and intervals.icu API (CapacitorHttp API) and recording plugin stubs.
+ * (BleClient API), a scripted Strava (uploads only), Claude and intervals.icu API (CapacitorHttp API) and recording plugin stubs.
  * Never part of the app build.
  */
 (() => {
@@ -113,14 +113,11 @@
           return ok(rows.filter((r) => r.id >= u.searchParams.get('oldest') || r.id === '2020-01-01'));
         }
       }
+      if (window.__stravaOffline && u.host === 'www.strava.com') throw new Error('Unable to resolve host "www.strava.com"');
       if (opts.headers.Authorization !== 'Bearer acc1' && opts.headers.Authorization !== 'Bearer acc2') return { status: 401, headers: {}, data: { message: 'Authorization Error' } };
       if (u.pathname === '/api/v3/uploads' && opts.method === 'POST') return ok({ id: 991, id_str: '991', status: 'Your activity is still being processed.', error: null, activity_id: null });
       if (u.pathname === '/api/v3/uploads/991') return ok(++strava.uploadPolls < 2 ? { id: 991, status: 'processing', activity_id: null } : { id: 991, status: 'Your activity is ready.', activity_id: 5550001 });
-      if (u.pathname === '/api/v3/athlete/activities') return ok([
-        { id: 4001, name: 'Morning Ride', sport_type: 'Ride', type: 'Ride', start_date: '2026-10-10T06:00:00Z', start_date_local: '2026-10-10T08:00:00Z', moving_time: 3600, elapsed_time: 3700, distance: 30000, average_watts: 180, trainer: false }
-      ], { 'X-ReadRateLimit-Usage': '3,40', 'X-ReadRateLimit-Limit': '100,1000' });
-      if (u.pathname === '/api/v3/activities/4001') return ok({ id: 4001, name: 'Morning Ride', sport_type: 'Ride', start_date: '2026-10-10T06:00:00Z', moving_time: 3600, elapsed_time: 3700, description: 'Nice', calories: 700 });
-      if (u.pathname === '/api/v3/activities/4001/streams') return ok({ watts: { data: [100, 200] }, time: { data: [0, 1] } });
+      // No activity reads: the phone is upload-only (the browser test checks none are made).
       return { status: 404, headers: {}, data: { message: 'Record Not Found' } };
     }
   };
