@@ -157,6 +157,7 @@ class VeloDedupe {
         if (list) { const i = list.indexOf(r); if (i >= 0) list.splice(i, 1); }
       },
       hasHash(h) { return byHash.has(h); },
+      byHash(h) { return byHash.get(h) || null; },
       /** The stored ride that r duplicates, or null. */
       find(r) {
         if (r.fileHash && byHash.has(r.fileHash)) return byHash.get(r.fileHash);

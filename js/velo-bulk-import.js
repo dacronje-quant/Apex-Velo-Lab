@@ -11,8 +11,8 @@
  * only drops exact copies (same SHA-256 of the decompressed bytes).
  */
 class VeloBulkImport {
-  /** Filter modes offered in the UI. */
-  static MODES = { cycling: 'Cycling only', indoor: 'Cycling + indoor', all: 'Everything' };
+  /** Filter modes offered in the UI; 'cycling' (the default) includes indoor and virtual rides. */
+  static MODES = { cycling: 'All cycling (incl. indoor/virtual)', outdoor: 'Outdoor cycling only', all: 'Everything' };
 
   // FIT profile enums (sport / sub_sport) used for the filter.
   static FIT_INDOOR_SUB = new Set([5, 6, 58]); // spin, indoor_cycling, virtual_activity
@@ -62,7 +62,7 @@ class VeloBulkImport {
   static filterReason(sport, mode) {
     if (mode === 'all') return null;
     if (sport.family !== 'ride') return `not cycling (${sport.family})`;
-    if (mode !== 'indoor' && sport.indoor) return 'indoor cycling';
+    if (mode === 'outdoor' && sport.indoor) return 'indoor cycling';
     return null;
   }
 
@@ -181,6 +181,18 @@ class VeloBulkImport {
       });
     }
     return out;
+  }
+
+  /**
+   * Where an archive entry came from: 'strava' for the Strava "Download your data" layout
+   * (<export>.zip/activities/<id>.<ext>), 'garmin' for a Garmin data export (DI_CONNECT folders), else null.
+   * Rides from Strava must never be uploaded back to Strava.
+   */
+  static originOf(path) {
+    const p = String(path).replace(/\\/g, '/');
+    if (/(^|\/)DI[_-]CONNECT(\/|$)|\/DI-Connect-[^/]+\//i.test(p)) return 'garmin';
+    if (/^[^/]+\.zip\/activities\/[^/]+$/i.test(p)) return 'strava';
+    return null;
   }
 
   static baseName(path) { return String(path).split(/[\\/]/).pop().toLowerCase(); }
@@ -326,7 +338,7 @@ class VeloBulkImport {
       if (entry.error) { counts.errors++; file({ path: entry.path, status: 'error', error: entry.error }); progress(entry.path); continue; }
       try {
         const hash = await VeloBulkImport.sha256(entry.bytes);
-        if (seen.has(hash)) { counts.duplicates++; file({ path: entry.path, hash, status: 'duplicate' }); progress(entry.path); continue; }
+        if (seen.has(hash)) { counts.duplicates++; file({ path: entry.path, hash, status: 'duplicate', origin: VeloBulkImport.originOf(entry.path) }); progress(entry.path); continue; }
         seen.add(hash);
         const ride = VeloBulkImport.parseRide(entry, profile);
         ride.fileHash = hash;
@@ -334,6 +346,8 @@ class VeloBulkImport {
         const reason = !ride.samplesCount ? 'no track data' : VeloBulkImport.filterReason(sport, mode);
         if (reason) { counts.skipped++; file({ path: entry.path, hash, status: 'skipped', error: reason }); progress(entry.path); continue; }
         if (sport.family !== 'ride') ride.activityType = sport.family;
+        const origin = VeloBulkImport.originOf(entry.path);
+        if (origin) ride.origin = origin;
         counts.parsed++;
         file({ path: entry.path, hash, status: 'parsed', rideId: ride.id });
         batch.push(ride);
@@ -350,7 +364,7 @@ class VeloBulkImport {
     return { counts, cancelled };
   }
 
-  /** Applies Strava activities.csv names, descriptions and ids to imported rides (matched by file name). */
+  /** Applies Strava activities.csv names, descriptions and ids to imported rides (matched by file name); they are Strava's. */
   static applyIndex(rides, index) {
     if (!index || !index.size) return 0;
     let n = 0;
@@ -360,6 +374,7 @@ class VeloBulkImport {
       if (meta.name) r.title = meta.name;
       if (meta.description) r.description = meta.description;
       if (meta.stravaId) r.stravaActivityId = meta.stravaId;
+      r.origin = 'strava';
       n++;
     }
     return n;

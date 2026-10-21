@@ -50,17 +50,18 @@ const out = path.join(root, 'test-output/public-local'); fs.mkdirSync(out, { rec
     await page.locator('#fileInputBulk').setInputFiles(zips);
     await page.waitForFunction(() => document.getElementById('bulkImportPanel').dataset.state === 'done', null, { timeout: 20000 });
     const counts = await page.evaluate(() => Object.fromEntries([...document.querySelectorAll('#bulkImportPanel [data-count]')].map(el => [el.dataset.count, +el.textContent])));
-    assert.deepEqual(counts, { found: 9, imported: 3, duplicates: 2, skipped: 3, errors: 1 });
+    assert.deepEqual(counts, { found: 9, imported: 4, duplicates: 2, skipped: 2, errors: 1 }); // default includes the Zwift ride
     assert.ok(served.has('js/velo-import-worker.js'), 'parsed in the Web Worker');
     assert.equal(await page.evaluate(() => window.__refreshes), 1, 'analytics recomputed once, not per ride');
-    const imported = await page.evaluate(() => app.completedWorkouts.map(r => ({ title: r.title, source: r.source, watts: r.avgWatts, hash: !!r.fileHash, samples: r.samples.length })));
-    assert.equal(imported.length, 3);
+    const imported = await page.evaluate(() => app.completedWorkouts.map(r => ({ title: r.title, source: r.source, origin: r.origin, watts: r.avgWatts, hash: !!r.fileHash, samples: r.samples.length })));
+    assert.equal(imported.length, 4);
+    assert.deepEqual(imported.map(r => r.origin).sort(), ['garmin', 'strava', 'strava', 'strava']);
     assert.ok(imported.some(r => r.title === 'Morning ride, hills'), 'Strava names restored from activities.csv');
     assert.ok(imported.every(r => r.hash && r.samples > 0 && r.source.startsWith('import:')));
-    assert.ok(imported.find(r => r.source === 'import:fit' && r.title !== 'Morning ride, hills').watts > 0, 'the copy with power was kept');
-    assert.equal(await page.locator('#historyTableBody tr[data-id]').count(), 3);
+    assert.ok(imported.find(r => r.origin === 'garmin').watts > 0, 'the copy with power was kept');
+    assert.equal(await page.locator('#historyTableBody tr[data-id]').count(), 4);
     const job = await page.evaluate(() => { const ids = JSON.parse(localStorage.getItem('apex_import_jobs')); return JSON.parse(localStorage.getItem('apex_import_job_' + ids.at(-1))); });
-    assert.equal(job.status, 'done'); assert.equal(job.done, 3); assert.equal(job.errors, 1);
+    assert.equal(job.status, 'done'); assert.equal(job.done, 4); assert.equal(job.errors, 1);
     await page.setViewportSize({ width: 390, height: 844 });
     await page.locator('#bulkImportPanel').scrollIntoViewIfNeeded(); await page.screenshot({ path: path.join(out, 'bulk-import-mobile.png') });
     assert.ok(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth + 1), 'import panel fits a phone screen');
@@ -68,11 +69,21 @@ const out = path.join(root, 'test-output/public-local'); fs.mkdirSync(out, { rec
     // The same exports again: nothing is added twice. Then a GPX through the drop-zone path goes to the bulk importer.
     await page.locator('#fileInputBulk').setInputFiles(zips);
     await page.waitForFunction(() => document.getElementById('bulkImportPanel').dataset.state === 'done' && !app._bulk, null, { timeout: 20000 });
-    assert.equal(await page.evaluate(() => app.completedWorkouts.length), 3);
+    assert.equal(await page.evaluate(() => app.completedWorkouts.length), 4);
     assert.equal(await page.evaluate(() => app.bulkSummary().imported), 0);
     await page.evaluate(gpx => app.handleIncomingFiles([new File([gpx], 'ride.gpx')]), fs.readFileSync(path.join(fixtures, 'ride.gpx'), 'utf8'));
-    await page.waitForFunction(() => app.completedWorkouts.length === 4 && !app._bulk, null, { timeout: 20000 });
+    await page.waitForFunction(() => app.completedWorkouts.length === 5 && !app._bulk, null, { timeout: 20000 });
     assert.equal(await page.evaluate(() => app.completedWorkouts.find(r => r.source === 'import:gpx').title), 'Lunch loop');
+    assert.equal(await page.evaluate(() => app.completedWorkouts.find(r => r.source === 'import:gpx').origin), undefined);
+    // Garmin first, then Strava: the ride Strava also has (same file) is re-tagged as Strava's, so it is never uploaded back.
+    await page.evaluate(async () => { app.completedWorkouts = []; await app.saveHistory(); });
+    for (const zip of [zips[1], zips[0]]) {
+      await page.locator('#fileInputBulk').setInputFiles([zip]);
+      await page.waitForFunction(() => document.getElementById('bulkImportPanel').dataset.state === 'done' && !app._bulk, null, { timeout: 20000 });
+    }
+    const march2 = await page.evaluate(() => app.completedWorkouts.filter(r => r.date.startsWith('2026-03-02')).map(r => r.origin));
+    assert.deepEqual(march2, ['strava']);
+    assert.equal(await page.evaluate(() => app.completedWorkouts.length), 4);
     await page.evaluate(async () => { app.completedWorkouts = []; await app.saveHistory(); });
     await fresh.close();
 

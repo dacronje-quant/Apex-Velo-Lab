@@ -45,7 +45,7 @@
       const st = this._bulk = {
         job, mode, cancelled: false, worker: null, index,
         counts: { found: 0, parsed: 0, skipped: 0, errors: 0, duplicates: 0 }, sameRide: 0,
-        pending: new Set(), replaceOf: new Map(), rows: [], strava: new Map(), path: '', done: false
+        pending: new Set(), replaceOf: new Map(), rows: [], strava: new Map(), path: '', done: false, touched: new Set()
       };
       this.renderBulkPanel();
 
@@ -53,7 +53,7 @@
         for (const ride of rides) {
           const v = VeloDedupe.admit(st.index, ride);
           if (v.verdict === 'new') st.pending.add(ride);
-          else if (v.verdict === 'duplicate') st.sameRide++;
+          else if (v.verdict === 'duplicate') { st.sameRide++; this.markStravaOrigin(v.with, ride.origin, st); }
           else if (st.pending.has(v.with)) { st.pending.delete(v.with); st.pending.add(ride); st.sameRide++; }
           else if (st.replaceOf.has(v.with)) { st.replaceOf.set(ride, st.replaceOf.get(v.with)); st.replaceOf.delete(v.with); st.sameRide++; }
           else st.replaceOf.set(ride, v.with);
@@ -120,6 +120,8 @@
       const added = [...st.pending];
       const replacements = [...st.replaceOf];
       VeloBulkImport.applyIndex(added.concat(replacements.map(([ride]) => ride)), st.strava);
+      // Exact copies dropped in the worker: if the copy came from a Strava export, the kept ride is on Strava too.
+      st.rows.forEach(r => { if (r.status === 'duplicate' && r.hash) this.markStravaOrigin(st.index.byHash(r.hash), r.origin, st); });
 
       const status = new Map();
       added.forEach(r => status.set(r.id, 'imported'));
@@ -129,7 +131,8 @@
         if (at === undefined) continue;
         // The better copy replaces the stored one under the stored id; its names and Strava link are kept.
         const keep = { id: old.id, title: old.title || ride.title, description: old.description || ride.description,
-          strava: old.strava, stravaActivityId: old.stravaActivityId || ride.stravaActivityId, replacedFrom: old.source };
+          strava: old.strava, stravaActivityId: old.stravaActivityId || ride.stravaActivityId, replacedFrom: old.source,
+          origin: old.origin === 'strava' || ride.origin === 'strava' ? 'strava' : (old.origin || ride.origin) };
         Object.keys(keep).forEach(k => keep[k] === undefined && delete keep[k]);
         this.completedWorkouts[at] = { ...ride, ...keep };
         status.set(ride.id, 'replaced');
@@ -138,7 +141,8 @@
         added.sort((a, b) => String(b.date).localeCompare(String(a.date)));
         this.completedWorkouts.unshift(...added);
       }
-      if (status.size) {
+      const touched = [...st.touched].filter(r => this.completedWorkouts.includes(r));
+      if (status.size || touched.length) {
         await this.saveHistory();
         this.renderHistoryTable();
         this.refreshAnalytics();
@@ -162,6 +166,13 @@
         : `${result.cancelled ? 'Import cancelled' : 'Import finished'}: ${summary.imported} ride${summary.imported === 1 ? '' : 's'} imported, ${summary.duplicates} duplicate${summary.duplicates === 1 ? '' : 's'}, ${summary.skipped} skipped${summary.errors ? `, ${summary.errors} error${summary.errors === 1 ? '' : 's'}` : ''}.`;
       this.showToast(msg, result.error || summary.errors ? 'warning' : 'success');
       return { ...summary, replaced: replacements.length, cancelled: !!result.cancelled, error: result.error || null, jobId: st.job.id };
+    },
+
+    /** A ride that also arrived in a Strava export is on Strava: tag it so it is never uploaded there again. */
+    markStravaOrigin(kept, origin, st) {
+      if (!kept || origin !== 'strava' || kept.origin === 'strava') return;
+      kept.origin = 'strava';
+      st.touched.add(kept);
     },
 
     bulkSummary(st = this._bulk || this._lastBulk) {

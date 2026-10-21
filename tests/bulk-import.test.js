@@ -70,14 +70,16 @@ test('FIT: sport and sub_sport come from the file', () => {
   assert.equal(I.parseFit(F.fit({ start: '2026-01-01T08:00:00Z', seconds: 30, power: null }).buffer, 'T', 200).avgWatts, 0);
 });
 
-test('sport filter: cycling only, cycling + indoor, everything', () => {
+test('sport filter: all cycling incl. indoor/virtual (default), outdoor cycling only, everything', () => {
   const outdoor = B.sportOf({ fitSport: 2, fitSubSport: 7 }), zwift = B.sportOf({ fitSport: 2, fitSubSport: 58 });
   const trainer = B.sportOf({ fitSport: 4, fitSubSport: 6 }), run = B.sportOf({ fitSport: 1 }), unknown = B.sportOf({});
   assert.equal(B.filterReason(outdoor, 'cycling'), null);
-  assert.equal(B.filterReason(zwift, 'cycling'), 'indoor cycling');
-  assert.equal(B.filterReason(zwift, 'indoor'), null);
-  assert.equal(B.filterReason(trainer, 'indoor'), null);
-  assert.match(B.filterReason(run, 'indoor'), /not cycling/);
+  assert.equal(B.filterReason(zwift, 'cycling'), null, 'virtual rides are in by default');
+  assert.equal(B.filterReason(trainer, 'cycling'), null, 'trainer sessions are in by default');
+  assert.equal(B.filterReason(outdoor, 'outdoor'), null);
+  assert.equal(B.filterReason(zwift, 'outdoor'), 'indoor cycling');
+  assert.equal(B.filterReason(trainer, 'outdoor'), 'indoor cycling');
+  assert.match(B.filterReason(run, 'cycling'), /not cycling/);
   assert.equal(B.filterReason(run, 'all'), null);
   assert.equal(B.filterReason(unknown, 'cycling'), null, 'files without a sport (own CSV exports) count as cycling');
   assert.equal(B.sportFromText('Virtual Ride').indoor, true);
@@ -109,8 +111,9 @@ test('SHA-256 fallback matches Node crypto (padding edges included)', async () =
 
 test('Strava "Download your data" zip: gz entries, sport filter by file content, names from activities.csv', async () => {
   const { counts, rides, index } = await runAll([fixture('strava-export.zip')], { mode: 'cycling' });
-  assert.deepEqual(counts, { found: 4, parsed: 2, skipped: 2, errors: 0, duplicates: 0 }); // run and Zwift ride skipped; photo/profile ignored
-  assert.equal(B.applyIndex(rides, index), 2);
+  assert.deepEqual(counts, { found: 4, parsed: 3, skipped: 1, errors: 0, duplicates: 0 }); // run skipped; photo/profile ignored
+  assert.equal(B.applyIndex(rides, index), 3);
+  assert.ok(rides.every(r => r.origin === 'strava'), 'rides from a Strava export are tagged so they are never uploaded back');
   const byFile = Object.fromEntries(rides.map(r => [r.fileName, r]));
   assert.equal(byFile['1001.fit.gz'].title, 'Morning ride, hills');
   assert.equal(byFile['1001.fit.gz'].description, 'Two climbs.\nLegs "ok".');
@@ -120,9 +123,11 @@ test('Strava "Download your data" zip: gz entries, sport filter by file content,
   assert.equal(byFile['1001.fit.gz'].fileHash, crypto.createHash('sha256').update(F.fit(F.RIDES.stravaFit)).digest('hex'), 'hash of the decompressed bytes');
   assert.equal(byFile['1004.tcx.gz'].title, 'Coffee spin');
   assert.equal(byFile['1004.tcx.gz'].source, 'import:tcx');
+  assert.equal(byFile['1003.fit.gz'].title, 'Zwift - Watopia');
 
-  const indoor = await runAll([fixture('strava-export.zip')], { mode: 'indoor' });
-  assert.equal(indoor.counts.parsed, 3);
+  const outdoor = await runAll([fixture('strava-export.zip')], { mode: 'outdoor' });
+  assert.equal(outdoor.counts.parsed, 2);
+  assert.ok(!outdoor.rides.some(r => r.fileName === '1003.fit.gz'), 'outdoor only leaves the Zwift ride out');
   const all = await runAll([fixture('strava-export.zip')], { mode: 'all' });
   assert.equal(all.counts.parsed, 4);
   const run = all.rides.find(r => r.fileName === '1002.gpx');
@@ -132,8 +137,10 @@ test('Strava "Download your data" zip: gz entries, sport filter by file content,
 
 test('Garmin export: nested zip streamed, exact copies dropped by hash, empty and broken files counted', async () => {
   const known = (await runAll([fixture('strava-export.zip')])).rides.map(r => r.fileHash);
-  const { counts, rows } = await runAll([fixture('garmin-export.zip')], { knownHashes: known });
+  const { counts, rows, rides } = await runAll([fixture('garmin-export.zip')], { knownHashes: known });
   assert.deepEqual(counts, { found: 5, parsed: 2, skipped: 1, errors: 1, duplicates: 1 });
+  assert.ok(rides.every(r => r.origin === 'garmin'));
+  assert.equal(rows.find(r => r.status === 'duplicate').origin, 'garmin');
   const status = Object.fromEntries(rows.map(r => [r.path.split('/').pop(), r.status]));
   assert.deepEqual(status, { 'rider_2026-03-02.fit': 'duplicate', 'rider_2026-03-06_edge.fit': 'parsed', 'rider_2026-03-06_watch.fit': 'parsed', 'monitoring_2026-03-06.fit': 'skipped', 'broken.fit': 'error' });
   assert.ok(rows.every(r => r.path.startsWith('garmin-export.zip/DI_CONNECT/DI-Connect-Uploaded-Files/UploadedFiles_0-_Part1.zip/')));
@@ -150,6 +157,19 @@ test('loose files: .fit.gz, .tcx, .gpx, own CSV export, unsupported file', async
   const { counts, rides } = await runAll(files);
   assert.deepEqual(counts, { found: 4, parsed: 4, skipped: 1, errors: 0, duplicates: 0 });
   assert.deepEqual(rides.map(r => r.source), ['import:fit', 'import:tcx', 'import:gpx', 'import:csv']);
+  assert.ok(rides.every(r => r.origin === undefined), 'loose files have no known origin');
+});
+
+test('origin from the export layout: Strava activities/ at the archive root, Garmin DI_CONNECT folders', () => {
+  assert.equal(B.originOf('export_123.zip/activities/1001.fit.gz'), 'strava');
+  assert.equal(B.originOf('export_123.zip/activities/sub/1001.fit.gz'), null);
+  assert.equal(B.originOf('my-rides.zip/2026/ride.fit'), null);
+  assert.equal(B.originOf('ride.fit'), null);
+  assert.equal(B.originOf('garmin.zip/DI_CONNECT/DI-Connect-Uploaded-Files/UploadedFiles_0-_Part1.zip/a.fit'), 'garmin');
+  assert.equal(B.originOf('DI_CONNECT/DI-Connect-Fitness/x.fit'), 'garmin');
+  const r = { importPath: 'loose/1001.fit.gz' };
+  B.applyIndex([r], B.stravaIndex(F.CSV));
+  assert.equal(r.origin, 'strava', 'a ride listed in activities.csv is Strava\'s');
 });
 
 test('archives are streamed: entries are parsed before the whole zip has been read, and a streamed zip (data descriptors) works', async () => {
