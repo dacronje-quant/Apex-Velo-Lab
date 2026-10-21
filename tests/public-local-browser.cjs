@@ -76,7 +76,7 @@ const out = path.join(root, 'test-output/public-local'); fs.mkdirSync(out, { rec
     assert.equal(await page.evaluate(() => app.completedWorkouts.find(r => r.source === 'import:gpx').title), 'Lunch loop');
     assert.equal(await page.evaluate(() => app.completedWorkouts.find(r => r.source === 'import:gpx').origin), undefined);
     // Garmin first, then Strava: the ride Strava also has (same file) is re-tagged as Strava's, so it is never uploaded back.
-    await page.evaluate(async () => { app.completedWorkouts = []; await app.saveHistory(); });
+    await page.evaluate(async () => { app.completedWorkouts = []; await VeloDB.clearAllRides(); await app.saveHistory(); });
     for (const zip of [zips[1], zips[0]]) {
       await page.locator('#fileInputBulk').setInputFiles([zip]);
       await page.waitForFunction(() => document.getElementById('bulkImportPanel').dataset.state === 'done' && !app._bulk, null, { timeout: 20000 });
@@ -84,7 +84,46 @@ const out = path.join(root, 'test-output/public-local'); fs.mkdirSync(out, { rec
     const march2 = await page.evaluate(() => app.completedWorkouts.filter(r => r.date.startsWith('2026-03-02')).map(r => r.origin));
     assert.deepEqual(march2, ['strava']);
     assert.equal(await page.evaluate(() => app.completedWorkouts.length), 4);
-    await page.evaluate(async () => { app.completedWorkouts = []; await app.saveHistory(); });
+    await page.evaluate(async () => { app.completedWorkouts = []; await VeloDB.clearAllRides(); await app.saveHistory(); });
+
+    // Batches are committed as they arrive: a cancelled import keeps them, samples are dropped from memory
+    // after each commit and come back for the one analytics refresh at the end.
+    const slowImport = (bytesList, opts) => {
+      window.__slow = bytesList.map(([name, bytes]) => ({ name, stream: () => { let at = 0; const b = new Uint8Array(bytes);
+        return new ReadableStream({ async pull(c) { await new Promise(r => setTimeout(r, 60)); if (at >= b.length) return c.close(); c.enqueue(b.slice(at, at += 128)); } }); } }));
+      window.__slowRun = app.startBulkImport(window.__slow, { inline: true, commitEvery: 1, ...opts });
+    };
+    const zipBytes = zips.map(z => [z.name, [...z.buffer]]);
+    await page.evaluate(([fn, list]) => { new Function('return ' + fn)()(list); }, [slowImport.toString(), zipBytes]);
+    await page.waitForFunction(() => app.completedWorkouts.some(r => r.source?.startsWith('import:') && !r.samples), null, { timeout: 20000 });
+    await page.evaluate(() => app.cancelBulkImport());
+    const cancelled = await page.evaluate(() => window.__slowRun);
+    assert.equal(cancelled.cancelled, true);
+    assert.ok(cancelled.imported >= 1 && cancelled.imported < 4, JSON.stringify(cancelled));
+    assert.ok(await page.evaluate(() => app.completedWorkouts.every(r => r.samples && r.samples.length)), 'samples restored for the analytics');
+    await page.reload(); await page.waitForFunction(() => window.app && app.completedWorkouts);
+    assert.equal(await page.evaluate(() => app.completedWorkouts.length), cancelled.imported, 'cancelled import keeps its committed batches');
+    await page.evaluate(async () => { app.completedWorkouts = []; await VeloDB.clearAllRides(); await app.saveHistory(); });
+
+    // A crash (page closed mid-import) keeps the batches already committed; the job is marked interrupted.
+    await page.evaluate(([fn, list]) => { new Function('return ' + fn)()(list); }, [slowImport.toString(), zipBytes]);
+    await page.waitForFunction(() => app.completedWorkouts.some(r => r.source?.startsWith('import:') && !r.samples), null, { timeout: 20000 });
+    const jobId = await page.evaluate(() => app._bulk.job.id);
+    await page.reload(); await page.waitForFunction(() => window.app && app.completedWorkouts);
+    const survived = await page.evaluate(() => app.completedWorkouts.filter(r => r.source?.startsWith('import:')).length);
+    assert.ok(survived >= 1, 'committed rides survive a crash');
+    await page.waitForFunction(id => JSON.parse(localStorage.getItem('apex_import_job_' + id)).status === 'interrupted', jobId);
+    await page.evaluate(async () => { app.completedWorkouts = []; await VeloDB.clearAllRides(); await app.saveHistory(); });
+
+    // Watchdog: a worker that goes silent ends the import with an error and frees the importer.
+    const silent = await page.evaluate(async () => {
+      const Real = window.Worker;
+      window.Worker = class { postMessage() {} terminate() {} };
+      try { return await app.startBulkImport([new File(['x'], 'a.fit')], { watchdogMs: 300 }); } finally { window.Worker = Real; }
+    });
+    assert.equal(silent.error, 'the import stopped responding');
+    assert.equal(await page.evaluate(() => app._bulk), null);
+    await page.waitForFunction(() => document.getElementById('bulkImportPanel').dataset.state === 'failed');
     await fresh.close();
 
     const saved = [{ id: 'prof_divan', name: 'Existing rider', ftp: 213, weightKg: 72, maxHr: 181, ftpHistory: [{ from: 200, to: 213 }] }, { id: 'prof_1', name: 'Other rider', ftp: 150, weightKg: 65, maxHr: 170 }];
@@ -118,6 +157,6 @@ const out = path.join(root, 'test-output/public-local'); fs.mkdirSync(out, { rec
     assert.equal(apiCalls.filter(c => c.page.includes('apexDemo=1')).length, 0); await demo.screenshot({ path: path.join(out, 'demo-desktop.png') });
     const after = await old.evaluate(() => JSON.stringify({ profiles: localStorage.getItem('apex_velo_profiles'), health: localStorage.getItem('apex_health_v1'), rides: localStorage.getItem('apex_velo_history') }));
     assert.equal(after, before); await demo.close(); await existing.close();
-    assert.deepEqual(errors, []); console.log('Passed: clean startup, profile editing, mobile fit, bulk history import (worker, dedupe, Strava names), legacy profiles/rides/health preservation, IndexedDB-only history, additive archive, demo isolation, blocked connections, no page errors.');
+    assert.deepEqual(errors, []); console.log('Passed: clean startup, profile editing, mobile fit, bulk history import (worker, dedupe, Strava names, batch commits, cancel/crash keep batches, watchdog), legacy profiles/rides/health preservation, IndexedDB-only history, additive archive, demo isolation, blocked connections, no page errors.');
   } finally { await browser.close(); }
 })().catch(e => { console.error(e); process.exitCode = 1; });

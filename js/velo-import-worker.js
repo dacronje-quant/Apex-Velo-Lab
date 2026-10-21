@@ -3,7 +3,7 @@
  * page thread, posting rides back in batches (see js/velo-bulk-import.js).
  *
  * In:  { type: 'start', files, opts: { mode, profile, knownHashes } }, { type: 'cancel' }
- * Out: { type: 'progress', counts, path }, { type: 'rides', rides }, { type: 'index', entries },
+ * Out: { type: 'alive' } (every 5 s), { type: 'progress', counts, path }, { type: 'rides', rides }, { type: 'index', entries },
  *      { type: 'files', rows }, { type: 'done', counts, cancelled }, { type: 'error', message }
  */
 importScripts('../vendor/fflate.min.js', 'velo-metrics.js', 'velo-importer.js', 'velo-bulk-import.js');
@@ -14,6 +14,7 @@ self.onmessage = async (e) => {
   if (msg.type === 'cancel') { cancelled = true; return; }
   if (msg.type !== 'start') return;
   cancelled = false;
+  const heartbeat = setInterval(() => self.postMessage({ type: 'alive' }), 5000); // for the page's watchdog
   let rows = [], lastProgress = 0;
   const flushRows = () => { if (rows.length) { self.postMessage({ type: 'files', rows }); rows = []; } };
   try {
@@ -33,5 +34,7 @@ self.onmessage = async (e) => {
   } catch (err) {
     flushRows();
     self.postMessage({ type: 'error', message: err.message || String(err) });
+  } finally {
+    clearInterval(heartbeat);
   }
 };

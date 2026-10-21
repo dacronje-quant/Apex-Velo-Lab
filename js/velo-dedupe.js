@@ -102,8 +102,8 @@ class VeloDedupe {
   }
 
   // ------------------------------------------------- ride files (bulk import) --
-  // Contract (docs/ANDROID-CONTRACTS.md): the same ride = the same fileHash, or a start within ±60 s and a
-  // duration within ±5 %. Of two copies keep the one with power, then more channels, then the longer one.
+  // Contract (docs/ANDROID-CONTRACTS.md): the same ride = the same fileHash, or (same sport family) a start
+  // within ±60 s and a duration within ±5 %. Of two copies keep the one with power, then more channels, then the longer one.
 
   static startMsOf(r) { const t = VeloDedupe.norm(r).startMs; return Number.isFinite(t) ? t : NaN; }
 
@@ -130,8 +130,15 @@ class VeloDedupe {
 
   static recordedHere(r) { return r.source === 'APEX VELO Cockpit' || r.source === 'recorded'; }
 
+  /** Activity family of a stored or imported record: activityType (imports, Strava sync), else its sport. */
+  static familyOf(r) {
+    if (r.activityType) return r.activityType === 'ride' ? 'ride' : r.activityType;
+    return VeloDedupe.FAMILY[r.sport || r.sport_type || r.type] || 'ride';
+  }
+
   static sameRide(a, b) {
     if (a.fileHash && b.fileHash && a.fileHash === b.fileHash) return true;
+    if (VeloDedupe.familyOf(a) !== VeloDedupe.familyOf(b)) return false; // a run never matches (or replaces) a ride
     const ta = VeloDedupe.startMsOf(a), tb = VeloDedupe.startMsOf(b);
     if (!Number.isFinite(ta) || !Number.isFinite(tb) || Math.abs(ta - tb) > 60000) return false;
     const da = VeloDedupe.durationOf(a), db = VeloDedupe.durationOf(b);

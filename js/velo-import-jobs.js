@@ -5,12 +5,14 @@
  * (workstream B) exposes them they live in settings keys:
  *   apex_import_jobs            JSON list of job ids, newest last (the last KEEP jobs are kept)
  *   apex_import_job_<id>        one import_jobs row
- *   apex_import_files_<id>      that job's import_files rows
+ *   apex_import_files_<id>      that job's import_files rows (errors and skipped files only, capped)
  * Every method is async so a store backed by /api/storage can replace this one without touching callers.
  * A job's detailed counts (found / imported / duplicates / skipped / errors) are kept as JSON in `cursor`.
  */
 class VeloImportJobs {
   static KEEP = 5;
+  static MAX_FILES = 500;
+  static LOGGED = new Set(['error', 'skipped']);
 
   /** store: anything with getItem / setItem / removeItem (localStorage by default). */
   constructor(store) {
@@ -52,11 +54,17 @@ class VeloImportJobs {
     return job;
   }
 
-  /** Adds or updates import_files rows ({ path, hash, ride_id, status, error }), keyed by (job_id, path). */
+  /**
+   * Adds or updates import_files rows ({ path, hash, ride_id, status, error }), keyed by (job_id, path).
+   * Settings storage is small, so only rows worth reading later are kept (errors and skipped files), at most
+   * MAX_FILES per job; imported files and duplicates are only counted on the job row.
+   */
   async putFiles(jobId, rows) {
     const list = this._get(`apex_import_files_${jobId}`, []);
     const at = new Map(list.map((r, i) => [r.path, i]));
     for (const r of rows) {
+      if (!VeloImportJobs.LOGGED.has(r.status)) continue;
+      if (!at.has(r.path) && list.length >= VeloImportJobs.MAX_FILES) continue;
       const row = { job_id: jobId, path: r.path, hash: r.hash || null, ride_id: r.ride_id || null, status: r.status, error: r.error || null };
       if (at.has(r.path)) list[at.get(r.path)] = row; else { at.set(r.path, list.length); list.push(row); }
     }

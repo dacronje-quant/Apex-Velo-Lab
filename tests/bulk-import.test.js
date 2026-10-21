@@ -203,6 +203,47 @@ test('cancel stops the walk early', async () => {
   assert.ok(counts.found < 9);
 });
 
+test('zip bomb guards: oversized entries (.fit and .fit.gz) are dropped at 64 MB, the rest of the archive still imports', async () => {
+  const zeros = new Uint8Array(70 * 1024 * 1024); // compresses to ~70 KB
+  const ok = F.fit({ start: '2026-05-01T08:00:00Z', seconds: 60 });
+  const bomb = F.zip({ 'big.fit': zeros, 'big.fit.gz': F.gz(zeros), 'ok.fit': ok });
+  assert.ok(bomb.length < 1024 * 1024, `fixture is ${bomb.length} bytes`);
+  const { counts, rows, rides } = await runAll([new File([bomb], 'bomb.zip')]);
+  assert.deepEqual(counts, { found: 3, parsed: 1, skipped: 0, errors: 2, duplicates: 0 });
+  assert.deepEqual(rows.filter(r => r.status === 'error').map(r => [r.path, r.error]), [
+    ['bomb.zip/big.fit', 'file too large (over 64 MB unpacked)'], ['bomb.zip/big.fit.gz', 'file too large (over 64 MB unpacked)']]);
+  assert.equal(rides[0].fileName, 'ok.fit');
+  // Loose files: a .fit.gz that unpacks past the cap, and a plain file past it.
+  const loose = await runAll([new File([F.gz(new Uint8Array(3000))], 'a.fit.gz'), new File([new Uint8Array(3000)], 'b.fit')], { limits: { entryBytes: 2000 } });
+  assert.equal(loose.counts.errors, 2);
+  assert.ok(loose.rows.every(r => /file too large/.test(r.error)));
+});
+
+test('zip bomb guards: total unpacked bytes per archive and nesting depth are capped', async () => {
+  const ride = (d) => F.fit({ start: `2026-05-0${d}T08:00:00Z`, seconds: 60 });
+  const entries = Object.fromEntries([1, 2, 3, 4, 5, 6].map(d => [`r${d}.fit`, ride(d)]));
+  const big = await runAll([new File([F.zip(entries)], 'many.zip')], { limits: { archiveBytes: ride(1).length * 2.5 } });
+  assert.equal(big.counts.parsed, 2, 'reading stops once the archive is over budget');
+  assert.match(big.rows.find(r => r.status === 'error').error, /archive too large/);
+  let nested = F.zip({ 'deep.fit': ride(1) });
+  for (let i = 0; i < 3; i++) nested = F.zip({ [`level${i}.zip`]: nested, [`top${i}.fit`]: ride(i + 2) });
+  const deep = await runAll([new File([nested], 'nested.zip')], { limits: { depth: 2 } });
+  assert.equal(deep.counts.parsed, 3, 'the outer zip and two nested levels are read; the third level is refused');
+  assert.match(deep.rows.find(r => r.status === 'error').error, /nested too deep/);
+  assert.equal((await runAll([new File([nested], 'nested.zip')])).counts.parsed, 4, 'default depth reads it all');
+});
+
+test('gzip cap also holds without DecompressionStream (fflate fallback)', async () => {
+  const saved = globalThis.DecompressionStream;
+  try {
+    delete globalThis.DecompressionStream;
+    await assert.rejects(B.gunzip(F.gz(new Uint8Array(500000)), 100000), /file too large/);
+    assert.equal((await B.gunzip(F.gz(new Uint8Array(5000)), 100000)).length, 5000);
+  } finally {
+    globalThis.DecompressionStream = saved;
+  }
+});
+
 test('dedupe contract: same hash, or start within 60 s and duration within 5 %; keep power, then channels, then length', () => {
   const base = { date: '2026-03-06T07:00:00Z', duration: 3600 };
   assert.ok(D.sameRide(base, { date: '2026-03-06T07:00:59Z', duration: 3500 }));
@@ -222,6 +263,12 @@ test('dedupe contract: same hash, or start within 60 s and duration within 5 %; 
   assert.equal(v.with, noPower);
   assert.equal(D.admit(idx, { ...noPower }).verdict, 'duplicate');
   assert.equal(D.admit(idx, { date: '2026-03-06T09:00:00Z', duration: 3600 }).verdict, 'new');
+
+  const run = { ...base, activityType: 'run', avgHr: 150, avgWatts: 250 };
+  assert.ok(!D.sameRide(base, run), 'a run never matches a ride');
+  assert.equal(D.admit(D.rideIndex([noPower]), run).verdict, 'new', 'a run with power never replaces a ride');
+  assert.ok(D.sameRide({ ...base, type: 'VirtualRide' }, base), 'Strava ride types are rides');
+  assert.ok(!D.sameRide({ ...base, type: 'Walk' }, base));
 
   const recorded = { ...base, source: 'APEX VELO Cockpit', avgHr: 140 };
   assert.equal(D.admit(D.rideIndex([recorded]), { ...power, avgHr: 150, distanceKm: 20 }).verdict, 'duplicate', 'a ride recorded in the app is never replaced');
@@ -244,9 +291,13 @@ test('import job adapter: rows shaped like import_jobs / import_files in apex_im
   const jobs = new Jobs(store);
   const job = await jobs.create({ source: 'export.zip' });
   assert.deepEqual(Object.keys(job).sort(), ['created_at', 'cursor', 'done', 'errors', 'id', 'skipped', 'source', 'status', 'total', 'updated_at']);
-  await jobs.putFiles(job.id, [{ path: 'a.fit', hash: 'h', ride_id: 'r1', status: 'imported' }, { path: 'b.fit', status: 'error', error: 'bad' }]);
-  await jobs.putFiles(job.id, [{ path: 'a.fit', hash: 'h', ride_id: 'r1', status: 'replaced' }]);
-  assert.deepEqual((await jobs.files(job.id)).map(r => [r.job_id === job.id, r.path, r.status]), [[true, 'a.fit', 'replaced'], [true, 'b.fit', 'error']]);
+  await jobs.putFiles(job.id, [{ path: 'a.fit', hash: 'h', ride_id: 'r1', status: 'imported' }, { path: 'b.fit', status: 'error', error: 'bad' },
+    { path: 'c.fit', status: 'duplicate' }, { path: 'd.fit', status: 'skipped', error: 'not cycling (run)' }]);
+  await jobs.putFiles(job.id, [{ path: 'd.fit', status: 'error', error: 'later' }]);
+  assert.deepEqual((await jobs.files(job.id)).map(r => [r.job_id === job.id, r.path, r.status]), [[true, 'b.fit', 'error'], [true, 'd.fit', 'error']],
+    'only errors and skipped files are logged');
+  await jobs.putFiles(job.id, Array.from({ length: 700 }, (_, i) => ({ path: `e${i}.fit`, status: 'error', error: 'x' })));
+  assert.equal((await jobs.files(job.id)).length, Jobs.MAX_FILES);
   await jobs.update(job.id, { status: 'done', total: 2, done: 1, errors: 1 });
   assert.equal((await jobs.get(job.id)).status, 'done');
   for (let i = 0; i < 6; i++) await jobs.create({ source: `more ${i}` });

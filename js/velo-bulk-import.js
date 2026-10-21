@@ -17,6 +17,16 @@ class VeloBulkImport {
   // FIT profile enums (sport / sub_sport) used for the filter.
   static FIT_INDOOR_SUB = new Set([5, 6, 58]); // spin, indoor_cycling, virtual_activity
 
+  /**
+   * Zip-bomb guards: one unpacked ride file at most entryBytes, one archive (all levels together) at most
+   * archiveBytes unpacked, zips nested at most depth deep. Tests pass smaller limits via opts.limits.
+   */
+  static LIMITS = { entryBytes: 64 * 1024 * 1024, archiveBytes: 20 * 1024 ** 3, depth: 4 };
+
+  static fmtBytes(n) { return n >= 1024 ** 3 ? `${Math.round(n / 1024 ** 3)} GB` : n >= 1024 ** 2 ? `${Math.round(n / 1024 ** 2)} MB` : `${n} bytes`; }
+
+  static tooLarge(limit) { return new Error(`file too large (over ${VeloBulkImport.fmtBytes(limit)} unpacked)`); }
+
   /** What a path is: { kind: 'fit'|'tcx'|'gpx'|'csv'|'zip', gz } or null when it is not a ride file. */
   static kindOf(path) {
     const name = String(path).toLowerCase().split('/').pop();
@@ -75,22 +85,35 @@ class VeloBulkImport {
     return out;
   }
 
-  static async readStream(stream) {
+  /** All bytes of a stream; stops reading and throws "file too large" past `limit` bytes. */
+  static async readStream(stream, limit = Infinity) {
     const reader = stream.getReader(), chunks = [];
     let total = 0;
     for (;;) {
       const { done, value } = await reader.read();
       if (done) break;
-      chunks.push(value); total += value.length;
+      total += value.length;
+      if (total > limit) { chunks.length = 0; await reader.cancel().catch(() => {}); throw VeloBulkImport.tooLarge(limit); }
+      chunks.push(value);
     }
     return VeloBulkImport.concat(chunks, total);
   }
 
-  static async gunzip(bytes) {
+  /** Unpacks gzip bytes, never past `limit` unpacked bytes. */
+  static async gunzip(bytes, limit = VeloBulkImport.LIMITS.entryBytes) {
     if (typeof DecompressionStream !== 'undefined' && typeof Blob !== 'undefined') {
-      return VeloBulkImport.readStream(new Blob([bytes]).stream().pipeThrough(new DecompressionStream('gzip')));
+      return VeloBulkImport.readStream(new Blob([bytes]).stream().pipeThrough(new DecompressionStream('gzip')), limit);
     }
-    return VeloBulkImport.fflate().gunzipSync(bytes);
+    const chunks = [];
+    let total = 0, over = false;
+    const g = new (VeloBulkImport.fflate().Gunzip)((chunk) => {
+      if (over) return;
+      total += chunk.length;
+      if (total > limit) { over = true; chunks.length = 0; } else chunks.push(chunk);
+    });
+    for (let o = 0; o < bytes.length && !over; o += 65536) g.push(bytes.subarray(o, o + 65536), o + 65536 >= bytes.length);
+    if (over) throw VeloBulkImport.tooLarge(limit);
+    return VeloBulkImport.concat(chunks, total);
   }
 
   static fflate() {
@@ -207,16 +230,17 @@ class VeloBulkImport {
    */
   static async *walk(sources, opts = {}) {
     const isCancelled = opts.isCancelled || (() => false);
+    const limits = { ...VeloBulkImport.LIMITS, ...(opts.limits || {}) };
     for (const src of sources) {
       if (isCancelled()) return;
       const k = VeloBulkImport.kindOf(src.name);
       if (!k) { yield { path: src.name, skip: 'not a ride file' }; continue; }
       try {
-        if (k.kind === 'zip') yield* VeloBulkImport.walkZip(src.stream(), src.name, isCancelled);
+        if (k.kind === 'zip') yield* VeloBulkImport.walkZip(src.stream(), src.name, isCancelled, limits);
         else {
-          const raw = await VeloBulkImport.readStream(k.gz && typeof DecompressionStream !== 'undefined'
-            ? src.stream().pipeThrough(new DecompressionStream('gzip')) : src.stream());
-          const bytes = k.gz && typeof DecompressionStream === 'undefined' ? VeloBulkImport.fflate().gunzipSync(raw) : raw;
+          const native = k.gz && typeof DecompressionStream !== 'undefined';
+          const raw = await VeloBulkImport.readStream(native ? src.stream().pipeThrough(new DecompressionStream('gzip')) : src.stream(), limits.entryBytes);
+          const bytes = k.gz && !native ? await VeloBulkImport.gunzip(raw, limits.entryBytes) : raw;
           yield* VeloBulkImport.classifyBytes(src.name, k, bytes, true);
         }
       } catch (e) {
@@ -235,10 +259,23 @@ class VeloBulkImport {
     yield { path, kind: k.kind, gz: false, bytes };
   }
 
-  /** Streams a zip (and zips inside it) entry by entry. Only ride files are buffered, one at a time. */
-  static async *walkZip(stream, label, isCancelled) {
+  /**
+   * Streams a zip (and zips inside it) entry by entry. Only ride files are buffered, one at a time, each
+   * capped at limits.entryBytes; the archive stops at limits.archiveBytes unpacked or limits.depth nesting.
+   */
+  static async *walkZip(stream, label, isCancelled, limits = VeloBulkImport.LIMITS) {
     const fflate = VeloBulkImport.fflate();
     const ready = [];
+    let unpacked = 0, overArchive = false;
+    // Counts every unpacked byte at every level; false once the archive is over its budget.
+    const budget = (n) => {
+      if (overArchive) return false;
+      unpacked += n;
+      if (unpacked <= limits.archiveBytes) return true;
+      overArchive = true;
+      ready.push({ path: label, error: `archive too large (over ${VeloBulkImport.fmtBytes(limits.archiveBytes)} unpacked)` });
+      return false;
+    };
     const open = (prefix, depth) => {
       const unzip = new fflate.Unzip();
       unzip.register(fflate.UnzipInflate);
@@ -247,20 +284,32 @@ class VeloBulkImport {
         if (file.name.endsWith('/')) return;
         const k = VeloBulkImport.kindOf(file.name);
         if (!k) return; // account data, photos, JSON: not counted, never read
-        if (k.kind === 'zip' && depth >= 4) { ready.push({ path, skip: 'archive nested too deep' }); return; }
+        if (k.kind === 'zip' && depth >= limits.depth) { ready.push({ path, error: 'archive nested too deep' }); return; }
         if (k.kind === 'zip') {
           const inner = open(path, depth + 1);
+          let failed = false;
           file.ondata = (err, chunk, final) => {
-            if (err) { ready.push({ path, error: err.message || String(err) }); return; }
-            try { inner.push(chunk, final); } catch (e) { ready.push({ path, error: e.message || String(e) }); }
+            if (failed) return;
+            if (err) { failed = true; ready.push({ path, error: err.message || String(err) }); return; }
+            if (!budget(chunk ? chunk.length : 0)) { failed = true; return; }
+            try { inner.push(chunk, final); } catch (e) { failed = true; ready.push({ path, error: e.message || String(e) }); }
           };
         } else {
-          const chunks = [];
-          let total = 0;
+          let chunks = [], total = 0, failed = false;
           file.ondata = (err, chunk, final) => {
-            if (err) { ready.push({ path, error: err.message || String(err) }); return; }
-            if (chunk && chunk.length) { chunks.push(chunk); total += chunk.length; }
-            if (final) ready.push({ path, k, raw: VeloBulkImport.concat(chunks, total) });
+            if (failed) return; // over a limit: the rest of this entry is dropped as it streams past
+            if (err) { failed = true; chunks = null; ready.push({ path, error: err.message || String(err) }); return; }
+            const n = chunk ? chunk.length : 0;
+            if (!budget(n)) { failed = true; chunks = null; return; }
+            total += n;
+            if (total > limits.entryBytes) {
+              failed = true; chunks = null;
+              try { file.terminate(); } catch (e) { /* data keeps streaming past; it is ignored */ }
+              ready.push({ path, error: VeloBulkImport.tooLarge(limits.entryBytes).message });
+              return;
+            }
+            if (n) chunks.push(chunk);
+            if (final) { ready.push({ path, k, raw: VeloBulkImport.concat(chunks, total) }); chunks = null; }
           };
         }
         try { file.start(); } catch (e) { ready.push({ path, error: e.message || String(e) }); }
@@ -273,18 +322,20 @@ class VeloBulkImport {
       for (;;) {
         if (isCancelled()) { await reader.cancel().catch(() => {}); return; }
         const { done, value } = await reader.read();
-        root.push(done ? new Uint8Array(0) : value, done);
+        if (!overArchive) root.push(done ? new Uint8Array(0) : value, done);
         while (ready.length) {
           const item = ready.shift();
           if (!item.raw) { yield item; continue; }
           try {
-            const bytes = item.k.gz ? await VeloBulkImport.gunzip(item.raw) : item.raw;
+            const bytes = item.k.gz ? await VeloBulkImport.gunzip(item.raw, limits.entryBytes) : item.raw;
+            if (item.k.gz && !budget(bytes.length)) continue;
             yield* VeloBulkImport.classifyBytes(item.path, item.k, bytes, false);
           } catch (e) {
             yield { path: item.path, error: e.message || String(e) };
           }
           if (isCancelled()) { await reader.cancel().catch(() => {}); return; }
         }
+        if (overArchive) { await reader.cancel().catch(() => {}); return; }
         if (done) return;
       }
     } finally {
