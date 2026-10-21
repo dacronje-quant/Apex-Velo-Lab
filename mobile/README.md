@@ -11,7 +11,7 @@ It is the same web app as the desktop version, wrapped with [Capacitor](https://
 | **Trainer control** | Bluetooth FTMS smart trainers in ERG mode (Wahoo KICKR, Tacx, Elite, Zwift Hub, Saris...), with the same ERG logic, power-range limits and auto-reconnect as the desktop app |
 | **Sensors** | Bluetooth power meters (Cycling Power Service, incl. calibration), heart-rate straps, KICKR HEADWIND |
 | **Workouts** | The full workout library, the custom interval builder, saved workouts, ramp tests, Zen cockpit, audio cues and the offline coach (workouts and multi-week plans) |
-| **Storage** | Rides, profiles and settings are saved in the app on the phone and survive restarts and app updates |
+| **Storage** | Rides, profiles and settings are saved in a SQLite database in the app on the phone (ride samples compressed), as the desktop app saves them on the PC, and survive restarts and app updates. The first start after updating from a version that kept them in the app's web storage moves them in, checked, and keeps a snapshot of the earlier data; if that start is interrupted nothing is half-moved and the next start does it again. Recovery snapshots are kept in the app's private storage |
 | **Strava** | Connect your account, send rides (FIT upload), check which rides are already there, and **Sync from Strava** |
 | **Ride files** | Every ride recorded on the phone is also saved as a FIT file in **Documents/ApexVelo** (switch: Settings > Ride files), ready for any file manager, Garmin Connect, TrainingPeaks or intervals.icu. History > Export (FIT, TCX, CSV, full JSON backup) saves there too; the workout image opens the share sheet. FIT/TCX/CSV import works in History |
 | **Health** | Resting HR, HRV and sleep read from **intervals.icu** (your watch's wellness data there), for the readiness score, the calendar recovery strip and the recovery trends. One-time backfill of all history, then the last week is refreshed automatically |
@@ -110,7 +110,9 @@ The browser test pairs the trainer through the in-app chooser and rides an ERG w
 | `src/native-ble.js` | `navigator.bluetooth` (Web Bluetooth) on top of the native BLE plugin, including an in-app device chooser. `js/velo-ble.js` runs unchanged |
 | `src/native-strava.js` | The desktop server's `/api/strava/*` routes, answered on the phone with native HTTP and the mobile OAuth flow |
 | `src/native-icu.js` | Reads intervals.icu wellness (resting HR, HRV, sleep) and turns it into the day records `js/velo-health.js` uses |
-| `src/native-app.js` | Answers `/api/` calls on the phone, switches storage to the phone, adds Settings > Strava, keeps the screen on, shares exports, handles the back button, hides PC-only features |
+| `src/native-store.js` | The desktop SQLite store (`scripts/sqlite-store.cjs`) on an async driver: answers `/api/storage/*` with the same shapes, so `js/velo-storage.js` runs unchanged. Also the `import_jobs`, `import_files`, `sync_ledger` and `wellness_days` tables with a small API (`await ApexNative.store`, then `putImportJob`, `putImportFiles`, `findImportFileByHash`, `putSyncEntry`, `listSyncEntries`, `putWellnessDays`, `listWellnessDays`, ...) |
+| `src/native-sqlite.js` | The store's driver over `@capacitor-community/sqlite`, and its snapshot folder through `@capacitor/filesystem` |
+| `src/native-app.js` | Answers `/api/` calls on the phone (saved data from `native-store.js`), adds Settings > Strava, keeps the screen on, shares exports, handles the back button, hides PC-only features |
 | `src/index.js` | Entry point. Does nothing in a normal browser |
 | `scripts/build-web.cjs` | Copies the desktop app into `www/` and adds the two tags that load the layer |
 | `android/` | The Capacitor Android project (permissions, `apexvelo://` link, icons, signing) |

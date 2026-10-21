@@ -3,9 +3,11 @@
  *
  * Runs on DOMContentLoaded, after every app script has loaded but before js/app.js creates VeloApp
  * (this listener is registered first, from <head>). It:
- *   - answers /api/ requests on the phone (Strava, the AI coach and Ask; everything else that needs the
- *     PC is switched off),
- *   - keeps rides and settings in the app's own storage (IndexedDB + localStorage in the WebView),
+ *   - answers /api/ requests on the phone (saved data, Strava, the AI coach and Ask; everything else that
+ *     needs the PC is switched off),
+ *   - answers /api/storage/* from the phone's SQLite database (src/native-store.js), so js/velo-storage.js
+ *     saves there as it does on the PC and moves the earlier WebView data (IndexedDB + localStorage) in
+ *     on the first start; without a database it keeps the WebView storage,
  *   - adds Settings > Strava for the rider's own Strava API application, and the sign-in redirect,
  *   - adds the API key fields to Settings > AI engine (the keys stay in Android app storage),
  *   - reads resting HR, HRV and sleep from intervals.icu (Settings > Health) instead of Apple Health
@@ -22,18 +24,22 @@ const json = (status, body) => new Response(JSON.stringify(body), { status, head
 const AI_PATHS = ['/api/coach', '/api/coach/status', '/api/ask'];
 
 /**
- * Same-origin /api/ calls never leave the WebView as such: Strava and the AI engine are answered here,
- * the rest reports "not in the app". `routes` is { strava, ai }.
+ * Same-origin /api/ calls never leave the WebView as such: saved data, Strava and the AI engine are
+ * answered here, the rest reports "not in the app". `routes` is { storage, strava, ai }.
  */
 export function installApiRoutes(routes, win = window) {
   if (win.__APEX_DEMO_MODE__) return; // the demo playground blocks /api/ itself
-  const { strava, ai } = routes;
+  const { storage, strava, ai } = routes;
   const realFetch = win.fetch.bind(win);
   win.fetch = async function (input, options = {}) {
     const url = new URL(typeof input === 'string' ? input : (input && input.url) || String(input), win.location.href);
     if (url.origin !== win.location.origin || !url.pathname.startsWith('/api/')) return realFetch(input, options);
     const method = String(options.method || (input && input.method) || 'GET').toUpperCase();
     const readBody = async () => typeof options.body === 'string' ? options.body : options.body ? await new Response(options.body).text() : '';
+    if (storage && (url.pathname === '/api/storage' || url.pathname.startsWith('/api/storage/'))) {
+      const r = await storage.route(url.pathname, method, await readBody());
+      return json(r.status, r.body);
+    }
     if (ai && AI_PATHS.includes(url.pathname)) {
       const signal = options.signal || (input && input.signal) || undefined;
       try {
@@ -237,11 +243,11 @@ export async function saveRideFile(Filesystem, filename, blob) {
 const HEALTH_SYNC_EVERY_MS = 60 * 60 * 1000;
 const localDay = (d = new Date()) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
 
-export function bootNativeApp({ bluetooth, strava, ai, icu, plugins, win = window }) {
+export function bootNativeApp({ bluetooth, storage, strava, ai, icu, plugins, win = window }) {
   const doc = win.document;
   const { App, Browser, KeepAwake, Filesystem, Share } = plugins;
   doc.documentElement.classList.add('apex-native');
-  installApiRoutes({ strava, ai }, win);
+  installApiRoutes({ storage, strava, ai }, win);
 
   // External links (Strava activity pages, the API settings page) open in the system browser.
   doc.addEventListener('click', (e) => {
@@ -261,8 +267,19 @@ export function bootNativeApp({ bluetooth, strava, ai, icu, plugins, win = windo
     /* global VeloApp, VeloExport */
     const App_ = typeof VeloApp !== 'undefined' ? VeloApp : win.VeloApp;
     const V = win.VeloStorage, P = App_ && App_.prototype;
-    if (V) {
-      // No PC database: the app's own IndexedDB/localStorage (persistent in the WebView) is the store.
+    if (V && storage) {
+      // The phone's SQLite database answers /api/storage, so VeloStorage.boot runs as on the PC (and moves
+      // earlier WebView data in once). Only the status wording changes.
+      V.render = () => {
+        const el = doc.getElementById('localStorageStatus');
+        if (!el) return;
+        el.textContent = V.error ? `Not saved on this phone: ${V.error}${V.recoveryUnavailable ? ' The browser recovery copy is also unavailable; export important rides with History > Export.' : ''}`
+          : !V.enabled ? 'Saved in the app\'s browser storage on this phone.'
+            : V.pending.length ? 'Saving on this phone...' : 'Saved on this phone. Use History > Export to keep a copy elsewhere.';
+        el.classList.toggle('backup-warn', !!V.error);
+      };
+    } else if (V) {
+      // No phone database: the app's own IndexedDB/localStorage (persistent in the WebView) is the store.
       V.boot = async () => {};
       V.render = () => { const el = doc.getElementById('localStorageStatus'); if (el) { el.textContent = 'Saved on this phone. Use History > Export to keep a copy elsewhere.'; el.classList.remove('backup-warn'); } };
     }
