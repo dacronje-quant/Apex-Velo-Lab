@@ -210,3 +210,58 @@ test('connect: broker wording when the sign-in service is not set up', async () 
   const { strava } = setup({ exchanger: (http) => new BrokerExchanger({ http, brokerUrl: '' }) });
   await assert.rejects(strava.connect(), /sign-in is not available/);
 });
+
+async function expiredSetup() {
+  const t = setup();
+  await t.strava.setCredentials('123', SECRET);
+  t.store.set('strava_tokens', JSON.stringify({ access_token: 'old', refresh_token: 'r1', expires_at: 1, scope: 'activity:write', athlete: { firstname: 'Ana' } }));
+  return t;
+}
+
+test('a refused token refresh (400/401) signs out, so Settings offers Connect Strava', async () => {
+  for (const status of [400, 401]) {
+    const { strava, replies } = await expiredSetup();
+    replies.push({ status, headers: {}, data: { message: 'Bad Request', errors: [{ resource: 'RefreshToken', code: 'invalid' }] } });
+    const r = await strava.upload({ fitBase64: 'x'.repeat(40) });
+    assert.deepEqual([r.status, r.body.needsConnect], [401, true]);
+    const st = await strava.status();
+    assert.deepEqual([st.connected, st.athlete, st.configured], [false, null, true], `refresh ${status}`);
+  }
+});
+
+test('a token-endpoint outage (5xx) is a retryable 502 and keeps the sign-in', async () => {
+  const { strava, replies } = await expiredSetup();
+  replies.push({ status: 503, headers: {}, data: 'Service Unavailable' });
+  const r = await strava.upload({ fitBase64: 'x'.repeat(40) });
+  assert.equal(r.status, 502);
+  assert.match(r.body.error, /temporarily unavailable \(HTTP 503\)/);
+  assert.equal(r.body.needsConnect, undefined);
+  assert.equal((await strava.status()).connected, true);
+  const dest = new StravaDestination({ strava, sleep: async () => {} });
+  replies.push({ status: 502, headers: {}, data: '' });
+  await assert.rejects(dest.upload({ id: '1' }, new Uint8Array(30)), (e) => e.retryable === true && !e.needsConnect);
+});
+
+test('concurrent accessToken() calls share one refresh', async () => {
+  const { strava, replies, requests } = await expiredSetup();
+  let release;
+  const gate = new Promise((r) => { release = r; });
+  replies.push(async () => { await gate; return { status: 200, headers: {}, data: { access_token: 'new', refresh_token: 'r2', expires_at: 1_800_007_200 } }; });
+  const both = Promise.all([strava.accessToken(), strava.accessToken()]);
+  await new Promise((r) => setTimeout(r, 0));
+  release();
+  assert.deepEqual(await both, ['new', 'new']);
+  assert.equal(requests.length, 1, 'one refresh request');
+  assert.equal(await strava.accessToken(), 'new', 'later calls use the saved token');
+});
+
+test('a refused refresh keeps a sign-in that replaced it meanwhile', async () => {
+  const { strava, store, replies } = await expiredSetup();
+  replies.push(() => {
+    store.set('strava_tokens', JSON.stringify({ access_token: 'fresh', refresh_token: 'r-new', expires_at: 1_900_000_000, scope: 'activity:write' }));
+    return { status: 400, headers: {}, data: { message: 'Bad Request' } };
+  });
+  assert.equal(await strava.accessToken(), null);
+  assert.equal(JSON.parse(store.get('strava_tokens')).refresh_token, 'r-new');
+  assert.equal((await strava.status()).connected, true);
+});

@@ -463,6 +463,8 @@ export function bootNativeApp({ bluetooth, storage, strava, ai, icu, uploads, pl
     };
     P.onUploadChange = function (rideId, row, result) {
       const ride = this.completedWorkouts.find((r) => r.id === rideId);
+      // A refused token refresh signs out: refresh the status so the panel offers Connect Strava.
+      if (row && row.status === 'queued' && row.last_error) this.refreshStravaStatus(false).catch(() => {});
       if (!this.applyUploadRow(ride, row, result)) return;
       this.saveHistory();
       this.renderHistoryTable();
