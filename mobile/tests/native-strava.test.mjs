@@ -241,3 +241,27 @@ test('a token-endpoint outage (5xx) is a retryable 502 and keeps the sign-in', a
   replies.push({ status: 502, headers: {}, data: '' });
   await assert.rejects(dest.upload({ id: '1' }, new Uint8Array(30)), (e) => e.retryable === true && !e.needsConnect);
 });
+
+test('concurrent accessToken() calls share one refresh', async () => {
+  const { strava, replies, requests } = await expiredSetup();
+  let release;
+  const gate = new Promise((r) => { release = r; });
+  replies.push(async () => { await gate; return { status: 200, headers: {}, data: { access_token: 'new', refresh_token: 'r2', expires_at: 1_800_007_200 } }; });
+  const both = Promise.all([strava.accessToken(), strava.accessToken()]);
+  await new Promise((r) => setTimeout(r, 0));
+  release();
+  assert.deepEqual(await both, ['new', 'new']);
+  assert.equal(requests.length, 1, 'one refresh request');
+  assert.equal(await strava.accessToken(), 'new', 'later calls use the saved token');
+});
+
+test('a refused refresh keeps a sign-in that replaced it meanwhile', async () => {
+  const { strava, store, replies } = await expiredSetup();
+  replies.push(() => {
+    store.set('strava_tokens', JSON.stringify({ access_token: 'fresh', refresh_token: 'r-new', expires_at: 1_900_000_000, scope: 'activity:write' }));
+    return { status: 400, headers: {}, data: { message: 'Bad Request' } };
+  });
+  assert.equal(await strava.accessToken(), null);
+  assert.equal(JSON.parse(store.get('strava_tokens')).refresh_token, 'r-new');
+  assert.equal((await strava.status()).connected, true);
+});

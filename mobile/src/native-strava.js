@@ -181,13 +181,24 @@ export class NativeStrava {
     const t = await this.tokens();
     if (!t || !t.refresh_token || !(await this.exchanger.isConfigured())) return null;
     if (t.access_token && Number(t.expires_at) > this.now() / 1000 + 120) return t.access_token;
+    // Single flight: concurrent callers share one refresh (Strava rotates the refresh token on each one).
+    if (!this._refreshing) this._refreshing = this._refresh(t).finally(() => { this._refreshing = null; });
+    return this._refreshing;
+  }
+
+  async _refresh(t) {
     const r = await this.exchanger.refresh(t.refresh_token);
     if (r.ok && r.data && r.data.access_token) {
       await this._saveTokens(r.data, t.scope, t.athlete);
       return r.data.access_token;
     }
     // Revoked or expired sign-in: forget it, so Settings offers Connect Strava instead of "Connected as ...".
-    if (r.status === 400 || r.status === 401) { await this.prefs.remove(KEYS.tokens); return null; }
+    // Only if the stored sign-in is still the refused one (a new Connect may have replaced it meanwhile).
+    if (r.status === 400 || r.status === 401) {
+      const now = await this.tokens();
+      if (now && now.refresh_token === t.refresh_token) await this.prefs.remove(KEYS.tokens);
+      return null;
+    }
     // An outage of the token endpoint is not a sign-out: the caller retries later.
     if (r.status >= 500 || r.status === 429) throw Object.assign(new Error(`Strava sign-in is temporarily unavailable (HTTP ${r.status}).`), { outage: true });
     return null;
