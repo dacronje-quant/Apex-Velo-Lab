@@ -41,7 +41,9 @@ Known limits:
 
 Requirements: Android 7.0 (API 24) or newer with Bluetooth LE. Close Zwift, the Wahoo app and similar apps so they don't hold the trainer connection.
 
-Newer CI builds install over older ones and keep your data: every build is signed with the same debug key (`android/app/apex-debug.keystore`) and CI numbers the versions.
+Newer CI builds install over older ones and keep your data: every build is signed with the same debug key (`android/app/apex-debug.keystore`) and CI numbers the versions. The test APK shows up as **Apex Velo (dev)** (app id `com.apexvelo.lab.debug`) and installs next to the release/Play app (`com.apexvelo.lab`). With both installed, Android asks which app should finish a Strava sign-in; pick the one you signed in from.
+
+**Moving from the test APK to the release/Play app** (or from a test APK built before the app was renamed "Apex Velo (dev)"): export first (**History > Export**, full JSON backup), then import it in the new app. The two are signed with different keys, so Android can't update one over the other, and each keeps its own data. Strava, intervals.icu and AI keys are not in the export; enter them again.
 
 ## Connect Strava
 
@@ -98,7 +100,7 @@ Run `npm run build && npx cap sync android` again after changing anything in the
 
 The committed `android/app/apex-debug.keystore` (password `android`) is for development only: it is public, so anyone could sign an "update" with it. Store releases are signed with a private release key that never goes into the repository.
 
-**Versions.** `versionName` is the `version` in `mobile/package.json`; `versionCode` is the GitHub Actions run number (1 for local builds), so each CI build installs over the last one and Play accepts every upload. Debug builds show as e.g. `0.1.0-debug.42`. Bump `version` in `package.json` for a new release.
+**Versions.** `versionName` is the `version` in `mobile/package.json`; `versionCode` is 1000 + the GitHub Actions run number (1000 for local builds), so each CI build installs over the last one and Play accepts every upload, and a re-created workflow (run numbers back at 1) can't drop below codes already on Play. Debug builds show as e.g. `0.1.0-debug.42`. Bump `version` in `package.json` for a new release.
 
 **Create the release keystore** (once, and keep a backup: Play will only accept updates signed by the same key, unless you use Play App Signing, which is recommended):
 
@@ -128,7 +130,16 @@ ANDROID_KEY_ALIAS=apexvelo ANDROID_KEY_PASSWORD=... ./gradlew bundleRelease asse
 
 Without them, `bundleRelease`/`assembleRelease` still work but leave the output unsigned.
 
-**Release build settings.** R8 minification and resource shrinking are on for release (`android/app/proguard-rules.pro` keeps the Capacitor bridge, plugins and Cordova classes, which are found by name at run time). The app targets API 36. Android Auto Backup is on, so rides, profiles and settings come back on a new phone, but the Capacitor Preferences file with Strava sign-ins and API keys is left out of cloud backups and device transfers (`res/xml/backup_rules.xml`, `res/xml/data_extraction_rules.xml`); after a restore the rider signs in again.
+**Release build settings.** R8 minification and resource shrinking are on for release (`android/app/proguard-rules.pro` keeps the Capacitor bridge, plugins and Cordova classes, which are found by name at run time). The app targets API 36.
+
+**Backups.** Android Auto Backup is on, but leaves out the Capacitor Preferences file with Strava sign-ins and API keys (`res/xml/backup_rules.xml`, `res/xml/data_extraction_rules.xml`); after a restore the rider signs in again. Don't rely on it for rides: cloud backup is best-effort and capped at 25 MB per app, and past that Android silently skips it. Moving to a new phone with a cable or device-to-device transfer carries rides, profiles and settings reliably. To keep a copy of your own, use **History > Export** (full JSON backup, saved to **Documents/ApexVelo**).
+
+**Owner checklist for a Play release**
+
+1. Add the four secrets above, push, and download `apex-velo-android-release` from the run.
+2. Before the first Play upload, smoke-test `app-release.apk` on a phone: Bluetooth scan and pairing, saving an API key, an export to Documents/ApexVelo, and the share sheet. These are the paths R8 could break.
+3. Upload `app-release.aab` to Play Console, and with each AAB also upload that run's `mapping.txt` (App bundle explorer > the version > Downloads > ReTrace mapping file), so crash reports are readable.
+4. Bump `version` in `mobile/package.json` for each release. `versionCode` is 1000 + the workflow run number, so it always grows; if the workflow is ever re-created, raise the 1000 offset in `android/app/build.gradle` above the last code on Play.
 
 ## Tests
 

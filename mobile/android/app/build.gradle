@@ -2,10 +2,11 @@ import groovy.json.JsonSlurper
 
 apply plugin: 'com.android.application'
 
-// versionName comes from mobile/package.json, versionCode from the CI run number (1 for local builds),
-// so every CI build installs over the previous one and Play accepts each upload.
+// versionName comes from mobile/package.json, versionCode is 1000 + the CI run number (1000 for local builds),
+// so every CI build installs over the previous one and Play accepts each upload. The 1000 offset keeps codes
+// above any already on Play if the workflow is ever re-created and its run numbers start again at 1.
 def appVersion = new JsonSlurper().parse(rootProject.file('../package.json')).version
-def runNumber = (System.getenv('GITHUB_RUN_NUMBER') ?: '1').toInteger()
+def runNumber = (System.getenv('GITHUB_RUN_NUMBER') ?: '0').toInteger()
 
 // Release signing, from environment variables (CI) or Gradle properties (~/.gradle/gradle.properties).
 // Without them the release build is left unsigned; debug builds never need them. See mobile/README.md.
@@ -20,7 +21,7 @@ android {
         applicationId "com.apexvelo.lab"
         minSdkVersion rootProject.ext.minSdkVersion
         targetSdkVersion rootProject.ext.targetSdkVersion
-        versionCode runNumber
+        versionCode 1000 + runNumber
         versionName appVersion
         testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
         aaptOptions {
@@ -51,6 +52,9 @@ android {
     buildTypes {
         debug {
             signingConfig signingConfigs.debug
+            // Its own app id ("Apex Velo (dev)", src/debug/res) so it installs next to the release app:
+            // the two are signed with different keys, so neither could update the other anyway.
+            applicationIdSuffix ".debug"
             versionNameSuffix "-debug.${runNumber}"
         }
         release {
