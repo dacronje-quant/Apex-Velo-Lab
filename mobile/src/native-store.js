@@ -208,6 +208,13 @@ export class NativeStore {
     return { head: { ok: true, initialized: await this.initialized(), revision: await this.revision(), storeId: await this.meta('storeId'), dir: this.dir, file: this.file },
       tail: { settings: await this.settings(), dbSettings: await this.dbSettings(), migratedAt: await this.meta('migratedAt') || null } };
   }
+  /** One ride with its samples, or null (for the upload queue, which needs a single ride's samples). */
+  ride(id) {
+    return this.exclusive(async () => {
+      const row = (await this.db.all('SELECT json, samples_gz FROM rides WHERE id=?', [String(id)]))[0];
+      return row ? this.decodeRide(row) : null;
+    });
+  }
   async state() {
     const { head, tail } = await this.stateParts();
     return { ...head, rides: await this.rides(), ...tail };
@@ -713,8 +720,9 @@ export class SqliteSyncLedger {
     let moved = 0;
     for (const destination of destinations) {
       const key = `apex_sync_ledger_${destination}`;
+      const text = await prefs.get(key); // a failed read fails the move, which is tried again later
       let map;
-      try { map = JSON.parse((await prefs.get(key)) || 'null'); } catch { map = null; }
+      try { map = JSON.parse(text || 'null'); } catch { map = null; }
       if (!map || typeof map !== 'object') continue; // nothing there, or unreadable: left as it is
       for (const row of Object.values(map)) {
         if (!row || row.ride_id === undefined || await this.store.getSyncEntry(row.ride_id, destination)) continue;
@@ -732,4 +740,21 @@ export class SqliteSyncLedger {
     }
     return moved;
   }
+}
+
+/**
+ * The upload queue's ledger while the store is still opening (the queue is made before it is open): each
+ * call waits for the store and for the one-time move of the Preferences rows. A failed move is tried again
+ * on the next call, so the queue never works from a ledger that is missing rows.
+ */
+export function openingLedger(storePromise, { prefs, destinations, options }) {
+  let ledger = null, moved = null;
+  const ready = async () => {
+    if (!ledger) ledger = new SqliteSyncLedger({ store: await storePromise });
+    if (!moved) moved = ledger.importPrefs(prefs, { destinations, options }).catch((e) => { moved = null; throw e; });
+    await moved;
+    return ledger;
+  };
+  const call = (name) => async (...args) => (await ready())[name](...args);
+  return { get: call('get'), list: call('list'), update: call('update'), remove: call('remove'), getOption: call('getOption'), setOption: call('setOption') };
 }

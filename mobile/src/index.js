@@ -14,11 +14,12 @@ import { Share } from '@capacitor/share';
 import { KeepAwake } from '@capacitor-community/keep-awake';
 import { CapacitorSQLite, SQLiteConnection } from '@capacitor-community/sqlite';
 import { installNativeBluetooth } from './native-ble.js';
-import { NativeStrava } from './native-strava.js';
+import { NativeStrava, StravaDestination } from './native-strava.js';
+import { PrefsSyncLedger, UploadQueue } from './native-outbox.js';
 import { NativeAi } from './native-ai.js';
 import { NativeIcu } from './native-icu.js';
 import { bootNativeApp } from './native-app.js';
-import { NativeStore } from './native-store.js';
+import { NativeStore, openingLedger } from './native-store.js';
 import { openCapacitorDatabase, filesystemFiles } from './native-sqlite.js';
 import { WebViewMigration, webViewSource } from './native-migrate.js';
 
@@ -54,6 +55,24 @@ if (fake || Capacitor.isNativePlatform()) {
       return new WebViewMigration({ store: await store, source: webViewSource(window), onProgress }).run();
     }
   };
-  window.ApexNative = { bluetooth, store, strava, ai, icu, platform: fake ? 'test' : Capacitor.getPlatform() };
-  bootNativeApp({ bluetooth, storage, strava, ai, icu, plugins });
+  // Outbound uploads. The rides, the FIT writer and the ride description belong to the page (js/), which
+  // loads after this module, so they are looked up when an upload runs. The ledger is the sync_ledger table
+  // (D's Preferences rows moved in once); without a phone database it stays in Preferences.
+  const stravaOut = new StravaDestination({ strava, describe: (ride) => (window.app ? window.app.stravaDescription(ride) : '') });
+  const uploads = new UploadQueue({
+    ledger: store ? openingLedger(store, { prefs, destinations: [stravaOut.id], options: [`auto_${stravaOut.id}`] }) : new PrefsSyncLedger({ prefs }),
+    destinations: [stravaOut],
+    getRide: async (id) => {
+      const ride = window.app && window.app.completedWorkouts.find((r) => r.id === id);
+      if (ride && Array.isArray(ride.samples) && ride.samples.length) return ride;
+      // The list may hold only the summary: the samples are in the phone database (or IndexedDB without one).
+      let stored = null;
+      if (store) stored = await (await store).ride(id).catch(() => null);
+      else if (window.VeloDB) stored = ((await window.VeloDB.getAllRides()) || []).find((r) => r.id === id);
+      return stored || ride || null;
+    },
+    buildFit: (ride) => window.VeloExport.buildFit(ride, ride.samples)
+  });
+  window.ApexNative = { bluetooth, store, strava, ai, icu, uploads, platform: fake ? 'test' : Capacitor.getPlatform() };
+  bootNativeApp({ bluetooth, storage, strava, ai, icu, uploads, plugins });
 }

@@ -8,7 +8,7 @@ import os from 'node:os';
 import path from 'node:path';
 import zlib from 'node:zlib';
 import { spawn } from 'node:child_process';
-import { NativeStore, SqliteSyncLedger, gunzip, unpackSamples } from '../src/native-store.js';
+import { NativeStore, SqliteSyncLedger, openingLedger, gunzip, unpackSamples } from '../src/native-store.js';
 import { nodeDriver, folderFiles } from './sqlite-node.js';
 
 const ride = { id: 'ride-1', date: '2026-10-01T08:00:00.000Z', title: 'Preserved ride', samples: [{ time: 1, power: 231 }, { time: 2, power: 240 }] };
@@ -403,4 +403,28 @@ test('200 hour-long rides move in and load within a 512 MB heap', { timeout: 300
   assert.ok(result.heapPeakMB < 512, `heap peak ${result.heapPeakMB} MB`);
   t.diagnostic(`history ${result.historyMB} MB as JSON; move: heap peak ${result.moveHeapPeakMB} MB, RSS peak ${result.moveRssPeakMB} MB; `
     + `with the full GET /api/storage load: heap peak ${result.heapPeakMB} MB, RSS peak ${result.rssPeakMB} MB; ${result.seconds} s`);
+});
+
+test('the upload queue\'s ledger waits for the store and moves the Preferences rows in once, retrying a failed move', async (t) => {
+  const s = await fixture(t);
+  const prefs = new Map([['apex_sync_ledger_strava', JSON.stringify({ a: { ride_id: 'a', destination: 'strava', external_id: '9', status: 'sent', attempts: 1 } })], ['apex_sync_opt_auto_strava', '1']]);
+  let failGet = 1, gets = 0;
+  const api = { get: async (k) => { gets++; if (failGet-- > 0) throw new Error('Preferences busy'); return prefs.get(k) ?? null; }, set: async (k, v) => prefs.set(k, v), remove: async (k) => prefs.delete(k) };
+  let open; const storeReady = new Promise((r) => { open = r; });
+  const ledger = openingLedger(storeReady, { prefs: api, destinations: ['strava'], options: ['auto_strava'] });
+  const first = ledger.get('a', 'strava');
+  open(s);
+  await assert.rejects(first, /Preferences busy/, 'a failed move fails the call instead of answering from a ledger missing rows');
+  assert.equal((await ledger.get('a', 'strava')).external_id, '9', 'the next call moves the rows and answers');
+  assert.equal(await ledger.getOption('auto_strava'), '1');
+  const before = gets;
+  await ledger.update('b', 'strava', {}); await ledger.list('strava');
+  assert.equal(gets, before, 'moved once');
+  assert.deepEqual([...prefs.keys()], []);
+});
+
+test('ride(id) reads one ride with its samples', async (t) => {
+  const s = await fixture(t); await migrate(s);
+  assert.deepEqual(await s.ride('ride-1'), ride);
+  assert.equal(await s.ride('nope'), null);
 });
