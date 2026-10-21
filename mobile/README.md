@@ -94,6 +94,42 @@ Or open `mobile/android` in Android Studio after `npm run sync`, and run it on a
 
 Run `npm run build && npx cap sync android` again after changing anything in the root app or in `mobile/src/`. After changing `apex-velo-icon.png`, run `python3 scripts/make-icons.py` to regenerate the launcher icons and splash screens.
 
+## Release builds
+
+The committed `android/app/apex-debug.keystore` (password `android`) is for development only: it is public, so anyone could sign an "update" with it. Store releases are signed with a private release key that never goes into the repository.
+
+**Versions.** `versionName` is the `version` in `mobile/package.json`; `versionCode` is the GitHub Actions run number (1 for local builds), so each CI build installs over the last one and Play accepts every upload. Debug builds show as e.g. `0.1.0-debug.42`. Bump `version` in `package.json` for a new release.
+
+**Create the release keystore** (once, and keep a backup: Play will only accept updates signed by the same key, unless you use Play App Signing, which is recommended):
+
+```bash
+keytool -genkeypair -v -keystore apex-release.keystore -alias apexvelo \
+  -keyalg RSA -keysize 4096 -validity 10000
+base64 -w0 apex-release.keystore > apex-release.keystore.b64   # macOS: base64 -i apex-release.keystore
+```
+
+**Add the GitHub secrets** (repository Settings > Secrets and variables > Actions > New repository secret):
+
+| Secret | Value |
+|---|---|
+| `ANDROID_KEYSTORE_BASE64` | the contents of `apex-release.keystore.b64` |
+| `ANDROID_KEYSTORE_PASSWORD` | the keystore password |
+| `ANDROID_KEY_ALIAS` | `apexvelo` (the `-alias` above) |
+| `ANDROID_KEY_PASSWORD` | the key password (same as the keystore password unless you chose another) |
+
+Delete the `.b64` file afterwards. With all four set, every push and manual run of the **Android app** workflow also uploads `apex-velo-android-release` (signed `app-release.aab` for Play, `app-release.apk` for sideloading, and the R8 `mapping.txt` for crash reports). Pull requests and forks have no access to the key: they build the debug APK and an unsigned release build (to check minification) only.
+
+**Sign locally** by setting the same values as environment variables, or as Gradle properties in `~/.gradle/gradle.properties` (never in the repository), with `ANDROID_KEYSTORE_FILE` pointing at the keystore file:
+
+```bash
+ANDROID_KEYSTORE_FILE=/path/to/apex-release.keystore ANDROID_KEYSTORE_PASSWORD=... \
+ANDROID_KEY_ALIAS=apexvelo ANDROID_KEY_PASSWORD=... ./gradlew bundleRelease assembleRelease
+```
+
+Without them, `bundleRelease`/`assembleRelease` still work but leave the output unsigned.
+
+**Release build settings.** R8 minification and resource shrinking are on for release (`android/app/proguard-rules.pro` keeps the Capacitor bridge, plugins and Cordova classes, which are found by name at run time). The app targets API 36. Android Auto Backup is on, so rides, profiles and settings come back on a new phone, but the Capacitor Preferences file with Strava sign-ins and API keys is left out of cloud backups and device transfers (`res/xml/backup_rules.xml`, `res/xml/data_extraction_rules.xml`); after a restore the rider signs in again.
+
 ## Tests
 
 ```bash

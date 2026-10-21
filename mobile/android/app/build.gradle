@@ -1,4 +1,17 @@
+import groovy.json.JsonSlurper
+
 apply plugin: 'com.android.application'
+
+// versionName comes from mobile/package.json, versionCode from the CI run number (1 for local builds),
+// so every CI build installs over the previous one and Play accepts each upload.
+def appVersion = new JsonSlurper().parse(rootProject.file('../package.json')).version
+def runNumber = (System.getenv('GITHUB_RUN_NUMBER') ?: '1').toInteger()
+
+// Release signing, from environment variables (CI) or Gradle properties (~/.gradle/gradle.properties).
+// Without them the release build is left unsigned; debug builds never need them. See mobile/README.md.
+def releaseValue = { String name -> System.getenv(name) ?: project.findProperty(name) }
+def releaseStoreFile = releaseValue('ANDROID_KEYSTORE_FILE')
+def hasReleaseKey = releaseStoreFile && releaseValue('ANDROID_KEYSTORE_PASSWORD') && releaseValue('ANDROID_KEY_ALIAS') && releaseValue('ANDROID_KEY_PASSWORD')
 
 android {
     namespace = "com.apexvelo.lab"
@@ -7,9 +20,8 @@ android {
         applicationId "com.apexvelo.lab"
         minSdkVersion rootProject.ext.minSdkVersion
         targetSdkVersion rootProject.ext.targetSdkVersion
-        // CI stamps the run number so each APK installs over the previous one.
-        versionCode((System.getenv('GITHUB_RUN_NUMBER') ?: '1').toInteger())
-        versionName "0.1.${System.getenv('GITHUB_RUN_NUMBER') ?: '0'}"
+        versionCode runNumber
+        versionName appVersion
         testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
         aaptOptions {
              // Files and dirs to omit from the packaged assets dir, modified to accommodate modern web apps.
@@ -27,14 +39,27 @@ android {
             keyAlias 'androiddebugkey'
             keyPassword 'android'
         }
+        if (hasReleaseKey) {
+            release {
+                storeFile file(releaseStoreFile)
+                storePassword releaseValue('ANDROID_KEYSTORE_PASSWORD')
+                keyAlias releaseValue('ANDROID_KEY_ALIAS')
+                keyPassword releaseValue('ANDROID_KEY_PASSWORD')
+            }
+        }
     }
     buildTypes {
         debug {
             signingConfig signingConfigs.debug
+            versionNameSuffix "-debug.${runNumber}"
         }
         release {
-            minifyEnabled false
-            proguardFiles getDefaultProguardFile('proguard-android.txt'), 'proguard-rules.pro'
+            minifyEnabled true
+            shrinkResources true
+            proguardFiles getDefaultProguardFile('proguard-android-optimize.txt'), 'proguard-rules.pro'
+            if (hasReleaseKey) {
+                signingConfig signingConfigs.release
+            }
         }
     }
 }
