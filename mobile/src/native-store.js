@@ -509,19 +509,28 @@ export class NativeStore {
   findImportFileByHash(hash) {
     return this.exclusive(async () => fileFromRow((await this.db.all('SELECT * FROM import_files WHERE hash=? AND ride_id IS NOT NULL ORDER BY job_id, path LIMIT 1', [String(hash)]))[0]) || null);
   }
-  /** Records an upload result ({ rideId, destination, externalId, contentHash, status, attempts, lastError }); fields left out keep their value. */
-  putSyncEntry(entry) {
+  /**
+   * Records an upload result ({ rideId, destination, externalId, contentHash, status, attempts, lastError }); fields
+   * left out keep their stored value, or take `defaults` when the entry is new.
+   */
+  putSyncEntry(entry, defaults = {}) {
     return this.exclusive(() => this.transaction(async () => {
       if (!entry || typeof entry !== 'object') fail('Invalid sync entry.');
       const rideId = needText(entry.rideId === undefined || entry.rideId === null ? undefined : String(entry.rideId), 'ride ID');
       const destination = needText(entry.destination, 'destination');
       const old = syncFromRow((await this.db.all('SELECT * FROM sync_ledger WHERE ride_id=? AND destination=?', [rideId, destination]))[0]) || {};
-      const v = { ...old, ...entry, rideId, destination, updatedAt: this.clock().toISOString() };
+      const v = { ...defaults, ...old, ...entry, rideId, destination, updatedAt: this.clock().toISOString() };
       await this.db.run('INSERT OR REPLACE INTO sync_ledger VALUES (?,?,?,?,?,?,?,?)', [rideId, destination, str(v.externalId), str(v.contentHash), str(v.status),
         int(v.attempts), str(v.lastError), v.updatedAt]);
       return syncFromRow((await this.db.all('SELECT * FROM sync_ledger WHERE ride_id=? AND destination=?', [rideId, destination]))[0]);
     }));
   }
+  deleteSyncEntry(rideId, destination) {
+    return this.exclusive(() => this.db.run('DELETE FROM sync_ledger WHERE ride_id=? AND destination=?', [String(rideId), String(destination)]));
+  }
+  /** Small upload options (e.g. auto-upload per destination), kept with the ledger. */
+  async getSyncOption(name) { return (await this.exclusive(() => this.meta('sync_opt:' + name))) ?? null; }
+  setSyncOption(name, value) { return this.exclusive(() => this.setMeta('sync_opt:' + name, value)); }
   getSyncEntry(rideId, destination) {
     return this.exclusive(async () => syncFromRow((await this.db.all('SELECT * FROM sync_ledger WHERE ride_id=? AND destination=?', [String(rideId), String(destination)]))[0]) || null);
   }
@@ -552,5 +561,58 @@ export class NativeStore {
     if (source !== undefined) { where.push('source=?'); params.push(String(source)); }
     return this.exclusive(async () => (await this.db.all(`SELECT * FROM wellness_days${where.length ? ' WHERE ' + where.join(' AND ') : ''} ORDER BY day, source`, params))
       .map((r) => ({ day: r.day, source: r.source, data: JSON.parse(r.json) })));
+  }
+}
+
+/**
+ * The upload queue's ledger (PR #17, src/native-outbox.js) on the sync_ledger table: the same methods and
+ * snake_case rows as PrefsSyncLedger, so the queue can swap to it unchanged.
+ */
+const SNAKE = { externalId: 'external_id', contentHash: 'content_hash', lastError: 'last_error', updatedAt: 'updated_at', rideId: 'ride_id' };
+const toSnake = (e) => e && { ride_id: e.rideId, destination: e.destination, external_id: e.externalId, content_hash: e.contentHash,
+  status: e.status, attempts: e.attempts, last_error: e.lastError, updated_at: e.updatedAt };
+const toCamel = (patch) => Object.fromEntries(Object.entries(patch || {}).map(([k, v]) => [Object.keys(SNAKE).find((c) => SNAKE[c] === k) || k, v]));
+const NEW_ROW = { status: 'queued', attempts: 0 };
+
+export class SqliteSyncLedger {
+  constructor({ store }) { this.store = store; }
+  async get(rideId, destination) { return toSnake(await this.store.getSyncEntry(rideId, destination)); }
+  async list(destination) { return (await this.store.listSyncEntries({ destination })).map(toSnake); }
+  /** Merges `patch` (snake_case columns) into the row, created as queued if missing, and stamps updated_at. */
+  async update(rideId, destination, patch) {
+    const { rideId: _r, destination: _d, updatedAt: _u, ...fields } = toCamel(patch);
+    return toSnake(await this.store.putSyncEntry({ ...fields, rideId: String(rideId), destination }, NEW_ROW));
+  }
+  remove(rideId, destination) { return this.store.deleteSyncEntry(rideId, destination); }
+  getOption(name) { return this.store.getSyncOption(name); }
+  setOption(name, value) { return this.store.setSyncOption(name, String(value)); }
+
+  /**
+   * Moves PrefsSyncLedger data (Preferences keys apex_sync_ledger_<destination> and apex_sync_opt_<name>) in,
+   * once: rows the table already has win, and each Preferences key is removed only after its rows are saved,
+   * so an interrupted move just runs again.
+   */
+  async importPrefs(prefs, { destinations = [], options = [] } = {}) {
+    let moved = 0;
+    for (const destination of destinations) {
+      const key = `apex_sync_ledger_${destination}`;
+      let map;
+      try { map = JSON.parse((await prefs.get(key)) || 'null'); } catch { map = null; }
+      if (!map || typeof map !== 'object') continue; // nothing there, or unreadable: left as it is
+      for (const row of Object.values(map)) {
+        if (!row || row.ride_id === undefined || await this.store.getSyncEntry(row.ride_id, destination)) continue;
+        const { ride_id: rideId, destination: _d, updated_at: _u, ...fields } = row;
+        await this.store.putSyncEntry({ ...toCamel(fields), rideId: String(rideId), destination }, NEW_ROW);
+        moved++;
+      }
+      await prefs.remove(key);
+    }
+    for (const name of options) {
+      const key = `apex_sync_opt_${name}`, value = await prefs.get(key);
+      if (value === null || value === undefined) continue;
+      if (await this.getOption(name) === null) await this.setOption(name, value);
+      await prefs.remove(key);
+    }
+    return moved;
   }
 }

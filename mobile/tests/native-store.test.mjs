@@ -8,7 +8,7 @@ import os from 'node:os';
 import path from 'node:path';
 import zlib from 'node:zlib';
 import { spawn } from 'node:child_process';
-import { NativeStore, gunzip, unpackSamples } from '../src/native-store.js';
+import { NativeStore, SqliteSyncLedger, gunzip, unpackSamples } from '../src/native-store.js';
 import { nodeDriver, folderFiles } from './sqlite-node.js';
 
 const ride = { id: 'ride-1', date: '2026-10-01T08:00:00.000Z', title: 'Preserved ride', samples: [{ time: 1, power: 231 }, { time: 2, power: 240 }] };
@@ -314,4 +314,41 @@ test('wellness days per source, by date range, with deletes', async (t) => {
     { day: '2026-10-02', source: 'healthconnect', data: { steps: 9000 } }, { day: '2026-10-02', source: 'icu', data: { rhr: 49 } }]);
   assert.equal((await s.listWellnessDays({ source: 'icu', to: '2026-10-01' })).length, 1);
   await assert.rejects(() => s.putWellnessDays('icu', { '1 Oct': {} }), /wellness day/);
+});
+
+test('SqliteSyncLedger has the PrefsSyncLedger methods and rows, so the upload queue can swap to it', async (t) => {
+  let now = new Date('2026-10-01T08:00:00Z'); const s = await fixture(t, { clock: () => now });
+  const ledger = new SqliteSyncLedger({ store: s });
+  assert.equal(await ledger.get('r1', 'strava'), null);
+  const queued = await ledger.update('r1', 'strava', {});
+  assert.deepEqual(queued, { ride_id: 'r1', destination: 'strava', external_id: null, content_hash: null, status: 'queued', attempts: 0, last_error: null, updated_at: now.toISOString() });
+  now = new Date('2026-10-01T08:01:00Z');
+  await ledger.update('r1', 'strava', { attempts: 1, last_error: 'timeout' });
+  const sent = await ledger.update('r1', 'strava', { status: 'sent', external_id: '5550001', last_error: null });
+  assert.deepEqual({ ...sent }, { ride_id: 'r1', destination: 'strava', external_id: '5550001', content_hash: null, status: 'sent', attempts: 1, last_error: null, updated_at: now.toISOString() });
+  await Promise.all([ledger.update('r2', 'strava', { attempts: 1 }), ledger.update('r2', 'strava', { content_hash: 'abc' })]);
+  assert.deepEqual([(await ledger.get('r2', 'strava')).attempts, (await ledger.get('r2', 'strava')).content_hash], [1, 'abc'], 'concurrent updates both land');
+  await ledger.update('r1', 'icu', { status: 'skipped' });
+  assert.deepEqual((await ledger.list('strava')).map((r) => r.ride_id), ['r1', 'r2']);
+  await ledger.remove('r2', 'strava');
+  assert.equal(await ledger.get('r2', 'strava'), null);
+  assert.equal(await ledger.getOption('auto_strava'), null);
+  await ledger.setOption('auto_strava', 1);
+  assert.equal(await ledger.getOption('auto_strava'), '1');
+});
+
+test('SqliteSyncLedger moves PrefsSyncLedger data in once, keeping what the table already has', async (t) => {
+  const s = await fixture(t); const ledger = new SqliteSyncLedger({ store: s });
+  const prefs = new Map([
+    ['apex_sync_ledger_strava', JSON.stringify({ a: { ride_id: 'a', destination: 'strava', external_id: '9', content_hash: 'h', status: 'sent', attempts: 2, last_error: null, updated_at: '2026-09-01T00:00:00.000Z' },
+      b: { ride_id: 'b', destination: 'strava', external_id: null, content_hash: null, status: 'queued', attempts: 3, last_error: 'offline', updated_at: '2026-09-01T00:00:00.000Z' } })],
+    ['apex_sync_ledger_icu', '{broken'], ['apex_sync_opt_auto_strava', '1']]);
+  const api = { get: async (k) => prefs.get(k) ?? null, set: async (k, v) => prefs.set(k, v), remove: async (k) => prefs.delete(k) };
+  await ledger.update('b', 'strava', { status: 'sent', external_id: '10' });
+  assert.equal(await ledger.importPrefs(api, { destinations: ['strava', 'icu'], options: ['auto_strava'] }), 1);
+  assert.deepEqual([(await ledger.get('a', 'strava')).external_id, (await ledger.get('a', 'strava')).attempts], ['9', 2]);
+  assert.equal((await ledger.get('b', 'strava')).external_id, '10', 'the table already had b');
+  assert.equal(await ledger.getOption('auto_strava'), '1');
+  assert.deepEqual([...prefs.keys()], ['apex_sync_ledger_icu'], 'moved keys removed; an unreadable one is left alone');
+  assert.equal(await ledger.importPrefs(api, { destinations: ['strava'], options: ['auto_strava'] }), 0, 'running again moves nothing');
 });
