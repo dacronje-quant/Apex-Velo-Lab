@@ -2,7 +2,7 @@
 // Strava exports), hashing, contract dedupe and the import-job adapter. Fixtures: tests/fixtures/bulk-import.
 const { test } = require('node:test');
 const assert = require('node:assert/strict');
-const fs = require('node:fs'), path = require('node:path'), vm = require('node:vm'), crypto = require('node:crypto');
+const fs = require('node:fs'), path = require('node:path'), vm = require('node:vm'), crypto = require('node:crypto'), zlib = require('node:zlib');
 
 vm.runInThisContext(fs.readFileSync(path.join(__dirname, '../js/velo-metrics.js'), 'utf8') + ';globalThis.VeloMetrics = VeloMetrics;');
 global.VeloRideImporter = require('../js/velo-importer.js');
@@ -217,6 +217,57 @@ test('zip bomb guards: oversized entries (.fit and .fit.gz) are dropped at 64 MB
   const loose = await runAll([new File([F.gz(new Uint8Array(3000))], 'a.fit.gz'), new File([new Uint8Array(3000)], 'b.fit')], { limits: { entryBytes: 2000 } });
   assert.equal(loose.counts.errors, 2);
   assert.ok(loose.rows.every(r => /file too large/.test(r.error)));
+});
+
+test('zip bomb guards: one 1 MB chunk holding a 1 GB zero entry is unpacked in small pieces, with bounded memory', async () => {
+  // Build the bomb by streaming zeros through native deflate (fast), so the test never holds 1 GB either.
+  const zeros = new Uint8Array(16 * 1024 * 1024), GB = 64 * zeros.length;
+  const deflate = zlib.createDeflateRaw({ level: 9 }), packed = [];
+  deflate.on('data', (c) => packed.push(c));
+  let crc = 0;
+  for (let i = 0; i < 64; i++) { deflate.write(zeros); crc = zlib.crc32(zeros, crc); }
+  await new Promise((resolve) => deflate.end(resolve));
+  const parts = [];
+  const z = new fflate.Zip((err, chunk) => { if (err) throw err; parts.push(chunk); });
+  const entry = new fflate.ZipPassThrough('bomb.fit');
+  Object.assign(entry, { compression: 8, crc, size: GB });
+  z.add(entry);
+  entry.push(new Uint8Array(Buffer.concat(packed)), true);
+  z.end();
+  const bytes = Buffer.concat(parts.map(p => Buffer.from(p)));
+  assert.ok(bytes.length <= 1024 * 1024 * 2, `bomb is ${bytes.length} bytes`);
+  const one = { name: 'bomb.zip', stream: () => new ReadableStream({ start(c) { c.enqueue(new Uint8Array(bytes)); c.close(); } }) };
+
+  // Watch every unpacked block fflate hands back, and the buffer memory at that moment.
+  const real = B.fflate();
+  let maxBlock = 0, maxBuffers = 0;
+  const base = process.memoryUsage().arrayBuffers;
+  class WatchedUnzip extends real.Unzip {
+    set onfile(fn) {
+      this._onfile = (file) => {
+        let wrapped;
+        Object.defineProperty(file, 'ondata', { configurable: true, get: () => wrapped, set: (h) => {
+          wrapped = (err, chunk, final) => {
+            if (chunk) { maxBlock = Math.max(maxBlock, chunk.length); maxBuffers = Math.max(maxBuffers, process.memoryUsage().arrayBuffers - base); }
+            h(err, chunk, final);
+          };
+        } });
+        fn(file);
+      };
+    }
+    get onfile() { return this._onfile; }
+  }
+  const saved = B.fflate;
+  B.fflate = () => ({ ...real, Unzip: WatchedUnzip });
+  try {
+    const { counts, rows } = await runAll([one]);
+    assert.deepEqual(counts, { found: 1, parsed: 0, skipped: 0, errors: 1, duplicates: 0 });
+    assert.match(rows[0].error, /file too large/);
+  } finally {
+    B.fflate = saved;
+  }
+  assert.ok(maxBlock > 0 && maxBlock <= 20 * 1024 * 1024, `largest unpacked block ${maxBlock} bytes`);
+  assert.ok(maxBuffers < 256 * 1024 * 1024, `buffer memory peaked at +${Math.round(maxBuffers / 1024 / 1024)} MB`);
 });
 
 test('zip bomb guards: total unpacked bytes per archive and nesting depth are capped', async () => {

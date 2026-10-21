@@ -23,6 +23,23 @@ class VeloBulkImport {
    */
   static LIMITS = { entryBytes: 64 * 1024 * 1024, archiveBytes: 20 * 1024 ** 3, depth: 4 };
 
+  /**
+   * fflate inflates everything given to one push() before calling back, and deflate reaches ~1000:1, so
+   * compressed input is fed in pieces this small: one callback then holds at most ~16 MB unpacked.
+   */
+  static PUSH_BYTES = 16 * 1024;
+
+  /** Pushes data into an fflate stream in PUSH_BYTES pieces; `final` goes with the last piece only. */
+  static pushSliced(target, data, final, stop = () => false) {
+    const n = data ? data.length : 0, step = VeloBulkImport.PUSH_BYTES;
+    if (!n) { target.push(new Uint8Array(0), final); return; }
+    for (let o = 0; o < n; o += step) {
+      if (stop()) return;
+      const last = o + step >= n;
+      target.push(data.subarray(o, o + step), final && last);
+    }
+  }
+
   static fmtBytes(n) { return n >= 1024 ** 3 ? `${Math.round(n / 1024 ** 3)} GB` : n >= 1024 ** 2 ? `${Math.round(n / 1024 ** 2)} MB` : `${n} bytes`; }
 
   static tooLarge(limit) { return new Error(`file too large (over ${VeloBulkImport.fmtBytes(limit)} unpacked)`); }
@@ -236,7 +253,7 @@ class VeloBulkImport {
       const k = VeloBulkImport.kindOf(src.name);
       if (!k) { yield { path: src.name, skip: 'not a ride file' }; continue; }
       try {
-        if (k.kind === 'zip') yield* VeloBulkImport.walkZip(src.stream(), src.name, isCancelled, limits);
+        if (k.kind === 'zip') yield* VeloBulkImport.walkZip(src.stream(), src.name, isCancelled, limits, opts.onTick);
         else {
           const native = k.gz && typeof DecompressionStream !== 'undefined';
           const raw = await VeloBulkImport.readStream(native ? src.stream().pipeThrough(new DecompressionStream('gzip')) : src.stream(), limits.entryBytes);
@@ -263,7 +280,7 @@ class VeloBulkImport {
    * Streams a zip (and zips inside it) entry by entry. Only ride files are buffered, one at a time, each
    * capped at limits.entryBytes; the archive stops at limits.archiveBytes unpacked or limits.depth nesting.
    */
-  static async *walkZip(stream, label, isCancelled, limits = VeloBulkImport.LIMITS) {
+  static async *walkZip(stream, label, isCancelled, limits = VeloBulkImport.LIMITS, onTick = () => {}) {
     const fflate = VeloBulkImport.fflate();
     const ready = [];
     let unpacked = 0, overArchive = false;
@@ -292,7 +309,7 @@ class VeloBulkImport {
             if (failed) return;
             if (err) { failed = true; ready.push({ path, error: err.message || String(err) }); return; }
             if (!budget(chunk ? chunk.length : 0)) { failed = true; return; }
-            try { inner.push(chunk, final); } catch (e) { failed = true; ready.push({ path, error: e.message || String(e) }); }
+            try { VeloBulkImport.pushSliced(inner, chunk, final, () => overArchive); } catch (e) { failed = true; ready.push({ path, error: e.message || String(e) }); }
           };
         } else {
           let chunks = [], total = 0, failed = false;
@@ -322,7 +339,8 @@ class VeloBulkImport {
       for (;;) {
         if (isCancelled()) { await reader.cancel().catch(() => {}); return; }
         const { done, value } = await reader.read();
-        if (!overArchive) root.push(done ? new Uint8Array(0) : value, done);
+        if (!overArchive) VeloBulkImport.pushSliced(root, done ? null : value, done, () => overArchive);
+        onTick(); // a sign of life between entries, also while passing over files that are not rides
         while (ready.length) {
           const item = ready.shift();
           if (!item.raw) { yield item; continue; }

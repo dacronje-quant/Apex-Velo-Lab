@@ -101,7 +101,7 @@
      * Runs the import in the Web Worker. Resolves null when the worker cannot start (then it runs inline).
      * A watchdog ends the import with an error when the worker goes silent (it sends a heartbeat every 5 s).
      */
-    runBulkWorker(files, runOpts, h, watchdogMs = 60000) {
+    runBulkWorker(files, runOpts, h, watchdogMs = 120000) {
       const st = this._bulk;
       return new Promise((resolve) => {
         let worker, started = false, last = Date.now(), timer = null;

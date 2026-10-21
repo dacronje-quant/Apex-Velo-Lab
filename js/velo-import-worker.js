@@ -3,7 +3,7 @@
  * page thread, posting rides back in batches (see js/velo-bulk-import.js).
  *
  * In:  { type: 'start', files, opts: { mode, profile, knownHashes } }, { type: 'cancel' }
- * Out: { type: 'alive' } (every 5 s), { type: 'progress', counts, path }, { type: 'rides', rides }, { type: 'index', entries },
+ * Out: { type: 'alive' } (every 5 s, and between zip entries), { type: 'progress', counts, path }, { type: 'rides', rides }, { type: 'index', entries },
  *      { type: 'files', rows }, { type: 'done', counts, cancelled }, { type: 'error', message }
  */
 importScripts('../vendor/fflate.min.js', 'velo-metrics.js', 'velo-importer.js', 'velo-bulk-import.js');
@@ -18,7 +18,9 @@ self.onmessage = async (e) => {
   let rows = [], lastProgress = 0;
   const flushRows = () => { if (rows.length) { self.postMessage({ type: 'files', rows }); rows = []; } };
   try {
-    const result = await VeloBulkImport.run(msg.files, { ...msg.opts, isCancelled: () => cancelled }, {
+    let lastBeat = Date.now();
+    const onTick = () => { const now = Date.now(); if (now - lastBeat >= 2000) { lastBeat = now; self.postMessage({ type: 'alive' }); } };
+    const result = await VeloBulkImport.run(msg.files, { ...msg.opts, isCancelled: () => cancelled, onTick }, {
       onProgress: (counts, path) => {
         const now = Date.now();
         if (path && now - lastProgress < 100) return;
