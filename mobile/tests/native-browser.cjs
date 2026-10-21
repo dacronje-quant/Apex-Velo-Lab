@@ -127,13 +127,23 @@ async function migrationFlow(browser, errors) {
     'velo-storage does not copy the earlier data again (the migration snapshot keeps it)');
   const revision = phone.db.prepare("SELECT value FROM meta WHERE key='revision'").get().value;
 
-  // Later starts read SQLite and never move the WebView data again.
+  // Later starts read SQLite and never move the WebView data again, nor let velo-storage copy the whole
+  // history into IndexedDB as an "earlier browser original", even when the flag that prevents it went missing.
+  await page.evaluate(() => localStorage.removeItem('apex_sqlite_migration'));
   await page.reload();
   await page.waitForFunction(() => window.app && window.ApexNative);
   assert.equal(await page.evaluate(() => VeloStorage.enabled), true);
   assert.equal(phone.db.prepare("SELECT value FROM meta WHERE key='revision'").get().value, revision);
   assert.equal(await page.evaluate(() => app.completedWorkouts.filter((r) => r.id === 'ride_before_update').length), 1);
   assert.equal(phone.db.prepare('SELECT COUNT(*) AS n FROM migration_rides').get().n, 0);
+  const storeId = phone.db.prepare("SELECT value FROM meta WHERE key='storeId'").get().value;
+  assert.equal(await page.evaluate(() => localStorage.getItem('apex_sqlite_migration')), storeId, 'the flag is set again');
+  const original = await page.evaluate((id) => new Promise((resolve, reject) => {
+    const open = indexedDB.open('ApexVeloDB');
+    open.onerror = () => reject(open.error);
+    open.onsuccess = () => { const get = open.result.transaction('settings').objectStore('settings').get('sqlite_browser_original:' + id); get.onsuccess = () => resolve(get.result || null); get.onerror = () => reject(get.error); };
+  }), storeId);
+  assert.equal(original, null, 'no whole-history copy in IndexedDB');
   await page.evaluate(() => localStorage.setItem('apex_erg_response', 'responsive'));
   await page.evaluate(() => VeloStorage.flush());
   assert.equal(phone.db.prepare("SELECT value FROM settings WHERE key='apex_erg_response'").get().value, 'responsive');

@@ -15,7 +15,7 @@
  *   ride(id) -> the IndexedDB ride or null, ridesAfter(key, n) -> up to n rides after that key (null: from
  *   the start), in key order, rideKeys() -> every IndexedDB ride key (for the progress count).
  */
-import { settingKey, rideHash } from './native-store.js';
+import { settingKey, rideHash, wellFormedSettings } from './native-store.js';
 
 const fail = (message) => { throw new Error(message); };
 const uuid = () => crypto.randomUUID().replace(/-/g, '_');
@@ -25,10 +25,10 @@ export class WebViewMigration {
     Object.assign(this, { store, source, onProgress, batchSize });
   }
 
-  /** Resolves to { moved: false } when the database already has the data, else { moved: true, rides, storeId }. */
+  /** Resolves to { moved: false, storeId } when the database already has the data, else { moved: true, rides, storeId }. */
   async run() {
     const { store, source } = this;
-    if (await store.exclusive(() => store.initialized())) return { moved: false };
+    if (await store.exclusive(() => store.initialized())) return { moved: false, storeId: await store.exclusive(() => store.meta('storeId')) };
     const dbSettings = await source.dbSettings();
     if (dbSettings === null) fail('Browser data could not be read. Your original data is untouched.');
     const rawHistory = source.historyText();
@@ -70,7 +70,7 @@ export class WebViewMigration {
       }
     }
     await flush();
-    const settings = source.settings();
+    const settings = wellFormedSettings(source.settings());
     const revision = await store.exclusive(() => store.revision());
     try {
       await store.finishMigration({ revision, operationId: uuid(), order, settings, dbSettings: dbSettings.filter((s) => !s.key.startsWith('sqlite_')) });

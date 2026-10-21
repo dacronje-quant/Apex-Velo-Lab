@@ -60,7 +60,7 @@ if (fake || Capacitor.isNativePlatform()) {
   // (D's Preferences rows moved in once); without a phone database it stays in Preferences.
   const stravaOut = new StravaDestination({ strava, describe: (ride) => (window.app ? window.app.stravaDescription(ride) : '') });
   const uploads = new UploadQueue({
-    ledger: store ? openingLedger(store, { prefs, destinations: [stravaOut.id], options: [`auto_${stravaOut.id}`] }) : new PrefsSyncLedger({ prefs }),
+    ledger: store ? openingLedger(store, { prefs, destinations: [stravaOut.id], options: [`auto_${stravaOut.id}`], fallback: new PrefsSyncLedger({ prefs }) }) : new PrefsSyncLedger({ prefs }),
     destinations: [stravaOut],
     getRide: async (id) => {
       const ride = window.app && window.app.completedWorkouts.find((r) => r.id === id);

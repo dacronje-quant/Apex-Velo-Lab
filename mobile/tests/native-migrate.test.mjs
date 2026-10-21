@@ -62,7 +62,7 @@ test('gives the same rides, in the same order, as the desktop migration of js/ve
   assert.equal(await store.initialized(), true);
   assert.deepEqual(progress[0], [0, 6]); assert.deepEqual(progress.at(-1), [6, 6]);
   assert.equal((await store.backups()).files[0].reason, 'migration');
-  assert.deepEqual(await new WebViewMigration({ store, source }).run(), { moved: false }, 'a later start moves nothing');
+  assert.deepEqual(await new WebViewMigration({ store, source }).run(), { moved: false, storeId: await store.meta('storeId') }, 'a later start moves nothing');
 });
 
 test('an explicit empty history (everything deleted) moves no IndexedDB rides', async (t) => {
@@ -98,4 +98,12 @@ test('unreadable WebView data stops the move before anything is written', async 
   await assert.rejects(() => new WebViewMigration({ store, source: { ...webView(), historyText: () => '{"not":"a list"}' } }).run(), /history is invalid/);
   await assert.rejects(() => new WebViewMigration({ store, source: webView({ rides: [{ id: 'bad', date: 'never' }] }) }).run(), /valid ID or date/);
   assert.equal(await store.initialized(), false);
+});
+
+test('a setting with half a surrogate pair is stored with U+FFFD instead of blocking the move on every start', async (t) => {
+  const store = await fixture(t);
+  const settings = { apex_note: 'half \uD83D emoji', apex_ok: 'whole \uD83D\uDE00 emoji', apex_tail: 'lone \uDE00' };
+  await new WebViewMigration({ store, source: webView({ settings, rides: [rideAt('a', 1, { samples: s(1) })] }) }).run();
+  assert.deepEqual(await store.settings(), { apex_note: 'half \uFFFD emoji', apex_ok: 'whole \uD83D\uDE00 emoji', apex_tail: 'lone \uFFFD' });
+  assert.equal(await store.initialized(), true);
 });

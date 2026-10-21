@@ -428,3 +428,27 @@ test('ride(id) reads one ride with its samples', async (t) => {
   assert.deepEqual(await s.ride('ride-1'), ride);
   assert.equal(await s.ride('nope'), null);
 });
+
+test('the /migrate request stores a lone surrogate in a setting as U+FFFD instead of failing its check', async (t) => {
+  const s = await fixture(t);
+  await s.migrate(await request(s, { rides: [ride], settings: { apex_note: 'half \uD83D' } }));
+  assert.equal((await s.settings()).apex_note, 'half \uFFFD');
+});
+
+test('a snapshot left half-written when the app was killed is removed at the next start', async (t) => {
+  const s = await fixture(t); await migrate(s); await s.close(); opened.delete(s);
+  fs.writeFileSync(path.join(s.files.dir, 'apex_2026-10-01T08-00-00-000Z_abcd1234.json.gz.tmp'), 'half');
+  const reopened = await open(s.dir);
+  assert.deepEqual(fs.readdirSync(s.files.dir).filter((n) => n.endsWith('.tmp')), []);
+  assert.equal((await reopened.backups()).files.length, 1, 'the finished snapshot stays');
+});
+
+test('without a phone database the upload queue\'s ledger falls back to Preferences', async (t) => {
+  const calls = [];
+  const fallback = { get: async (...a) => { calls.push(['get', ...a]); return { status: 'sent' }; }, list: async () => [], update: async () => ({}), remove: async () => {}, getOption: async () => '1', setOption: async () => {} };
+  const failed = Promise.reject(new Error('database could not be opened')); failed.catch(() => {});
+  const ledger = openingLedger(failed, { prefs: { get: async () => null, remove: async () => {} }, destinations: ['strava'], options: [], fallback });
+  assert.deepEqual(await ledger.get('r1', 'strava'), { status: 'sent' });
+  assert.equal(await ledger.getOption('auto_strava'), '1');
+  assert.deepEqual(calls, [['get', 'r1', 'strava']]);
+});

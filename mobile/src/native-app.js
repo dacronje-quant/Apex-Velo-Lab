@@ -329,8 +329,11 @@ export function bootNativeApp({ bluetooth, storage, strava, ai, icu, uploads, pl
         const overlay = migrationOverlay(doc);
         try {
           const moved = await storage.migrate((done, total) => overlay.show(done, total));
-          // The migration snapshot already keeps the earlier data: velo-storage need not copy it again.
-          if (moved.moved) try { win.localStorage.setItem('apex_sqlite_migration', moved.storeId); } catch (e) { /* storage full */ }
+          // The migration snapshot already keeps the earlier data: velo-storage must not copy the whole history
+          // again (its "preserve the browser original" step), also when an earlier start could not set the flag.
+          if (moved.storeId && win.localStorage.getItem('apex_sqlite_migration') !== moved.storeId) {
+            try { win.localStorage.setItem('apex_sqlite_migration', moved.storeId); } catch (e) { /* storage full */ }
+          }
         } catch (e) {
           V.enabled = false;
           V.error = `moving your rides into the phone database stopped (${(e && e.message) || e}). They are still in the app's browser storage, and the move goes on the next time the app starts.`;

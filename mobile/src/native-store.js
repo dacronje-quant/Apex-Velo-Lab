@@ -93,6 +93,13 @@ async function encodeRide(ride) {
   if (Array.isArray(ride.samples) && ride.samples.length) return { json: JSON.stringify({ ...ride, samples: null }), packed: await packSamples(ride.samples), count: ride.samples.length };
   return { json: JSON.stringify(ride), packed: null, count: 0 };
 }
+/**
+ * Settings with every lone UTF-16 surrogate replaced by U+FFFD. SQLite (and the plugin bridge) store text as
+ * UTF-8, which cannot hold half a surrogate pair: the value would come back changed and the move's check
+ * would fail on every start. Ride JSON is safe: JSON.stringify writes lone surrogates as \u escapes.
+ */
+export const wellFormedSettings = (settings) => Object.fromEntries(Object.entries(settings).map(([k, v]) =>
+  [k, typeof v === 'string' ? v.replace(/[\uD800-\uDBFF](?![\uDC00-\uDFFF])|(?<![\uD800-\uDBFF])[\uDC00-\uDFFF]/g, '\uFFFD') : v]));
 /** SHA-256 of a ride's JSON, as stored with a staged ride: the WebView move skips rides staged unchanged. */
 export const rideHash = (ride) => sha256(JSON.stringify(ride));
 
@@ -170,6 +177,8 @@ export class NativeStore {
       await d.exec(SCHEMA);
       await d.exec(`PRAGMA user_version=${SCHEMA_VERSION}`);
       if (!await this.meta('storeId')) await this.setMeta('storeId', crypto.randomUUID());
+      // A snapshot the app was killed while writing never got its name: remove the leftover.
+      for (const name of await this.files.list().catch(() => [])) if (/\.json\.gz\.tmp$/.test(name)) await this.files.remove(name).catch(() => {});
     } catch (e) { try { await d.close(); } catch { /* already closed */ } throw e; }
   }
   /** Runs `fn` after every earlier request has finished; the only way in for other modules. */
@@ -308,6 +317,7 @@ export class NativeStore {
    */
   async completeMigration(input) {
     validateSettings(input.settings); validateDbSettings(input.dbSettings || []);
+    input = { ...input, settings: wellFormedSettings(input.settings) };
     const order = input.order;
     if (!Array.isArray(order) || order.some((id) => typeof id !== 'string') || new Set(order).size !== order.length) fail('Invalid ride order.');
     const replay = await this.replayed(input.operationId);
@@ -745,12 +755,16 @@ export class SqliteSyncLedger {
 /**
  * The upload queue's ledger while the store is still opening (the queue is made before it is open): each
  * call waits for the store and for the one-time move of the Preferences rows. A failed move is tried again
- * on the next call, so the queue never works from a ledger that is missing rows.
+ * on the next call, so the queue never works from a ledger that is missing rows. If the store cannot be
+ * opened, calls go to `fallback` (the Preferences ledger).
  */
-export function openingLedger(storePromise, { prefs, destinations, options }) {
+export function openingLedger(storePromise, { prefs, destinations, options, fallback }) {
   let ledger = null, moved = null;
   const ready = async () => {
-    if (!ledger) ledger = new SqliteSyncLedger({ store: await storePromise });
+    if (!ledger) {
+      // No phone database (it could not be opened): the Preferences ledger keeps uploads working.
+      try { ledger = new SqliteSyncLedger({ store: await storePromise }); } catch (e) { if (!fallback) throw e; return fallback; }
+    }
     if (!moved) moved = ledger.importPrefs(prefs, { destinations, options }).catch((e) => { moved = null; throw e; });
     await moved;
     return ledger;
