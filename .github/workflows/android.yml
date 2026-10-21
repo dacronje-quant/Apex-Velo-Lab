@@ -8,6 +8,10 @@ on:
 jobs:
   apk:
     runs-on: ubuntu-latest
+    env:
+      # Signed release builds only run outside pull requests, and only when the release keystore secrets
+      # exist (forks have none). Everything else builds the debug APK only. See mobile/README.md.
+      SIGN_RELEASE: ${{ github.event_name != 'pull_request' && secrets.ANDROID_KEYSTORE_BASE64 != '' && secrets.ANDROID_KEYSTORE_PASSWORD != '' && secrets.ANDROID_KEY_ALIAS != '' && secrets.ANDROID_KEY_PASSWORD != '' }}
     defaults:
       run:
         working-directory: mobile
@@ -34,6 +38,30 @@ jobs:
         with:
           name: apex-velo-android-debug
           path: mobile/android/app/build/outputs/apk/debug/app-debug.apk
+          if-no-files-found: error
+      # Always built so R8/minify problems show up in pull requests too; signed only when SIGN_RELEASE.
+      - name: Build release AAB and APK
+        working-directory: mobile/android
+        env:
+          ANDROID_KEYSTORE_BASE64: ${{ env.SIGN_RELEASE == 'true' && secrets.ANDROID_KEYSTORE_BASE64 || '' }}
+          ANDROID_KEYSTORE_PASSWORD: ${{ env.SIGN_RELEASE == 'true' && secrets.ANDROID_KEYSTORE_PASSWORD || '' }}
+          ANDROID_KEY_ALIAS: ${{ env.SIGN_RELEASE == 'true' && secrets.ANDROID_KEY_ALIAS || '' }}
+          ANDROID_KEY_PASSWORD: ${{ env.SIGN_RELEASE == 'true' && secrets.ANDROID_KEY_PASSWORD || '' }}
+        run: |
+          if [ "$SIGN_RELEASE" = "true" ]; then
+            export ANDROID_KEYSTORE_FILE="$RUNNER_TEMP/apex-release.keystore"
+            echo "$ANDROID_KEYSTORE_BASE64" | base64 --decode > "$ANDROID_KEYSTORE_FILE"
+            trap 'rm -f "$ANDROID_KEYSTORE_FILE"' EXIT
+          fi
+          ./gradlew bundleRelease assembleRelease --no-daemon
+      - uses: actions/upload-artifact@v4
+        if: env.SIGN_RELEASE == 'true'
+        with:
+          name: apex-velo-android-release
+          path: |
+            mobile/android/app/build/outputs/bundle/release/app-release.aab
+            mobile/android/app/build/outputs/apk/release/app-release.apk
+            mobile/android/app/build/outputs/mapping/release/mapping.txt
           if-no-files-found: error
       - uses: actions/upload-artifact@v4
         if: failure()
