@@ -182,9 +182,15 @@ export class NativeStrava {
     if (!t || !t.refresh_token || !(await this.exchanger.isConfigured())) return null;
     if (t.access_token && Number(t.expires_at) > this.now() / 1000 + 120) return t.access_token;
     const r = await this.exchanger.refresh(t.refresh_token);
-    if (!r.ok || !r.data || !r.data.access_token) return null;
-    await this._saveTokens(r.data, t.scope, t.athlete);
-    return r.data.access_token;
+    if (r.ok && r.data && r.data.access_token) {
+      await this._saveTokens(r.data, t.scope, t.athlete);
+      return r.data.access_token;
+    }
+    // Revoked or expired sign-in: forget it, so Settings offers Connect Strava instead of "Connected as ...".
+    if (r.status === 400 || r.status === 401) { await this.prefs.remove(KEYS.tokens); return null; }
+    // An outage of the token endpoint is not a sign-out: the caller retries later.
+    if (r.status >= 500 || r.status === 429) throw Object.assign(new Error(`Strava sign-in is temporarily unavailable (HTTP ${r.status}).`), { outage: true });
+    return null;
   }
 
   async status() {
@@ -243,9 +249,11 @@ export class NativeStrava {
     await this.prefs.remove(KEYS.tokens);
   }
 
-  /** The access token, or a 502 reply when refreshing it could not reach the sign-in service (offline). */
+  /** The access token, or a retryable 502 reply when refreshing it failed for now (offline, or a token-endpoint outage). */
   async _token() {
-    try { return { token: await this.accessToken() }; } catch (e) { return { fail: reply(502, { error: `Could not reach Strava (${e.message}).` }) }; }
+    try { return { token: await this.accessToken() }; } catch (e) {
+      return { fail: reply(502, { error: e.outage ? `${e.message} The ride is sent again later.` : `Could not reach Strava (${e.message}).` }) };
+    }
   }
 
   async upload(input) {
