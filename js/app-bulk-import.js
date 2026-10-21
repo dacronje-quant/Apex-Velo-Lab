@@ -130,7 +130,7 @@
 
     cancelBulkImport() {
       const st = this._bulk;
-      if (!st || st.done) return;
+      if (!st || st.done || st.finishing) return;
       st.cancelled = true;
       if (st.worker) st.worker.postMessage({ type: 'cancel' });
       this.renderBulkPanel();
@@ -184,7 +184,7 @@
     /** Last batch, late Strava names and origins, samples back for the analytics, one analytics refresh. */
     async finishBulkImport(result) {
       const st = this._bulk;
-      st.done = true;
+      st.finishing = true; // reading is over; the panel shows "done" only once saved and analytics refreshed
       st.counts = result.counts || st.counts;
       await st.chain;
       // Exact copies dropped in the worker: if the copy came from a Strava export, the kept ride is on Strava too.
@@ -204,6 +204,7 @@
       });
       st.error = result.error || null;
       st.cancelled = !!result.cancelled;
+      st.done = true;
       this.renderBulkPanel();
       this._bulk = null;
       this._lastBulk = st;
@@ -250,18 +251,18 @@
         if (!st) return;
         const s = this.bulkSummary(st);
         panel.hidden = false;
-        panel.dataset.state = st.done ? (st.error ? 'failed' : st.cancelled ? 'cancelled' : 'done') : st.cancelled ? 'cancelling' : 'running';
+        panel.dataset.state = st.done ? (st.error ? 'failed' : st.cancelled ? 'cancelled' : 'done') : st.finishing ? 'saving' : st.cancelled ? 'cancelling' : 'running';
         for (const k of ['found', 'imported', 'duplicates', 'skipped', 'errors']) {
           const el = panel.querySelector(`[data-count="${k}"]`);
           if (el) el.textContent = s[k];
         }
         const label = st.done
           ? (st.error ? `Stopped: ${st.error}` : st.cancelled ? 'Cancelled. Rides read so far were kept.' : 'Done. Training load, FTP history and power curve updated.')
-          : st.cancelled ? 'Cancelling...' : (st.path ? `Reading ${st.path.split('/').slice(-2).join('/')}` : 'Reading files...');
+          : st.finishing ? 'Saving and updating training load...' : st.cancelled ? 'Cancelling...' : (st.path ? `Reading ${st.path.split('/').slice(-2).join('/')}` : 'Reading files...');
         const status = panel.querySelector('.bulk-status');
         if (status) status.innerHTML = esc(label);
         const cancel = document.getElementById('btnBulkImportCancel'), close = document.getElementById('btnBulkImportClose');
-        if (cancel) cancel.hidden = st.done;
+        if (cancel) cancel.hidden = st.done || st.finishing;
         if (close) close.hidden = !st.done;
       });
     }
