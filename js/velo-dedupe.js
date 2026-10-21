@@ -100,6 +100,88 @@ class VeloDedupe {
     }
     return out;
   }
+
+  // ------------------------------------------------- ride files (bulk import) --
+  // Contract (docs/ANDROID-CONTRACTS.md): the same ride = the same fileHash, or a start within ±60 s and a
+  // duration within ±5 %. Of two copies keep the one with power, then more channels, then the longer one.
+
+  static startMsOf(r) { const t = VeloDedupe.norm(r).startMs; return Number.isFinite(t) ? t : NaN; }
+
+  static durationOf(r) {
+    const d = Number(r.duration || r.durSec || r.moving_time || r.elapsed_time) || (Number(r.durationMin) || 0) * 60;
+    return d > 0 ? d : 0;
+  }
+
+  static hasPower(r) {
+    return Number(r.avgWatts) > 0 || Number(r.np) > 0 || (Array.isArray(r.samples) && r.samples.some(s => Number(s.power) > 0));
+  }
+
+  /** Recorded channels: power, heart rate, cadence, speed/distance, pedal balance. */
+  static channelCount(r) {
+    const any = (key, summary) => Number(summary) > 0 || (Array.isArray(r.samples) && r.samples.some(s => Number(s[key]) > 0));
+    return [VeloDedupe.hasPower(r), any('hr', r.avgHr), any('cadence', r.avgCadence), any('dist', r.distanceKm || r.distance), r.leftBal > 0].filter(Boolean).length;
+  }
+
+  /** > 0 when a is the better copy to keep, < 0 when b is, 0 when equal. */
+  static compareQuality(a, b) {
+    return (VeloDedupe.hasPower(a) - VeloDedupe.hasPower(b)) || (VeloDedupe.channelCount(a) - VeloDedupe.channelCount(b))
+      || (VeloDedupe.durationOf(a) - VeloDedupe.durationOf(b));
+  }
+
+  static recordedHere(r) { return r.source === 'APEX VELO Cockpit' || r.source === 'recorded'; }
+
+  static sameRide(a, b) {
+    if (a.fileHash && b.fileHash && a.fileHash === b.fileHash) return true;
+    const ta = VeloDedupe.startMsOf(a), tb = VeloDedupe.startMsOf(b);
+    if (!Number.isFinite(ta) || !Number.isFinite(tb) || Math.abs(ta - tb) > 60000) return false;
+    const da = VeloDedupe.durationOf(a), db = VeloDedupe.durationOf(b);
+    return !(da > 0 && db > 0) || Math.abs(da - db) / Math.max(da, db) <= 0.05;
+  }
+
+  /**
+   * Lookup structure for importing many rides against a large history: fileHash map plus rides bucketed
+   * by start minute, so each check only looks at neighbouring minutes.
+   */
+  static rideIndex(rides = []) {
+    const byHash = new Map(), byMin = new Map();
+    const key = (t) => Math.floor(t / 60000);
+    const idx = {
+      add(r) {
+        if (r.fileHash) byHash.set(r.fileHash, r);
+        const t = VeloDedupe.startMsOf(r);
+        if (Number.isFinite(t)) { const k = key(t); if (!byMin.has(k)) byMin.set(k, []); byMin.get(k).push(r); }
+      },
+      remove(r) {
+        if (r.fileHash && byHash.get(r.fileHash) === r) byHash.delete(r.fileHash);
+        const t = VeloDedupe.startMsOf(r), list = Number.isFinite(t) && byMin.get(key(t));
+        if (list) { const i = list.indexOf(r); if (i >= 0) list.splice(i, 1); }
+      },
+      hasHash(h) { return byHash.has(h); },
+      /** The stored ride that r duplicates, or null. */
+      find(r) {
+        if (r.fileHash && byHash.has(r.fileHash)) return byHash.get(r.fileHash);
+        const t = VeloDedupe.startMsOf(r);
+        if (!Number.isFinite(t)) return null;
+        for (const k of [key(t) - 1, key(t), key(t) + 1]) for (const o of byMin.get(k) || []) if (VeloDedupe.sameRide(r, o)) return o;
+        return null;
+      }
+    };
+    rides.forEach(r => r && idx.add(r));
+    return idx;
+  }
+
+  /**
+   * Decides what to do with one imported ride: 'new' (add it), 'duplicate' (a copy at least as good, or
+   * one recorded in this app, is already kept) or 'replace' (it is better than the copy in `with`).
+   * Updates the index accordingly.
+   */
+  static admit(index, ride) {
+    const twin = index.find(ride);
+    if (!twin) { index.add(ride); return { verdict: 'new' }; }
+    // A ride recorded in this app (targets, compliance, its own links) is never swapped for a file copy.
+    if (!VeloDedupe.recordedHere(twin) && VeloDedupe.compareQuality(ride, twin) > 0) { index.remove(twin); index.add(ride); return { verdict: 'replace', with: twin }; }
+    return { verdict: 'duplicate', with: twin };
+  }
 }
 
 if (typeof window !== 'undefined') window.VeloDedupe = VeloDedupe;

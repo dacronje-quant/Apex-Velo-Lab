@@ -4,7 +4,7 @@ const root = path.resolve(__dirname, '..'), origin = 'http://apex-public.local';
 const out = path.join(root, 'test-output/public-local'); fs.mkdirSync(out, { recursive: true });
 (async () => {
   const browser = await chromium.launch(require('./browser-options.cjs'));
-  let archive = null; const errors = [], apiCalls = [];
+  let archive = null; const errors = [], apiCalls = [], served = new Set();
   async function setup(context) {
     await context.route(origin + '/**', async route => {
       const u = new URL(route.request().url());
@@ -16,7 +16,7 @@ const out = path.join(root, 'test-output/public-local'); fs.mkdirSync(out, { rec
           : u.pathname === '/api/coach/status' ? { configured: false, provider: 'claude', models: [], providers: [] } : { ok: true };
         return route.fulfill({ contentType: 'application/json', body: JSON.stringify(data) });
       }
-      const rel = u.pathname === '/' ? 'index.html' : u.pathname.slice(1), file = path.resolve(root, rel);
+      const rel = u.pathname === '/' ? 'index.html' : u.pathname.slice(1), file = path.resolve(root, rel); served.add(rel);
       if (!file.startsWith(root + path.sep) || rel.startsWith('.') || rel.startsWith('data/') && rel !== 'data/sample_sweetspot_ride.tcx' || !fs.existsSync(file)) return route.fulfill({ status: 404, body: '' });
       const types = { '.html': 'text/html', '.js': 'text/javascript', '.css': 'text/css', '.json': 'application/json', '.woff2': 'font/woff2', '.png': 'image/png', '.ico': 'image/x-icon' };
       return route.fulfill({ body: fs.readFileSync(file), contentType: types[path.extname(file)] || 'text/plain' });
@@ -41,6 +41,39 @@ const out = path.join(root, 'test-output/public-local'); fs.mkdirSync(out, { rec
     const overflow = await page.evaluate(() => ({ width: innerWidth, scroll: document.documentElement.scrollWidth,
       elements: [...document.querySelectorAll('body *')].filter(el => { const r = el.getBoundingClientRect(); return r.width && r.right > innerWidth + 1 && !el.closest('.modal-overlay:not(.open)'); }).slice(0, 10).map(el => ({ id: el.id, cls: el.className, right: el.getBoundingClientRect().right })) }));
     assert.ok(overflow.scroll <= overflow.width + 1, JSON.stringify(overflow));
+
+    // Bulk "Import history": a Strava export and a Garmin export (nested zip) at once, parsed in the worker.
+    await page.setViewportSize({ width: 1440, height: 1000 });
+    await page.evaluate(() => { app.switchTab('history'); window.__refreshes = 0; const orig = app.refreshAnalytics; app.refreshAnalytics = function () { window.__refreshes++; return orig.apply(this, arguments); }; });
+    const fixtures = path.join(root, 'tests/fixtures/bulk-import');
+    const zips = ['strava-export.zip', 'garmin-export.zip'].map(name => ({ name, mimeType: 'application/zip', buffer: fs.readFileSync(path.join(fixtures, name)) }));
+    await page.locator('#fileInputBulk').setInputFiles(zips);
+    await page.waitForFunction(() => document.getElementById('bulkImportPanel').dataset.state === 'done', null, { timeout: 20000 });
+    const counts = await page.evaluate(() => Object.fromEntries([...document.querySelectorAll('#bulkImportPanel [data-count]')].map(el => [el.dataset.count, +el.textContent])));
+    assert.deepEqual(counts, { found: 9, imported: 3, duplicates: 2, skipped: 3, errors: 1 });
+    assert.ok(served.has('js/velo-import-worker.js'), 'parsed in the Web Worker');
+    assert.equal(await page.evaluate(() => window.__refreshes), 1, 'analytics recomputed once, not per ride');
+    const imported = await page.evaluate(() => app.completedWorkouts.map(r => ({ title: r.title, source: r.source, watts: r.avgWatts, hash: !!r.fileHash, samples: r.samples.length })));
+    assert.equal(imported.length, 3);
+    assert.ok(imported.some(r => r.title === 'Morning ride, hills'), 'Strava names restored from activities.csv');
+    assert.ok(imported.every(r => r.hash && r.samples > 0 && r.source.startsWith('import:')));
+    assert.ok(imported.find(r => r.source === 'import:fit' && r.title !== 'Morning ride, hills').watts > 0, 'the copy with power was kept');
+    assert.equal(await page.locator('#historyTableBody tr[data-id]').count(), 3);
+    const job = await page.evaluate(() => { const ids = JSON.parse(localStorage.getItem('apex_import_jobs')); return JSON.parse(localStorage.getItem('apex_import_job_' + ids.at(-1))); });
+    assert.equal(job.status, 'done'); assert.equal(job.done, 3); assert.equal(job.errors, 1);
+    await page.setViewportSize({ width: 390, height: 844 });
+    await page.locator('#bulkImportPanel').scrollIntoViewIfNeeded(); await page.screenshot({ path: path.join(out, 'bulk-import-mobile.png') });
+    assert.ok(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth + 1), 'import panel fits a phone screen');
+    await page.setViewportSize({ width: 1440, height: 1000 });
+    // The same exports again: nothing is added twice. Then a GPX through the drop-zone path goes to the bulk importer.
+    await page.locator('#fileInputBulk').setInputFiles(zips);
+    await page.waitForFunction(() => document.getElementById('bulkImportPanel').dataset.state === 'done' && !app._bulk, null, { timeout: 20000 });
+    assert.equal(await page.evaluate(() => app.completedWorkouts.length), 3);
+    assert.equal(await page.evaluate(() => app.bulkSummary().imported), 0);
+    await page.evaluate(gpx => app.handleIncomingFiles([new File([gpx], 'ride.gpx')]), fs.readFileSync(path.join(fixtures, 'ride.gpx'), 'utf8'));
+    await page.waitForFunction(() => app.completedWorkouts.length === 4 && !app._bulk, null, { timeout: 20000 });
+    assert.equal(await page.evaluate(() => app.completedWorkouts.find(r => r.source === 'import:gpx').title), 'Lunch loop');
+    await page.evaluate(async () => { app.completedWorkouts = []; await app.saveHistory(); });
     await fresh.close();
 
     const saved = [{ id: 'prof_divan', name: 'Existing rider', ftp: 213, weightKg: 72, maxHr: 181, ftpHistory: [{ from: 200, to: 213 }] }, { id: 'prof_1', name: 'Other rider', ftp: 150, weightKg: 65, maxHr: 170 }];
@@ -74,6 +107,6 @@ const out = path.join(root, 'test-output/public-local'); fs.mkdirSync(out, { rec
     assert.equal(apiCalls.filter(c => c.page.includes('apexDemo=1')).length, 0); await demo.screenshot({ path: path.join(out, 'demo-desktop.png') });
     const after = await old.evaluate(() => JSON.stringify({ profiles: localStorage.getItem('apex_velo_profiles'), health: localStorage.getItem('apex_health_v1'), rides: localStorage.getItem('apex_velo_history') }));
     assert.equal(after, before); await demo.close(); await existing.close();
-    assert.deepEqual(errors, []); console.log('Passed: clean startup, profile editing, mobile fit, legacy profiles/rides/health preservation, IndexedDB-only history, additive archive, demo isolation, blocked connections, no page errors.');
+    assert.deepEqual(errors, []); console.log('Passed: clean startup, profile editing, mobile fit, bulk history import (worker, dedupe, Strava names), legacy profiles/rides/health preservation, IndexedDB-only history, additive archive, demo isolation, blocked connections, no page errors.');
   } finally { await browser.close(); }
 })().catch(e => { console.error(e); process.exitCode = 1; });

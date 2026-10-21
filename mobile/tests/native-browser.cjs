@@ -1,7 +1,7 @@
 // End-to-end check of the Android layer in Chromium: the built www/ served at https://localhost (the
 // origin Capacitor uses), with tests/fake-native.js standing in for the BLE plugin, native HTTP and
 // the other plugins. Covers pairing, ERG control, recording and saving a ride, auto-reconnect,
-// Strava sign-in, upload and sync, the on-phone AI engine (API key, Ask, coach) and intervals.icu health. Run `npm run build` first.
+// Strava sign-in, upload and sync, the on-phone AI engine (API key, Ask, coach), intervals.icu health and bulk history import. Run `npm run build` first.
 const { chromium } = require('playwright');
 const fs = require('node:fs');
 const path = require('node:path');
@@ -333,13 +333,31 @@ const step = (name) => console.log('  ok -', name);
     assert.equal(await page.evaluate(() => document.getElementById('settingsModal').classList.contains('open')), false);
     step('exports save to Documents/ApexVelo (a name an old install left gets _2), the image goes to the share sheet, auto-save can be turned off; back closes the open dialog');
 
+    // ------------------------------------------------------------------ bulk history import --
+    const workerRequests = [];
+    context.on('request', (r) => { if (r.url().endsWith('/js/velo-import-worker.js')) workerRequests.push(r.url()); });
+    const before = await page.evaluate(() => { app.switchTab('history'); return app.completedWorkouts.length; });
+    await page.locator('#bulkImportMode').selectOption('indoor');
+    const strava = path.resolve(__dirname, '..', '..', 'tests', 'fixtures', 'bulk-import', 'strava-export.zip');
+    await page.locator('#fileInputBulk').setInputFiles(strava);
+    await page.waitForFunction(() => document.getElementById('bulkImportPanel').dataset.state === 'done', null, { timeout: 20000 });
+    const bulk = await page.evaluate(() => app.bulkSummary());
+    assert.deepEqual(bulk, { found: 4, imported: 3, duplicates: 0, skipped: 1, errors: 0 }, 'cycling + indoor: the run is skipped, the Zwift ride kept');
+    assert.equal(workerRequests.length, 1, 'parsed in the Web Worker');
+    assert.equal(await page.evaluate(() => app.completedWorkouts.length), before + 3);
+    assert.ok(await page.evaluate(() => app.completedWorkouts.some((r) => r.title === 'Zwift - Watopia' && r.source === 'import:fit')));
+    assert.equal(await page.evaluate(() => localStorage.getItem('apex_import_mode')), 'indoor');
+    assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth + 1), true, 'import panel fits the phone');
+    step('Import history: a Strava export zip parsed in a worker on the phone, sport filter applied, ride names restored');
+
     // -------------------------------------------------------------------- persistence --
     await page.reload();
     await page.waitForFunction(() => window.app && app.completedWorkouts);
     await page.waitForFunction((id) => app.completedWorkouts.some((r) => r.id === id && r.strava?.state === 'sent'), rideId, { timeout: 10000 });
     assert.equal(await page.evaluate(() => app.healthDays.length), 30);
     assert.equal(await page.evaluate(() => !!document.querySelector('#anaPinnedGrid #anaCardHealthHr')), true, 'pins are kept');
-    step('after an app restart the ride, its Strava link, the health days and the pinned chart are still there');
+    assert.equal(await page.evaluate(() => app.completedWorkouts.filter((r) => r.source?.startsWith('import:')).length), 3, 'imported rides are kept');
+    step('after an app restart the ride, its Strava link, the imported rides, the health days and the pinned chart are still there');
 
     const unexpected = errors.filter((e) => !/ResizeObserver/.test(e));
     assert.deepEqual(unexpected, [], 'no uncaught page errors');
