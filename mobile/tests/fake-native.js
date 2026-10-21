@@ -143,9 +143,29 @@
     },
     Share: { async share(o) { log.shared.push(o); } }
   };
+  // ------------------------------------------------------------------------- SQLite --
+  // The runner exposes __sqlite(op, sql, params) and __backupFiles(op, ...) over node:sqlite and a folder.
+  // window.__noSqlite = true starts the app as it was before the phone database (WebView storage only).
+  const sqlite = {
+    exec: (sql) => window.__sqlite('exec', sql),
+    run: (sql, params = []) => window.__sqlite('run', sql, params),
+    all: (sql, params = []) => window.__sqlite('all', sql, params),
+    begin: () => window.__sqlite('begin'), commit: () => window.__sqlite('commit'), rollback: () => window.__sqlite('rollback'),
+    async close() {}
+  };
+  const b64 = (bytes) => { let s = ''; for (const b of bytes) s += String.fromCharCode(b); return btoa(s); };
+  const backupFiles = {
+    write: (name, bytes) => window.__backupFiles('write', name, b64(bytes)),
+    append: (name, bytes) => window.__backupFiles('append', name, b64(bytes)),
+    read: async (name) => Uint8Array.from(atob(await window.__backupFiles('read', name)), (c) => c.charCodeAt(0)),
+    list: () => window.__backupFiles('list'), stat: (name) => window.__backupFiles('stat', name),
+    rename: (from, to) => window.__backupFiles('rename', from, to), remove: (name) => window.__backupFiles('remove', name)
+  };
   window.__fireNative = (name, data) => Promise.all((listeners[name] || []).map((cb) => cb(data)));
   window.__APEX_NATIVE_FAKE__ = {
     ble, http, plugins,
+    get sqlite() { return window.__noSqlite || !window.__sqlite ? undefined : sqlite; },
+    backupFiles,
     prefs: { async get(k) { return prefsStore.has(k) ? prefsStore.get(k) : null; }, async set(k, v) { prefsStore.set(k, v); }, async remove(k) { prefsStore.delete(k); } }
   };
 })();

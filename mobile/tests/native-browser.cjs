@@ -1,11 +1,15 @@
 // End-to-end check of the Android layer in Chromium: the built www/ served at https://localhost (the
 // origin Capacitor uses), with tests/fake-native.js standing in for the BLE plugin, native HTTP and
 // the other plugins. Covers pairing, ERG control, recording and saving a ride, auto-reconnect,
-// Strava sign-in and upload-only (ledger, auto-upload, offline retry queue), the on-phone AI engine (API key, Ask, coach) and intervals.icu health. Run `npm run build` first.
+// Strava sign-in and upload-only (ledger, auto-upload, offline retry queue), the on-phone AI engine (API key, Ask, coach),
+// intervals.icu health and the phone's SQLite store (node:sqlite stands in for the plugin), including the move of earlier
+// WebView data into it and the upload ledger in SQLite. Run `npm run build` first.
 const { chromium } = require('playwright');
 const fs = require('node:fs');
+const os = require('node:os');
 const path = require('node:path');
 const assert = require('node:assert/strict');
+const { DatabaseSync } = require('node:sqlite');
 
 const www = path.resolve(__dirname, '..', 'www');
 const ORIGIN = 'https://localhost';
@@ -13,9 +17,43 @@ const TYPES = { '.html': 'text/html', '.js': 'application/javascript', '.css': '
 const executablePath = process.env.APEX_CHROMIUM || (fs.existsSync('/opt/pw-browsers/chromium') ? '/opt/pw-browsers/chromium' : undefined);
 const step = (name) => console.log('  ok -', name);
 
-(async () => {
-  if (!fs.existsSync(path.join(www, 'mobile', 'apex-native.js'))) throw new Error('Run npm run build first');
-  const browser = await chromium.launch({ headless: true, executablePath });
+const tmpRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'apex-native-browser-'));
+
+/**
+ * The phone database and snapshot folder of one browser context: tests/fake-native.js calls these through
+ * exposed functions. `hooks.failRideWrite = n` makes the n-th ride write fail once (the app being killed).
+ */
+async function phoneStorage(context, name) {
+  const dir = path.join(tmpRoot, name), backups = path.join(dir, 'backups');
+  fs.mkdirSync(backups, { recursive: true });
+  const db = new DatabaseSync(path.join(dir, 'apex.sqlite'));
+  const hooks = { failRideWrite: 0 };
+  await context.exposeFunction('__sqlite', (op, sql, params = []) => {
+    if (op === 'exec') db.exec(sql);
+    else if (op === 'run') {
+      if (hooks.failRideWrite && /INTO rides/.test(sql) && --hooks.failRideWrite === 0) throw new Error('app killed during the move');
+      db.prepare(sql).run(...params);
+    } else if (op === 'all') return db.prepare(sql).all(...params).map((r) => ({ ...r }));
+    else if (op === 'begin') db.exec('BEGIN IMMEDIATE');
+    else if (op === 'commit') db.exec('COMMIT');
+    else if (op === 'rollback') { if (db.isTransaction) db.exec('ROLLBACK'); }
+    return null;
+  });
+  const at = (n) => path.join(backups, path.basename(n));
+  await context.exposeFunction('__backupFiles', (op, a, b) => {
+    if (op === 'write') fs.writeFileSync(at(a), Buffer.from(b, 'base64'));
+    else if (op === 'append') fs.appendFileSync(at(a), Buffer.from(b, 'base64'));
+    else if (op === 'read') return fs.readFileSync(at(a)).toString('base64');
+    else if (op === 'list') return fs.readdirSync(backups);
+    else if (op === 'stat') { try { const st = fs.statSync(at(a)); return { size: st.size, mtimeMs: st.mtimeMs }; } catch { return null; } }
+    else if (op === 'rename') fs.renameSync(at(a), at(b));
+    else if (op === 'remove') fs.unlinkSync(at(a));
+    return null;
+  });
+  return { db, hooks, backups };
+}
+
+async function newContext(browser) {
   const context = await browser.newContext({ viewport: { width: 412, height: 915 }, isMobile: true, hasTouch: true });
   await context.addInitScript({ path: path.join(__dirname, 'fake-native.js') });
   await context.route(`${ORIGIN}/**`, (route) => {
@@ -24,21 +62,118 @@ const step = (name) => console.log('  ok -', name);
     if (!file.startsWith(www + path.sep) || !fs.existsSync(file) || fs.statSync(file).isDirectory()) return route.fulfill({ status: 404, body: '' });
     return route.fulfill({ body: fs.readFileSync(file), contentType: TYPES[path.extname(file)] || 'application/octet-stream' });
   });
+  return context;
+}
+
+/** An earlier install kept its rides in WebView storage; the first start after the update moves them into SQLite. */
+async function migrationFlow(browser, errors) {
+  const context = await newContext(browser);
+  const phone = await phoneStorage(context, 'migration');
+  const page = await context.newPage();
+  page.on('pageerror', (e) => errors.push(e.message));
+  // sessionStorage survives reloads: until the test sets it, the app starts as the version before the update.
+  await page.addInitScript(() => { if (!sessionStorage.getItem('apexTestSqlite')) window.__noSqlite = true; });
+  // Records what the "moving your rides" overlay says while it is up.
+  await page.addInitScript(() => {
+    window.__migrationSeen = [];
+    new MutationObserver(() => { const el = document.getElementById('nativeMigration'); if (el) window.__migrationSeen.push(el.textContent); })
+      .observe(document, { childList: true, subtree: true, characterData: true });
+  });
+  await page.goto(`${ORIGIN}/index.html`);
+  await page.waitForFunction(() => window.app && window.ApexNative);
+  assert.equal(await page.evaluate(() => VeloStorage.enabled), false);
+  const samples = Array.from({ length: 600 }, (_, i) => ({ time: i + 1, power: 180 + (i % 40), hr: 130 + (i % 9), cadence: 88, timestamp: Date.parse('2026-10-05T07:00:00Z') + i * 1000 }));
+  await page.evaluate(async (s) => {
+    localStorage.setItem('apex_erg_response', 'steady');
+    app.completedWorkouts.push({ id: 'ride_before_update', date: '2026-10-05T07:00:00.000Z', profileName: app.activeProfile.name, title: 'Ridden before the update',
+      duration: 600, durationMin: 10, avgWatts: 199, np: 201, tss: 9, samplesCount: s.length, source: 'APEX VELO Cockpit', samples: s });
+    for (let i = 1; i <= 5; i++) app.completedWorkouts.push({ id: 'ride_earlier_' + i, date: `2026-09-0${i}T07:00:00.000Z`, profileName: app.activeProfile.name, title: 'Earlier ride ' + i,
+      duration: 60, durationMin: 1, avgWatts: 150, samplesCount: 2, source: 'APEX VELO Cockpit', samples: [{ time: 1, power: 150 }, { time: 2, power: 151 }] });
+    if ((await app.saveHistory()) === false) throw new Error('the old app could not save');
+  }, samples);
+  assert.equal((await page.evaluate(() => VeloDB.getAllRides())).find((r) => r.id === 'ride_before_update').samples.length, 600);
+
+  // First start after the update is killed half-way through the move: nothing is half-written, the app keeps the WebView data.
+  await page.evaluate(() => sessionStorage.setItem('apexTestSqlite', '1'));
+  phone.hooks.failRideWrite = 1;
+  await page.reload();
+  await page.waitForFunction(() => window.app && window.ApexNative);
+  assert.equal(await page.evaluate(() => VeloStorage.enabled), false);
+  assert.match(await page.evaluate(() => VeloStorage.error), /app killed during the move/);
+  assert.match(await page.locator('#localStorageStatus').textContent(), /^Not saved on this phone: /);
+  assert.equal(phone.db.prepare("SELECT value FROM meta WHERE key='initialized'").get(), undefined);
+  assert.equal(phone.db.prepare('SELECT COUNT(*) AS n FROM rides').get().n, 0);
+  assert.equal(await page.evaluate(() => document.getElementById('nativeMigration')), null, 'the overlay is gone after a stopped move');
+  assert.ok(await page.evaluate(() => app.completedWorkouts.some((r) => r.id === 'ride_before_update' && r.samples.length === 600)));
+
+  // The next start moves everything, verified, and keeps a snapshot of the WebView data.
+  await page.reload();
+  await page.waitForFunction(() => window.app && window.ApexNative);
+  assert.equal(await page.evaluate(() => VeloStorage.enabled), true);
+  assert.equal(await page.locator('#localStorageStatus').textContent(), 'Saved on this phone. Use History > Export to keep a copy elsewhere.');
+  const row = phone.db.prepare("SELECT json, samples_gz, sample_count FROM rides WHERE id='ride_before_update'").get();
+  assert.equal(row.sample_count, 600);
+  assert.doesNotMatch(row.json, /"hr"/, 'samples are stored compressed');
+  assert.equal(phone.db.prepare("SELECT value FROM settings WHERE key='apex_erg_response'").get().value, 'steady');
+  assert.ok(fs.readdirSync(phone.backups).some((n) => /^apex_.*\.json\.gz$/.test(n)), 'migration snapshot kept');
+  const moved = await page.evaluate(() => app.completedWorkouts.find((r) => r.id === 'ride_before_update'));
+  assert.deepEqual(moved.samples, samples);
+  assert.equal(phone.db.prepare('SELECT COUNT(*) AS n FROM rides').get().n, 6);
+  const seen = await page.evaluate(() => window.__migrationSeen);
+  assert.ok(seen.some((t) => /Moving your rides into the phone database/.test(t) && /Don't close the app/.test(t)), 'the rider is told to keep the app open');
+  assert.ok(seen.some((t) => /6 of 6 rides/.test(t)), 'with progress');
+  assert.equal(await page.evaluate(() => document.getElementById('nativeMigration')), null, 'and the overlay goes away');
+  assert.equal(await page.evaluate(() => localStorage.getItem('apex_sqlite_migration')), phone.db.prepare("SELECT value FROM meta WHERE key='storeId'").get().value,
+    'velo-storage does not copy the earlier data again (the migration snapshot keeps it)');
+  const revision = phone.db.prepare("SELECT value FROM meta WHERE key='revision'").get().value;
+
+  // Later starts read SQLite and never move the WebView data again, nor let velo-storage copy the whole
+  // history into IndexedDB as an "earlier browser original", even when the flag that prevents it went missing.
+  await page.evaluate(() => localStorage.removeItem('apex_sqlite_migration'));
+  await page.reload();
+  await page.waitForFunction(() => window.app && window.ApexNative);
+  assert.equal(await page.evaluate(() => VeloStorage.enabled), true);
+  assert.equal(phone.db.prepare("SELECT value FROM meta WHERE key='revision'").get().value, revision);
+  assert.equal(await page.evaluate(() => app.completedWorkouts.filter((r) => r.id === 'ride_before_update').length), 1);
+  assert.equal(phone.db.prepare('SELECT COUNT(*) AS n FROM migration_rides').get().n, 0);
+  const storeId = phone.db.prepare("SELECT value FROM meta WHERE key='storeId'").get().value;
+  assert.equal(await page.evaluate(() => localStorage.getItem('apex_sqlite_migration')), storeId, 'the flag is set again');
+  const original = await page.evaluate((id) => new Promise((resolve, reject) => {
+    const open = indexedDB.open('ApexVeloDB');
+    open.onerror = () => reject(open.error);
+    open.onsuccess = () => { const get = open.result.transaction('settings').objectStore('settings').get('sqlite_browser_original:' + id); get.onsuccess = () => resolve(get.result || null); get.onerror = () => reject(get.error); };
+  }), storeId);
+  assert.equal(original, null, 'no whole-history copy in IndexedDB');
+  await page.evaluate(() => localStorage.setItem('apex_erg_response', 'responsive'));
+  await page.evaluate(() => VeloStorage.flush());
+  assert.equal(phone.db.prepare("SELECT value FROM settings WHERE key='apex_erg_response'").get().value, 'responsive');
+  await context.close();
+  phone.db.close();
+}
+
+(async () => {
+  if (!fs.existsSync(path.join(www, 'mobile', 'apex-native.js'))) throw new Error('Run npm run build first');
+  const browser = await chromium.launch({ headless: true, executablePath });
+  const context = await newContext(browser);
+  const phone = await phoneStorage(context, 'main');
   const page = await context.newPage();
   const errors = [];
   page.on('pageerror', (e) => errors.push(e.message));
   page.on('dialog', (d) => d.accept());
   let failed = false;
   try {
+    await migrationFlow(browser, errors);
+    step('earlier WebView rides and settings move into SQLite on the first start, a ride at a time with a progress overlay: an interrupted move leaves nothing half-written and goes on, samples are compressed, later starts never move again');
+
     await page.goto(`${ORIGIN}/index.html`);
     await page.waitForFunction(() => window.app && window.ApexNative);
     assert.equal(await page.evaluate(() => document.documentElement.classList.contains('apex-native')), true);
     assert.equal(await page.evaluate(() => typeof navigator.bluetooth.requestDevice), 'function');
-    assert.equal(await page.evaluate(() => VeloStorage.enabled), false);
+    assert.equal(await page.evaluate(() => VeloStorage.enabled), true, 'SQLite owns saved data');
     assert.equal(await page.evaluate(() => app._remoteEnabled), false, 'phone remote must stay off at https://localhost');
     assert.equal(await page.locator('#settingsNav [data-sec="backups"]').isVisible(), false);
     assert.equal(await page.evaluate(() => app.healthDays.length), 0);
-    step('app boots in native mode (Web Bluetooth shim, phone storage, PC-only features off)');
+    step('app boots in native mode (Web Bluetooth shim, SQLite storage, PC-only features off)');
 
     // ------------------------------------------------------------------ pair the trainer --
     await page.evaluate(() => { window.__pair = app.connectDevice('trainer'); });
@@ -95,7 +230,10 @@ const step = (name) => console.log('  ok -', name);
     await page.waitForFunction((p) => __nativeLog.files.some((f) => f.path === p && f.directory === 'DOCUMENTS'), `ApexVelo/${stem}.fit`);
     const autoFit = await page.evaluate((p) => __nativeLog.files.find((f) => f.path === p).data, `ApexVelo/${stem}.fit`);
     assert.equal(Buffer.from(autoFit, 'base64').subarray(8, 12).toString(), '.FIT');
-    step(`ride recorded at 200 W, saved on the phone (IndexedDB) and as Documents/ApexVelo/${stem}.fit`);
+    await page.evaluate(() => VeloStorage.flush());
+    const saved = phone.db.prepare('SELECT sample_count FROM rides WHERE id=?').get(rideId);
+    assert.ok(saved && saved.sample_count >= 65, 'the ride and its samples are in SQLite');
+    step(`ride recorded at 200 W, saved on the phone (SQLite) and as Documents/ApexVelo/${stem}.fit`);
 
     // ------------------------------------------------------------------------- Strava --
     await page.evaluate(() => app.closeModal('rideSummaryModal'));
@@ -170,10 +308,11 @@ const step = (name) => console.log('  ok -', name);
     await page.evaluate(() => window.__fireNative('resume'));
     assert.equal((await page.evaluate((id) => ApexNative.uploads.state(id, 'strava'), ride2)).attempts, 1, 'resuming before the backoff ends does not retry');
     // A minute and more later, back online.
+    // The ledger is the phone database's sync_ledger table, not Preferences.
+    assert.equal(phone.db.prepare("SELECT status FROM sync_ledger WHERE ride_id=? AND destination='strava'").get(ride2).status, 'queued');
+    assert.equal(await page.evaluate(() => __APEX_NATIVE_FAKE__.prefs.get('apex_sync_ledger_strava')), null);
+    phone.db.prepare("UPDATE sync_ledger SET updated_at=? WHERE status='queued'").run(new Date(Date.now() - 3600e3).toISOString());
     await page.evaluate(async () => {
-      const k = 'apex_sync_ledger_strava', p = __APEX_NATIVE_FAKE__.prefs, m = JSON.parse(await p.get(k));
-      for (const r of Object.values(m)) if (r.status === 'queued') r.updated_at = new Date(Date.now() - 3600e3).toISOString();
-      await p.set(k, JSON.stringify(m));
       window.__stravaOffline = false;
       await window.__fireNative('resume');
     });
@@ -391,10 +530,14 @@ const step = (name) => console.log('  ok -', name);
     assert.equal(await page.locator('#nativeAutoFit').isChecked(), true);
     await page.locator('#nativeAutoFit').uncheck();
     assert.equal(await page.evaluate(() => localStorage.getItem('apex_native_autosave_fit')), '0');
+    await page.evaluate(() => app.openSettings('about'));
+    assert.equal(await page.locator('#nativeAboutSettings').isVisible(), true);
+    await page.locator('#nativeAboutSettings summary', { hasText: 'SQLCipher for Android' }).click();
+    assert.match(await page.locator('#nativeAboutSettings').innerText(), /ZETETIC LLC[\s\S]*Redistributions in binary form must reproduce/);
     await page.evaluate(() => app.openSettings('rider'));
     await page.evaluate(() => __fireNative('backButton'));
     assert.equal(await page.evaluate(() => document.getElementById('settingsModal').classList.contains('open')), false);
-    step('exports save to Documents/ApexVelo (a name an old install left gets _2), the image goes to the share sheet, auto-save can be turned off; back closes the open dialog');
+    step('exports save to Documents/ApexVelo (a name an old install left gets _2), the image goes to the share sheet, auto-save can be turned off; Settings > About shows the open-source licences (SQLCipher in full); back closes the open dialog');
 
     // -------------------------------------------------------------------- persistence --
     await page.reload();
@@ -415,6 +558,8 @@ const step = (name) => console.log('  ok -', name);
     await page.screenshot({ path: path.join(__dirname, '..', 'test-output', 'native-failure.png'), fullPage: false }).catch(() => {});
   } finally {
     await browser.close();
+    phone.db.close();
+    fs.rmSync(tmpRoot, { recursive: true, force: true });
   }
   if (failed) process.exit(1);
   console.log('native-browser: all checks passed');

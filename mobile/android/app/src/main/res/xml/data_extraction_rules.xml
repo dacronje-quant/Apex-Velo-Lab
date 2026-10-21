@@ -1,9 +1,11 @@
 <?xml version="1.0" encoding="utf-8"?>
 <!-- Android 12+ (android:dataExtractionRules). Same rule for cloud backup and for device-to-device
-     transfer: everything but the Capacitor Preferences file holding sign-ins and API keys. -->
+     transfer: everything but the Capacitor Preferences file holding sign-ins and API keys. The database's
+     recovery snapshots (files/backups) stay out of cloud backup, which has a 25 MB quota. -->
 <data-extraction-rules>
     <cloud-backup>
         <exclude domain="sharedpref" path="CapacitorStorage.xml" />
+        <exclude domain="file" path="backups/" />
     </cloud-backup>
     <device-transfer>
         <exclude domain="sharedpref" path="CapacitorStorage.xml" />
