@@ -20,6 +20,7 @@ import { NativeIcu } from './native-icu.js';
 import { bootNativeApp } from './native-app.js';
 import { NativeStore } from './native-store.js';
 import { openCapacitorDatabase, filesystemFiles } from './native-sqlite.js';
+import { WebViewMigration, webViewSource } from './native-migrate.js';
 
 const fake = window.__APEX_NATIVE_FAKE__;
 if (fake || Capacitor.isNativePlatform()) {
@@ -47,6 +48,10 @@ if (fake || Capacitor.isNativePlatform()) {
       let s;
       try { s = await store; } catch (e) { return { status: 503, body: { error: `The phone database could not be opened (${(e && e.message) || e}).` } }; }
       return s.route(pathname, method, body);
+    },
+    /** Moves earlier WebView data in (once); onProgress(done, total). */
+    async migrate(onProgress) {
+      return new WebViewMigration({ store: await store, source: webViewSource(window), onProgress }).run();
     }
   };
   window.ApexNative = { bluetooth, store, strava, ai, icu, platform: fake ? 'test' : Capacitor.getPlatform() };

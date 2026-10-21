@@ -29,6 +29,7 @@ export function folderFiles(dir) {
   return {
     dir,
     async write(name, bytes) { fs.mkdirSync(dir, { recursive: true }); fs.writeFileSync(at(name), bytes, { flush: true }); },
+    async append(name, bytes) { fs.appendFileSync(at(name), bytes, { flush: true }); },
     async read(name) { return new Uint8Array(fs.readFileSync(at(name))); },
     async list() { try { return fs.readdirSync(dir); } catch { return []; } },
     async stat(name) { try { const s = fs.statSync(at(name)); return { size: s.size, mtimeMs: s.mtimeMs }; } catch { return null; } },

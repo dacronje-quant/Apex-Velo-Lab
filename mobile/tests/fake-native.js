@@ -159,6 +159,7 @@
   const b64 = (bytes) => { let s = ''; for (const b of bytes) s += String.fromCharCode(b); return btoa(s); };
   const backupFiles = {
     write: (name, bytes) => window.__backupFiles('write', name, b64(bytes)),
+    append: (name, bytes) => window.__backupFiles('append', name, b64(bytes)),
     read: async (name) => Uint8Array.from(atob(await window.__backupFiles('read', name)), (c) => c.charCodeAt(0)),
     list: () => window.__backupFiles('list'), stat: (name) => window.__backupFiles('stat', name),
     rename: (from, to) => window.__backupFiles('rename', from, to), remove: (name) => window.__backupFiles('remove', name)

@@ -30,6 +30,9 @@ export async function openCapacitorDatabase(SQLiteConnection, CapacitorSQLite, n
   const exists = consistent.result && (await sqlite.isConnection(name, false)).result;
   const conn = exists ? await sqlite.retrieveConnection(name, false) : await sqlite.createConnection(name, false, 'no-encryption', 1, false);
   if (!(await conn.isDBOpen()).result) await conn.open();
+  // A WebView reload keeps the native connection: a transaction the earlier page left open (it was reloaded
+  // mid-save) is rolled back, so its half-applied changes are never committed by the next page's statements.
+  if ((await conn.isTransactionActive()).result) await conn.rollbackTransaction();
   return capacitorDriver(conn);
 }
 
@@ -45,6 +48,7 @@ export function filesystemFiles(Filesystem, dir = 'backups') {
       await made;
       await Filesystem.writeFile({ ...at(name), data: toBase64(bytes) });
     },
+    append: (name, bytes) => Filesystem.appendFile({ ...at(name), data: toBase64(bytes) }),
     async read(name) {
       const { data } = await Filesystem.readFile(at(name));
       return typeof data === 'string' ? fromBase64(data) : blobBytes(data);

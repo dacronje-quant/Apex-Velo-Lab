@@ -35,6 +35,8 @@ async function open(dir, options = {}) {
 const request = async (s, extra = {}) => ({ revision: await s.revision(), operationId: 'fixture_operation_' + ++op, ...extra });
 const migrate = async (s) => s.migrate(await request(s, { rides: [ride], settings, dbSettings: [{ key: 'strava_restore:1', history: [ride] }] }));
 const snapshotPath = (s, name) => path.join(s.files.dir, s.snapshotFile(name));
+/** A route answer's JSON, whether it came as one object or as UTF-8 pieces. */
+const bodyOf = (r) => (r.chunks ? JSON.parse(Buffer.concat(r.chunks).toString('utf8')) : r.body);
 
 test('migration preserves every sample, preference and restore point; original snapshot is verified', async (t) => {
   const s = await fixture(t); await migrate(s);
@@ -99,8 +101,8 @@ test('requests on the one connection run one at a time, so a read never sees hal
   const read = s.route('/api/storage/rides', 'GET');
   const [saved, during] = await Promise.all([save, read]);
   assert.equal(saved.status, 200);
-  assert.equal(during.body.rides.length, 30, 'the read waited for the whole save');
-  assert.equal(during.body.revision, saved.body.revision);
+  assert.equal(bodyOf(during).rides.length, 30, 'the read waited for the whole save');
+  assert.equal(bodyOf(during).revision, saved.body.revision);
 });
 
 test('restore verifies checksums, replaces data and preserves a before-restore snapshot', async (t) => {
@@ -139,13 +141,18 @@ test('an interrupted migration leaves nothing behind and simply runs again (idem
   const run = s.db.run; let writes = 0;
   s.db.run = async (sql, params) => { if (/INTO rides/.test(sql) && ++writes === 5) throw new Error('process killed'); return run(sql, params); };
   await assert.rejects(() => s.migrate(input), /process killed/);
+  // ...and once more while the rides are still being staged.
+  writes = 0;
+  s.db.run = async (sql, params) => { if (/INTO migration_rides/.test(sql) && ++writes === 3) throw new Error('process killed'); return run(sql, params); };
+  await assert.rejects(() => s.migrate(input), /process killed/);
   s.db.run = run;
   assert.equal(await s.initialized(), false); assert.deepEqual(await s.rides(), []); assert.deepEqual(await s.settings(), {}); assert.equal(await s.revision(), 0);
   // The next start retries with the untouched WebView data; a lost response is replayed with the same ID.
   const first = await s.migrate(input);
   assert.deepEqual(await s.migrate(input), first);
   assert.deepEqual(await s.rides(), rides); assert.deepEqual(await s.settings(), settings);
-  assert.equal((await s.backups()).files.filter((f) => f.reason === 'migration').length, 2, 'each attempt kept its own verified copy of the browser data');
+  assert.equal((await s.backups()).files.filter((f) => f.reason === 'migration').length, 2, 'the attempt that reached the commit and the final one each kept a verified copy');
+  assert.deepEqual(await s.db.all('SELECT id FROM migration_rides'), [], 'nothing is left staged');
 });
 
 test('validation rejects malformed records/settings before commit', async (t) => {
@@ -195,6 +202,11 @@ test('snapshots match the desktop format both ways', async (t) => {
   const { LocalStore } = await import('../../scripts/sqlite-store.cjs');
   const pcDir = path.join(s.dir, 'pc'); const pc = new LocalStore({ dir: pcDir });
   try {
+    const read = pc.readSnapshot(snapshotPath(s, b.name));
+    assert.equal(read.verified, true); assert.equal(read.reason, 'manual'); assert.deepEqual(read.payload.history, [ride]);
+    assert.deepEqual(Object.keys(read.payload), ['app', 'exportedAt', 'profiles', 'activeProfileId', 'workoutLibrary', 'health', 'history', 'settings', 'dbSettings']);
+    const migration = (await s.backups()).files.find((f) => f.reason === 'migration');
+    assert.equal(pc.readSnapshot(snapshotPath(s, migration.name)).verified, true);
     const name = pc.importSnapshot(value).name;
     assert.equal(pc.backups().files.find((f) => f.name === name).verified, true);
     const pcValue = JSON.parse(zlib.gunzipSync(fs.readFileSync(pc.snapshotFile(name))));
@@ -223,9 +235,9 @@ test('a new backup does not re-read every earlier snapshot to prune them', async
   for (let i = 0; i < 20; i++) { now += 86400000; await s.backup('manual'); }
   let reads = 0; const read = s.readSnapshot.bind(s); s.readSnapshot = (f) => { reads++; return read(f); };
   now += 86400000; await s.backup('manual');
-  assert.equal(reads, 1, 'only the new snapshot is verified');
+  assert.equal(reads, 0, 'the new snapshot is checked by hashing it, and no earlier one is read again');
   assert.equal((await s.backups()).files.length, (await s.backupFiles()).length);
-  assert.equal(reads, 1, 'listing backups uses the remembered details too');
+  assert.equal(reads, 0, 'listing backups uses the remembered details too');
   // An app restart remembers them as well: no snapshot is read again to list or prune.
   const count = (await s.backups()).files.length;
   await s.close(); opened.delete(s);
@@ -234,7 +246,7 @@ test('a new backup does not re-read every earlier snapshot to prune them', async
   assert.equal((await reopened.backups()).files.length, count);
   assert.equal(again, 0);
   now += 86400000; await reopened.backup('manual');
-  assert.equal(again, 1, 'after a restart only the new snapshot is verified');
+  assert.equal(again, 0, 'after a restart no snapshot is read again');
 });
 
 test('rides are read in pages, in saved order', async (t) => {
@@ -252,12 +264,16 @@ test('routes answer like server.js', async (t) => {
   const post = (p, body) => s.route(p, 'POST', JSON.stringify(body));
   let r = await get('/api/storage');
   assert.equal(r.status, 200);
-  assert.deepEqual(Object.keys(r.body), ['ok', 'initialized', 'revision', 'storeId', 'dir', 'file', 'rides', 'settings', 'dbSettings', 'migratedAt']);
-  assert.equal(r.body.initialized, false);
+  assert.deepEqual(Object.keys(bodyOf(r)), ['ok', 'initialized', 'revision', 'storeId', 'dir', 'file', 'rides', 'settings', 'dbSettings', 'migratedAt']);
+  assert.equal(bodyOf(r).initialized, false);
+  assert.deepEqual(bodyOf(r), await s.state());
   assert.equal((await post('/api/storage/save', { revision: 0, operationId: 'fixture_operation_x1' })).status, 409, 'saving before migration');
   r = await post('/api/storage/migrate', { revision: 0, operationId: 'fixture_operation_x2', rides: [ride], settings, dbSettings: [] });
   assert.deepEqual(Object.keys(r.body), ['ok', 'revision', 'storeId']);
-  assert.deepEqual((await get('/api/storage/rides')).body, { ok: true, rides: [ride], revision: 1 });
+  assert.deepEqual(bodyOf(await get('/api/storage/rides')), { ok: true, rides: [ride], revision: 1 });
+  const full = await get('/api/storage');
+  assert.ok(full.chunks.length >= 3, 'every ride is its own piece');
+  assert.deepEqual(bodyOf(full), await s.state());
   assert.deepEqual((await get('/api/storage/db-settings')).body, { ok: true, settings: [], revision: 1 });
   const backup = await post('/api/storage/backup', {});
   assert.equal(backup.body.ok, true); assert.equal(backup.body.reason, 'manual');
@@ -351,4 +367,40 @@ test('SqliteSyncLedger moves PrefsSyncLedger data in once, keeping what the tabl
   assert.equal(await ledger.getOption('auto_strava'), '1');
   assert.deepEqual([...prefs.keys()], ['apex_sync_ledger_icu'], 'moved keys removed; an unreadable one is left alone');
   assert.equal(await ledger.importPrefs(api, { destinations: ['strava'], options: ['auto_strava'] }), 0, 'running again moves nothing');
+});
+
+test('Sha256 matches node:crypto for any split of the input', async () => {
+  const { Sha256 } = await import('../src/native-snapshot.js');
+  const crypto = await import('node:crypto');
+  for (const len of [0, 1, 55, 56, 63, 64, 65, 127, 128, 1000, 70000]) {
+    const bytes = crypto.randomBytes(len), h = new Sha256();
+    for (let i = 0; i < len;) { const n = Math.min(len - i, 1 + (i % 97)); h.update(bytes.subarray(i, i + n)); i += n; }
+    assert.equal(h.hex(), crypto.createHash('sha256').update(bytes).digest('hex'), `length ${len}`);
+  }
+});
+
+test('a snapshot that does not read back the same is not kept', async (t) => {
+  const s = await fixture(t); await migrate(s);
+  const append = s.files.append;
+  s.files.append = async (name, bytes) => { const copy = Uint8Array.from(bytes); copy[copy.length >> 1] ^= 0xff; return append(name, copy); };
+  await assert.rejects(() => s.backup());
+  s.files.append = append;
+  assert.equal((await s.backups()).files.length, 1, 'only the migration snapshot');
+  assert.deepEqual(fs.readdirSync(s.files.dir).filter((n) => n.endsWith('.tmp')), [], 'the damaged file is removed');
+});
+
+test('200 hour-long rides move in and load within a 512 MB heap', { timeout: 300000 }, async (t) => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'apex-native-store-'));
+  t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
+  const script = new URL('./migrate-memory-run.mjs', import.meta.url).pathname;
+  const child = spawn(process.execPath, ['--max-old-space-size=512', script, dir, '200', '3600'], { stdio: ['ignore', 'pipe', 'pipe'] });
+  let out = '', err = '';
+  child.stdout.on('data', (d) => { out += d; }); child.stderr.on('data', (d) => { err += d; });
+  const code = await new Promise((r) => child.once('exit', r));
+  assert.equal(code, 0, err.slice(-2000));
+  const result = JSON.parse(out.trim().split('\n').pop());
+  assert.equal(result.rides, 200); assert.equal(result.loaded, 200); assert.equal(result.samples, 200 * 3600);
+  assert.ok(result.heapPeakMB < 512, `heap peak ${result.heapPeakMB} MB`);
+  t.diagnostic(`history ${result.historyMB} MB as JSON; move: heap peak ${result.moveHeapPeakMB} MB, RSS peak ${result.moveRssPeakMB} MB; `
+    + `with the full GET /api/storage load: heap peak ${result.heapPeakMB} MB, RSS peak ${result.rssPeakMB} MB; ${result.seconds} s`);
 });

@@ -10,15 +10,21 @@
  *   - Ride samples are kept gzipped (base64 text) in their own column; a summary-only save reuses the
  *     stored column without unpacking it.
  *   - Recovery snapshots go to `files` (app-private storage on the phone) in the desktop format, so a
- *     phone snapshot restores on the PC and back. There is no legacy folder or second copy.
+ *     phone snapshot restores on the PC and back. They are written and checked a ride at a time
+ *     (src/native-snapshot.js), never as one string. There is no legacy folder or second copy.
+ *   - Moving earlier data in is staged (migration_rides) so it survives the app being killed half-way
+ *     (src/native-migrate.js drives it from the WebView storage); /migrate uses the same steps.
+ *   - The two answers that carry every ride (GET /api/storage and /rides) come back as UTF-8 pieces.
  *   - What each snapshot holds is remembered in the snapshots table, so a restart does not read and verify
  *     every snapshot again (the PC does that once per server start; the phone would on every app start).
  *   - The workstream tables import_jobs, import_files, sync_ledger and wellness_days, with a small API.
  *
  * db driver (all async): exec(sql) for statements without results, run(sql, params), all(sql, params) -> rows,
  * begin(), commit(), rollback(), close(). files: write(name, bytes), read(name) -> bytes, list() -> names,
- * stat(name) -> { size, mtimeMs } | null, rename(from, to), remove(name).
+ * append(name, bytes), stat(name) -> { size, mtimeMs } | null, rename(from, to), remove(name).
  */
+
+import { Sha256, writeGzipFile, hashGzipFile } from './native-snapshot.js';
 
 export const MAX_BYTES = 200 * 1024 * 1024;
 export const SCHEMA_VERSION = 1;
@@ -27,15 +33,16 @@ export const settingKey = (k) => typeof k === 'string' && /^apex_[a-zA-Z0-9_:-]{
 const fail = (message, status = 400) => { throw Object.assign(new Error(message), { status }); };
 const SNAPSHOT_NAME = /^apex_\d{4}-\d{2}-\d{2}T[\w-]+\.json\.gz$/;
 
+function validateRide(r, ids) {
+  if (!r || typeof r !== 'object' || !['string', 'number'].includes(typeof r.id) || !String(r.id).length || !r.date || !Number.isFinite(Date.parse(r.date))) fail('A ride has no valid ID or date.');
+  if (ids.has(String(r.id))) fail('Duplicate ride ID.');
+  ids.add(String(r.id));
+  if (own(r, 'samples') && r.samples !== null && !Array.isArray(r.samples)) fail('Ride samples must be a list.');
+}
 function validateRides(rides) {
   if (!Array.isArray(rides)) fail('Rides must be a list.');
   const ids = new Set();
-  for (const r of rides) {
-    if (!r || typeof r !== 'object' || !['string', 'number'].includes(typeof r.id) || !String(r.id).length || !r.date || !Number.isFinite(Date.parse(r.date))) fail('A ride has no valid ID or date.');
-    if (ids.has(String(r.id))) fail('Duplicate ride ID.');
-    ids.add(String(r.id));
-    if (own(r, 'samples') && r.samples !== null && !Array.isArray(r.samples)) fail('Ride samples must be a list.');
-  }
+  for (const r of rides) validateRide(r, ids);
 }
 function validateSettings(settings) {
   if (!settings || typeof settings !== 'object' || Array.isArray(settings)) fail('Settings must be an object.');
@@ -81,6 +88,32 @@ const randomHex = (n) => hex(crypto.getRandomValues(new Uint8Array(n)));
 
 export const packSamples = async (samples) => toBase64(await gzip(encoder.encode(JSON.stringify(samples))));
 export const unpackSamples = async (text) => JSON.parse(decoder.decode(await gunzip(fromBase64(text))));
+/** A rides row: the JSON with `samples: null` where the ride had its samples (so a read returns the same JSON), and the samples packed. */
+async function encodeRide(ride) {
+  if (Array.isArray(ride.samples) && ride.samples.length) return { json: JSON.stringify({ ...ride, samples: null }), packed: await packSamples(ride.samples), count: ride.samples.length };
+  return { json: JSON.stringify(ride), packed: null, count: 0 };
+}
+/** SHA-256 of a ride's JSON, as stored with a staged ride: the WebView move skips rides staged unchanged. */
+export const rideHash = (ride) => sha256(JSON.stringify(ride));
+
+/**
+ * JSON of `{ ...head, [key]: items, ...tail }` as pieces, one per item, without the closing brace (the
+ * caller adds it, or more keys first). `onItem` sees each item before it is written.
+ */
+async function* jsonPieces(head, key, items, tail, onItem) {
+  const open = JSON.stringify(head).slice(0, -1);
+  yield `${open === '{' ? '{' : open + ','}${JSON.stringify(key)}:[`;
+  let n = 0;
+  for await (const item of items) {
+    if (onItem) onItem(item);
+    yield (n++ ? ',' : '') + JSON.stringify(item);
+  }
+  let rest = ']';
+  for (const [k, v] of Object.entries(tail)) if (v !== undefined) rest += `,${JSON.stringify(k)}:${JSON.stringify(v)}`;
+  yield rest;
+}
+/** An answer already serialized as UTF-8 pieces. */
+class Chunks { constructor(list) { this.list = list; } }
 
 const SCHEMA = `CREATE TABLE IF NOT EXISTS meta (key TEXT PRIMARY KEY, value TEXT NOT NULL);
   CREATE TABLE IF NOT EXISTS rides (id TEXT PRIMARY KEY, json TEXT NOT NULL, position INTEGER NOT NULL, samples_gz TEXT, sample_count INTEGER NOT NULL DEFAULT 0);
@@ -88,6 +121,7 @@ const SCHEMA = `CREATE TABLE IF NOT EXISTS meta (key TEXT PRIMARY KEY, value TEX
   CREATE TABLE IF NOT EXISTS db_settings (key TEXT PRIMARY KEY, json TEXT NOT NULL);
   CREATE TABLE IF NOT EXISTS operations (id TEXT PRIMARY KEY, result TEXT NOT NULL, at INTEGER NOT NULL);
   CREATE TABLE IF NOT EXISTS snapshots (name TEXT PRIMARY KEY, size INTEGER NOT NULL, mtime REAL NOT NULL, info TEXT NOT NULL);
+  CREATE TABLE IF NOT EXISTS migration_rides (id TEXT PRIMARY KEY, json TEXT NOT NULL, samples_gz TEXT, sample_count INTEGER NOT NULL DEFAULT 0, hash TEXT NOT NULL);
   CREATE TABLE IF NOT EXISTS import_jobs (id TEXT PRIMARY KEY, source TEXT, status TEXT, total INT, done INT, skipped INT, errors INT, created_at TEXT, updated_at TEXT, cursor TEXT);
   CREATE TABLE IF NOT EXISTS import_files (job_id TEXT, path TEXT, hash TEXT, ride_id TEXT, status TEXT, error TEXT, PRIMARY KEY(job_id, path));
   CREATE INDEX IF NOT EXISTS import_files_hash ON import_files(hash);
@@ -155,20 +189,28 @@ export class NativeStore {
     if (row.samples_gz !== null && row.samples_gz !== undefined) ride.samples = await unpackSamples(row.samples_gz);
     return ride;
   }
-  /** Every ride with its samples, read a page at a time so no single plugin answer carries the whole history. */
-  async rides() {
-    const out = [];
+  /** Every ride in saved order with its samples, read 50 at a time so no plugin answer carries the whole history. */
+  async *eachRide() {
     for (let offset = 0; ; offset += 50) {
       const rows = await this.db.all('SELECT json, samples_gz FROM rides ORDER BY position, id LIMIT 50 OFFSET ?', [offset]);
-      for (const row of rows) out.push(await this.decodeRide(row));
-      if (rows.length < 50) return out;
+      for (const row of rows) yield this.decodeRide(row);
+      if (rows.length < 50) return;
     }
+  }
+  async rides() {
+    const out = [];
+    for await (const ride of this.eachRide()) out.push(ride);
+    return out;
   }
   async settings() { return Object.fromEntries((await this.db.all('SELECT key,value FROM settings ORDER BY key')).map((r) => [r.key, r.value])); }
   async dbSettings() { return (await this.db.all('SELECT json FROM db_settings ORDER BY key')).map((r) => JSON.parse(r.json)); }
+  async stateParts() {
+    return { head: { ok: true, initialized: await this.initialized(), revision: await this.revision(), storeId: await this.meta('storeId'), dir: this.dir, file: this.file },
+      tail: { settings: await this.settings(), dbSettings: await this.dbSettings(), migratedAt: await this.meta('migratedAt') || null } };
+  }
   async state() {
-    return { ok: true, initialized: await this.initialized(), revision: await this.revision(), storeId: await this.meta('storeId'), dir: this.dir, file: this.file,
-      rides: await this.rides(), settings: await this.settings(), dbSettings: await this.dbSettings(), migratedAt: await this.meta('migratedAt') || null };
+    const { head, tail } = await this.stateParts();
+    return { ...head, rides: await this.rides(), ...tail };
   }
 
   // ------------------------------------------------------------------ writes --
@@ -217,38 +259,79 @@ export class NativeStore {
     let position = Number((await d.all('SELECT COALESCE(MAX(position),-1) AS n FROM rides'))[0].n) + 1;
     for (const ride of put) {
       const previous = (await d.all('SELECT position, samples_gz, sample_count FROM rides WHERE id=?', [String(ride.id)]))[0];
-      let json, packed = null, count = 0;
-      if (!exact && !(ride.samples?.length) && previous?.sample_count > 0) {
-        // A summary-only save keeps the stored samples (as the desktop store does), still packed.
-        json = JSON.stringify({ ...ride, samples: null }); packed = previous.samples_gz; count = previous.sample_count;
-      } else if (Array.isArray(ride.samples) && ride.samples.length) {
-        // `samples: null` keeps the key where the ride had it, so a read returns the same JSON.
-        json = JSON.stringify({ ...ride, samples: null }); packed = await packSamples(ride.samples); count = ride.samples.length;
-      } else json = JSON.stringify(ride);
+      // A summary-only save keeps the stored samples (as the desktop store does), still packed.
+      const keep = !exact && !(ride.samples?.length) && previous?.sample_count > 0;
+      const { json, packed, count } = keep ? { json: JSON.stringify({ ...ride, samples: null }), packed: previous.samples_gz, count: previous.sample_count } : await encodeRide(ride);
       await d.run('INSERT OR REPLACE INTO rides VALUES (?,?,?,?,?)', [String(ride.id), json, previous ? previous.position : position++, packed, count]);
     }
   }
+  /** The desktop /migrate request: staged a few rides at a time, then committed as one change. */
   async migrate(input) {
     validateRides(input.rides); validateSettings(input.settings); validateDbSettings(input.dbSettings || []);
     const replay = await this.replayed(input.operationId);
     if (replay) return replay;
     await this.checkRevision(input);
     if (await this.initialized()) fail('This phone already has saved data. Reload to use it.', 409);
-    // Verify a recovery snapshot of the complete browser export BEFORE committing migration.
-    await this.writeSnapshot({ app: 'APEX VELO LAB', exportedAt: this.clock().toISOString(), history: input.rides,
-      settings: input.settings, dbSettings: input.dbSettings || [], profiles: JSON.parse(input.settings.apex_velo_profiles || '[]') }, 'migration');
-    return this.mutate(input, async () => {
-      await this.applyRides(input.rides, [], { exact: true }); await this.applySettings(input.settings);
-      await this.putDbSettings(input.dbSettings || []);
-      await this.setMeta('initialized', 1); await this.setMeta('migratedAt', this.clock().toISOString());
-      // Verify the complete serialized content (samples unpacked again) before COMMIT, not just record counts.
-      const actual = await this.rides(), savedSettings = await this.settings(), wantedSettings = Object.entries(input.settings).filter(([, v]) => v !== null);
-      const restorePoints = new Map((await this.dbSettings()).map((s) => [s.key, JSON.stringify(s)]));
-      if (JSON.stringify(actual) !== JSON.stringify(input.rides) || Object.keys(savedSettings).length !== wantedSettings.length
-        || wantedSettings.some(([k, v]) => savedSettings[k] !== v) || restorePoints.size !== (input.dbSettings || []).length
-        || (input.dbSettings || []).some((s) => restorePoints.get(s.key) !== JSON.stringify(s))) fail('Migration verification failed.', 500);
+    for (let i = 0; i < input.rides.length; i += 20) await this.stageRides(input.rides.slice(i, i + 20));
+    return this.completeMigration({ ...input, order: input.rides.map((r) => String(r.id)) });
+  }
+  /**
+   * Moving earlier data in, in steps that survive the app being killed. Rides are staged (migration_rides) a
+   * batch per transaction, each one read back, unpacked and compared as soon as it is written, so checking
+   * never needs more than one ride in memory. Nothing is visible until completeMigration commits.
+   */
+  async stageRides(rides) {
+    validateRides(rides);
+    await this.transaction(async () => {
+      for (const ride of rides) {
+        const id = String(ride.id), text = JSON.stringify(ride), { json, packed, count } = await encodeRide(ride);
+        await this.db.run('INSERT OR REPLACE INTO migration_rides VALUES (?,?,?,?,?)', [id, json, packed, count, await sha256(text)]);
+        const row = (await this.db.all('SELECT json, samples_gz FROM migration_rides WHERE id=?', [id]))[0];
+        if (JSON.stringify(await this.decodeRide(row)) !== text) fail('Migration verification failed.', 500);
+      }
     });
   }
+  async *eachStaged(order) {
+    for (const id of order) yield this.decodeRide((await this.db.all('SELECT json, samples_gz FROM migration_rides WHERE id=?', [id]))[0]);
+  }
+  /**
+   * Commits a staged move: `order` lists every ride ID in saved order. A verified snapshot of the moved data
+   * is written first (from the staged rides, one at a time); then rides, settings and restore points go live
+   * in one transaction, compared again in SQL before COMMIT.
+   */
+  async completeMigration(input) {
+    validateSettings(input.settings); validateDbSettings(input.dbSettings || []);
+    const order = input.order;
+    if (!Array.isArray(order) || order.some((id) => typeof id !== 'string') || new Set(order).size !== order.length) fail('Invalid ride order.');
+    const replay = await this.replayed(input.operationId);
+    if (replay) return replay;
+    await this.checkRevision(input);
+    if (await this.initialized()) fail('This phone already has saved data. Reload to use it.', 409);
+    const staged = new Set((await this.db.all('SELECT id FROM migration_rides')).map((r) => r.id));
+    if (order.some((id) => !staged.has(id))) fail('Not every ride has been moved yet.', 409);
+    await this.writeSnapshot({ head: { app: 'APEX VELO LAB', exportedAt: this.clock().toISOString() }, history: this.eachStaged(order),
+      tail: { settings: input.settings, dbSettings: input.dbSettings || [], profiles: JSON.parse(input.settings.apex_velo_profiles || '[]') } }, 'migration');
+    return this.mutate(input, async () => {
+      await this.db.run('DELETE FROM rides');
+      for (const [position, id] of order.entries()) await this.db.run('INSERT INTO rides SELECT id, json, ?, samples_gz, sample_count FROM migration_rides WHERE id=?', [position, id]);
+      await this.applySettings(input.settings); await this.putDbSettings(input.dbSettings || []);
+      await this.setMeta('initialized', 1); await this.setMeta('migratedAt', this.clock().toISOString());
+      const same = Number((await this.db.all('SELECT COUNT(*) AS n FROM rides r JOIN migration_rides m ON m.id=r.id AND m.json=r.json AND m.samples_gz IS r.samples_gz AND m.sample_count=r.sample_count'))[0].n);
+      const total = Number((await this.db.all('SELECT COUNT(*) AS n FROM rides'))[0].n);
+      const savedSettings = await this.settings(), wantedSettings = Object.entries(input.settings).filter(([, v]) => v !== null);
+      const restorePoints = new Map((await this.dbSettings()).map((s) => [s.key, JSON.stringify(s)]));
+      if (same !== order.length || total !== order.length || Object.keys(savedSettings).length !== wantedSettings.length
+        || wantedSettings.some(([k, v]) => savedSettings[k] !== v) || restorePoints.size !== (input.dbSettings || []).length
+        || (input.dbSettings || []).some((s) => restorePoints.get(s.key) !== JSON.stringify(s))) fail('Migration verification failed.', 500);
+      await this.db.run('DELETE FROM migration_rides');
+    });
+  }
+  /** For the WebView move: what is staged already ({ id: SHA-256 of the ride's JSON }), so a restart skips it. */
+  migrationStaged() {
+    return this.exclusive(async () => Object.fromEntries((await this.db.all('SELECT id, hash FROM migration_rides')).map((r) => [r.id, r.hash])));
+  }
+  stageMigration(rides) { return this.exclusive(() => this.stageRides(rides)); }
+  finishMigration(input) { return this.exclusive(() => this.completeMigration(input)); }
   async update(input) {
     if (!await this.initialized()) fail('Finish migration before saving.', 409);
     return this.mutate(input, async () => {
@@ -267,27 +350,41 @@ export class NativeStore {
   }
 
   // ------------------------------------------------------------- snapshots --
-  async payload() {
+  /** The desktop backup payload as the keys before history, the rides (read as they are written) and the keys after. */
+  async payloadParts() {
     const s = await this.settings();
     const parse = (k, fallback) => { try { return JSON.parse(s[k] || 'null') ?? fallback; } catch { return fallback; } };
-    return { app: 'APEX VELO LAB', exportedAt: this.clock().toISOString(), profiles: parse('apex_velo_profiles', []),
-      activeProfileId: s.apex_velo_active_prof_id || null, workoutLibrary: parse('apex_velo_saved_workouts', []),
-      health: parse('apex_health_v1', null), history: await this.rides(), settings: s, dbSettings: await this.dbSettings() };
+    return { head: { app: 'APEX VELO LAB', exportedAt: this.clock().toISOString(), profiles: parse('apex_velo_profiles', []),
+      activeProfileId: s.apex_velo_active_prof_id || null, workoutLibrary: parse('apex_velo_saved_workouts', []), health: parse('apex_health_v1', null) },
+    history: this.eachRide(), tail: { settings: s, dbSettings: await this.dbSettings() } };
   }
-  async writeSnapshot(payload, reason = 'automatic') {
-    validateRides(payload.history); validateSettings(payload.settings || {}); validateDbSettings(payload.dbSettings || []);
-    const checksum = await sha256(JSON.stringify(payload));
-    const value = { ...payload, storageBackup: { version: 1, checksum, reason } };
+  /**
+   * Writes a snapshot in the desktop format (gzip of the payload plus storageBackup with its SHA-256) from
+   * { head, history, tail }, one ride at a time. The file is checked by decompressing it again and comparing
+   * hashes before it gets its final name.
+   */
+  async writeSnapshot({ head, history, tail = {} }, reason = 'automatic') {
+    const all = { ...head, ...tail };
+    validateSettings(all.settings || {}); validateDbSettings(all.dbSettings || []);
     const name = `apex_${this.clock().toISOString().replace(/[:.]/g, '-')}_${randomHex(4)}.json.gz`, tmp = name + '.tmp';
+    const ids = new Set(), checksum = new Sha256();
+    let rides = 0;
     try {
-      const bytes = await gzip(encoder.encode(JSON.stringify(value)));
-      await this.files.write(tmp, bytes);
-      const written = await this.readSnapshot(tmp);
+      const written = await writeGzipFile(this.files, tmp, async (write) => {
+        for await (const piece of jsonPieces(head, 'history', history, tail, (r) => { validateRide(r, ids); rides++; })) {
+          const bytes = encoder.encode(piece);
+          checksum.update(bytes); await write(bytes);
+        }
+        // The checksum covers the payload, closed here; the file goes on with storageBackup.
+        const sum = checksum.update(encoder.encode('}')).hex();
+        await write(encoder.encode(`,"storageBackup":${JSON.stringify({ version: 1, checksum: sum, reason })}}`));
+      });
+      if (await hashGzipFile(this.files, tmp, MAX_BYTES * 3) !== written.hash) fail('The backup could not be read back. It was not kept.', 500);
       await this.files.rename(tmp, name);
-      await this.rememberSnapshot(name, written);
+      await this.rememberSnapshot(name, { at: all.exportedAt, rides, profiles: all.profiles?.length || 0, reason, verified: true });
       await this.pruneBackups();
       this.lastBackupError = null;
-      return { name, at: payload.exportedAt, rides: payload.history.length, reason, bytes: bytes.length };
+      return { name, at: all.exportedAt, rides, reason, bytes: written.bytes };
     } catch (e) { try { await this.files.remove(tmp); } catch { /* never written */ } throw e; }
   }
   async readSnapshot(name) {
@@ -314,19 +411,27 @@ export class NativeStore {
       if (row) this.snapshotCache.set(name, hit = { size: row.size, mtimeMs: row.mtime, info: JSON.parse(row.info) });
     }
     if (hit && hit.size === st.size && hit.mtimeMs === st.mtimeMs) return hit.info;
-    try { return await this.rememberSnapshot(name, await this.readSnapshot(name), st); } catch { return { corrupt: true }; }
+    try {
+      const { payload, reason, verified } = await this.readSnapshot(name);
+      return await this.rememberSnapshot(name, { at: payload.exportedAt, rides: payload.history.length, profiles: payload.profiles?.length || 0, reason, verified }, st);
+    } catch { return { corrupt: true }; }
   }
-  async rememberSnapshot(name, { payload, reason, verified }, st) {
+  async rememberSnapshot(name, { at, rides, profiles, reason, verified }, st) {
     st = st || await this.files.stat(name);
-    const info = { at: payload.exportedAt || new Date(st.mtimeMs).toISOString(), rides: payload.history.length, profiles: payload.profiles?.length || 0,
-      reason, verified, bytes: st.size };
+    const info = { at: at || new Date(st.mtimeMs).toISOString(), rides, profiles, reason, verified, bytes: st.size };
     this.snapshotCache.set(name, { size: st.size, mtimeMs: st.mtimeMs, info });
     await this.db.run('INSERT OR REPLACE INTO snapshots VALUES (?,?,?,?)', [name, st.size, st.mtimeMs, JSON.stringify(info)]);
     return info;
   }
   async importSnapshot(value) {
     const { payload } = await this.verifySnapshot(value);
-    return this.writeSnapshot({ ...payload, exportedAt: payload.exportedAt || this.clock().toISOString() }, 'imported');
+    const head = {}, tail = {};
+    let after = false;
+    for (const [k, v] of Object.entries({ ...payload, exportedAt: payload.exportedAt || this.clock().toISOString() })) {
+      if (k === 'history') after = true;
+      else (after ? tail : head)[k] = v;
+    }
+    return this.writeSnapshot({ head, history: payload.history, tail }, 'imported');
   }
   async backupFiles() {
     try { return (await this.files.list()).filter((n) => SNAPSHOT_NAME.test(n)).sort().reverse(); } catch { return []; }
@@ -350,7 +455,7 @@ export class NativeStore {
     await this.checkRevision(input);
     const { payload } = await this.readSnapshot(this.snapshotFile(input.name));
     // A failed safety backup aborts the restore before any live data is changed.
-    await this.writeSnapshot(await this.payload(), 'before-restore');
+    await this.writeSnapshot(await this.payloadParts(), 'before-restore');
     return this.mutate(input, async () => {
       await this.applyRides(payload.history, [], { exact: true, replace: true });
       if (payload.settings) { await this.db.run('DELETE FROM settings'); await this.applySettings(payload.settings); }
@@ -389,7 +494,7 @@ export class NativeStore {
   }
   async backup(reason = 'manual') {
     if (!await this.initialized()) fail('Open Apex to migrate your browser data first.', 409);
-    return this.writeSnapshot(await this.payload(), reason);
+    return this.writeSnapshot(await this.payloadParts(), reason);
   }
   scheduleBackup() {
     clearTimeout(this.backupTimer);
@@ -422,17 +527,28 @@ export class NativeStore {
   }
 
   // ------------------------------------------------------------------ routes --
-  /** Answers /api/storage/* like server.js: resolves to { status, body }. */
+  /**
+   * Answers /api/storage/* like server.js: resolves to { status, body }, or { status, chunks } (UTF-8 pieces of
+   * the JSON, one per ride) for the two answers that carry every ride, so the whole history is never one string.
+   */
   route(pathname, method, bodyText = '') {
     return this.exclusive(async () => {
-      try { return { status: 200, body: await this.answer(pathname, method, bodyText) }; }
-      catch (e) { return { status: e.status || 503, body: { error: e.message } }; }
+      try {
+        const answer = await this.answer(pathname, method, bodyText);
+        return answer instanceof Chunks ? { status: 200, chunks: answer.list } : { status: 200, body: answer };
+      } catch (e) { return { status: e.status || 503, body: { error: e.message } }; }
     });
+  }
+  async chunks(head, items, tail) {
+    const list = [];
+    for await (const piece of jsonPieces(head, 'rides', items, tail)) list.push(encoder.encode(piece));
+    list.push(encoder.encode('}'));
+    return new Chunks(list);
   }
   async answer(pathname, method, bodyText) {
     if (method === 'GET') {
-      if (pathname === '/api/storage') return this.state();
-      if (pathname === '/api/storage/rides') return { ok: true, rides: await this.rides(), revision: await this.revision() };
+      if (pathname === '/api/storage') { const { head, tail } = await this.stateParts(); return this.chunks(head, this.eachRide(), tail); }
+      if (pathname === '/api/storage/rides') return this.chunks({ ok: true }, this.eachRide(), { revision: await this.revision() });
       if (pathname === '/api/storage/db-settings') return { ok: true, settings: await this.dbSettings(), revision: await this.revision() };
       if (pathname === '/api/storage/backups') return this.backups();
       fail('Not found', 404);
@@ -454,6 +570,7 @@ export class NativeStore {
     if (pathname === '/api/storage/restore') return this.restore(input);
     fail('Not found', 404);
   }
+
 
   // ------------------------------------------------------ workstream tables --
   // Import jobs, the files of each job, the outbound sync ledger and wellness days. They are not part of

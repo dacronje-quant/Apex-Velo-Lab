@@ -42,6 +42,7 @@ async function phoneStorage(context, name) {
   const at = (n) => path.join(backups, path.basename(n));
   await context.exposeFunction('__backupFiles', (op, a, b) => {
     if (op === 'write') fs.writeFileSync(at(a), Buffer.from(b, 'base64'));
+    else if (op === 'append') fs.appendFileSync(at(a), Buffer.from(b, 'base64'));
     else if (op === 'read') return fs.readFileSync(at(a)).toString('base64');
     else if (op === 'list') return fs.readdirSync(backups);
     else if (op === 'stat') { try { const st = fs.statSync(at(a)); return { size: st.size, mtimeMs: st.mtimeMs }; } catch { return null; } }
@@ -72,6 +73,12 @@ async function migrationFlow(browser, errors) {
   page.on('pageerror', (e) => errors.push(e.message));
   // sessionStorage survives reloads: until the test sets it, the app starts as the version before the update.
   await page.addInitScript(() => { if (!sessionStorage.getItem('apexTestSqlite')) window.__noSqlite = true; });
+  // Records what the "moving your rides" overlay says while it is up.
+  await page.addInitScript(() => {
+    window.__migrationSeen = [];
+    new MutationObserver(() => { const el = document.getElementById('nativeMigration'); if (el) window.__migrationSeen.push(el.textContent); })
+      .observe(document, { childList: true, subtree: true, characterData: true });
+  });
   await page.goto(`${ORIGIN}/index.html`);
   await page.waitForFunction(() => window.app && window.ApexNative);
   assert.equal(await page.evaluate(() => VeloStorage.enabled), false);
@@ -80,9 +87,11 @@ async function migrationFlow(browser, errors) {
     localStorage.setItem('apex_erg_response', 'steady');
     app.completedWorkouts.push({ id: 'ride_before_update', date: '2026-10-05T07:00:00.000Z', profileName: app.activeProfile.name, title: 'Ridden before the update',
       duration: 600, durationMin: 10, avgWatts: 199, np: 201, tss: 9, samplesCount: s.length, source: 'APEX VELO Cockpit', samples: s });
+    for (let i = 1; i <= 5; i++) app.completedWorkouts.push({ id: 'ride_earlier_' + i, date: `2026-09-0${i}T07:00:00.000Z`, profileName: app.activeProfile.name, title: 'Earlier ride ' + i,
+      duration: 60, durationMin: 1, avgWatts: 150, samplesCount: 2, source: 'APEX VELO Cockpit', samples: [{ time: 1, power: 150 }, { time: 2, power: 151 }] });
     if ((await app.saveHistory()) === false) throw new Error('the old app could not save');
   }, samples);
-  assert.equal((await page.evaluate(() => VeloDB.getAllRides()))[0].samples.length, 600);
+  assert.equal((await page.evaluate(() => VeloDB.getAllRides())).find((r) => r.id === 'ride_before_update').samples.length, 600);
 
   // First start after the update is killed half-way through the move: nothing is half-written, the app keeps the WebView data.
   await page.evaluate(() => sessionStorage.setItem('apexTestSqlite', '1'));
@@ -94,6 +103,7 @@ async function migrationFlow(browser, errors) {
   assert.match(await page.locator('#localStorageStatus').textContent(), /^Not saved on this phone: /);
   assert.equal(phone.db.prepare("SELECT value FROM meta WHERE key='initialized'").get(), undefined);
   assert.equal(phone.db.prepare('SELECT COUNT(*) AS n FROM rides').get().n, 0);
+  assert.equal(await page.evaluate(() => document.getElementById('nativeMigration')), null, 'the overlay is gone after a stopped move');
   assert.ok(await page.evaluate(() => app.completedWorkouts.some((r) => r.id === 'ride_before_update' && r.samples.length === 600)));
 
   // The next start moves everything, verified, and keeps a snapshot of the WebView data.
@@ -108,6 +118,13 @@ async function migrationFlow(browser, errors) {
   assert.ok(fs.readdirSync(phone.backups).some((n) => /^apex_.*\.json\.gz$/.test(n)), 'migration snapshot kept');
   const moved = await page.evaluate(() => app.completedWorkouts.find((r) => r.id === 'ride_before_update'));
   assert.deepEqual(moved.samples, samples);
+  assert.equal(phone.db.prepare('SELECT COUNT(*) AS n FROM rides').get().n, 6);
+  const seen = await page.evaluate(() => window.__migrationSeen);
+  assert.ok(seen.some((t) => /Moving your rides into the phone database/.test(t) && /Don't close the app/.test(t)), 'the rider is told to keep the app open');
+  assert.ok(seen.some((t) => /6 of 6 rides/.test(t)), 'with progress');
+  assert.equal(await page.evaluate(() => document.getElementById('nativeMigration')), null, 'and the overlay goes away');
+  assert.equal(await page.evaluate(() => localStorage.getItem('apex_sqlite_migration')), phone.db.prepare("SELECT value FROM meta WHERE key='storeId'").get().value,
+    'velo-storage does not copy the earlier data again (the migration snapshot keeps it)');
   const revision = phone.db.prepare("SELECT value FROM meta WHERE key='revision'").get().value;
 
   // Later starts read SQLite and never move the WebView data again.
@@ -116,6 +133,7 @@ async function migrationFlow(browser, errors) {
   assert.equal(await page.evaluate(() => VeloStorage.enabled), true);
   assert.equal(phone.db.prepare("SELECT value FROM meta WHERE key='revision'").get().value, revision);
   assert.equal(await page.evaluate(() => app.completedWorkouts.filter((r) => r.id === 'ride_before_update').length), 1);
+  assert.equal(phone.db.prepare('SELECT COUNT(*) AS n FROM migration_rides').get().n, 0);
   await page.evaluate(() => localStorage.setItem('apex_erg_response', 'responsive'));
   await page.evaluate(() => VeloStorage.flush());
   assert.equal(phone.db.prepare("SELECT value FROM settings WHERE key='apex_erg_response'").get().value, 'responsive');
@@ -135,7 +153,7 @@ async function migrationFlow(browser, errors) {
   let failed = false;
   try {
     await migrationFlow(browser, errors);
-    step('earlier WebView rides and settings move into SQLite on the first start: an interrupted move leaves nothing half-written and runs again, samples are compressed, later starts never move again');
+    step('earlier WebView rides and settings move into SQLite on the first start, a ride at a time with a progress overlay: an interrupted move leaves nothing half-written and goes on, samples are compressed, later starts never move again');
 
     await page.goto(`${ORIGIN}/index.html`);
     await page.waitForFunction(() => window.app && window.ApexNative);
@@ -438,10 +456,14 @@ async function migrationFlow(browser, errors) {
     assert.equal(await page.locator('#nativeAutoFit').isChecked(), true);
     await page.locator('#nativeAutoFit').uncheck();
     assert.equal(await page.evaluate(() => localStorage.getItem('apex_native_autosave_fit')), '0');
+    await page.evaluate(() => app.openSettings('about'));
+    assert.equal(await page.locator('#nativeAboutSettings').isVisible(), true);
+    await page.locator('#nativeAboutSettings summary', { hasText: 'SQLCipher for Android' }).click();
+    assert.match(await page.locator('#nativeAboutSettings').innerText(), /ZETETIC LLC[\s\S]*Redistributions in binary form must reproduce/);
     await page.evaluate(() => app.openSettings('rider'));
     await page.evaluate(() => __fireNative('backButton'));
     assert.equal(await page.evaluate(() => document.getElementById('settingsModal').classList.contains('open')), false);
-    step('exports save to Documents/ApexVelo (a name an old install left gets _2), the image goes to the share sheet, auto-save can be turned off; back closes the open dialog');
+    step('exports save to Documents/ApexVelo (a name an old install left gets _2), the image goes to the share sheet, auto-save can be turned off; Settings > About shows the open-source licences (SQLCipher in full); back closes the open dialog');
 
     // -------------------------------------------------------------------- persistence --
     await page.reload();

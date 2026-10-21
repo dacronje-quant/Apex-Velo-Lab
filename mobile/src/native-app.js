@@ -9,6 +9,7 @@
  *     saves there as it does on the PC and moves the earlier WebView data (IndexedDB + localStorage) in
  *     on the first start; without a database it keeps the WebView storage,
  *   - adds Settings > Strava for the rider's own Strava API application, and the sign-in redirect,
+ *   - adds Settings > About with the open-source licences of what the app ships,
  *   - adds the API key fields to Settings > AI engine (the keys stay in Android app storage),
  *   - reads resting HR, HRV and sleep from intervals.icu (Settings > Health) instead of Apple Health
  *     via the PC, for readiness, the calendar and the recovery trends,
@@ -19,6 +20,7 @@
  */
 
 import { BACKFILL_DAYS, RECENT_DAYS } from './native-icu.js';
+import { aboutSection } from './native-licences.js';
 
 const json = (status, body) => new Response(JSON.stringify(body), { status, headers: { 'Content-Type': 'application/json' } });
 const AI_PATHS = ['/api/coach', '/api/coach/status', '/api/ask'];
@@ -38,7 +40,8 @@ export function installApiRoutes(routes, win = window) {
     const readBody = async () => typeof options.body === 'string' ? options.body : options.body ? await new Response(options.body).text() : '';
     if (storage && (url.pathname === '/api/storage' || url.pathname.startsWith('/api/storage/'))) {
       const r = await storage.route(url.pathname, method, await readBody());
-      return json(r.status, r.body);
+      // The answers carrying every ride come as UTF-8 pieces: a Blob holds them without one big string.
+      return r.chunks ? new Response(new Blob(r.chunks), { status: r.status, headers: { 'Content-Type': 'application/json' } }) : json(r.status, r.body);
     }
     if (ai && AI_PATHS.includes(url.pathname)) {
       const signal = options.signal || (input && input.signal) || undefined;
@@ -187,8 +190,11 @@ function addSettingsUi(doc, icu) {
     const files = doc.createElement('button');
     files.type = 'button'; files.className = 'cat-pill'; files.dataset.sec = 'files'; files.textContent = 'Ride files';
     b.after(files);
+    const about = doc.createElement('button');
+    about.type = 'button'; about.className = 'cat-pill'; about.dataset.sec = 'about'; about.textContent = 'About';
+    nav.append(about);
     const riderSection = doc.querySelector('#settingsModal .settings-section[data-sec="rider"]');
-    if (riderSection) riderSection.insertAdjacentHTML('afterend', stravaSection() + filesSection());
+    if (riderSection) riderSection.insertAdjacentHTML('afterend', stravaSection() + filesSection() + aboutSection());
   }
   const status = doc.getElementById('localStorageStatus');
   if (status) status.textContent = 'Saved on this phone.';
@@ -240,6 +246,25 @@ export async function saveRideFile(Filesystem, filename, blob) {
   throw lastError;
 }
 
+/** "Moving your rides" with progress, shown while the first start after the update moves more than a few rides. */
+function migrationOverlay(doc) {
+  let el = null;
+  return {
+    show(done, total) {
+      if (total < 5) return;
+      if (!el) {
+        el = doc.createElement('div');
+        el.id = 'nativeMigration'; el.className = 'native-migration'; el.setAttribute('role', 'status'); el.setAttribute('aria-live', 'polite');
+        el.innerHTML = '<div class="native-migration-card"><b>Moving your rides into the phone database</b><p>Don\'t close the app. This happens once.</p><progress max="1" value="0"></progress><p class="native-migration-count"></p></div>';
+        doc.body.appendChild(el);
+      }
+      el.querySelector('progress').max = total; el.querySelector('progress').value = done;
+      el.querySelector('.native-migration-count').textContent = `${done} of ${total} rides`;
+    },
+    hide() { if (el) el.remove(); el = null; }
+  };
+}
+
 const HEALTH_SYNC_EVERY_MS = 60 * 60 * 1000;
 const localDay = (d = new Date()) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
 
@@ -268,8 +293,25 @@ export function bootNativeApp({ bluetooth, storage, strava, ai, icu, plugins, wi
     const App_ = typeof VeloApp !== 'undefined' ? VeloApp : win.VeloApp;
     const V = win.VeloStorage, P = App_ && App_.prototype;
     if (V && storage) {
-      // The phone's SQLite database answers /api/storage, so VeloStorage.boot runs as on the PC (and moves
-      // earlier WebView data in once). Only the status wording changes.
+      // The phone's SQLite database answers /api/storage, so VeloStorage.boot runs as on the PC. Earlier
+      // WebView data is moved in first, a ride at a time (src/native-migrate.js), instead of by its single
+      // /migrate request; if that stops, the app keeps the WebView storage and the next start goes on.
+      const boot = V.boot;
+      V.boot = async function () {
+        if (win.__APEX_TEST_MODE__ || win.__APEX_DEMO_MODE__) return boot.call(V);
+        const overlay = migrationOverlay(doc);
+        try {
+          const moved = await storage.migrate((done, total) => overlay.show(done, total));
+          // The migration snapshot already keeps the earlier data: velo-storage need not copy it again.
+          if (moved.moved) try { win.localStorage.setItem('apex_sqlite_migration', moved.storeId); } catch (e) { /* storage full */ }
+        } catch (e) {
+          V.enabled = false;
+          V.error = `moving your rides into the phone database stopped (${(e && e.message) || e}). They are still in the app's browser storage, and the move goes on the next time the app starts.`;
+          V.render();
+          return;
+        } finally { overlay.hide(); }
+        return boot.call(V);
+      };
       V.render = () => {
         const el = doc.getElementById('localStorageStatus');
         if (!el) return;
