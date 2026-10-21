@@ -28,7 +28,7 @@ const POLL_MS = 2000, POLL_MAX = 45; // ~90 s; Strava usually needs 5-20 s
 
 export function convertUpload(d) {
   const err = d.error ? String(d.error) : '';
-  const dup = (err.match(/duplicate of[^0-9]*?(?:activities\/)?(\d+)/) || [])[1];
+  const dup = (err.match(/duplicate of[^0-9]*?(?:activities\/)?(\d+)/i) || [])[1];
   let state = 'processing';
   let activity = d.activity_id ? String(d.activity_id) : null;
   if (activity) state = 'sent';
@@ -204,7 +204,9 @@ export class NativeStrava {
 
   /** Opens Strava's sign-in page; the answer comes back through handleRedirect(). */
   async connect() {
-    if (!(await this.exchanger.isConfigured())) throw new Error('Add your Strava Client ID and Secret first (Settings > Strava).');
+    if (!(await this.exchanger.isConfigured())) {
+      throw new Error(this.exchanger.kind === 'broker' ? 'Strava sign-in is not available right now. Try again later.' : 'Add your Strava Client ID and Secret first (Settings > Strava).');
+    }
     const bytes = crypto.getRandomValues(new Uint8Array(16));
     const state = [...bytes].map((b) => b.toString(16).padStart(2, '0')).join('');
     const url = await this.exchanger.authorizeUrl({ state, redirectUri: REDIRECT_URI, scope: SCOPE });
@@ -224,7 +226,7 @@ export class NativeStrava {
     if (q.get('error') || !q.get('code')) return { ok: false, error: 'Strava access was not granted. Nothing was changed.' };
     const scope = q.get('scope') || '';
     if (!/activity:write/.test(scope)) return { ok: false, error: 'Tick "Upload your activities" on the Strava screen, then connect again.' };
-    if (!(await this.exchanger.isConfigured())) return { ok: false, error: 'Strava is not set up. Add your Client ID and Secret first.' };
+    if (!(await this.exchanger.isConfigured())) return { ok: false, error: this.exchanger.kind === 'broker' ? 'Strava sign-in is not available right now. Try again later.' : 'Strava is not set up. Add your Client ID and Secret first.' };
     let r;
     try { r = await this.exchanger.exchangeCode(q.get('code')); }
     catch (e) { return { ok: false, error: `Could not reach Strava (${e.message}).` }; }
@@ -262,8 +264,14 @@ export class NativeStrava {
     } catch (e) { return reply(502, { error: `Could not reach Strava (${e.message}).` }); }
     if (r.status === 401) return reply(401, { error: 'Strava rejected the sign-in. Connect Strava again.', needsConnect: true });
     if (r.status === 429) return reply(429, { error: 'Strava rate limit reached - try again in 15 minutes.' });
-    if (!r.ok || !r.data || typeof r.data !== 'object') return reply(502, { error: `Strava upload failed: ${(r.data && r.data.message) || 'HTTP ' + r.status}` });
-    return reply(200, convertUpload(r.data));
+    // Strava may refuse a file it already has (e.g. 409): that is a link to the existing activity, not a failure.
+    const body = r.data && typeof r.data === 'object' ? r.data : null;
+    if (body && body.error && convertUpload(body).state === 'duplicate') return reply(200, convertUpload(body));
+    const why = `Strava upload failed: ${(body && (body.error || body.message)) || 'HTTP ' + r.status}`;
+    if (r.status >= 500) return reply(502, { error: why });
+    if (!r.ok) return reply(r.status, { error: why }); // 400/403/404/409...: sending the same file again will not help
+    if (!body) return reply(502, { error: why });
+    return reply(200, convertUpload(body));
   }
 
   /** The status of one of our own uploads (not an activity read). */

@@ -77,6 +77,8 @@ test('upload responses map like the desktop server', () => {
   assert.equal(convertUpload({ id: 5, activity_id: 9 }).state, 'sent');
   const dup = convertUpload({ id: 5, error: 'apex.fit duplicate of <a href="/activities/123">activity</a>' });
   assert.deepEqual([dup.state, dup.activityId], ['duplicate', '123']);
+  const dupCap = convertUpload({ id: 5, error: 'Duplicate of activity 8' });
+  assert.deepEqual([dupCap.state, dupCap.activityId], ['duplicate', '8']);
   assert.equal(convertUpload({ id: 5, error: 'Bad file' }).state, 'failed');
 });
 
@@ -174,4 +176,37 @@ test('offline with an expired token: the upload is retryable, not a sign-out', a
   assert.equal(r.status, 502);
   assert.match(r.body.error, /Could not reach Strava/);
   assert.equal(r.body.needsConnect, undefined);
+});
+
+async function connectedUpload(answer) {
+  const { strava, store, replies } = setup();
+  await strava.setCredentials('123', SECRET);
+  store.set('strava_tokens', JSON.stringify({ access_token: 'a', refresh_token: 'r', expires_at: 1_900_000_000, scope: 'activity:write' }));
+  replies.push(answer);
+  return strava.upload({ fitBase64: 'x'.repeat(40), externalId: 'apexvelo-1' });
+}
+
+test('upload: a refused duplicate links to the existing activity; other refusals keep their status', async () => {
+  const dup = await connectedUpload({ status: 409, headers: {}, data: { id: 3, error: 'x.fit duplicate of activity 777' } });
+  assert.deepEqual([dup.status, dup.body.state, dup.body.activityId], [200, 'duplicate', '777']);
+  const bad = await connectedUpload({ status: 400, headers: {}, data: { message: 'Bad Request', errors: [{ field: 'file' }] } });
+  assert.deepEqual([bad.status, bad.body.error], [400, 'Strava upload failed: Bad Request']);
+  assert.equal((await connectedUpload({ status: 403, headers: {}, data: { message: 'Forbidden' } })).status, 403);
+  assert.equal((await connectedUpload({ status: 503, headers: {}, data: 'down' })).status, 502);
+});
+
+test('Strava destination: a 409 duplicate resolves, a 400 is not retried', async () => {
+  const { strava, store, replies } = setup();
+  await strava.setCredentials('123', SECRET);
+  store.set('strava_tokens', JSON.stringify({ access_token: 'a', refresh_token: 'r', expires_at: 1_900_000_000, scope: 'activity:write' }));
+  const dest = new StravaDestination({ strava, sleep: async () => {} });
+  replies.push({ status: 409, headers: {}, data: { error: 'Duplicate of activity 777' } });
+  assert.deepEqual(await dest.upload({ id: '1' }, new Uint8Array(30)), { externalId: '777', duplicate: true });
+  replies.push({ status: 400, headers: {}, data: { message: 'Bad Request' } });
+  await assert.rejects(dest.upload({ id: '1' }, new Uint8Array(30)), (e) => e instanceof UploadError && e.retryable === false && !e.needsConnect);
+});
+
+test('connect: broker wording when the sign-in service is not set up', async () => {
+  const { strava } = setup({ exchanger: (http) => new BrokerExchanger({ http, brokerUrl: '' }) });
+  await assert.rejects(strava.connect(), /sign-in is not available/);
 });

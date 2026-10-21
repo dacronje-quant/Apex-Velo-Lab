@@ -19,6 +19,7 @@
  */
 
 import { BACKFILL_DAYS, RECENT_DAYS } from './native-icu.js';
+import { isFromDestination } from './native-outbox.js';
 
 const json = (status, body) => new Response(JSON.stringify(body), { status, headers: { 'Content-Type': 'application/json' } });
 const AI_PATHS = ['/api/coach', '/api/coach/status', '/api/ask'];
@@ -428,10 +429,15 @@ export function bootNativeApp({ bluetooth, strava, ai, icu, uploads, plugins, wi
       const ride = this.completedWorkouts.find((r) => r.id === rideId);
       if (!uploads || !ride || !this.canSendToStrava(ride) || this._stravaSending === rideId) return;
       this.prepareStravaImage(ride, true);
-      const known = await uploads.state(ride.id, UPLOAD_DEST);
-      if (known && known.status === 'sent') { // already uploaded from this phone: link it, send nothing
+      let known = await uploads.state(ride.id, UPLOAD_DEST);
+      const had = this.stravaStateOf(ride);
+      // A ride that already carries its Strava activity (e.g. restored from a backup) goes into the ledger instead.
+      if ((!known || known.status !== 'sent') && had.activityId && ['sent', 'duplicate', 'found'].includes(had.state)) {
+        known = await uploads.markSent(ride.id, UPLOAD_DEST, had.activityId);
+      }
+      if (known && known.status === 'sent') { // already on Strava: link it, send nothing
         this.onUploadChange(ride.id, known, null);
-        return this.showToast('Already on Strava - sent from this phone before.', 'success');
+        return this.showToast('Already on Strava - linked to the existing activity.', 'success');
       }
       this._stravaSending = rideId;
       ride.strava = { state: 'sending', startedAt: Date.now() };
@@ -455,6 +461,8 @@ export function bootNativeApp({ bluetooth, strava, ai, icu, uploads, plugins, wi
       this.onUploadChange(ride.id, row, null);
       await uploads.run();
     };
+    const canSend = P.canSendToStrava;
+    P.canSendToStrava = function (ride) { return !isFromDestination(ride, UPLOAD_DEST) && canSend.call(this, ride); };
     const stravaChip = P.stravaChip;
     P.stravaChip = function (ride) {
       const st = this.stravaStateOf(ride);

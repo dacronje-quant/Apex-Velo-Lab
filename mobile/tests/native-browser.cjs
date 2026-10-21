@@ -190,8 +190,17 @@ const step = (name) => console.log('  ok -', name);
       return (await ApexNative.uploads.sendNow(r, 'strava')).status;
     }, rideId);
     assert.equal(skipped, 'skipped');
+    assert.equal(await page.evaluate((id) => app.canSendToStrava({ ...app.completedWorkouts.find((r) => r.id === id), origin: 'strava' }), rideId), false, 'rides from Strava export files are not offered');
+    // A ride restored with its Strava link is recorded in the ledger, not uploaded again.
+    const restored = await page.evaluate(async (id) => {
+      const r = { ...structuredClone(app.completedWorkouts.find((x) => x.id === id)), id: 'restored', strava: { state: 'sent', activityId: '6660001', sentAt: 1 } };
+      app.completedWorkouts.push(r);
+      await app.sendRideToStrava(r.id);
+      return ApexNative.uploads.state(r.id, 'strava');
+    }, rideId);
+    assert.deepEqual([restored.status, restored.external_id], ['sent', '6660001']);
     assert.equal(await page.evaluate(() => __nativeLog.http.filter((r) => r.url.endsWith('/api/v3/uploads')).length), before);
-    await page.evaluate(() => { app.completedWorkouts = app.completedWorkouts.filter((r) => r.id !== 'from-strava'); });
+    await page.evaluate(() => { app.completedWorkouts = app.completedWorkouts.filter((r) => r.id !== 'from-strava' && r.id !== 'restored'); });
     assert.equal(await page.evaluate(() => __nativeLog.http.some((r) => /\/api\/v3\/(athlete\/)?activities/.test(r.url))), false, 'Strava activities are never read');
     step('upload-only: sync hidden, auto-upload queued offline and sent on resume after backoff, Strava rides never sent back, no activity reads');
 

@@ -20,10 +20,14 @@ export function nextAttemptAt(row) {
   return Date.parse(row.updated_at) + BACKOFF_MS[Math.min(row.attempts, BACKOFF_MS.length) - 1];
 }
 
-/** A ride is never sent back to the service it was imported from (Strava sync, Strava export files, ...). */
+/**
+ * A ride is never sent back to the service it was imported from: the desktop's Strava sync (source 'Strava'),
+ * or an import tagged with `origin` (Strava export files: origin 'strava').
+ */
 export function isFromDestination(ride, destinationId) {
   if (!ride) return false;
   const id = String(destinationId).toLowerCase();
+  if (String(ride.origin || '').toLowerCase() === id) return true;
   if (String(ride.source || '').toLowerCase().split(/[:/]/).includes(id)) return true;
   return id === 'strava' && !!ride.strava && ride.strava.state === 'imported';
 }
@@ -115,6 +119,11 @@ export class UploadQueue {
     if (row && row.status === 'queued' && !retry) return row;
     if (row && row.status === 'failed' && !retry) return row;
     return this.ledger.update(ride.id, destinationId, { status: 'queued', attempts: 0, last_error: null });
+  }
+
+  /** Records a ride the destination already has (e.g. a ride restored with its activity id) without uploading it. */
+  markSent(rideId, destinationId, externalId) {
+    return this.ledger.update(rideId, destinationId, { status: 'sent', external_id: String(externalId), last_error: null });
   }
 
   /** Queues the ride, runs the queue now and resolves the ride's row afterwards. */

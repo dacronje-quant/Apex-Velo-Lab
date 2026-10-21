@@ -90,6 +90,7 @@ test('rides from Strava are never uploaded to Strava', async () => {
   assert.equal(isFromDestination({ source: 'Strava' }, 'strava'), true);
   assert.equal(isFromDestination({ source: 'import:strava' }, 'strava'), true);
   assert.equal(isFromDestination({ source: 'recorded', strava: { state: 'imported' } }, 'strava'), true);
+  assert.equal(isFromDestination({ source: 'import:fit', origin: 'strava' }, 'strava'), true, 'Strava export files (workstream C)');
   assert.equal(isFromDestination({ source: 'import:fit' }, 'strava'), false);
   assert.equal(isFromDestination({ source: 'APEX VELO Cockpit' }, 'strava'), false);
   const t = setup({ rides: { s: ride('s', { source: 'Strava' }) } });
@@ -117,4 +118,24 @@ test('auto-upload is off until switched on', async () => {
   await t.queue.setAutoUpload('strava', true);
   assert.equal(await t.queue.autoUpload('strava'), true);
   assert.equal(t.store.get('apex_sync_opt_auto_strava'), '1');
+});
+
+test('a row left queued by a crash is sent again; Strava answers duplicate and it is recorded once', async () => {
+  const t = setup({ rides: { a: ride('a') }, answers: [{ externalId: '555', duplicate: true }] });
+  // The app stopped after the upload went out but before the ledger said 'sent'.
+  await t.ledger.update('a', 'strava', { status: 'queued', attempts: 0 });
+  await t.queue.run();
+  assert.equal(t.uploads.length, 1);
+  const row = await t.queue.state('a', 'strava');
+  assert.deepEqual([row.status, row.external_id], ['sent', '555']);
+  assert.deepEqual(t.changes.at(-1).result, { externalId: '555', duplicate: true });
+  await t.queue.run();
+  assert.equal(t.uploads.length, 1, 'nothing more is uploaded');
+});
+
+test('markSent records a known activity without uploading', async () => {
+  const t = setup({ rides: { a: ride('a') } });
+  await t.queue.markSent('a', 'strava', 4242);
+  assert.equal((await t.queue.sendNow(ride('a'), 'strava')).external_id, '4242');
+  assert.equal(t.uploads.length, 0);
 });
