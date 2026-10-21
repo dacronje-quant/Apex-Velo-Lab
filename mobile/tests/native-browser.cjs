@@ -1,7 +1,7 @@
 // End-to-end check of the Android layer in Chromium: the built www/ served at https://localhost (the
 // origin Capacitor uses), with tests/fake-native.js standing in for the BLE plugin, native HTTP and
 // the other plugins. Covers pairing, ERG control, recording and saving a ride, auto-reconnect,
-// Strava sign-in, upload and sync, the on-phone AI engine (API key, Ask, coach) and intervals.icu health. Run `npm run build` first.
+// Strava sign-in and upload-only (ledger, auto-upload, offline retry queue), the on-phone AI engine (API key, Ask, coach) and intervals.icu health. Run `npm run build` first.
 const { chromium } = require('playwright');
 const fs = require('node:fs');
 const path = require('node:path');
@@ -109,13 +109,14 @@ const step = (name) => console.log('  ok -', name);
     const auth = new URL(await page.evaluate(() => __nativeLog.opened[0]));
     assert.equal(auth.pathname, '/oauth/mobile/authorize');
     assert.equal(auth.searchParams.get('redirect_uri'), 'apexvelo://localhost/strava');
-    assert.match(auth.searchParams.get('scope'), /activity:write/);
-    await page.evaluate((s) => __fireNative('appUrlOpen', { url: 'apexvelo://localhost/strava?state=wrong&code=good-code&scope=read,activity:write,activity:read_all' }), null);
+    assert.equal(auth.searchParams.get('scope'), 'activity:write', 'upload permission only');
+    await page.evaluate((s) => __fireNative('appUrlOpen', { url: 'apexvelo://localhost/strava?state=wrong&code=good-code&scope=read,activity:write' }), null);
     assert.equal(await page.evaluate(() => app.strava.connected), false, 'a redirect with the wrong state is refused');
     await page.evaluate(() => app.connectStrava());
     const state = new URL(await page.evaluate(() => __nativeLog.opened.at(-1))).searchParams.get('state');
-    await page.evaluate((s) => __fireNative('appUrlOpen', { url: `apexvelo://localhost/strava?state=${s}&code=good-code&scope=read,activity:write,activity:read_all` }), state);
-    await page.waitForFunction(() => app.strava.connected && app.strava.canUpload && app.strava.canSync);
+    await page.evaluate((s) => __fireNative('appUrlOpen', { url: `apexvelo://localhost/strava?state=${s}&code=good-code&scope=read,activity:write` }), state);
+    await page.waitForFunction(() => app.strava.connected && app.strava.canUpload);
+    assert.equal(await page.evaluate(() => app.strava.canSync), false, 'the phone never syncs from Strava');
     assert.equal(await page.evaluate(() => app.strava.athlete), 'Test Rider');
     assert.equal(await page.evaluate(() => Object.keys(localStorage).some((k) => /strava_(tokens|credentials)/.test(k) || /0123456789abcdef/.test(localStorage.getItem(k)))), false, 'secrets stay out of WebView storage');
     step('Strava sign-in: settings saved, mobile OAuth opened, state checked, tokens exchanged');
@@ -129,17 +130,70 @@ const step = (name) => console.log('  ok -', name);
     assert.equal(upload.data.find((p) => p.key === 'external_id').value, `apexvelo-${rideId}`);
     assert.equal(await page.evaluate((id) => app.completedWorkouts.find((r) => r.id === id).strava.activityId, rideId), '5550001');
     assert.equal(await page.evaluate(() => __nativeLog.shared.length), 0, 'sending does not pop a share sheet');
-    step('ride uploaded to Strava as a FIT file and linked to activity 5550001');
 
-    const list = await page.evaluate(() => app.stravaSyncFetch(`api/strava/sync?after=${encodeURIComponent('2026-10-01T00:00:00Z')}&before=${encodeURIComponent('2026-10-17T00:00:00Z')}`));
-    assert.equal(list.activities.length, 1);
-    assert.equal(list.activities[0].id, '4001');
-    assert.equal(list.rate.used15, 3);
-    const details = await page.evaluate(() => app.stravaSyncFetch('api/strava/sync?ids=4001'));
-    assert.equal(details.activities[0].description, 'Nice');
-    const streams = await page.evaluate(() => app.stravaSyncFetch('api/strava/sync?streams=4001'));
-    assert.deepEqual(streams.streams.watts.data, [100, 200]);
-    step('Strava sync reads activities, details and streams');
+    const row = await page.evaluate((id) => ApexNative.uploads.state(id, 'strava'), rideId);
+    assert.deepEqual([row.status, row.external_id], ['sent', '5550001'], 'the ledger records the activity id the upload returned');
+    assert.match(row.content_hash, /^[0-9a-f]{64}$/);
+    await page.evaluate((id) => app.sendRideToStrava(id), rideId);
+    assert.equal(await page.evaluate(() => __nativeLog.http.filter((r) => r.url.endsWith('/api/v3/uploads')).length), 1, 'an uploaded ride is not sent twice');
+    step('ride uploaded to Strava as a FIT file, linked to activity 5550001 and recorded in the sync ledger');
+
+    // Upload-only: no sync UI, no activity reads, the read routes are gone.
+    assert.equal(await page.locator('#btnStravaSync').isVisible(), false);
+    assert.equal(await page.evaluate(() => document.getElementById('btnStravaSync').closest('.strava-sync-row').hidden), true);
+    assert.equal(await page.evaluate(() => document.getElementById('btnStravaCheckAll').hidden), true);
+    assert.equal(await page.evaluate(() => document.getElementById('chkStrengthInFatigue').closest('label').hidden), false, 'strength-load switches stay');
+    assert.equal(await page.evaluate(() => fetch('api/strava/sync?after=2026-10-01T00:00:00Z&before=2026-10-17T00:00:00Z').then((r) => r.status)), 503);
+    assert.equal(await page.evaluate(() => fetch('api/strava/activities?after=1&before=2').then((r) => r.status)), 503);
+
+    // Auto-upload while offline: the ride waits in the queue and goes out on resume.
+    await page.evaluate(() => app.openSettings('strava'));
+    await page.locator('#nativeStravaAuto').check();
+    await page.waitForFunction(() => ApexNative.uploads.autoUpload('strava'));
+    const ride2 = await page.evaluate((id) => {
+      const src = app.completedWorkouts.find((r) => r.id === id);
+      const r = { ...structuredClone(src), id: src.id + '-b', title: 'Second ride', strava: undefined };
+      app.completedWorkouts.unshift(r);
+      app._reviewRideId = r.id;
+      app.renderStravaPanel(r);
+      window.__idlePanel = document.getElementById('rideStravaPanel').textContent;
+      window.__stravaOffline = true;
+      app.preparePhoneFit(r); // finishWorkout's hook for a new ride
+      return r.id;
+    }, rideId);
+    await page.waitForFunction((id) => app.completedWorkouts.find((r) => r.id === id).strava?.state === 'queued' && app.completedWorkouts.find((r) => r.id === id).strava.attempts === 1, ride2, { timeout: 10000 });
+    assert.match(await page.evaluate((id) => app.stravaChip(app.completedWorkouts.find((r) => r.id === id)), ride2), /Strava queued/);
+    assert.match(await page.evaluate(() => window.__idlePanel), /Not sent from this phone yet[\s\S]*Send to Strava/, 'per-ride Send to Strava');
+    assert.equal(await page.locator('#rideStravaState').textContent(), 'Waiting to send to Strava');
+    assert.equal((await page.locator('#rideStravaPanel [data-strava="send"]').textContent()).trim(), 'Send now');
+    await page.waitForFunction(() => /1 ride waiting to upload/.test(document.getElementById('nativeStravaQueue').textContent));
+    await page.evaluate(() => window.__fireNative('resume'));
+    assert.equal((await page.evaluate((id) => ApexNative.uploads.state(id, 'strava'), ride2)).attempts, 1, 'resuming before the backoff ends does not retry');
+    // A minute and more later, back online.
+    await page.evaluate(async () => {
+      const k = 'apex_sync_ledger_strava', p = __APEX_NATIVE_FAKE__.prefs, m = JSON.parse(await p.get(k));
+      for (const r of Object.values(m)) if (r.status === 'queued') r.updated_at = new Date(Date.now() - 3600e3).toISOString();
+      await p.set(k, JSON.stringify(m));
+      window.__stravaOffline = false;
+      await window.__fireNative('resume');
+    });
+    await page.waitForFunction((id) => app.completedWorkouts.find((r) => r.id === id).strava?.state === 'sent', ride2, { timeout: 20000 });
+    assert.equal((await page.evaluate((id) => ApexNative.uploads.state(id, 'strava'), ride2)).status, 'sent');
+
+    // A ride that came from Strava is never sent back, even through the queue.
+    const before = await page.evaluate(() => __nativeLog.http.filter((r) => r.url.endsWith('/api/v3/uploads')).length);
+    const skipped = await page.evaluate(async (id) => {
+      const r = { ...structuredClone(app.completedWorkouts.find((x) => x.id === id)), id: 'from-strava', source: 'Strava', strava: { state: 'imported', activityId: '4001' } };
+      app.completedWorkouts.push(r);
+      await app.sendRideToStrava(r.id);
+      app.preparePhoneFit(r);
+      return (await ApexNative.uploads.sendNow(r, 'strava')).status;
+    }, rideId);
+    assert.equal(skipped, 'skipped');
+    assert.equal(await page.evaluate(() => __nativeLog.http.filter((r) => r.url.endsWith('/api/v3/uploads')).length), before);
+    await page.evaluate(() => { app.completedWorkouts = app.completedWorkouts.filter((r) => r.id !== 'from-strava'); });
+    assert.equal(await page.evaluate(() => __nativeLog.http.some((r) => /\/api\/v3\/(athlete\/)?activities/.test(r.url))), false, 'Strava activities are never read');
+    step('upload-only: sync hidden, auto-upload queued offline and sent on resume after backoff, Strava rides never sent back, no activity reads');
 
     // ---------------------------------------------------------------------- AI engine --
     await page.evaluate(() => app.closeModal('settingsModal'));

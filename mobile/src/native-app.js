@@ -6,7 +6,9 @@
  *   - answers /api/ requests on the phone (Strava, the AI coach and Ask; everything else that needs the
  *     PC is switched off),
  *   - keeps rides and settings in the app's own storage (IndexedDB + localStorage in the WebView),
- *   - adds Settings > Strava for the rider's own Strava API application, and the sign-in redirect,
+ *   - adds Settings > Strava for the rider's own Strava API application, and the sign-in redirect;
+ *     Strava is upload-only on the phone (per-ride "Send to Strava", optional auto-upload, an offline retry
+ *     queue), so "Sync from Strava" and "Check Strava" are hidden,
  *   - adds the API key fields to Settings > AI engine (the keys stay in Android app storage),
  *   - reads resting HR, HRV and sleep from intervals.icu (Settings > Health) instead of Apple Health
  *     via the PC, for readiness, the calendar and the recovery trends,
@@ -121,7 +123,7 @@ function filesSection() {
 function stravaSection() {
   return `
       <section class="settings-section" data-sec="strava" id="nativeStravaSettings">
-        <p class="field-help">Rides are sent to Strava and synced from it with your own free Strava API application, the same one the desktop app uses.</p>
+        <p class="field-help">Rides are sent to Strava with your own free Strava API application, the same one the desktop app uses. The app only uploads: it never reads your Strava activities.</p>
         <ol class="setup-steps">
           <li>Open <a href="https://www.strava.com/settings/api" target="_blank" rel="noopener">strava.com/settings/api</a> and create an application (any name and website).</li>
           <li>Set <b>Authorization Callback Domain</b> to <code>localhost</code>.</li>
@@ -135,6 +137,9 @@ function stravaSection() {
           <button type="button" class="btn btn-strava" id="btnNativeStravaConnect">Connect Strava</button>
           <button type="button" class="btn btn-ghost" id="btnNativeStravaDisconnect">Disconnect</button>
         </div>
+        <label class="native-toggle"><input type="checkbox" id="nativeStravaAuto"> Auto-upload new rides to Strava</label>
+        <p class="field-help">Each ride recorded here is sent when it finishes. Without a connection it waits and is retried when the app opens or comes back. Rides imported from Strava are never sent back.</p>
+        <div class="settings-kv" id="nativeStravaQueue" aria-live="polite"></div>
         <p class="field-help">The secret and sign-in stay in this app's private storage on the phone. They are not part of exports.</p>
       </section>`;
 }
@@ -170,8 +175,26 @@ function healthSection() {
         <p class="field-help">The key stays in this app's private storage on the phone, goes only to intervals.icu and is not part of exports. The app only reads your wellness data.</p>`;
 }
 
+/**
+ * The phone does not read Strava: "Sync from Strava" and "Check Strava" go. The strength-load switches in the
+ * same card stay (they are about training load, not Strava).
+ */
+function hideStravaSync(doc) {
+  const card = doc.getElementById('stravaSyncCard');
+  if (card) {
+    card.querySelectorAll('.strava-sync-row, .strava-sync-meta, .card-title .chip, :scope > .field-help').forEach((el) => { el.hidden = true; });
+    const title = card.querySelector('.strava-sync-title');
+    if (title) title.textContent = 'Training load';
+    const auto = doc.getElementById('chkStravaAutoCheck');
+    if (auto && auto.closest('label')) auto.closest('label').hidden = true;
+  }
+  const checkAll = doc.getElementById('btnStravaCheckAll');
+  if (checkAll) checkAll.hidden = true;
+}
+
 /** Settings > Strava: the DOM must exist before VeloApp binds the settings tabs. */
 function addSettingsUi(doc, icu) {
+  hideStravaSync(doc);
   const nav = doc.getElementById('settingsNav');
   if (nav && !nav.querySelector('[data-sec="strava"]')) {
     const b = doc.createElement('button');
@@ -237,7 +260,10 @@ export async function saveRideFile(Filesystem, filename, blob) {
 const HEALTH_SYNC_EVERY_MS = 60 * 60 * 1000;
 const localDay = (d = new Date()) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
 
-export function bootNativeApp({ bluetooth, strava, ai, icu, plugins, win = window }) {
+const UPLOAD_DEST = 'strava';
+const hhmm = (t) => new Date(t).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' });
+
+export function bootNativeApp({ bluetooth, strava, ai, icu, uploads, plugins, win = window }) {
   const doc = win.document;
   const { App, Browser, KeepAwake, Filesystem, Share } = plugins;
   doc.documentElement.classList.add('apex-native');
@@ -320,6 +346,7 @@ export function bootNativeApp({ bluetooth, strava, ai, icu, plugins, win = windo
     // Called by finishWorkout with every new ride (the phone remote's hook, unused in the app):
     // keep a FIT file of each ride recorded on the phone, outside the app's own storage.
     P.preparePhoneFit = function (ride) {
+      if (uploads && ride) this.autoUploadRide(ride).catch(() => {});
       if (!autoSaveFit() || !ride || !Array.isArray(ride.samples) || !ride.samples.length) return;
       const name = `${VeloExport.fileStem(ride)}.fit`;
       saveRideFile(Filesystem, name, new Blob([VeloExport.buildFit(ride, ride.samples)], { type: 'application/vnd.ant.fit' }))
@@ -339,6 +366,101 @@ export function bootNativeApp({ bluetooth, strava, ai, icu, plugins, win = windo
     P.prepareStravaImage = function (ride) { return prepareImage.call(this, ride, false); };
 
     // -------------------------------------------------------------------------- Strava --
+    // Upload-only: nothing here reads Strava. A ride's Strava state comes from the sync ledger, which keeps the
+    // activity id each upload returned; js/app-strava.js keeps showing it from ride.strava.
+    P.scheduleStravaAutoCheck = function () {};
+    P.runStravaAutoCheck = async function () { return null; };
+    P.stravaAutoCheckEnabled = function () { return false; };
+    P.previewStravaSync = async function () { this.showToast('The app sends rides to Strava but does not read them. Import your history from your own export files.', 'info'); };
+    const refreshStrava = P.refreshStravaStatus;
+    P.refreshStravaStatus = async function (rerender) {
+      // "Checked" on the phone means the local upload record, so the ride panel offers Send once connected.
+      const sv = await refreshStrava.call(this, false);
+      sv.canCheck = !!sv.canUpload;
+      if (rerender) {
+        const ride = this.completedWorkouts.find((r) => r.id === this._reviewRideId);
+        if (ride) { this.renderStravaPanel(ride); this.autoCheckRideOnStrava(ride); }
+        if (sv.connected) this.showToast(`Strava connected${sv.athlete ? ` as ${sv.athlete}` : ''}.`, 'success');
+      }
+      return sv;
+    };
+    /** Copies a ledger row into ride.strava (what the ride panel and history chips show). Resolves true on a change. */
+    P.applyUploadRow = function (ride, row, result) {
+      if (!ride || !row) return false;
+      const cur = ride.strava || {};
+      let next = null;
+      if (row.status === 'sent') {
+        if ((cur.state === 'sent' || cur.state === 'duplicate') && cur.activityId === row.external_id) return false;
+        next = { state: result && result.duplicate ? 'duplicate' : 'sent', activityId: row.external_id, sentAt: Date.parse(row.updated_at) || Date.now() };
+      } else if (row.status === 'failed') {
+        next = { state: 'failed', error: row.last_error || 'Upload failed', failedAt: Date.parse(row.updated_at) || Date.now() };
+      } else if (row.status === 'queued') {
+        next = { state: 'queued', error: row.last_error || null, attempts: row.attempts || 0, queuedAt: Date.parse(row.updated_at) || Date.now() };
+      } else return false;
+      if (JSON.stringify(next) === JSON.stringify(cur)) return false;
+      ride.strava = next;
+      return true;
+    };
+    P.onUploadChange = function (rideId, row, result) {
+      const ride = this.completedWorkouts.find((r) => r.id === rideId);
+      if (!this.applyUploadRow(ride, row, result)) return;
+      this.saveHistory();
+      this.renderHistoryTable();
+      if (this._reviewRideId === rideId) this.renderStravaPanel(ride);
+      if (this._renderNativeStrava) this._renderNativeStrava().catch(() => {});
+    };
+    P.autoCheckRideOnStrava = async function (ride) {
+      if (!uploads || !ride) return;
+      const row = await uploads.state(ride.id, UPLOAD_DEST);
+      if (row && this.applyUploadRow(ride, row, null)) { this.saveHistory(); this.renderHistoryTable(); if (this._reviewRideId === ride.id) this.renderStravaPanel(ride); }
+    };
+    P.checkRidesOnStrava = async function (rides) {
+      let found = 0, changed = false;
+      for (const ride of rides || []) {
+        const row = uploads ? await uploads.state(ride.id, UPLOAD_DEST) : null;
+        if (row && row.status === 'sent') found++;
+        if (row && this.applyUploadRow(ride, row, null)) changed = true;
+      }
+      if (changed) { await this.saveHistory(); this.renderHistoryTable(); }
+      return { checked: (rides || []).length, found };
+    };
+    P.sendRideToStrava = async function (rideId) {
+      const ride = this.completedWorkouts.find((r) => r.id === rideId);
+      if (!uploads || !ride || !this.canSendToStrava(ride) || this._stravaSending === rideId) return;
+      this.prepareStravaImage(ride, true);
+      const known = await uploads.state(ride.id, UPLOAD_DEST);
+      if (known && known.status === 'sent') { // already uploaded from this phone: link it, send nothing
+        this.onUploadChange(ride.id, known, null);
+        return this.showToast('Already on Strava - sent from this phone before.', 'success');
+      }
+      this._stravaSending = rideId;
+      ride.strava = { state: 'sending', startedAt: Date.now() };
+      this.renderStravaPanel(ride);
+      let row;
+      try { row = await uploads.sendNow(ride, UPLOAD_DEST); }
+      catch (e) { row = { status: 'failed', last_error: (e && e.message) || String(e) }; }
+      finally { this._stravaSending = null; }
+      if (row && row.status === 'sent') return this.finishStrava(ride, { state: ride.strava.state === 'duplicate' ? 'duplicate' : 'sent', activityId: row.external_id });
+      if (!row || row.status !== 'queued') return this.finishStrava(ride, { state: 'failed', error: (row && row.last_error) || 'Upload failed' });
+      this.applyUploadRow(ride, row, null);
+      this.saveHistory();
+      this.renderHistoryTable();
+      if (this._reviewRideId === rideId) this.renderStravaPanel(ride);
+      this.showToast(`Not sent yet (${row.last_error || 'no connection'}). It is sent automatically when the app can reach Strava.`, 'warning');
+    };
+    /** Rides recorded here, when "Auto-upload new rides to Strava" is on. */
+    P.autoUploadRide = async function (ride) {
+      if (!uploads || !this.canSendToStrava(ride) || !(await uploads.autoUpload(UPLOAD_DEST))) return;
+      const row = await uploads.enqueue(ride, UPLOAD_DEST);
+      this.onUploadChange(ride.id, row, null);
+      await uploads.run();
+    };
+    const stravaChip = P.stravaChip;
+    P.stravaChip = function (ride) {
+      const st = this.stravaStateOf(ride);
+      if (st.state === 'queued') return `<span class="chip chip-xs chip-strava-busy" title="${String(st.error || 'Waiting for a connection').replace(/[&<>"']/g, '')}">Strava queued</span>`;
+      return stravaChip.call(this, ride);
+    };
     P.connectStrava = async function () {
       this._awaitingStravaConnect = true;
       try { await strava.connect(); }
@@ -353,7 +475,19 @@ export function bootNativeApp({ bluetooth, strava, ai, icu, plugins, win = windo
       renderPanel.call(this, ride);
       const el = doc.getElementById('rideStravaPanel');
       const sv = this.strava || {};
-      if (!el || sv.configured || !ride || ride.source === 'Strava') return;
+      if (!el || !ride || ride.source === 'Strava') return;
+      const st = this.stravaStateOf(ride);
+      const stateEl = el.querySelector('.strava-state'), detailEl = el.querySelector('.strava-detail');
+      if (st.state === 'queued' && stateEl && detailEl) {
+        el.className = 'strava-panel strava-busy';
+        stateEl.textContent = 'Waiting to send to Strava';
+        detailEl.textContent = `${st.error ? st.error + ' ' : ''}It is sent automatically when the app opens or comes back${sv.connected ? '' : ' after you connect Strava'}.`;
+        const send = el.querySelector('[data-strava="send"]');
+        if (send) send.lastChild.textContent = 'Send now';
+      } else if (st.state === 'none' && detailEl && el.querySelector('[data-strava="send"]')) {
+        detailEl.textContent = 'Not sent from this phone yet. A workout image is prepared for you to add to the activity.';
+      }
+      if (sv.configured) return;
       const detail = el.querySelector('.strava-detail'), actions = el.querySelector('.strava-actions');
       if (detail && /\.env|Launch-Apex-Velo/.test(detail.textContent)) detail.textContent = 'Strava is not set up yet: add your Strava API application in Settings > Strava.';
       if (actions && !actions.querySelector('[data-native-strava]')) actions.insertAdjacentHTML('afterbegin', '<button type="button" class="btn btn-strava" data-native-strava="setup">Set up Strava</button>');
@@ -373,6 +507,13 @@ export function bootNativeApp({ bluetooth, strava, ai, icu, plugins, win = windo
             : '<span class="dim">Saved. Press Connect Strava to sign in.</span>';
         if ($('btnNativeStravaConnect')) $('btnNativeStravaConnect').disabled = !st.configured;
         if ($('btnNativeStravaDisconnect')) $('btnNativeStravaDisconnect').hidden = !st.connected;
+        if (!uploads) return;
+        if ($('nativeStravaAuto')) $('nativeStravaAuto').checked = await uploads.autoUpload(UPLOAD_DEST);
+        const q = await uploads.summary(UPLOAD_DEST), parts = [];
+        if (q.queued) parts.push(`${q.queued} ride${q.queued === 1 ? '' : 's'} waiting to upload${q.nextAt > Date.now() ? ` (next try ${hhmm(q.nextAt)})` : ''}`);
+        if (q.failed) parts.push(`${q.failed} failed (open the ride to retry)`);
+        if (q.sent) parts.push(`${q.sent} sent from this phone`);
+        if ($('nativeStravaQueue')) $('nativeStravaQueue').innerHTML = parts.length ? `<span class="dim">${parts.join(' &middot; ')}</span>` : '';
       };
       this._renderNativeStrava = renderSettings;
       const on = (id, fn) => this.on($(id), 'click', fn);
@@ -387,6 +528,14 @@ export function bootNativeApp({ bluetooth, strava, ai, icu, plugins, win = windo
         renderSettings();
       });
       on('btnNativeStravaConnect', () => app.connectStrava());
+      if (uploads) {
+        this.on($('nativeStravaAuto'), 'change', async (e) => {
+          const on = e.currentTarget.checked;
+          await uploads.setAutoUpload(UPLOAD_DEST, on);
+          app.showToast(on ? 'New rides will be sent to Strava when they finish.' : 'Auto-upload is off. Send rides from their summary.', 'info');
+        });
+        uploads.onChange = (rideId, row, result) => app.onUploadChange(rideId, row, result);
+      }
       on('btnNativeStravaDisconnect', () => app.disconnectStrava().then(renderSettings));
       this.on($('modalRideDetails'), 'click', (e) => {
         if (e.target.closest('[data-native-strava="setup"]')) { app.closeModal('rideSummaryModal'); app.openSettings('strava'); }
@@ -601,13 +750,17 @@ export function bootNativeApp({ bluetooth, strava, ai, icu, plugins, win = windo
     if (!r.ok) { app.showToast(r.error, 'warning'); return; }
     await app.refreshStravaStatus(true);
     if (app._renderNativeStrava) app._renderNativeStrava().catch(() => {});
+    if (uploads) uploads.run().catch(() => {}); // rides that waited for the sign-in
   };
   App.addListener('appUrlOpen', onAppUrl);
   App.getLaunchUrl().then((r) => { if (r && r.url) onAppUrl(r); }).catch(() => {});
+  // Uploads left in the queue by the last session go out at app start.
+  if (uploads) whenApp().then((app) => { if (app) return uploads.run(); }).catch(() => {});
   App.addListener('resume', () => {
     const app = win.app;
     if (!app) return;
     if (app._awaitingStravaConnect) app.refreshStravaStatus(true);
+    if (uploads) uploads.run().catch(() => {}); // the offline retry queue
     if (icu && app.pullHealthInbox) app.pullHealthInbox().catch(() => {}); // at most hourly
   });
 
