@@ -1,5 +1,6 @@
 package com.apexvelo.lab.ride
 
+import android.annotation.SuppressLint
 import android.app.NotificationChannel
 import android.app.NotificationManager
 import android.app.PendingIntent
@@ -76,6 +77,7 @@ class RideService : Service() {
         }
 
         /** Updates the notification (called by the ride thread every second). */
+        @SuppressLint("MissingPermission") // without the notification permission Android drops it; caught below
         fun refresh(c: Context?) {
             if (c == null || !running) return
             try { NotificationManagerCompat.from(c).notify(NOTIFICATION_ID, build(c)) } catch (e: SecurityException) { /* notifications off */ }

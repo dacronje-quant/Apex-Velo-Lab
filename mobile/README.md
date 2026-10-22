@@ -30,9 +30,25 @@ These need the PC server or another device, so they are switched off in the app:
 
 Known limits:
 
-- **Keep the app open and on screen while riding.** The screen stays on during a ride. If you switch apps or lock the phone, Android may pause the app, and recording and ERG then stop. Background recording would need an Android foreground service (a possible next step).
+- **Screen off works, but the cockpit is only live on screen.** See [Riding with the screen off](#riding-with-the-screen-off): in the background the app records and keeps ERG on the planned step targets, without the cockpit's soft start, anti-stall and new PowerMatch corrections.
 - ANT+ is not supported (Bluetooth only), the same as on the desktop.
 - Rides live in the app's private storage. **Uninstalling the app deletes them** (the FIT files in Documents/ApexVelo stay). Export a JSON backup first to keep profiles, settings and Strava links too.
+
+## Riding with the screen off
+
+The screen stays on while you ride, but you can lock the phone or switch apps: recording and ERG go on. From **Start** until the ride is saved or discarded, a notification shows the elapsed time, power, heart rate, the current interval and its target, with **Pause** / **Resume**. Tapping it opens the app. Android 13+ asks once for permission to show notifications (the ride records without it, the notification is just hidden).
+
+How it works: while the app is on screen, the cockpit runs the ride exactly as on the PC. When Android pauses the app (screen off, another app in front), a native recorder in a foreground service takes over within 3 seconds. It listens to the same trainer, power meter and heart-rate strap (its own Bluetooth clients on the existing connections, no new pairing), records one sample per second and sets each interval's ERG target on time, keeping your PowerMatch trim. When you come back, the cockpit takes the ride back and merges those seconds in: nothing is lost or counted twice, and a pause, the end of the workout or the end of a ramp test that happened meanwhile is applied. A toast says how many seconds were recorded with the screen off. In the background ERG holds the planned targets; soft start, anti-stall and new PowerMatch corrections resume when the app is on screen again.
+
+**If the app is killed** (crash, low memory, swiped away), the ride is not lost: every second is written to a file in the app's private storage as it is recorded. At the next start **Recover unfinished ride** offers it, paused; resume or finish and save as usual.
+
+**Battery settings.** At the first ride, the app explains once that some phones still stop background apps to save battery, and offers **Open battery settings** (the system list where you can set Apex Velo to *Unrestricted* / *Don't optimise*). The app never asks for the exemption directly. Samsung, Xiaomi and some others may need this for long rides.
+
+**Play Console: foreground service declaration** (App content > Foreground service permissions; owner task). Select **Connected device** and use:
+
+> Apex Velo records indoor cycling workouts from Bluetooth LE fitness devices the user has paired in the app (smart trainers, power meters, heart-rate straps) and controls the smart trainer's resistance (ERG mode). When the user starts a workout, the app starts a foreground service of type connectedDevice that keeps the Bluetooth connections, records one sample per second and sends the planned power target to the trainer at each interval, so the ride continues with the screen off or another app in front. The service shows an ongoing notification with the elapsed time, power, heart rate and current interval, with Pause/Resume, and stops when the user saves or discards the workout. Stopping it would end the recording and the trainer control in the middle of the user's workout. It does not run outside a workout the user started.
+
+Video for the declaration: start a workout with a paired trainer, lock the phone, show the notification updating and Pause/Resume working, unlock and show the ride continuing, then save it (the notification goes away).
 
 ## Install the APK
 
@@ -159,11 +175,11 @@ Without them, `bundleRelease`/`assembleRelease` still work but leave the output 
 ## Tests
 
 ```bash
-npm test               # unit tests: Bluetooth shim, Strava upload client and token exchangers, upload queue and ledger, AI engine vs server.js, intervals.icu wellness (Node, no browser)
+npm test               # unit tests: ride handoff, merging and recovery (screen off), Bluetooth shim, Strava upload client and token exchangers, upload queue and ledger, AI engine vs server.js, intervals.icu wellness (Node, no browser)
 npm run test:browser   # the built app in Chromium with a simulated FTMS trainer, HR strap, Strava, Claude and intervals.icu
 ```
 
-The browser test pairs the trainer through the in-app chooser and rides an ERG workout. It checks the trainer gets its targets, drops and reconnects the link, saves the ride, signs in to Strava, uploads the FIT file and records it in the ledger, checks that no Strava activity is ever read, queues an auto-upload while offline and sends it on resume, saves an AI key, asks a question in Ask, gets an AI interval breakdown, backfills health data from intervals.icu and reloads the app. The **Android app** GitHub workflow runs both, then builds the APK.
+The browser test pairs the trainer through the in-app chooser and rides an ERG workout. It checks the trainer gets its targets, drops and reconnects the link, saves the ride, signs in to Strava, uploads the FIT file and records it in the ledger, checks that no Strava activity is ever read, queues an auto-upload while offline and sends it on resume, saves an AI key, asks a question in Ask, gets an AI interval breakdown, backfills health data from intervals.icu and reloads the app. For riding with the screen off it halts the page mid-ride while a fake native recorder in the test runner keeps recording and moves ERG to the next step, checks every second is merged back once on resume, then kills the app in the background and recovers the ride from the journal. `cd android && ./gradlew testDebugUnitTest` runs the JVM tests of the native recorder (parsers, takeover, ramp test, journal). The **Android app** GitHub workflow runs both, then builds the APK.
 
 ## How it works
 
@@ -172,6 +188,7 @@ The browser test pairs the trainer through the in-app chooser and rides an ERG w
 | `src/native-ble.js` | `navigator.bluetooth` (Web Bluetooth) on top of the native BLE plugin, including an in-app device chooser. `js/velo-ble.js` runs unchanged |
 | `src/native-strava.js` | The upload subset of the desktop server's `/api/strava/*` routes, answered on the phone with native HTTP and the mobile OAuth flow; the `TokenExchanger` for sign-in (`ByoExchanger`: your own client id and secret; `BrokerExchanger`: a token broker URL, no secret on the phone); `StravaDestination` for the upload queue |
 | `src/native-outbox.js` | The sync ledger (one row per ride and destination, kept under `apex_sync_` keys until the SQLite `sync_ledger` table exists) and the offline upload queue with backoff |
+| `src/native-ride.js` | Riding with the screen off: hands each ride second to the native recorder (`ApexRide` plugin, `android/.../ride/`: `RideRecorder` takeover logic, `BleTap` GATT clients on the page's devices, `RideJournal` crash-safe file, `RideService` foreground service and notification), takes the native seconds back on resume (`mergeSamples`, `adoptSnapshot`) and feeds an unfinished journal to **Recover unfinished ride** |
 | `src/native-icu.js` | Reads intervals.icu wellness (resting HR, HRV, sleep) and turns it into the day records `js/velo-health.js` uses |
 | `src/native-store.js` | The desktop SQLite store (`scripts/sqlite-store.cjs`) on an async driver: answers `/api/storage/*` with the same shapes, so `js/velo-storage.js` runs unchanged. `GET /api/storage` answers the rides without samples and with their `sampleSummary`; `src/native-app.js` loads one ride's samples when a view needs them. Also the `import_jobs`, `import_files`, `sync_ledger` and `wellness_days` tables with a small API (`await ApexNative.store`, then `putImportJob`, `putImportFiles`, `findImportFileByHash`, `putSyncEntry`, `listSyncEntries`, `putWellnessDays`, `listWellnessDays`, ...), and `SqliteSyncLedger`, the upload queue's ledger with the same methods as `PrefsSyncLedger` (`src/native-outbox.js`) plus a one-time move of its Preferences rows |
 | `src/native-migrate.js` | Moves the earlier WebView data (IndexedDB + localStorage) into the store on the first start, a ride at a time, resumable |
