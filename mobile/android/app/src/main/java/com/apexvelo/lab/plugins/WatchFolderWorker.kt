@@ -14,6 +14,7 @@ import androidx.work.PeriodicWorkRequest
 import androidx.work.WorkManager
 import androidx.work.Worker
 import androidx.work.WorkerParameters
+import com.apexvelo.lab.NotificationIds
 import java.util.concurrent.TimeUnit
 
 /**
@@ -68,7 +69,7 @@ class WatchFolderWorker(ctx: Context, params: WorkerParameters) : Worker(ctx, pa
     companion object {
         private const val WORK = "apex-watch-folder"
         private const val CHANNEL = "ride_imports"
-        private const val NOTIFICATION_ID = 4101
+        private const val NOTIFICATION_ID = NotificationIds.WATCH_FOLDER
 
         fun schedule(ctx: Context) {
             val req = PeriodicWorkRequest.Builder(WatchFolderWorker::class.java, 1, TimeUnit.DAYS)

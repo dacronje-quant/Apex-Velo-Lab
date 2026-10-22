@@ -5,7 +5,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { createRequire } from 'node:module';
-import { mergeSamples, planFromApp, adoptSnapshot, recoverySnapshot, NativeRide, LEASE_MS } from '../src/native-ride.js';
+import { mergeSamples, planFromApp, adoptSnapshot, recoverySnapshot, NativeRide, LEASE_MS, DEVICE_WAIT_MS } from '../src/native-ride.js';
 
 const { FakeRideNative } = createRequire(import.meta.url)('./fake-ride-native.cjs');
 
@@ -45,10 +45,11 @@ class FakeApp {
   showToast(m) { this.toasts.push(m); }
 }
 
-function setup({ visible = true } = {}) {
+function setup({ visible = true, lease = { visible: 3000, hidden: 3000 } } = {}) {
   let clock = 1000;
-  const fake = new FakeRideNative({ now: () => clock });
-  const doc = { visibilityState: visible ? 'visible' : 'hidden', addEventListener() {} };
+  const fake = new FakeRideNative({ now: () => clock, lease });
+  const handlers = {};
+  const doc = { visibilityState: visible ? 'visible' : 'hidden', addEventListener(n, cb) { handlers[n] = cb; }, handlers };
   const win = { document: doc, crypto: globalThis.crypto, VeloStorage: { storeId: 's1' } };
   const ride = new NativeRide({ plugin: fake, win });
   class App extends FakeApp {}
@@ -200,7 +201,7 @@ test('an unfinished journal becomes the recovery copy when it has more than the 
   assert.equal(initRan, true);
   assert.equal(idb.get('sqlite_active_ride:k1').samples.length, 3, 'the journal replaces the shorter checkpoint');
   assert.equal(fake.journal, null, 'the journal is cleared once the recovery copy holds it');
-  assert.ok(LEASE_MS >= 2000);
+  assert.ok(LEASE_MS.visible > LEASE_MS.hidden);
 });
 
 test('save and discard stop the native recorder; the first ride explains battery settings once', async () => {
@@ -218,4 +219,61 @@ test('save and discard stop the native recorder; the first ride explains battery
   app.resetWorkout(false); await settle();
   assert.equal(fake.active, false);
   assert.equal(ride.active, false);
+});
+
+test('the lease is 10 s while the page is on screen and 3 s once it is in the background', async () => {
+  const { fake, app, doc, settle, advance } = setup({ lease: LEASE_MS });
+  app.togglePlayPause(); await settle();
+  app.tick1Hz(); await settle();
+  for (let i = 0; i < 9; i++) { advance(1000); fake.tick(); }
+  assert.equal(fake.owner, 'js', 'a slow page on screen keeps the ride');
+  app.tick1Hz(); await settle();
+  doc.visibilityState = 'hidden';
+  doc.handlers.visibilitychange();
+  await settle();
+  assert.equal(fake.visible, false);
+  for (let i = 0; i < 2; i++) { advance(1000); fake.tick(); }
+  assert.equal(fake.owner, 'js');
+  advance(1000); fake.tick();
+  assert.equal(fake.owner, 'native', 'in the background the native side takes over 3 s after the last page second');
+});
+
+test('a page reloaded mid-ride takes the live ride back once its devices are connected', async () => {
+  const { fake, app, settle, advance } = setup();
+  app.togglePlayPause(); await settle();
+  for (let i = 0; i < 3; i++) { app.tick1Hz(); await settle(); advance(1000); }
+  for (let i = 0; i < 6; i++) { advance(1000); fake.tick(); } // the old page is gone, the native side records
+
+  // The new page: a fresh app and ride layer on the same native recorder.
+  const doc = { visibilityState: 'visible', addEventListener() {} };
+  const V = { storeId: 's1', initRecovery: async () => {} };
+  const win = { document: doc, crypto: globalThis.crypto, VeloStorage: V };
+  const ride = new NativeRide({ plugin: fake, win });
+  class App2 extends FakeApp {}
+  const idb = new Map();
+  ride.install(App2.prototype, V, { getSetting: async (k) => idb.get(k) || null, putSetting: async (v) => idb.set(v.key, v) });
+  const app2 = new App2();
+  win.app = app2;
+  let trainerUp = false;
+  const reconnects = [];
+  Object.assign(app2, {
+    profiles: [{ id: 'p1' }], hasUnsavedRide: () => false,
+    ble: { refreshPermitted: async () => ({}), canReconnect: (k) => k === 'trainer', reconnect: async (k) => { reconnects.push(k); }, isConnected: () => trainerUp }
+  });
+  await V.initRecovery(app2);
+  assert.equal(idb.size, 0, 'a live ride is not offered as a recovery copy');
+  assert.equal(fake.journal === null, false, 'and its journal stays');
+  assert.deepEqual(app2.recordedSamples.map((s) => s.time), [1, 2, 3, 4, 5, 6, 7, 8]);
+  assert.equal(app2.isPlaying, true, 'the ride goes on');
+  assert.deepEqual(reconnects, ['trainer']);
+  advance(1000); fake.tick();
+  app2.tick1Hz(); await ride.queue; await ride.reclaiming;
+  assert.equal(ride.owner, 'native', 'the page waits for its trainer before taking the ride back');
+  trainerUp = true;
+  app2.tick1Hz(); await ride.queue; await ride.reclaiming; await ride.queue;
+  assert.equal(ride.owner, 'js');
+  assert.deepEqual(app2.recordedSamples.map((s) => s.time), [1, 2, 3, 4, 5, 6, 7, 8, 9]);
+  app2.tick1Hz(); await ride.queue;
+  assert.equal(fake.elapsed, 10, 'the page owns the ride again');
+  assert.ok(DEVICE_WAIT_MS >= 10000);
 });

@@ -3,11 +3,13 @@
  * with the same calls and answers. It runs in Node, so it keeps recording while the browser test freezes
  * the page. Readings are a steady trainer (200 W, 90 rpm, 32 km/h) and strap (142 bpm). Never in the app.
  */
-const LEASE_MS = 3000;
+const LEASE_MS = { visible: 10000, hidden: 3000 };
 
 class FakeRideNative {
-  constructor({ now = () => Date.now() } = {}) {
+  constructor({ now = () => Date.now(), lease = LEASE_MS } = {}) {
     this.now = now;
+    this.leaseMs = lease;
+    this.visible = true;
     this.commands = [];  // FTMS writes the native side made: { op: 'target', watts } | { op: 'pause' } ...
     this.journal = null; // { header, samples: [json], state }
     this.active = false;
@@ -20,14 +22,16 @@ class FakeRideNative {
     if (!st) return 0;
     return Math.max(this.plan.powerMin || 0, Math.min(this.plan.powerMax || 2000, Math.round(st.watts * (1 + (this.trim || 0)))));
   }
+  _lease() { return this.visible ? this.leaseMs.visible : this.leaseMs.hidden; }
   _state() {
     return { step: this.step, remaining: this.remaining, distanceM: this.distanceM, maxSpeed: this.maxSpeed, extraSteps: [] };
   }
 
   async start({ header, plan, state, samples = [] }) {
+    this.visible = true;
     Object.assign(this, { active: true, owner: 'js', paused: false, ended: false, event: null, plan, native: [],
       elapsed: state.time, jsTime: state.time, step: state.step, remaining: state.remaining, distanceM: state.distanceM,
-      maxSpeed: state.maxSpeed, trim: state.trim, lease: this.now() + LEASE_MS });
+      maxSpeed: state.maxSpeed, trim: state.trim, lastJsAt: this.now(), lease: this.now() + this._lease() });
     this.journal = { header, samples: [...samples], state: JSON.stringify(this._state()) };
     return {};
   }
@@ -36,7 +40,7 @@ class FakeRideNative {
     if (plan) this.plan = plan;
     if (!this.active || this.owner !== 'js' || this.paused || this.ended || state.time <= this.elapsed) return { accepted: false };
     Object.assign(this, { elapsed: state.time, jsTime: state.time, step: state.step, remaining: state.remaining,
-      distanceM: state.distanceM, maxSpeed: state.maxSpeed, trim: state.trim, lease: this.now() + LEASE_MS });
+      distanceM: state.distanceM, maxSpeed: state.maxSpeed, trim: state.trim, lastJsAt: this.now(), lease: this.now() + this._lease() });
     this.journal.samples.push(sample);
     this.journal.state = JSON.stringify(this._state());
     return { accepted: true };
@@ -78,7 +82,7 @@ class FakeRideNative {
 
   async setPaused({ paused }) {
     this.paused = paused;
-    if (!paused) { this.lease = this.now() + LEASE_MS; this.nextSegment = true; }
+    if (!paused) { this.lease = this.now() + this._lease(); this.nextSegment = true; }
     return {};
   }
 
@@ -86,7 +90,7 @@ class FakeRideNative {
   notificationPause(paused) {
     this.paused = paused;
     if (this.owner === 'native') this.commands.push({ op: paused ? 'pause' : 'resume' });
-    if (!paused) { this.lease = this.now() + LEASE_MS; this.nextSegment = true; }
+    if (!paused) { this.lease = this.now() + this._lease(); this.nextSegment = true; }
     for (const cb of this.listeners.control || []) cb({ paused });
   }
 
@@ -97,14 +101,23 @@ class FakeRideNative {
     this.event = null;
     this.owner = 'js';
     this.jsTime = this.elapsed;
-    this.lease = this.now() + LEASE_MS;
+    this.lease = this.now() + this._lease();
     return snap;
   }
 
+  async visibility({ visible }) {
+    this.visible = visible;
+    if (this.owner === 'js') this.lease = Math.max(this.lastJsAt || 0, this.now() - this._lease()) + this._lease();
+    return {};
+  }
+
+  /** The app process dies: the recorder stops, the journal stays. */
+  kill() { this.active = false; }
+
   async stop() { this.active = false; this.journal = null; return {}; }
-  /** At app start: an unfinished journal (an active ride whose page is gone is stopped first). */
-  async recovery() { this.active = false; this.recovered = this.journal ? this.journal.samples.length : 0; return this.journal ? { ...this.journal } : {}; }
-  async discardRecovery() { this.journal = null; return {}; }
+  /** At app start: the live ride (the page was reloaded) or an unfinished journal (the app was killed). */
+  async recovery() { this.recovered = this.journal ? this.journal.samples.length : 0; return this.journal ? { ...this.journal, live: this.active, paused: !!this.paused } : {}; }
+  async discardRecovery() { if (!this.active) this.journal = null; return {}; }
   async batteryStatus() { return { ignoring: false }; }
   async openBatterySettings() { this.batterySettingsOpened = true; return {}; }
   async askNotifications() { this.notificationsAsked = (this.notificationsAsked || 0) + 1; return {}; }

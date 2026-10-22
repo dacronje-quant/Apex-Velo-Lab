@@ -5,7 +5,8 @@ package com.apexvelo.lab.ride
  * tests/fake-ride-native.cjs follows the same contract.
  *
  * The page owns the ride while it ticks: each page second arrives through [jsSample] and renews its lease.
- * When no page second arrives for [leaseMs], [tick] takes the ride over and records 1 Hz samples of the page's
+ * When no page second arrives for the lease ([visibleLeaseMs] while the page is on screen, so a slow phone is
+ * not handed over needlessly; [hiddenLeaseMs] once it is in the background), [tick] takes the ride over and records 1 Hz samples of the page's
  * shape from the latest Bluetooth [Readings], following the page's [RidePlan] (step targets as the page
  * computes them, PowerMatch trim carried over) and returning the FTMS writes to make. [handBack] gives the
  * native seconds back when the page runs again. All times are monotonic milliseconds.
@@ -58,7 +59,7 @@ data class Snapshot(
     val maxSpeed: Double, val extraSteps: List<PlanStep>, val paused: Boolean, val event: String?,
 )
 
-class RideRecorder(private val leaseMs: Long = 3000) {
+class RideRecorder(private val visibleLeaseMs: Long = 10_000, private val hiddenLeaseMs: Long = 3000) {
     var active = false; private set
     var nativeOwns = false; private set
     var paused = false; private set
@@ -73,6 +74,9 @@ class RideRecorder(private val leaseMs: Long = 3000) {
     var plan = RidePlan(emptyList()); private set
     private var trim = 0.0
     private var leaseUntil = 0L
+    private var lastJsAt = 0L
+    var visible = true; private set
+    private val leaseMs get() = if (visible) visibleLeaseMs else hiddenLeaseMs
     private var nextSegment = false
     private var lastTargetAt = 0L
     private var odoLast: Int? = null
@@ -87,6 +91,8 @@ class RideRecorder(private val leaseMs: Long = 3000) {
         elapsed = time; this.step = step; this.remaining = remaining; this.distanceM = distanceM; this.maxSpeed = maxSpeed
         this.trim = trim
         extraSteps.clear(); native.clear(); odoLast = null
+        visible = true
+        lastJsAt = now
         leaseUntil = now + leaseMs
     }
 
@@ -97,15 +103,22 @@ class RideRecorder(private val leaseMs: Long = 3000) {
         if (!active || nativeOwns || paused || ended || time <= elapsed) return false
         elapsed = time; this.step = step; this.remaining = remaining; this.distanceM = distanceM; this.maxSpeed = maxSpeed
         lastPower = power; lastHr = hr; this.trim = trim
+        lastJsAt = now
         leaseUntil = now + leaseMs
         return true
+    }
+
+    /** The page went to the background (or came back): its lease is counted from its last second with the new length. */
+    fun setVisible(v: Boolean, now: Long) {
+        visible = v
+        if (!nativeOwns) leaseUntil = maxOf(lastJsAt, now - leaseMs) + leaseMs
     }
 
     /** Pause/resume. From the page the page writes to the trainer itself; from the notification the native side does when it owns the ride. */
     fun setPaused(p: Boolean, fromPage: Boolean, now: Long): List<Command> {
         if (!active || p == paused) return emptyList()
         paused = p
-        if (!p) { leaseUntil = now + leaseMs; nextSegment = true }
+        if (!p) { lastJsAt = now; leaseUntil = now + leaseMs; nextSegment = true }
         if (fromPage || !nativeOwns || !plan.ergOn) return emptyList()
         return if (p) listOf(Command.Pause) else listOf(Command.Resume, Command.Target(target()))
     }
@@ -217,6 +230,7 @@ class RideRecorder(private val leaseMs: Long = 3000) {
         native.clear()
         event = null
         nativeOwns = false
+        lastJsAt = now
         leaseUntil = now + leaseMs
         return s
     }

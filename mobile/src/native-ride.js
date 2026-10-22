@@ -8,18 +8,24 @@
  *   - While the page ticks, the page owns the ride exactly as on the desktop (full ERG governor). Every
  *     second it hands the native side its new sample and position (sample()), which keeps the page's lease,
  *     appends the sample to a crash-safe journal file and updates the notification.
- *   - When no sample arrives for LEASE_MS, the native side takes the ride over: its own GATT clients on the
+ *   - When no sample arrives for the lease (10 s on screen, so a slow phone is not handed over needlessly;
+ *     3 s once the page is in the background), the native side takes the ride over: its own GATT clients on the
  *     same trainer, power meter and strap give 1 Hz samples of the same shape, and it follows the page's
  *     plan (step targets as the page computes them, with the PowerMatch trim carried over), writing the FTMS
  *     target at each step change.
  *   - When the page is visible again it takes the ride back (handBack()): the native samples are merged
  *     into recordedSamples by second, the position, distance and analytics are adopted, and a pause, a ramp
  *     test stop or the workout end that happened meanwhile is applied. No second is lost or doubled.
+ *   - A page reloaded mid-ride while the app process lived (WebView renderer restart, activity recreated)
+ *     restores the live ride from the journal, reconnects its devices and takes the ride back.
  *   - At the next start an unfinished journal (the app was killed) is offered through the existing
  *     "Recover unfinished ride" banner (js/velo-storage.js), as the copy with the most samples.
  */
 
-export const LEASE_MS = 3000;
+/** How long the native side waits for a page second before taking over: on screen, then in the background. */
+export const LEASE_MS = { visible: 10000, hidden: 3000 };
+/** After a page reload mid-ride, the page waits this long for its devices before taking the ride back anyway. */
+export const DEVICE_WAIT_MS = 20000;
 
 /** Seconds recorded by the page up to and including `upTo`, then the native seconds after it (sorted, one per second). */
 export function mergeSamples(jsSamples, nativeSamples, upTo) {
@@ -125,6 +131,21 @@ export function recoverySnapshot(journal) {
   };
 }
 
+/** Puts a recovery copy (recoverySnapshot) into the app, paused, as the "Recover unfinished ride" button does. */
+export function restoreRide(app, snap) {
+  if (app.activeProfileId !== snap.profileId && app.profiles.some((p) => p.id === snap.profileId)) app.setActiveProfile(snap.profileId, false);
+  app.resetWorkout(false);
+  Object.assign(app, {
+    currentWorkout: snap.workout, recordedSamples: snap.samples, totalElapsedSeconds: snap.elapsed, intervalIndex: snap.step,
+    intervalSecondsRemaining: snap.remaining, sessionStartedAt: snap.startedAt, totalDistanceMeters: snap.distance,
+    totalDistanceKm: snap.distance / 1000, maxSpeedKmh: snap.maxSpeed, rideHadHardware: true, _deviceSourceChanges: [],
+    _nextSampleStartsSegment: true, isPlaying: false, isWorkoutCompleted: false
+  });
+  app.analytics.reset();
+  for (const s of snap.samples) { if (s.segmentStart) app.analytics.startSegment(); app.analytics.update(s.power || 0); }
+  for (const fn of ['updateWorkoutOverview', 'updatePlaybackControlsUi', 'renderIntervalTrack', 'populateCustomIntervalTable', 'updateHudTitles']) if (app[fn]) app[fn]();
+}
+
 /**
  * Connects the page's ride to the native recorder. `plugin` has the ApexRide API (registerPlugin('ApexRide')
  * on the phone, a fake in tests). `idbSettings` is the WebView's own settings store (the IndexedDB VeloDB
@@ -141,6 +162,7 @@ export class NativeRide {
     this.planKey = '';
     this.reclaiming = null;
     this.queue = Promise.resolve();
+    this.waitDevices = null; // { kinds, until } after a reload mid-ride
   }
 
   _call(name, args = {}) {
@@ -151,6 +173,33 @@ export class NativeRide {
   }
 
   visible() { return this.win.document.visibilityState !== 'hidden'; }
+
+  /** The page may take the ride back: it is on screen and (after a reload) its devices are connected again. */
+  canReclaim(app) {
+    if (!this.visible()) return false;
+    const w = this.waitDevices;
+    if (!w) return true;
+    if (Date.now() < w.until && !w.kinds.every((k) => app.ble.isConnected(k))) return false;
+    this.waitDevices = null;
+    return true;
+  }
+
+  /** A page reloaded mid-ride: the native side is still recording. Restore the ride and take it back. */
+  async adoptLive(app, snap, paused) {
+    restoreRide(app, snap);
+    const V = this.win.VeloStorage;
+    if (V) V.rideKey = snap.key;
+    Object.assign(this, { active: true, owner: 'native', jsTime: snap.elapsed, planKey: '' });
+    // Reconnect the trainer, power meter and strap the page used (the native clients keep the links up).
+    const kinds = [];
+    try {
+      await app.ble.refreshPermitted();
+      for (const k of ['trainer', 'pedals', 'hr']) if (app.ble.canReconnect(k)) { kinds.push(k); app.ble.reconnect(k).catch(() => {}); }
+    } catch (e) { /* the page takes the ride back after the wait */ }
+    this.waitDevices = { kinds, until: Date.now() + DEVICE_WAIT_MS };
+    if (!paused) app.togglePlayPause();
+    app.showToast('Ride in progress restored. Recording continued meanwhile.', 'info');
+  }
 
   async start(app) {
     const V = this.win.VeloStorage;
@@ -180,7 +229,7 @@ export class NativeRide {
     let r;
     try { r = await this._call('sample', args); } catch (e) { return; }
     if (r && r.accepted) this.jsTime = s.time;
-    else if (r) { this.owner = 'native'; if (this.visible()) this.reclaim(app); }
+    else if (r) { this.owner = 'native'; if (this.canReclaim(app)) this.reclaim(app); }
   }
 
   /** The page is ticking again and visible: take back the seconds the native side recorded. */
@@ -248,7 +297,7 @@ export class NativeRide {
       return r;
     };
     P.tick1Hz = function (...a) {
-      if (ride.active && ride.owner === 'native') { if (ride.visible()) ride.reclaim(this); return; }
+      if (ride.active && ride.owner === 'native') { if (ride.canReclaim(this)) ride.reclaim(this); return; }
       const r = tick.apply(this, a);
       if (ride.active && this.isPlaying) ride.sample(this);
       return r;
@@ -265,8 +314,12 @@ export class NativeRide {
       return r;
     };
     const app = () => this.win.app;
-    const back = () => { const a = app(); if (ride.active && ride.owner === 'native' && a && ride.visible()) ride.reclaim(a); };
-    this.win.document.addEventListener('visibilitychange', back);
+    this.win.document.addEventListener('visibilitychange', () => {
+      if (!ride.active) return;
+      ride._call('visibility', { visible: ride.visible() }).catch(() => {});
+      const a = app();
+      if (ride.owner === 'native' && a && ride.canReclaim(a)) ride.reclaim(a);
+    });
     if (this.plugin.addListener) {
       // Pause / Resume pressed in the notification while the page owns the ride.
       this.plugin.addListener('control', ({ paused }) => {
@@ -275,13 +328,22 @@ export class NativeRide {
       });
     }
     if (V && idbSettings) {
-      // A journal left by a ride the app was killed in goes to the recovery banner, when it holds more
-      // than the page's own 5 s checkpoint of the same ride.
+      // A ride still recording natively (the page was reloaded) is taken back live. A journal left by a ride
+      // the app was killed in goes to the recovery banner, when it holds more than the page's own 5 s
+      // checkpoint of the same ride.
       const init = V.initRecovery;
       V.initRecovery = async function (a) {
         try {
           const j = await ride.plugin.recovery();
           const snap = j && j.header ? recoverySnapshot({ header: parse(j.header), samples: j.samples, state: j.state && parse(j.state) }) : null;
+          if (snap && j.live && !a.hasUnsavedRide()) {
+            await ride.adoptLive(a, snap, !!j.paused);
+            const r = await init.call(this, a);
+            // The page's own checkpoint of this same ride is not an unfinished ride: it is running.
+            const banner = ride.win.document.getElementById && ride.win.document.getElementById('interruptedRideRecovery');
+            if (banner) banner.hidden = true;
+            return r;
+          }
           if (snap && snap.storeId === V.storeId) {
             const old = await idbSettings.getSetting(snap.key).catch(() => null);
             if (!old || !old.samples || old.samples.length < snap.samples.length) await idbSettings.putSetting(snap);

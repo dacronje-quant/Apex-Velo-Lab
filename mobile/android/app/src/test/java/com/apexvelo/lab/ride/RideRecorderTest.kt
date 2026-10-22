@@ -42,12 +42,15 @@ class RideRecorderTest {
 
     @Test
     fun takesOverWhenThePageStopsAndHandsTheSecondsBack() {
-        val rec = RideRecorder(3000)
+        val rec = RideRecorder()
         val r = Readings()
         var now = 0L
         rec.start(plan, 0, 0, 10, 0.0, 0.0, 0.0, now)
         for (t in 1..5) { now += 1000; assertTrue(rec.jsSample(t, 0, 10 - t, t * 8.0, 32.0, 180, 140, 0.0, now)); assertNull(rec.tick(now, now, r).sample) }
         assertEquals(5, rec.elapsed)
+        // On screen a slow page keeps the ride for 10 s; once in the background 3 s from its last second.
+        assertNull(rec.tick(now + 9000, now, r).sample)
+        rec.setVisible(false, now + 500)
         val cmds = ArrayList<Command>()
         val samples = ArrayList<String>()
         for (i in 1..9) {
@@ -72,7 +75,7 @@ class RideRecorderTest {
 
     @Test
     fun trimPausesFreshnessAndTheEnd() {
-        val rec = RideRecorder(3000)
+        val rec = RideRecorder(3000, 3000)
         val r = Readings()
         rec.start(plan.copy(powerMax = 1200), 0, 0, 2, 0.0, 0.0, 0.10, 0)
         assertEquals(110, rec.target()) // PowerMatch trim carried as a share of the target
@@ -95,7 +98,7 @@ class RideRecorderTest {
     @Test
     fun rampTestExtendsAndStopsWhenTheTargetIsMissed() {
         val ramp = RidePlan(listOf(PlanStep("Ramp 100% FTP", 3, 100.0, 200, true)), ftp = 200, rampStepPct = 10.0, rampStepSec = 30)
-        val rec = RideRecorder(0)
+        val rec = RideRecorder(0, 0)
         val r = Readings()
         rec.start(ramp, 0, 0, 3, 0.0, 0.0, 0.0, 0)
         var now = 0L

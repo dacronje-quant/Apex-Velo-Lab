@@ -25,7 +25,7 @@ import org.json.JSONObject
 /**
  * The page's way to the native ride recorder (src/native-ride.js is the JS side, com.apexvelo.lab.ride the
  * recorder): start, one call per page second (sample), pause, handBack when the page runs again, stop on save
- * or discard, and the journal of a ride the app was killed in (recovery). Every call runs on the ride thread.
+ * or discard, visibility (the lease), and at app start the live ride or the journal of a killed one (recovery). Every call runs on the ride thread.
  */
 @CapacitorPlugin(name = "ApexRide")
 class ApexRidePlugin : Plugin() {
@@ -114,14 +114,25 @@ class ApexRidePlugin : Plugin() {
         onRide(call) { session.stop(keepJournal = false); call.resolve() }
     }
 
-    /** At app start: the journal of an unfinished ride. A ride still running here lost its page, so it stops and is offered for recovery. */
+    /**
+     * At app start: the ride the native side is still recording (the page was reloaded or the activity
+     * recreated while the process lived; live = true, the page takes it back), or the journal of a ride the
+     * app was killed in.
+     */
     @PluginMethod
     fun recovery(call: PluginCall) {
         onRide(call) {
-            if (rec.active) session.stop(keepJournal = true)
             val c = RideJournal(session.journalFile(context)).read() ?: return@onRide call.resolve(JSObject())
-            call.resolve(JSObject().put("header", c.header).put("samples", JSArray(c.samples)).put("state", c.state))
+            call.resolve(JSObject().put("header", c.header).put("samples", JSArray(c.samples)).put("state", c.state)
+                .put("live", rec.active).put("paused", rec.paused))
         }
+    }
+
+    /** The page went to the background or came back: the lease the native side gives it changes (3 s / 10 s). */
+    @PluginMethod
+    fun visibility(call: PluginCall) {
+        val visible = call.getBoolean("visible", true) ?: true
+        onRide(call) { rec.setVisible(visible, SystemClock.elapsedRealtime()); call.resolve() }
     }
 
     @PluginMethod

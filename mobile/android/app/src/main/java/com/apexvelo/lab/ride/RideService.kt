@@ -15,6 +15,7 @@ import androidx.core.app.NotificationCompat
 import androidx.core.app.NotificationManagerCompat
 import androidx.core.app.ServiceCompat
 import androidx.core.content.ContextCompat
+import com.apexvelo.lab.NotificationIds
 import com.apexvelo.lab.R
 
 /**
@@ -60,7 +61,7 @@ class RideService : Service() {
         const val ACTION_PAUSE = "com.apexvelo.lab.ride.PAUSE"
         const val ACTION_RESUME = "com.apexvelo.lab.ride.RESUME"
         private const val CHANNEL = "ride"
-        private const val NOTIFICATION_ID = 4101
+        private const val NOTIFICATION_ID = NotificationIds.RIDE
         @Volatile private var running = false
 
         fun start(c: Context) {

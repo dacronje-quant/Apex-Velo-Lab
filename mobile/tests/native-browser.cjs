@@ -84,6 +84,11 @@ async function rideServiceFlow(browser, errors) {
   page.on('pageerror', (e) => errors.push(e.message));
   const cdp = await context.newCDPSession(page);
   const times = () => page.evaluate(() => app.recordedSamples.map((s) => s.time));
+  // Android hides the page when the screen goes off or another app comes to the front.
+  const setVisible = (visible) => page.evaluate((v) => {
+    Object.defineProperty(document, 'visibilityState', { configurable: true, get: () => (v ? 'visible' : 'hidden') });
+    document.dispatchEvent(new Event('visibilitychange'));
+  }, visible);
   const contiguous = (t) => t.every((x, i) => x === i + 1);
   try {
     await page.goto(`${ORIGIN}/index.html`);
@@ -113,6 +118,9 @@ async function rideServiceFlow(browser, errors) {
 
     const ftp = await page.evaluate(() => app.activeProfile.ftp);
     const before = (await times()).length;
+    await setVisible(false);
+    await new Promise((r) => setTimeout(r, 200));
+    assert.equal(native.visible, false, 'in the background the page\'s lease is 3 s');
     // The page's JavaScript stops as in a paused WebView (headless pages cannot be frozen through the
     // web-lifecycle API, so the debugger halts the main thread instead).
     await cdp.send('Debugger.enable');
@@ -125,6 +133,7 @@ async function rideServiceFlow(browser, errors) {
     assert.ok(nativeSeconds >= 6, `native seconds recorded while frozen (${nativeSeconds})`);
     await cdp.send('Debugger.resume');
     await cdp.send('Debugger.disable');
+    await setVisible(true);
     await page.waitForFunction(() => app.recordedSamples.some((s) => s.bg === 1) && ApexNative.ride.owner === 'js', null, { timeout: 10000 });
     await page.waitForFunction((n) => app.recordedSamples.length > n, (await times()).length);
     const t = await times();
@@ -134,12 +143,25 @@ async function rideServiceFlow(browser, errors) {
     assert.equal(native.owner, 'js', 'and owns the ride again');
     step(`screen off: page frozen 11 s, ${nativeSeconds} s recorded natively with the ERG step change, merged back on resume with every second once`);
 
+    // The WebView's page is reloaded mid-ride while the app process lives: the new page takes the live ride back.
+    await page.reload();
+    await page.waitForFunction(() => window.app && window.ApexNative && ApexNative.ride.active && app.isPlaying, null, { timeout: 15000 });
+    await page.waitForFunction(() => ApexNative.ride.owner === 'js' && app.ble.isTrainerConnected(), null, { timeout: 20000 });
+    await page.waitForFunction((n) => app.recordedSamples.length > n + 1, native.elapsed - 3);
+    const afterReload = await times();
+    assert.ok(contiguous(afterReload), `the live ride continues with every second once: ${afterReload.join(',')}`);
+    assert.equal(await page.locator('#interruptedRideRecovery').isVisible(), false, 'no recovery banner for a live ride');
+    assert.equal(native.owner, 'js');
+    step(`page reloaded mid-ride: the new page restores the live ride from the journal, reconnects the trainer and takes it back (${afterReload.length} s, none lost)`);
+
     // The app is killed while in the background (page halted, the native side recording): the next start
     // offers the journal, which has the seconds the page's own 5 s checkpoint never saw.
+    await setVisible(false);
     await cdp.send('Debugger.enable');
     await cdp.send('Debugger.pause');
     await new Promise((r) => setTimeout(r, 6000));
     assert.equal(native.owner, 'native');
+    native.kill();
     await page.close();
     page = await context.newPage();
     page.on('pageerror', (e) => errors.push(e.message));
@@ -147,7 +169,6 @@ async function rideServiceFlow(browser, errors) {
     await page.waitForFunction(() => window.app && window.ApexNative);
     await page.locator('#interruptedRideRecovery').waitFor({ state: 'visible', timeout: 15000 });
     const journalCount = native.recovered;
-    assert.equal(native.active, false, 'the orphaned native ride stopped when the new page asked for the journal');
     const text = await page.locator('#interruptedRideText').textContent();
     assert.ok(text.includes(`${journalCount} recorded samples`), `recovery offers the journal: ${text} (journal ${journalCount})`);
     await page.locator('#btnRecoverInterruptedRide').click();

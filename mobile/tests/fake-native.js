@@ -188,7 +188,7 @@
   // so it keeps recording while the test freezes the page. Without __rideNative the app has no ride plugin.
   const rideListeners = {};
   const ridePlugin = {};
-  for (const op of ['start', 'sample', 'setPaused', 'handBack', 'stop', 'recovery', 'discardRecovery', 'batteryStatus', 'openBatterySettings', 'askNotifications']) {
+  for (const op of ['start', 'sample', 'setPaused', 'handBack', 'stop', 'recovery', 'discardRecovery', 'batteryStatus', 'openBatterySettings', 'askNotifications', 'visibility']) {
     ridePlugin[op] = (args = {}) => window.__rideNative(op, args);
   }
   ridePlugin.addListener = (name, cb) => { (rideListeners[name] = rideListeners[name] || []).push(cb); return Promise.resolve({ remove() {} }); };
