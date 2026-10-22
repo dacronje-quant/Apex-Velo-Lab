@@ -62,7 +62,7 @@
         for (const ride of rides) {
           const v = VeloDedupe.admit(st.index, ride);
           if (v.verdict === 'new') { st.pending.add(ride); st.pendingSamples += ride.samplesCount || 0; }
-          else if (v.verdict === 'duplicate') { st.sameRide++; this.markStravaOrigin(v.with, ride.origin, st); }
+          else if (v.verdict === 'duplicate') { st.sameRide++; this.markStravaOrigin(v.with, ride.origin, st); this.markFileCopy(v.with, ride, st); }
           else if (st.pending.has(v.with)) { st.pending.delete(v.with); st.pending.add(ride); st.sameRide++; }
           else if (st.replaceOf.has(v.with)) { st.replaceOf.set(ride, st.replaceOf.get(v.with)); st.replaceOf.delete(v.with); st.sameRide++; }
           else st.replaceOf.set(ride, v.with);
@@ -243,6 +243,17 @@
     },
 
     /** A ride that also arrived in a Strava export is on Strava: tag it so it is never uploaded there again. */
+    /**
+     * The file was a copy of a ride kept from elsewhere (e.g. Health Connect): its hash goes on that ride, so
+     * re-importing the file matches it and the ride is known to exist as a file too (a session deleted in
+     * Health Connect then leaves it in place).
+     */
+    markFileCopy(kept, ride, st) {
+      if (!kept || kept.fileHash || !ride.fileHash || st.pending.has(kept)) return;
+      kept.fileHash = ride.fileHash;
+      st.touched.add(kept);
+    },
+
     markStravaOrigin(kept, origin, st) {
       if (!kept || origin !== 'strava' || kept.origin === 'strava') return;
       kept.origin = 'strava';

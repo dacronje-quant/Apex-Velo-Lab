@@ -1,7 +1,8 @@
 /**
  * Browser-test stand-in for the native side (loaded with page.addInitScript before the app).
  * window.__APEX_NATIVE_FAKE__ gives the Android layer a scripted FTMS trainer and heart-rate strap
- * (BleClient API), a scripted Strava (uploads only), Claude and intervals.icu API (CapacitorHttp API) and recording plugin stubs.
+ * (BleClient API), a scripted Strava (uploads only), Claude and intervals.icu API (CapacitorHttp API), a scripted Health Connect
+ * plugin and recording plugin stubs.
  * Never part of the app build.
  */
 (() => {
@@ -122,6 +123,53 @@
     }
   };
 
+  // ------------------------------------------------------------------ Health Connect --
+  // 30 days of recovery data (Oura-like: overnight rMSSD 75, resting HR 45, staged sleep), one Zwift ride
+  // yesterday at 18:00 with 1 Hz power and a session the app wrote itself (never imported). Permissions are
+  // granted as asked; window.__hcChanges is what the changes token reports next.
+  const hc = log.hc = { requests: [], writes: [], granted: { read: [], write: [], history: false } };
+  window.__hcChanges = [];
+  const hcRecords = () => {
+    const out = [], day0 = new Date(); day0.setHours(0, 0, 0, 0);
+    const at = (d, h, m = 0) => { const t = new Date(day0); t.setDate(t.getDate() - d); t.setHours(h, m, 0, 0); return t.getTime(); };
+    for (let d = 0; d < 30; d++) {
+      const o = 'com.ouraring.oura';
+      out.push({ type: 'HeartRateVariabilityRmssd', id: 'hrv' + d, origin: o, time: at(d, 3), offset: null, value: 75 });
+      out.push({ type: 'RestingHeartRate', id: 'rhr' + d, origin: o, time: at(d, 7), offset: null, value: 45 });
+      const s = at(d + 1, 23), e = at(d, 7);
+      out.push({ type: 'SleepSession', id: 'sl' + d, origin: o, start: s, startOffset: null, end: e, endOffset: null,
+        stages: [{ start: s, end: s + 2 * 3600e3, stage: 5 }, { start: s + 2 * 3600e3, end: s + 6 * 3600e3, stage: 4 }, { start: s + 6 * 3600e3, end: e, stage: 6 }] });
+    }
+    const z = 'com.zwift.android.prod', rs = at(1, 18);
+    out.push({ type: 'ExerciseSession', id: 'zwift1', origin: z, start: rs, startOffset: null, end: rs + 1200e3, endOffset: null, exerciseType: 9, title: 'Zwift - Volcano Circuit' });
+    out.push({ type: 'Power', id: 'zp1', origin: z, start: rs, end: rs + 1200e3, samples: Array.from({ length: 1200 }, (_, i) => [rs + i * 1000, 200]) });
+    out.push({ type: 'HeartRate', id: 'zh1', origin: z, start: rs, end: rs + 1200e3, samples: Array.from({ length: 240 }, (_, i) => [rs + i * 5000, 140]) });
+    out.push({ type: 'ExerciseSession', id: 'self1', origin: 'com.apexvelo.lab', clientId: 'apexvelo-ride_1', start: at(2, 18), startOffset: null, end: at(2, 18) + 600e3, endOffset: null, exerciseType: 9 });
+    return out;
+  };
+  const HealthConnect = {
+    async availability() { return { status: window.__hcStatus || 'available', history: true }; },
+    async grantedHealthPermissions() { return JSON.parse(JSON.stringify(hc.granted)); },
+    async requestHealthPermissions(o) {
+      hc.requests.push(o);
+      const g = hc.granted;
+      g.read = [...new Set([...g.read, ...o.read])]; g.write = [...new Set([...g.write, ...o.write])];
+      g.history = g.history || o.history;
+      return JSON.parse(JSON.stringify(g));
+    },
+    async readRecords({ type, start, end, origin }) {
+      if (!hc.granted.read.includes(type)) throw Object.assign(new Error('SecurityException'), { code: 'PERMISSION' });
+      return { records: hcRecords().filter((r) => r.type === type && (r.time ?? r.start) >= start && (r.time ?? r.start) < end && (!origin || r.origin === origin)), pageToken: null };
+    },
+    async startChanges() { hc.started = (hc.started || 0) + 1; },
+    async pendingChanges() { return { changes: window.__hcChanges, hasToken: !!hc.started, tokenExpired: false }; },
+    async ackChanges({ upTo }) { window.__hcChanges = window.__hcChanges.filter((c) => c.seq > upTo); },
+    async writeRide(r) { hc.writes.push(r); return { id: 'hc-session-' + hc.writes.length }; },
+    async openInstall() { log.opened.push('hc:install'); }, async openSettings() { log.opened.push('hc:settings'); },
+    async disconnect() { hc.granted = { read: [], write: [], history: false }; }
+  };
+  window.__hcRecords = hcRecords;
+
   const prefsStore = new Map();
   const plugins = {
     App: {
@@ -141,7 +189,8 @@
         return { uri: 'file:///' + directory.toLowerCase() + '/' + path };
       }
     },
-    Share: { async share(o) { log.shared.push(o); } }
+    Share: { async share(o) { log.shared.push(o); } },
+    HealthConnect
   };
   // ------------------------------------------------------------------------- SQLite --
   // The runner exposes __sqlite(op, sql, params) and __backupFiles(op, ...) over node:sqlite and a folder.

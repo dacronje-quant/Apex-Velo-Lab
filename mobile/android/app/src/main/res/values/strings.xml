@@ -4,4 +4,20 @@
     <string name="title_activity_main">Apex Velo</string>
     <string name="package_name">com.apexvelo.lab</string>
     <string name="custom_url_scheme">com.apexvelo.lab</string>
+    <!-- Health Connect: the privacy screen (plugins/HealthRationaleActivity.kt). Replace the URL with the
+         privacy policy you give Play Console (mobile/README.md, "Health Connect on Google Play"). -->
+    <string name="privacy_policy_url" translatable="false">https://github.com/dacronje-quant/Apex-Velo-Lab/blob/main/mobile/PRIVACY.md</string>
+    <string name="health_rationale_title">Apex Velo and Health Connect</string>
+    <string name="health_rationale_html"><![CDATA[
+<h3>What Apex Velo reads from Health Connect</h3>
+<p><b>Heart rate variability, resting heart rate and sleep</b> (with its stages): your daily readiness score, the calendar recovery strip and the recovery trends.</p>
+<p><b>Weight, blood oxygen and breathing rate</b>: shown over time in Analytics &gt; Health.</p>
+<p><b>Exercise sessions with their heart rate, power, speed, cadence and distance</b>: cycling rides recorded by other apps are added to your training history, so fitness, fatigue and form include them. Other kinds of exercise are not read.</p>
+<h3>What Apex Velo writes</h3>
+<p>Only rides you record in Apex Velo, if you switch that on: the session with its heart rate, power, cadence, speed, distance and calories.</p>
+<h3>Where the data goes</h3>
+<p>It stays on this phone, in the private storage of the app. Apex Velo has no server and does not send health data anywhere. It is not used for advertising and is never sold. Rides you choose to send to Strava or intervals.icu are sent by you, ride by ride or with auto-upload you switch on.</p>
+<p>You can change or remove each permission at any time in Health Connect, and disconnect in Apex Velo under Settings &gt; Health.</p>
+<p><a href="%1$s">Read the full privacy policy</a></p>
+]]></string>
 </resources>
