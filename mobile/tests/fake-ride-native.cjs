@@ -24,7 +24,7 @@ class FakeRideNative {
   }
   _lease() { return this.visible ? this.leaseMs.visible : this.leaseMs.hidden; }
   _state() {
-    return { step: this.step, remaining: this.remaining, distanceM: this.distanceM, maxSpeed: this.maxSpeed, extraSteps: [] };
+    return { step: this.step, remaining: this.remaining, distanceM: this.distanceM, maxSpeed: this.maxSpeed, trim: this.trim || 0, extraSteps: [] };
   }
 
   async start({ header, plan, state, samples = [] }) {

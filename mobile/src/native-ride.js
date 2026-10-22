@@ -80,6 +80,20 @@ export function stateFromApp(app) {
 }
 
 /**
+ * Seeds VeloErg's PowerMatch trim from the native side's (a share of the target, as RideRecorder keeps it), so
+ * the trainer target does not step by up to the ±45 W trim when the page takes the ride back or is reloaded.
+ */
+export function seedTrim(app, trim) {
+  if (!app.erg || !Number.isFinite(trim)) return;
+  const base = app.getCurrentTargetWatts();
+  if (!(base > 0)) return;
+  const max = (app.erg.o && app.erg.o.pmMaxTrim) || 45;
+  app.erg.offset = Math.max(-max, Math.min(max, Math.round(trim * base)));
+  app.erg.lastBase = base;
+  app.powerMatchOffset = app.erg.offset;
+}
+
+/**
  * Takes over what the native side recorded while the page was paused. `snap` is handBack()'s answer:
  * { jsTime, samples: [json], elapsed, step, remaining, distanceM, maxSpeed, extraSteps, paused, event }.
  */
@@ -110,6 +124,7 @@ export function adoptSnapshot(app, snap) {
     Object.assign(app, { currentPower: last.power, currentCadence: last.cadence, currentHeartRate: last.hr, currentSpeed: last.speed });
     if (app.updateTelemetryChart) for (const s of added) app.updateTelemetryChart(s.time, s.power, s.cadence, s.hr, s.target);
   }
+  seedTrim(app, snap.trim);
   for (const fn of ['updateHudTitles', 'renderIntervalTrack', 'updatePowerSourceBadge']) if (app[fn]) app[fn]();
   return added.length;
 }
@@ -126,7 +141,7 @@ export function recoverySnapshot(journal) {
   return {
     key: h.key, storeId: h.storeId, at: last.timestamp || Date.now(), profileId: h.profileId, workout, samples,
     elapsed: last.time, step: st.step ?? last.workoutStep, remaining: st.remaining ?? 0,
-    startedAt: h.startedAt, distance: st.distanceM ?? (last.dist || 0) * 1000, maxSpeed: st.maxSpeed ?? 0,
+    startedAt: h.startedAt, distance: st.distanceM ?? (last.dist || 0) * 1000, maxSpeed: st.maxSpeed ?? 0, trim: st.trim ?? 0,
     hadHardware: true, sourceChanges: [], fromNativeJournal: true
   };
 }
@@ -187,6 +202,7 @@ export class NativeRide {
   /** A page reloaded mid-ride: the native side is still recording. Restore the ride and take it back. */
   async adoptLive(app, snap, paused) {
     restoreRide(app, snap);
+    seedTrim(app, snap.trim);
     const V = this.win.VeloStorage;
     if (V) V.rideKey = snap.key;
     Object.assign(this, { active: true, owner: 'native', jsTime: snap.elapsed, planKey: '' });

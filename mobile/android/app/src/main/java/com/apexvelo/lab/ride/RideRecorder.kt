@@ -56,7 +56,7 @@ data class TickResult(val sample: String?, val commands: List<Command>)
 
 data class Snapshot(
     val samples: List<String>, val elapsed: Int, val step: Int, val remaining: Int, val distanceM: Double,
-    val maxSpeed: Double, val extraSteps: List<PlanStep>, val paused: Boolean, val event: String?,
+    val maxSpeed: Double, val extraSteps: List<PlanStep>, val paused: Boolean, val event: String?, val trim: Double,
 )
 
 class RideRecorder(private val visibleLeaseMs: Long = 10_000, private val hiddenLeaseMs: Long = 3000) {
@@ -226,7 +226,7 @@ class RideRecorder(private val visibleLeaseMs: Long = 10_000, private val hidden
     /** The page runs again: the native seconds since it last owned the ride, its new position and what happened. */
     fun handBack(now: Long): Snapshot? {
         if (!active) return null
-        val s = Snapshot(ArrayList(native), elapsed, step, remaining, distanceM, maxSpeed, ArrayList(extraSteps), paused, event)
+        val s = Snapshot(ArrayList(native), elapsed, step, remaining, distanceM, maxSpeed, ArrayList(extraSteps), paused, event, trim)
         native.clear()
         event = null
         nativeOwns = false
@@ -241,6 +241,7 @@ class RideRecorder(private val visibleLeaseMs: Long = 10_000, private val hidden
     fun stateJson(): String = buildString {
         append("{\"step\":").append(step).append(",\"remaining\":").append(remaining)
         append(",\"distanceM\":").append(Math.round(distanceM * 10) / 10.0).append(",\"maxSpeed\":").append(maxSpeed)
+        append(",\"trim\":").append(trim)
         append(",\"extraSteps\":[")
         extraSteps.forEachIndexed { i, s -> if (i > 0) append(','); append(stepJson(s)) }
         append("]}")

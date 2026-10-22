@@ -79,6 +79,7 @@ class RideRecorderTest {
         val r = Readings()
         rec.start(plan.copy(powerMax = 1200), 0, 0, 2, 0.0, 0.0, 0.10, 0)
         assertEquals(110, rec.target()) // PowerMatch trim carried as a share of the target
+        assertTrue(rec.stateJson().contains("\"trim\":0.1"))
         var now = 3000L
         val first = rec.tick(now, now, r)
         assertTrue("no fresh device: NONE, zeros", first.sample!!.contains("\"power\":0,\"cadence\":0,\"hr\":0,\"speed\":0.0"))
@@ -92,7 +93,9 @@ class RideRecorderTest {
         assertTrue(back.commands.contains(Command.Target(165)))
         for (i in 0 until 10) { now += 1000; rec.tick(now, now, r) }
         assertTrue(rec.ended)
-        assertEquals("{\"type\":\"end\"}", rec.handBack(now)!!.event)
+        val end = rec.handBack(now)!!
+        assertEquals("{\"type\":\"end\"}", end.event)
+        assertEquals("the page seeds its PowerMatch trim from the snapshot", 0.10, end.trim, 1e-9)
     }
 
     @Test

@@ -104,7 +104,7 @@ class ApexRidePlugin : Plugin() {
                 .put("samples", JSArray(s.samples))
                 .put("elapsed", s.elapsed).put("step", s.step).put("remaining", s.remaining)
                 .put("distanceM", s.distanceM).put("maxSpeed", s.maxSpeed)
-                .put("extraSteps", extra).put("paused", s.paused)
+                .put("extraSteps", extra).put("paused", s.paused).put("trim", s.trim)
                 .put("event", s.event?.let { JSONObject(it) } ?: JSONObject.NULL))
         }
     }

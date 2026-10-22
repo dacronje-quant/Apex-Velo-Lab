@@ -277,3 +277,28 @@ test('a page reloaded mid-ride takes the live ride back once its devices are con
   assert.equal(fake.elapsed, 10, 'the page owns the ride again');
   assert.ok(DEVICE_WAIT_MS >= 10000);
 });
+
+test('the PowerMatch trim carries over at handback and after a reload, so the trainer target does not step', async () => {
+  const { fake, app, ride, settle, advance } = setup();
+  app.erg = { offset: 15, lastBase: 100 }; // +15 % learned on the warmup (100 W)
+  app.togglePlayPause(); await settle();
+  app.tick1Hz(); await settle();
+  assert.equal(fake.trim, 0.15);
+  for (let i = 0; i < 14; i++) { advance(1000); fake.tick(); } // the native side moves on to the 150 W step
+  app.erg.offset = 0; app.erg.lastBase = null; // what a reset governor would hold
+  await ride.reclaim(app);
+  assert.equal(app.intervalIndex, 1);
+  assert.equal(app.erg.offset, 23, 'trim seeded as the same share of the new target (150 W)');
+  assert.equal(app.erg.lastBase, 150);
+
+  const snap = recoverySnapshot({ header: JSON.parse(fake.journal.header), samples: fake.journal.samples, state: JSON.parse(fake.journal.state) });
+  assert.equal(snap.trim, 0.15, 'the journal keeps the trim for a reloaded page');
+  const fresh = new FakeApp();
+  fresh.erg = { offset: 0, lastBase: null, o: { pmMaxTrim: 20 } };
+  fresh.profiles = [{ id: 'p1' }];
+  const r2 = new NativeRide({ plugin: new FakeRideNative(), win: { document: { visibilityState: 'visible', addEventListener() {} } } });
+  r2.adoptLive = r2.adoptLive.bind(r2);
+  fresh.ble = { refreshPermitted: async () => ({}), canReconnect: () => false, reconnect: async () => {}, isConnected: () => true };
+  await r2.adoptLive(fresh, snap, true);
+  assert.equal(fresh.erg.offset, 20, 'clamped to the governor\'s trim limit');
+});
