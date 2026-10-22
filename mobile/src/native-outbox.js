@@ -22,12 +22,15 @@ export function nextAttemptAt(row) {
 
 /**
  * A ride is never sent back to the service it was imported from: the desktop's Strava sync (source 'Strava'),
- * or an import tagged with `origin` (Strava export files: origin 'strava').
+ * an import tagged with `origin` (Strava export files: origin 'strava'; Health Connect: the Strava app's package),
+ * or a ride whose source is the destination (Health Connect rides are never written back to it).
  */
+const ORIGIN_APPS = { 'com.strava': 'strava' }; // Health Connect rides: origin is the writing app's package
 export function isFromDestination(ride, destinationId) {
   if (!ride) return false;
   const id = String(destinationId).toLowerCase();
-  if (String(ride.origin || '').toLowerCase() === id) return true;
+  const origin = String(ride.origin || '').toLowerCase();
+  if (origin === id || ORIGIN_APPS[origin] === id) return true;
   if (String(ride.source || '').toLowerCase().split(/[:/]/).includes(id)) return true;
   return id === 'strava' && !!ride.strava && ride.strava.state === 'imported';
 }

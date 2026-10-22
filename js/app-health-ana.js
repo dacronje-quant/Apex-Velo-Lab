@@ -245,7 +245,7 @@
       card.hidden = !inRange.length;
       if (card.hidden) return;
       const last = days.filter(d => Wl.value(d, 'hrv') !== null).pop();
-      const kind = last && last.hrvSrc === 'icu' ? (last.hrvKind === 'sdnn' ? 'SDNN' : 'rMSSD') : 'SDNN';
+      const kind = last && (last.hrvSrc === 'icu' || last.hrvSrc === 'hc') ? (last.hrvKind === 'sdnn' ? 'SDNN' : 'rMSSD') : 'SDNN';
       const chart = this.healthChart('healthHrvCanvas', 'line');
       if (!chart) return;
       const within = (p) => p.t >= range.x0 && p.t <= range.x1;

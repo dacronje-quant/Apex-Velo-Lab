@@ -702,6 +702,69 @@ async function migrationFlow(browser, errors) {
     step('Analytics > Health: tiles, heart rate, HRV with its normal range, both HRV kinds, sleep stages, scores, stress, breathing and weight; cards without data stay hidden');
     step('health: intervals.icu key checked, all history backfilled into readiness with sleep stages, HRV kind switchable (never mixed), later syncs read the last week at most hourly');
 
+    // ------------------------------------------------------------------ Health Connect --
+    await page.evaluate(() => app.openSettings('health'));
+    await page.locator('#nativeHcStatus', { hasText: 'Available' }).waitFor();
+    assert.match(await page.locator('[data-hc-type="read:HeartRateVariabilityRmssd"]').innerText(), /readiness score/, 'each type says what it is for');
+    const icuToday = await page.evaluate(() => app.healthDays.at(-1));
+    assert.equal(icuToday.rhr, 48);
+    await page.locator('[data-hc-group="recovery"] [data-hc-request]').click();
+    await page.waitForFunction(() => app.healthDays.at(-1).rhr === 45, null, { timeout: 15000 });
+    const hcReq = await page.evaluate(() => __nativeLog.hc.requests[0]);
+    assert.deepEqual(hcReq.read, ['HeartRateVariabilityRmssd', 'RestingHeartRate', 'SleepSession', 'Weight', 'OxygenSaturation', 'RespiratoryRate']);
+    assert.equal(hcReq.history, true, 'history permission asked for the two-year backfill');
+    const merged = await page.evaluate(() => app.healthDays.at(-1));
+    assert.deepEqual([merged.rhr, merged.hrv, merged.sleepH, merged.deepH, merged.remH], [45, 75, 8, 2, 2], 'Health Connect first: resting HR, rMSSD and staged sleep');
+    assert.equal(await page.evaluate(() => app.healthDays.filter((d) => d.hrvSrc === 'hc').length), 30, 'one HRV kind on every day');
+    assert.equal(merged.sleepScore, await page.evaluate(() => app.healthStore.days[app.healthDays.at(-1).day].summary.sleepScore), 'intervals.icu-only values stay');
+    assert.equal(phone.db.prepare("SELECT COUNT(*) AS n FROM wellness_days WHERE source='healthconnect'").get().n, 30);
+    assert.ok(phone.db.prepare("SELECT COUNT(*) AS n FROM wellness_days WHERE source='icu'").get().n >= 30, 'intervals.icu days are kept beside them');
+    assert.equal(await page.evaluate(() => app.healthReadiness().level !== undefined), true);
+    await page.locator('#nativeHcPref-rhr').selectOption('icu');
+    await page.waitForFunction(() => app.healthDays.at(-1).rhr === 48, null, { timeout: 10000 });
+    await page.locator('#nativeHcPref-rhr').selectOption('healthconnect');
+    await page.waitForFunction(() => app.healthDays.at(-1).rhr === 45, null, { timeout: 10000 });
+    step('Health Connect: availability shown, recovery types asked for with a plain-language reason, two years backfilled into wellness_days and merged with intervals.icu per field (Health Connect first, switchable)');
+
+    await page.locator('[data-hc-group="rides"] [data-hc-request]').click();
+    await page.waitForFunction(() => app.completedWorkouts.some((r) => r.id === 'hc_zwift1'), null, { timeout: 15000 });
+    await page.waitForFunction(() => { const r = app.completedWorkouts.find((x) => x.id === 'hc_zwift1'); return r && r.sampleSummary && !r.samples; }, null, { timeout: 10000 });
+    const zw = await page.evaluate(() => { const r = app.completedWorkouts.find((x) => x.id === 'hc_zwift1'); return { source: r.source, origin: r.origin, avgWatts: r.avgWatts, avgHr: r.avgHr, n: r.sampleSummary.n, title: r.title }; });
+    assert.deepEqual(zw, { source: 'healthconnect', origin: 'com.zwift.android.prod', avgWatts: 200, avgHr: 140, n: 1200, title: 'Zwift - Volcano Circuit' }, 'summarised in memory, like an imported ride');
+    assert.equal(phone.db.prepare("SELECT sample_count FROM rides WHERE id='hc_zwift1'").get().sample_count, 1200, 'its samples are in the phone database');
+    assert.equal(await page.evaluate(() => app.completedWorkouts.some((r) => r.hc && r.hc.id === 'self1')), false, "the app's own sessions are not read back");
+    await page.evaluate(() => app.syncHealthConnect({ force: true }));
+    assert.equal(await page.evaluate(() => app.completedWorkouts.filter((r) => r.hc && r.hc.id === 'zwift1').length), 1, 'a second sync adds no copy');
+    step('Health Connect: cycling sessions from other apps imported as rides with their power and heart rate, never twice and never the app\'s own');
+
+    await page.locator('[data-hc-group="write"] [data-hc-request]').click();
+    await page.waitForFunction(() => document.getElementById('nativeHcAutoWrite').checked, null, { timeout: 10000 });
+    const hcRow = await page.evaluate((id) => ApexNative.uploads.sendNow(app.completedWorkouts.find((r) => r.id === id), 'healthconnect'), rideId);
+    assert.equal(hcRow.status, 'sent');
+    const written = await page.evaluate(() => __nativeLog.hc.writes[0]);
+    assert.equal(written.clientId, `apexvelo-${rideId}`);
+    assert.equal(written.exerciseType, 9, 'an indoor ride is stationary biking');
+    assert.ok(written.power.length > 0 && written.hr.length > 0 && written.cadence.length > 0);
+    assert.equal(phone.db.prepare("SELECT status FROM sync_ledger WHERE ride_id=? AND destination='healthconnect'").get(rideId).status, 'sent');
+    const back = await page.evaluate(() => ApexNative.uploads.sendNow(app.completedWorkouts.find((r) => r.id === 'hc_zwift1'), 'healthconnect'));
+    assert.equal(back.status, 'skipped', 'a ride from Health Connect is never written back');
+    assert.equal(await page.evaluate(() => __nativeLog.hc.writes.length), 1);
+    step('Health Connect: a ride recorded here is written as a stationary-biking session with its series through the sync ledger; Health Connect rides are skipped');
+
+    await page.evaluate(() => {
+      const t = new Date(); t.setHours(4, 0, 0, 0);
+      window.__hcRecordsExtra = true;
+      const orig = window.__hcRecords;
+      window.__APEX_NATIVE_FAKE__.plugins.HealthConnect.readRecords = async ({ type, start, end, origin }) => ({
+        records: orig().concat([{ type: 'HeartRateVariabilityRmssd', id: 'hrv-new', origin: 'com.ouraring.oura', time: t.getTime(), offset: null, value: 95 }])
+          .filter((r) => r.type === type && (r.time ?? r.start) >= start && (r.time ?? r.start) < end && (!origin || r.origin === origin)), pageToken: null });
+      window.__hcChanges = [{ seq: 1, op: 'upsert', type: 'HeartRateVariabilityRmssd', id: 'hrv-new', time: t.getTime(), offset: null }];
+    });
+    await page.evaluate(() => app.syncHealthConnect({ force: true }));
+    assert.equal(await page.evaluate(() => app.healthDays.at(-1).hrv), 85, 'a new reading changes only its day (average of the night)');
+    assert.deepEqual(await page.evaluate(() => window.__hcChanges), [], 'changes are acknowledged once stored');
+    step('Health Connect: changes from the token update only the days they touch and are acknowledged');
+
     // ------------------------------------------------------------------ exports, back key --
     await page.evaluate(() => { window.__takenFiles = ['ApexVelo/old.fit']; return app.downloadFile('old.fit', new Uint8Array([1, 2, 3]), 'application/octet-stream'); });
     await page.waitForFunction(() => __nativeLog.files.some((f) => f.path === 'ApexVelo/old_2.fit'));
