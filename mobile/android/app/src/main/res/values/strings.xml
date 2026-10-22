@@ -16,7 +16,7 @@
 <h3>What Apex Velo writes</h3>
 <p>Only rides you record in Apex Velo, if you switch that on: the session with its heart rate, power, cadence, speed, distance and calories.</p>
 <h3>Where the data goes</h3>
-<p>It stays on this phone, in the app's private storage. Apex Velo has no server and does not send health data anywhere. It is not used for advertising and is never sold. Rides you choose to send to Strava or intervals.icu are sent by you, ride by ride or with auto-upload you switch on.</p>
+<p>It stays on this phone, in the private storage of the app. Apex Velo has no server and does not send health data anywhere. It is not used for advertising and is never sold. Rides you choose to send to Strava or intervals.icu are sent by you, ride by ride or with auto-upload you switch on.</p>
 <p>You can change or remove each permission at any time in Health Connect, and disconnect in Apex Velo under Settings &gt; Health.</p>
 <p><a href="%1$s">Read the full privacy policy</a></p>
 ]]></string>
