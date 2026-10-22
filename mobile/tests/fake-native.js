@@ -237,11 +237,23 @@
   };
   window.__fireImport = (name, data) => Promise.all((importListeners[name] || []).map((cb) => cb(data)));
 
+  // ---------------------------------------------------------------- ApexRide --
+  // The native ride recorder runs in the test runner (tests/fake-ride-native.cjs through window.__rideNative),
+  // so it keeps recording while the test freezes the page. Without __rideNative the app has no ride plugin.
+  const rideListeners = {};
+  const ridePlugin = {};
+  for (const op of ['start', 'sample', 'setPaused', 'handBack', 'stop', 'recovery', 'discardRecovery', 'batteryStatus', 'openBatterySettings', 'askNotifications', 'visibility']) {
+    ridePlugin[op] = (args = {}) => window.__rideNative(op, args);
+  }
+  ridePlugin.addListener = (name, cb) => { (rideListeners[name] = rideListeners[name] || []).push(cb); return Promise.resolve({ remove() {} }); };
+  window.__fireRide = (name, data) => (rideListeners[name] || []).forEach((cb) => cb(data));
+
   window.__fireNative = (name, data) => Promise.all((listeners[name] || []).map((cb) => cb(data)));
   window.__APEX_NATIVE_FAKE__ = {
     ble, http, plugins, importPlugin,
     get sqlite() { return window.__noSqlite || !window.__sqlite ? undefined : sqlite; },
     backupFiles,
+    get ridePlugin() { return window.__rideNative ? ridePlugin : null; },
     get brokerUrl() { return window.__brokerUrl || ''; },
     prefs: { async get(k) { return prefsStore.has(k) ? prefsStore.get(k) : null; }, async set(k, v) { prefsStore.set(k, v); }, async remove(k) { prefsStore.delete(k); } }
   };
