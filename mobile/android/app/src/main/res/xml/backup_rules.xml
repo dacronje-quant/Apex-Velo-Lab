@@ -2,9 +2,13 @@
 <!-- Android 11 and older (android:fullBackupContent). Rides, profiles and settings ride along with
      Android Auto Backup; the Capacitor Preferences file holding sign-ins and API keys does not, nor do
      the database's recovery snapshots (files/backups), which would push the app past the 25 MB backup quota.
-     The watched import folder (apex_import.xml) is a permission granted on this phone only. -->
+     The watched import folder (apex_import.xml) is a permission granted on this phone only. The Health Connect
+     changes token and its pending list (apex_healthconnect.xml, files/healthconnect/) belong to this phone's
+     Health Connect: a restored install takes a fresh token and backfills. -->
 <full-backup-content>
     <exclude domain="sharedpref" path="CapacitorStorage.xml" />
     <exclude domain="file" path="backups/" />
     <exclude domain="sharedpref" path="apex_import.xml" />
+    <exclude domain="sharedpref" path="apex_healthconnect.xml" />
+    <exclude domain="file" path="healthconnect/" />
 </full-backup-content>

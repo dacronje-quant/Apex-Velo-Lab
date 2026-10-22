@@ -94,3 +94,14 @@
 .native-licence { margin: 6px 0; padding: 8px 10px; border: 1px solid var(--line, rgba(255, 255, 255, 0.08)); border-radius: 10px; }
 .native-licence summary { cursor: pointer; overflow-wrap: anywhere; }
 .native-licence pre { white-space: pre-wrap; overflow-wrap: anywhere; font-size: 12px; margin: 8px 0 0; }
+
+/* Settings > Health: Health Connect */
+.native-hc { margin-top: 1.5rem; border-top: 1px solid var(--border, rgba(255,255,255,.12)); padding-top: 1rem; }
+.native-hc-title { margin: 1rem 0 .4rem; }
+.native-hc-group { margin: .75rem 0; }
+.native-hc-types { list-style: none; padding: 0; margin: .35rem 0 .5rem; font-size: .9em; }
+.native-hc-types li { display: flex; gap: .5rem; padding: .15rem 0; opacity: .75; }
+.native-hc-types li.granted { opacity: 1; }
+.native-hc-mark { width: 1em; flex: none; text-align: center; font-weight: 700; }
+.native-hc-types li.granted .native-hc-mark { color: var(--success, #3fb950); }
+.native-hc-prefs { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: .4rem .75rem; align-items: center; }

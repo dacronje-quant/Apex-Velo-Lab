@@ -15,7 +15,8 @@ It is the same web app as the desktop version, wrapped with [Capacitor](https://
 | **Strava** | Connect your account and send rides (FIT upload): per ride, or automatically when a ride finishes. Upload only: the app never reads your Strava activities |
 | **Ride files** | Every ride recorded on the phone is also saved as a FIT file in **Documents/ApexVelo** (switch: Settings > Ride files), ready for any file manager, Garmin Connect, TrainingPeaks or intervals.icu. History > Export (FIT, TCX, CSV, full JSON backup) saves there too; the workout image opens the share sheet. FIT/TCX/CSV import works in History, and **History > Import history** takes many files or whole archives at once (.fit/.tcx/.gpx/.csv, .gz, .zip, a Garmin data export or Strava's "Download your data" zip), with a sport filter (all cycling incl. indoor/virtual by default), duplicate detection and a progress panel; rides from a Strava export are never uploaded back to Strava |
 | **Import folder and sharing** | Pick a folder in **Settings > Import** (a Dropbox or Drive folder, or where a Garmin, Wahoo or Karoo export lands) and new ride files there are imported when the app opens, when it comes back to the screen and once a day; or share .fit/.tcx/.gpx/.zip/.gz files to Apex Velo from Garmin Connect, Wahoo, Files or email. See [Import rides automatically](#import-rides-automatically) |
-| **Health** | Resting HR, HRV and sleep read from **intervals.icu** (your watch's wellness data there), for the readiness score, the calendar recovery strip and the recovery trends. One-time backfill of all history, then the last week is refreshed automatically |
+| **Health** | Resting HR, HRV and sleep read from **Health Connect** (Samsung Health, Fitbit, Google Fit, Garmin, Oura...) and/or **intervals.icu**, for the readiness score, the calendar recovery strip and the recovery trends. When both have a day, Settings > Health picks which comes first per value (Health Connect by default). One-time backfill of two years, then only changes |
+| **Health Connect rides** | Cycling sessions other apps write to Health Connect (Zwift, Samsung Health, Garmin...) join your history with their power, heart rate, cadence, speed and distance; duplicates of rides you already have are skipped (the copy with power is kept). Rides recorded in Apex Velo can be saved to Health Connect |
 | **Analytics** | History, calendar, PMC (fitness/fatigue/form), power curve, CP, FTP history, and **Health**: every intervals.icu wellness value over time (resting and sleeping HR, HRV rMSSD and SDNN with your normal range, sleep stages, sleep and readiness scores, Baevsky stress index, breathing, SpO2, weight, blood pressure, glucose) and how your next-morning HRV, resting HR and sleep answer the previous day's training |
 | **AI** | **Ask** (questions about your own training), the **AI coach** (sessions and multi-week plans) and ride **interval breakdowns**, with Claude, Gemini or ChatGPT and your own API key. Without a key the built-in offline coach is used |
 
@@ -24,7 +25,7 @@ It is the same web app as the desktop version, wrapped with [Capacitor](https://
 These need the PC server or another device, so they are switched off in the app:
 
 - **Phone remote view** (the app *is* the phone view now).
-- **Apple Health via Health Auto Export** (it sends to the PC). The app reads the same data from intervals.icu instead.
+- **Apple Health via Health Auto Export** (it sends to the PC). The app reads the same data from Health Connect or intervals.icu instead.
 - **PC backups** (Settings > Backups). Use **History > Export** for a full JSON backup instead.
 - Fullscreen button and keyboard shortcuts.
 
@@ -40,7 +41,7 @@ Known limits:
 2. Copy `app-debug.apk` to the phone and open it. Allow "install unknown apps" for your file manager or browser when Android asks.
 3. Open **Apex Velo**, set up your rider (FTP, weight, max HR), then **Devices > Pair device**. Android asks once for **Nearby devices** permission (Android 12+) or Location (Android 11 and older, needed for Bluetooth scanning there).
 
-Requirements: Android 7.0 (API 24) or newer with Bluetooth LE. Close Zwift, the Wahoo app and similar apps so they don't hold the trainer connection.
+Requirements: Android 7.0 (API 24) or newer with Bluetooth LE. Health Connect needs Android 9 or newer. Close Zwift, the Wahoo app and similar apps so they don't hold the trainer connection.
 
 Newer CI builds install over older ones and keep your data: every build is signed with the same debug key (`android/app/apex-debug.keystore`) and CI numbers the versions. The test APK shows up as **Apex Velo (dev)** (app id `com.apexvelo.lab.debug`) and installs next to the release/Play app (`com.apexvelo.lab`). With both installed, Android asks which app should finish a Strava sign-in; pick the one you signed in from.
 
@@ -85,6 +86,40 @@ The app reads your recovery data from intervals.icu, so it needs to be there alr
 Analytics > Health shows every wellness value intervals.icu has for you: `avgSleepingHR`, `hrv`, `hrvSDNN`, `sleepScore`, `readiness`, `baevskySI`, `respiration`, `spO2`, `weight`, `systolic`/`diastolic`, `bloodGlucose` and `kcalConsumed`, as well as the values below. Cards for values you don't have stay hidden.
 
 The readiness score uses resting HR (`restingHR`), HRV and sleep (`sleepSecs`, plus the stages from the custom numeric wellness fields `DeepSleep`, `LightSleep` and `REMSleep` in seconds, when your account has them; the iPhone wellness-sync apps write those codes). HRV is taken from one column for every day, so the baselines never mix two scales: **HRV used for readiness** in Settings > Health is Automatic (whichever most of your days have), overnight rMSSD (`hrv`) or Apple Watch SDNN (`hrvSDNN`). Changing it reads your history again. The app only reads; nothing is written to intervals.icu. The key is kept in the app's private Android storage, like the Strava and AI keys.
+
+## Connect Health Connect
+
+Health Connect is Android's shared store for health data: built into Android 14 and newer, an app from Google Play on Android 9 to 13. Apex Velo reads recovery data and rides from the apps that write there, and can save your rides to it.
+
+1. **Settings (gear) > Health**, under **Health Connect**. On Android 9-13 without it, press **Get Health Connect** (opens Play), then come back.
+2. Press **Allow** next to what you want; each data type is listed with what it is used for, and Health Connect lets you switch each one on or off:
+   - **Recovery data**: HRV (rMSSD), resting heart rate, sleep with its stages, weight, blood oxygen and breathing rate. Readiness, the calendar strip and Analytics > Health use them.
+   - **Rides from other apps**: exercise sessions, plus heart rate, power, speed, cadence and distance during cycling sessions. Only cycling (outdoor and indoor) is imported; heart rate outside rides is never read.
+   - **Save rides recorded here**: writes each ride recorded in Apex Velo as a session (stationary biking for trainer rides) with heart rate, power, cadence, speed, distance and calories. **Save each ride I record here** then sends new rides when they finish, through the same retry queue as Strava. Imported rides and rides that came from Health Connect are never written.
+3. The first sync reads the last two years (Health Connect asks for "past data" access for that), 30 days at a time; if the app is closed half-way it goes on where it stopped. After that only what changed is read, when the app opens and when you come back to it. There is no background job: if the app is not opened for about 30 days, Health Connect forgets the change position and the next start reads the two years again.
+
+**Both sources.** With intervals.icu set up too, each day keeps both copies (the phone database's `wellness_days` table, sources `icu` and `healthconnect`). **When intervals.icu and Health Connect both have a day** sets, for resting HR, HRV, sleep, weight, blood oxygen and breathing rate, which source comes first; the other fills days the first has nothing for. HRV is never mixed: Health Connect has overnight rMSSD, so if intervals.icu has Apple Watch SDNN, one kind is used for all days.
+
+**Duplicates.** A Health Connect ride is the same ride as one in your history when it starts within 60 s and lasts within 5 % of it (docs/ANDROID-CONTRACTS.md). The copy with power wins, then the one with more channels, then the longer one; the stored ride keeps its id, name and Strava link. A ride you recorded in Apex Velo is never replaced. Deleting a session in its own app removes its ride here at the next sync only when Health Connect was its only source; a ride that replaced a file copy, whose FIT file was also imported (and dropped as a duplicate), or that is linked to Strava stays, as the file or recorded ride it was.
+
+**Disconnect** removes all of Apex Velo's Health Connect permissions; days and rides already read stay. **Manage in Health Connect** opens Health Connect's page for the app.
+
+## Health Connect on Google Play (owner)
+
+Play reviews every app that asks for health permissions. Before the first release with Health Connect:
+
+1. **Health apps declaration** (Play Console > App content > Health apps): declare the app as a fitness / training app that reads and writes Health Connect data.
+2. **Health Connect permissions declaration** (Play Console > App content > Health Connect): list each permission in `android/app/src/main/AndroidManifest.xml` and why it is needed. Suggested wording, one line each:
+   - `READ_HEART_RATE_VARIABILITY`, `READ_RESTING_HEART_RATE`, `READ_SLEEP`: daily readiness score, calendar recovery strip and recovery trends.
+   - `READ_WEIGHT`, `READ_OXYGEN_SATURATION`, `READ_RESPIRATORY_RATE`: trends in Analytics > Health.
+   - `READ_EXERCISE`, `READ_HEART_RATE`, `READ_POWER`, `READ_SPEED`, `READ_DISTANCE`: import cycling rides recorded by other apps into the training history (training load, power curve, FTP). Cadence is covered by `READ_EXERCISE`.
+   - `WRITE_EXERCISE`, `WRITE_HEART_RATE`, `WRITE_POWER`, `WRITE_SPEED`, `WRITE_DISTANCE`, `WRITE_TOTAL_CALORIES_BURNED`: save rides recorded in the app to Health Connect, when the rider switches it on.
+   - `READ_HEALTH_DATA_HISTORY`: the one-time two-year backfill of the above (data older than 30 days).
+   Background reading (`READ_HEALTH_DATA_IN_BACKGROUND`) is not requested: the app reads only while it is open.
+   Attach a short screen recording of Settings > Health (allowing each group) and of a ride appearing in History, if Play asks for one.
+3. **Privacy policy**: host `mobile/PRIVACY.md` (or your own policy that covers the same) at a public URL, enter it in Play Console > App content > Privacy policy, and put the same URL in `privacy_policy_url` in `android/app/src/main/res/values/strings.xml`. That URL is linked from the screen Health Connect opens when the rider taps the privacy policy link (`HealthRationaleActivity`, registered for `androidx.health.ACTION_SHOW_PERMISSIONS_RATIONALE` on Android 13 and older and `VIEW_PERMISSION_USAGE` / `HEALTH_PERMISSIONS` on Android 14+).
+4. **Data safety form**: health and fitness data collected (read) and shared with no one; processed on the device only; not transferred off the device by the app; the rider can request deletion by uninstalling or disconnecting. Rides the rider chooses to upload to Strava or intervals.icu are sent at the rider's request (declare "Fitness info" as shared with the rider's consent if Play counts that).
+5. Only the permissions above are declared; adding a type later means updating the manifest, this list and the declaration together.
 
 ## Add an AI key
 
