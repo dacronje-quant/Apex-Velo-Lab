@@ -57,6 +57,12 @@
 
         </activity>
 
+        <!-- Riding with the screen off: holds the trainer / power meter / strap links and the ride notification -->
+        <service
+            android:name=".ride.RideService"
+            android:exported="false"
+            android:foregroundServiceType="connectedDevice" />
+
         <provider
             android:name="androidx.core.content.FileProvider"
             android:authorities="${applicationId}.fileprovider"
@@ -78,6 +84,11 @@
         android:usesPermissionFlags="neverForLocation"
         tools:targetApi="s" />
     <uses-permission android:name="android.permission.BLUETOOTH_CONNECT" />
+    <!-- Riding with the screen off (ride/RideService.kt): a connectedDevice foreground service with its
+         notification (POST_NOTIFICATIONS, declared below, is asked for at the first ride) and a partial wake lock for the 1 Hz recorder -->
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_CONNECTED_DEVICE" />
+    <uses-permission android:name="android.permission.WAKE_LOCK" />
     <uses-feature android:name="android.hardware.bluetooth_le" android:required="false" />
     <!-- Ride files in Documents/ApexVelo: Android 10 and older need storage permission; 11+ does not -->
     <uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE" android:maxSdkVersion="29" />

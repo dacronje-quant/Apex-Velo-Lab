@@ -213,7 +213,7 @@ export class NativeRide {
 
   /** Notification permission (Android 13+) and the one-time battery explanation, at the first ride. */
   async permissionsOnce() {
-    if (this.plugin.requestPermissions) await this.plugin.requestPermissions().catch(() => {});
+    if (this.plugin.askNotifications) await this.plugin.askNotifications().catch(() => {});
     const key = 'apex_ride_battery_asked';
     const doc = this.win.document;
     if (!this.plugin.batteryStatus || (this.prefs && await this.prefs.get(key))) return;

@@ -107,7 +107,7 @@ class FakeRideNative {
   async discardRecovery() { this.journal = null; return {}; }
   async batteryStatus() { return { ignoring: false }; }
   async openBatterySettings() { this.batterySettingsOpened = true; return {}; }
-  async requestPermissions() { return { notifications: 'granted' }; }
+  async askNotifications() { this.notificationsAsked = (this.notificationsAsked || 0) + 1; return {}; }
   addListener(name, cb) { (this.listeners[name] = this.listeners[name] || []).push(cb); return Promise.resolve({ remove() {} }); }
 }
 
