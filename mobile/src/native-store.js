@@ -14,7 +14,10 @@
  *     (src/native-snapshot.js), never as one string. There is no legacy folder or second copy.
  *   - Moving earlier data in is staged (migration_rides) so it survives the app being killed half-way
  *     (src/native-migrate.js drives it from the WebView storage); /migrate uses the same steps.
- *   - The two answers that carry every ride (GET /api/storage and /rides) come back as UTF-8 pieces.
+ *   - GET /api/storage answers the rides without samples (the app loads them per ride when a view needs
+ *     them) and with `sampleSummary` (js/velo-ride-summary.js), made when a ride is written, or later in the
+ *     background for rides saved before; the analytics across rides read that. GET /rides still answers
+ *     every ride with its samples. Both come back as UTF-8 pieces, one per ride.
  *   - What each snapshot holds is remembered in the snapshots table, so a restart does not read and verify
  *     every snapshot again (the PC does that once per server start; the phone would on every app start).
  *   - The workstream tables import_jobs, import_files, sync_ledger and wellness_days, with a small API.
@@ -27,7 +30,7 @@
 import { Sha256, writeGzipFile, hashGzipFile } from './native-snapshot.js';
 
 export const MAX_BYTES = 200 * 1024 * 1024;
-export const SCHEMA_VERSION = 1;
+export const SCHEMA_VERSION = 2; // 2: rides and migration_rides keep the ride's sample summary
 const own = (o, k) => Object.prototype.hasOwnProperty.call(o, k);
 export const settingKey = (k) => typeof k === 'string' && /^apex_[a-zA-Z0-9_:-]{1,180}$/.test(k) && !['apex_velo_history', 'apex_auto_backup', 'apex_sqlite_migration'].includes(k);
 const fail = (message, status = 400) => { throw Object.assign(new Error(message), { status }); };
@@ -88,6 +91,12 @@ const randomHex = (n) => hex(crypto.getRandomValues(new Uint8Array(n)));
 
 export const packSamples = async (samples) => toBase64(await gzip(encoder.encode(JSON.stringify(samples))));
 export const unpackSamples = async (text) => JSON.parse(decoder.decode(await gunzip(fromBase64(text))));
+/** A ride as the app holds it on the phone, without the summary the store adds (it is kept in its own column). */
+const withoutSummary = (ride) => {
+  if (!ride || typeof ride !== 'object' || !own(ride, 'sampleSummary')) return ride;
+  const { sampleSummary: _, ...rest } = ride;
+  return rest;
+};
 /** A rides row: the JSON with `samples: null` where the ride had its samples (so a read returns the same JSON), and the samples packed. */
 async function encodeRide(ride) {
   if (Array.isArray(ride.samples) && ride.samples.length) return { json: JSON.stringify({ ...ride, samples: null }), packed: await packSamples(ride.samples), count: ride.samples.length };
@@ -123,12 +132,12 @@ async function* jsonPieces(head, key, items, tail, onItem) {
 class Chunks { constructor(list) { this.list = list; } }
 
 const SCHEMA = `CREATE TABLE IF NOT EXISTS meta (key TEXT PRIMARY KEY, value TEXT NOT NULL);
-  CREATE TABLE IF NOT EXISTS rides (id TEXT PRIMARY KEY, json TEXT NOT NULL, position INTEGER NOT NULL, samples_gz TEXT, sample_count INTEGER NOT NULL DEFAULT 0);
+  CREATE TABLE IF NOT EXISTS rides (id TEXT PRIMARY KEY, json TEXT NOT NULL, position INTEGER NOT NULL, samples_gz TEXT, sample_count INTEGER NOT NULL DEFAULT 0, summary TEXT, summary_v INTEGER);
   CREATE TABLE IF NOT EXISTS settings (key TEXT PRIMARY KEY, value TEXT NOT NULL);
   CREATE TABLE IF NOT EXISTS db_settings (key TEXT PRIMARY KEY, json TEXT NOT NULL);
   CREATE TABLE IF NOT EXISTS operations (id TEXT PRIMARY KEY, result TEXT NOT NULL, at INTEGER NOT NULL);
   CREATE TABLE IF NOT EXISTS snapshots (name TEXT PRIMARY KEY, size INTEGER NOT NULL, mtime REAL NOT NULL, info TEXT NOT NULL);
-  CREATE TABLE IF NOT EXISTS migration_rides (id TEXT PRIMARY KEY, json TEXT NOT NULL, samples_gz TEXT, sample_count INTEGER NOT NULL DEFAULT 0, hash TEXT NOT NULL);
+  CREATE TABLE IF NOT EXISTS migration_rides (id TEXT PRIMARY KEY, json TEXT NOT NULL, samples_gz TEXT, sample_count INTEGER NOT NULL DEFAULT 0, hash TEXT NOT NULL, summary TEXT, summary_v INTEGER);
   CREATE TABLE IF NOT EXISTS import_jobs (id TEXT PRIMARY KEY, source TEXT, status TEXT, total INT, done INT, skipped INT, errors INT, created_at TEXT, updated_at TEXT, cursor TEXT);
   CREATE TABLE IF NOT EXISTS import_files (job_id TEXT, path TEXT, hash TEXT, ride_id TEXT, status TEXT, error TEXT, PRIMARY KEY(job_id, path));
   CREATE INDEX IF NOT EXISTS import_files_hash ON import_files(hash);
@@ -149,10 +158,12 @@ export class NativeStore {
   /**
    * Use `await NativeStore.open({ db, files })`. `dir` and `file` are only shown to the rider (the
    * state response carries them, as on the PC). `backupDelayMs` is the pause after a save before the
-   * automatic snapshot.
+   * automatic snapshot. `summarize(ride)` makes a ride's sample summary (VeloRideSummary.of, from the page)
+   * and `summaryVersion` is its version; without them rides are kept without summaries.
    */
-  constructor({ db, files, clock = () => new Date(), dir = 'app storage', file = 'apex.sqlite', backupDelayMs = 60000 } = {}) {
+  constructor({ db, files, clock = () => new Date(), dir = 'app storage', file = 'apex.sqlite', backupDelayMs = 60000, summarize = null, summaryVersion = 0 } = {}) {
     this.db = db; this.files = files; this.clock = clock; this.dir = dir; this.file = file; this.backupDelayMs = backupDelayMs;
+    this.summarize = summarize; this.summaryVersion = summaryVersion;
     this.backupDir = 'backups';
     this.snapshotCache = new Map();
     this.lastBackupError = null;
@@ -175,6 +186,12 @@ export class NativeStore {
       const version = Number((await d.all('PRAGMA user_version'))[0]?.user_version || 0);
       if (version > SCHEMA_VERSION) fail('This database needs a newer version of Apex. It has been left untouched.', 503);
       await d.exec(SCHEMA);
+      // Version 1 databases get the summary columns; their rides are summarized in the background.
+      for (const table of ['rides', 'migration_rides']) {
+        const columns = (await d.all(`PRAGMA table_info(${table})`)).map((c) => c.name);
+        if (!columns.includes('summary')) await d.exec(`ALTER TABLE ${table} ADD COLUMN summary TEXT`);
+        if (!columns.includes('summary_v')) await d.exec(`ALTER TABLE ${table} ADD COLUMN summary_v INTEGER`);
+      }
       await d.exec(`PRAGMA user_version=${SCHEMA_VERSION}`);
       if (!await this.meta('storeId')) await this.setMeta('storeId', crypto.randomUUID());
       // A snapshot the app was killed while writing never got its name: remove the leftover.
@@ -213,6 +230,27 @@ export class NativeStore {
   }
   async settings() { return Object.fromEntries((await this.db.all('SELECT key,value FROM settings ORDER BY key')).map((r) => [r.key, r.value])); }
   async dbSettings() { return (await this.db.all('SELECT json FROM db_settings ORDER BY key')).map((r) => JSON.parse(r.json)); }
+  /**
+   * Every ride in saved order as the app starts with it on the phone: without samples (loaded per ride when a
+   * view needs them), with `sampleSummary` for the analytics across rides when it has been made.
+   */
+  async *eachRideSummary() {
+    for (let offset = 0; ; offset += 200) {
+      const rows = await this.db.all('SELECT json, sample_count, summary, summary_v FROM rides ORDER BY position, id LIMIT 200 OFFSET ?', [offset]);
+      for (const row of rows) {
+        const ride = JSON.parse(row.json);
+        if (row.sample_count > 0 && ride.samples === null) delete ride.samples;
+        if (row.summary && row.summary_v === this.summaryVersion) ride.sampleSummary = JSON.parse(row.summary);
+        yield ride;
+      }
+      if (rows.length < 200) return;
+    }
+  }
+  /** The summary column of a ride with samples (JSON text or null), from `summarize`; a failure leaves it to the backfill. */
+  summaryOf(ride) {
+    if (!this.summarize || !(Array.isArray(ride.samples) && ride.samples.length)) return { summary: null, v: null };
+    try { const value = this.summarize(ride); return { summary: value ? JSON.stringify(value) : null, v: this.summaryVersion }; } catch { return { summary: null, v: null }; }
+  }
   async stateParts() {
     return { head: { ok: true, initialized: await this.initialized(), revision: await this.revision(), storeId: await this.meta('storeId'), dir: this.dir, file: this.file },
       tail: { settings: await this.settings(), dbSettings: await this.dbSettings(), migratedAt: await this.meta('migratedAt') || null } };
@@ -224,9 +262,52 @@ export class NativeStore {
       return row ? this.decodeRide(row) : null;
     });
   }
+  /** What GET /api/storage answers: the rides without samples (see eachRideSummary). */
   async state() {
     const { head, tail } = await this.stateParts();
-    return { ...head, rides: await this.rides(), ...tail };
+    const rides = [];
+    for await (const ride of this.eachRideSummary()) rides.push(ride);
+    return { ...head, rides, ...tail };
+  }
+
+  // -------------------------------------------------------- sample summaries --
+  /** Rides with samples whose summary is missing or older than summaryVersion: [id], up to `limit`. */
+  summariesNeeded(limit = 1000) {
+    return this.exclusive(async () => (!this.summarize ? [] : (await this.db.all('SELECT id FROM rides WHERE sample_count > 0 AND (summary_v IS NULL OR summary_v <> ?) ORDER BY position, id LIMIT ?',
+      [this.summaryVersion, limit])).map((r) => r.id)));
+  }
+  /** Makes and keeps one ride's summary (the background backfill); resolves to it, or null. Not a revision. */
+  summarizeRide(id) {
+    return this.exclusive(async () => {
+      const row = (await this.db.all('SELECT json, samples_gz FROM rides WHERE id=?', [String(id)]))[0];
+      if (!row || !this.summarize) return null;
+      const { summary, v } = this.summaryOf(await this.decodeRide(row));
+      await this.db.run('UPDATE rides SET summary=?, summary_v=? WHERE id=?', [summary, v ?? this.summaryVersion, String(id)]);
+      return summary ? JSON.parse(summary) : null;
+    });
+  }
+  /** The current summaries of these rides: { id: summary } (rides without one are left out). */
+  summaries(ids) {
+    return this.exclusive(async () => {
+      const out = {};
+      for (let i = 0; i < ids.length; i += 200) {
+        const part = ids.slice(i, i + 200).map(String);
+        for (const r of await this.db.all(`SELECT id, summary FROM rides WHERE summary_v=? AND summary IS NOT NULL AND id IN (${part.map(() => '?').join(',')})`, [this.summaryVersion, ...part])) out[r.id] = JSON.parse(r.summary);
+      }
+      return out;
+    });
+  }
+  /**
+   * The app's JSON backup (History > Export) with every ride's samples, as UTF-8 pieces: `head` and `tail` are
+   * the backup's other keys, before and after `history`. The app holds its rides without samples on the phone.
+   */
+  exportChunks(head, tail) {
+    return this.exclusive(async () => {
+      const list = [];
+      for await (const piece of jsonPieces(head, 'history', this.eachRide(), tail)) list.push(encoder.encode(piece));
+      list.push(encoder.encode('}'));
+      return list;
+    });
   }
 
   // ------------------------------------------------------------------ writes --
@@ -267,6 +348,7 @@ export class NativeStore {
     for (const s of list) await this.db.run('INSERT OR REPLACE INTO db_settings VALUES (?,?)', [s.key, JSON.stringify(s)]);
   }
   async applyRides(put, del = [], { exact = false, replace = false } = {}) {
+    put = Array.isArray(put) ? put.map(withoutSummary) : put;
     validateRides(put);
     if (!Array.isArray(del) || del.some((id) => !['number', 'string'].includes(typeof id))) fail('Invalid deleted IDs.');
     const d = this.db;
@@ -274,11 +356,13 @@ export class NativeStore {
     for (const id of del) await d.run('DELETE FROM rides WHERE id=?', [String(id)]);
     let position = Number((await d.all('SELECT COALESCE(MAX(position),-1) AS n FROM rides'))[0].n) + 1;
     for (const ride of put) {
-      const previous = (await d.all('SELECT position, samples_gz, sample_count FROM rides WHERE id=?', [String(ride.id)]))[0];
-      // A summary-only save keeps the stored samples (as the desktop store does), still packed.
+      const previous = (await d.all('SELECT position, samples_gz, sample_count, summary, summary_v FROM rides WHERE id=?', [String(ride.id)]))[0];
+      // A summary-only save keeps the stored samples (as the desktop store does), still packed, and their summary.
       const keep = !exact && !(ride.samples?.length) && previous?.sample_count > 0;
       const { json, packed, count } = keep ? { json: JSON.stringify({ ...ride, samples: null }), packed: previous.samples_gz, count: previous.sample_count } : await encodeRide(ride);
-      await d.run('INSERT OR REPLACE INTO rides VALUES (?,?,?,?,?)', [String(ride.id), json, previous ? previous.position : position++, packed, count]);
+      const { summary, v } = keep ? { summary: previous.summary, v: previous.summary_v } : this.summaryOf(ride);
+      await d.run('INSERT OR REPLACE INTO rides (id, json, position, samples_gz, sample_count, summary, summary_v) VALUES (?,?,?,?,?,?,?)',
+        [String(ride.id), json, previous ? previous.position : position++, packed, count, summary, v]);
     }
   }
   /** The desktop /migrate request: staged a few rides at a time, then committed as one change. */
@@ -297,11 +381,14 @@ export class NativeStore {
    * never needs more than one ride in memory. Nothing is visible until completeMigration commits.
    */
   async stageRides(rides) {
+    rides = Array.isArray(rides) ? rides.map(withoutSummary) : rides;
     validateRides(rides);
     await this.transaction(async () => {
       for (const ride of rides) {
         const id = String(ride.id), text = JSON.stringify(ride), { json, packed, count } = await encodeRide(ride);
-        await this.db.run('INSERT OR REPLACE INTO migration_rides VALUES (?,?,?,?,?)', [id, json, packed, count, await sha256(text)]);
+        const { summary, v } = this.summaryOf(ride);
+        await this.db.run('INSERT OR REPLACE INTO migration_rides (id, json, samples_gz, sample_count, hash, summary, summary_v) VALUES (?,?,?,?,?,?,?)',
+          [id, json, packed, count, await sha256(text), summary, v]);
         const row = (await this.db.all('SELECT json, samples_gz FROM migration_rides WHERE id=?', [id]))[0];
         if (JSON.stringify(await this.decodeRide(row)) !== text) fail('Migration verification failed.', 500);
       }
@@ -330,7 +417,7 @@ export class NativeStore {
       tail: { settings: input.settings, dbSettings: input.dbSettings || [], profiles: JSON.parse(input.settings.apex_velo_profiles || '[]') } }, 'migration');
     return this.mutate(input, async () => {
       await this.db.run('DELETE FROM rides');
-      for (const [position, id] of order.entries()) await this.db.run('INSERT INTO rides SELECT id, json, ?, samples_gz, sample_count FROM migration_rides WHERE id=?', [position, id]);
+      for (const [position, id] of order.entries()) await this.db.run('INSERT INTO rides (id, json, position, samples_gz, sample_count, summary, summary_v) SELECT id, json, ?, samples_gz, sample_count, summary, summary_v FROM migration_rides WHERE id=?', [position, id]);
       await this.applySettings(input.settings); await this.putDbSettings(input.dbSettings || []);
       await this.setMeta('initialized', 1); await this.setMeta('migratedAt', this.clock().toISOString());
       const same = Number((await this.db.all('SELECT COUNT(*) AS n FROM rides r JOIN migration_rides m ON m.id=r.id AND m.json=r.json AND m.samples_gz IS r.samples_gz AND m.sample_count=r.sample_count'))[0].n);
@@ -564,7 +651,7 @@ export class NativeStore {
   }
   async answer(pathname, method, bodyText) {
     if (method === 'GET') {
-      if (pathname === '/api/storage') { const { head, tail } = await this.stateParts(); return this.chunks(head, this.eachRide(), tail); }
+      if (pathname === '/api/storage') { const { head, tail } = await this.stateParts(); return this.chunks(head, this.eachRideSummary(), tail); }
       if (pathname === '/api/storage/rides') return this.chunks({ ok: true }, this.eachRide(), { revision: await this.revision() });
       if (pathname === '/api/storage/db-settings') return { ok: true, settings: await this.dbSettings(), revision: await this.revision() };
       if (pathname === '/api/storage/backups') return this.backups();
