@@ -103,7 +103,7 @@ class FakeRideNative {
 
   async stop() { this.active = false; this.journal = null; return {}; }
   /** At app start: an unfinished journal (an active ride whose page is gone is stopped first). */
-  async recovery() { this.active = false; return this.journal ? { ...this.journal } : {}; }
+  async recovery() { this.active = false; this.recovered = this.journal ? this.journal.samples.length : 0; return this.journal ? { ...this.journal } : {}; }
   async discardRecovery() { this.journal = null; return {}; }
   async batteryStatus() { return { ignoring: false }; }
   async openBatterySettings() { this.batterySettingsOpened = true; return {}; }

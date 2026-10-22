@@ -4,7 +4,8 @@
 // Strava sign-in and upload-only (ledger, auto-upload, offline retry queue), the on-phone AI engine (API key, Ask, coach),
 // intervals.icu health, bulk history import and the phone's SQLite store (node:sqlite stands in for the plugin), including
 // the move of earlier WebView data into it and the upload ledger in SQLite, and native import (watched folder, share
-// target, resuming a killed import) through a fake ApexImport plugin. Run `npm run build` first.
+// target, resuming a killed import) through a fake ApexImport plugin, and riding with the screen off (a frozen page,
+// the fake native recorder taking over and handing back, journal recovery). Run `npm run build` first.
 const { chromium } = require('playwright');
 const fs = require('node:fs');
 const os = require('node:os');
@@ -64,6 +65,106 @@ async function newContext(browser) {
     return route.fulfill({ body: fs.readFileSync(file), contentType: TYPES[path.extname(file)] || 'application/octet-stream' });
   });
   return context;
+}
+
+/**
+ * Riding with the screen off: the page is frozen (as Android pauses a WebView in the background) while the
+ * fake native recorder (tests/fake-ride-native.cjs, in this process) keeps recording and steering ERG; on
+ * resume the page takes the seconds back with none lost. Then the app is "killed" mid-ride and the next start
+ * offers the native journal through "Recover unfinished ride".
+ */
+async function rideServiceFlow(browser, errors) {
+  const { FakeRideNative } = require('./fake-ride-native.cjs');
+  const native = new FakeRideNative();
+  const ticker = setInterval(() => native.tick(), 1000);
+  const context = await newContext(browser);
+  await phoneStorage(context, 'ride');
+  await context.exposeFunction('__rideNative', (op, args) => native[op](args));
+  let page = await context.newPage();
+  page.on('pageerror', (e) => errors.push(e.message));
+  const cdp = await context.newCDPSession(page);
+  const times = () => page.evaluate(() => app.recordedSamples.map((s) => s.time));
+  const contiguous = (t) => t.every((x, i) => x === i + 1);
+  try {
+    await page.goto(`${ORIGIN}/index.html`);
+    await page.waitForFunction(() => window.app && window.ApexNative && ApexNative.ride);
+    await page.evaluate(() => { window.__pair = app.connectDevice('trainer'); });
+    await page.locator('.apex-ble-item', { hasText: 'KICKR CORE' }).click();
+    await page.waitForFunction(() => app.ble.isTrainerConnected(), null, { timeout: 15000 });
+    await page.evaluate(() => { window.__pairHr = app.connectDevice('hr'); });
+    await page.locator('.apex-ble-item', { hasText: 'TICKR' }).click();
+    await page.waitForFunction(() => app.ble.isHrConnected(), null, { timeout: 15000 });
+    await page.evaluate(() => {
+      app.currentWorkout = { id: 'screen-off', title: 'Screen off test', category: 'endurance', intervals: [
+        { name: 'Warmup', pctFtp: 50, duration: 10 }, { name: 'Steady', pctFtp: 75, duration: 300 }] };
+      app.resetWorkout(false); app.renderIntervalTrack(); app.updateHudTitles();
+      app.togglePlayPause();
+    });
+    await page.waitForFunction(() => app.recordedSamples.length >= 3, null, { timeout: 10000 });
+    assert.equal(native.active, true, 'the native recorder starts with the ride');
+    assert.equal(native.plan.trainer, 'AA:00:00:00:00:01', 'and taps the paired trainer');
+    assert.equal(native.plan.hr, 'AA:00:00:00:00:02');
+    assert.ok(native.journal.samples.length >= 2, 'page seconds reach the journal');
+    assert.ok(native.notificationsAsked >= 1, 'notification permission asked at the first ride');
+    await page.locator('#apexBatteryNote').waitFor();
+    await page.locator('#apexBatteryNote [data-bn="open"]').click();
+    assert.equal(native.batterySettingsOpened, true);
+    step('ride start: native recorder and journal started with the paired devices; notifications asked; the battery note shown once and opens the settings list');
+
+    const ftp = await page.evaluate(() => app.activeProfile.ftp);
+    const before = (await times()).length;
+    // The page's JavaScript stops as in a paused WebView (headless pages cannot be frozen through the
+    // web-lifecycle API, so the debugger halts the main thread instead).
+    await cdp.send('Debugger.enable');
+    await cdp.send('Debugger.pause');
+    await new Promise((r) => setTimeout(r, 11000));
+    assert.equal(native.owner, 'native', 'the native side took the ride over');
+    const targets = native.commands.filter((c) => c.op === 'target').map((c) => c.watts);
+    assert.ok(targets.includes(Math.round(ftp * 0.75)), `ERG moved to the next step while frozen (${targets})`);
+    const nativeSeconds = native.native.length;
+    assert.ok(nativeSeconds >= 6, `native seconds recorded while frozen (${nativeSeconds})`);
+    await cdp.send('Debugger.resume');
+    await cdp.send('Debugger.disable');
+    await page.waitForFunction(() => app.recordedSamples.some((s) => s.bg === 1) && ApexNative.ride.owner === 'js', null, { timeout: 10000 });
+    await page.waitForFunction((n) => app.recordedSamples.length > n, (await times()).length);
+    const t = await times();
+    assert.ok(contiguous(t), `one sample per second, none lost or doubled: ${t.join(',')}`);
+    assert.ok(t.length >= before + nativeSeconds);
+    assert.equal(await page.evaluate(() => app.intervalIndex), 1, 'the page continues on the step the native side reached');
+    assert.equal(native.owner, 'js', 'and owns the ride again');
+    step(`screen off: page frozen 11 s, ${nativeSeconds} s recorded natively with the ERG step change, merged back on resume with every second once`);
+
+    // The app is killed while in the background (page halted, the native side recording): the next start
+    // offers the journal, which has the seconds the page's own 5 s checkpoint never saw.
+    await cdp.send('Debugger.enable');
+    await cdp.send('Debugger.pause');
+    await new Promise((r) => setTimeout(r, 6000));
+    assert.equal(native.owner, 'native');
+    await page.close();
+    page = await context.newPage();
+    page.on('pageerror', (e) => errors.push(e.message));
+    await page.goto(`${ORIGIN}/index.html`);
+    await page.waitForFunction(() => window.app && window.ApexNative);
+    await page.locator('#interruptedRideRecovery').waitFor({ state: 'visible', timeout: 15000 });
+    const journalCount = native.recovered;
+    assert.equal(native.active, false, 'the orphaned native ride stopped when the new page asked for the journal');
+    const text = await page.locator('#interruptedRideText').textContent();
+    assert.ok(text.includes(`${journalCount} recorded samples`), `recovery offers the journal: ${text} (journal ${journalCount})`);
+    await page.locator('#btnRecoverInterruptedRide').click();
+    await page.waitForFunction((n) => app.recordedSamples.length === n, journalCount);
+    assert.ok(contiguous(await times()));
+    await page.evaluate(() => app.togglePlayPause());
+    await page.waitForFunction((n) => app.recordedSamples.length >= n + 2, journalCount);
+    assert.ok(native.journal.samples.length >= journalCount + 1, 'the resumed ride\'s journal starts with the recovered seconds');
+    await page.evaluate(() => app.finishWorkout(false));
+    await page.waitForFunction(() => app.completedWorkouts.some((r) => r.workoutId === 'screen-off'));
+    assert.equal(native.active, false);
+    assert.equal(native.journal, null, 'saving the ride clears the journal');
+    step(`app killed in the background: the next start offers the ${journalCount}-second journal as "Recover unfinished ride", the ride resumes and saves`);
+  } finally {
+    clearInterval(ticker);
+    await context.close();
+  }
 }
 
 /**
@@ -802,6 +903,7 @@ async function migrationFlow(browser, errors) {
     step('samples load per ride: the app starts summary-only, the power curve reads the summaries, FIT and JSON exports carry the samples, older rides get summaries in the background');
 
     await importFlow(browser, errors);
+    await rideServiceFlow(browser, errors);
 
     const unexpected = errors.filter((e) => !/ResizeObserver/.test(e));
     assert.deepEqual(unexpected, [], 'no uncaught page errors');
