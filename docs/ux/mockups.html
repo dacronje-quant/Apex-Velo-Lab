@@ -33,7 +33,7 @@
     .mx-top .mx-back { margin-left: -6px; }
     .mx-body { flex: 1; overflow-y: auto; overflow-x: hidden; padding: 4px 16px 24px; display: flex; flex-direction: column; gap: 12px; }
     .mx .card { padding: 16px; border-radius: 22px; }
-    .mx .btn { min-height: 44px; }
+    .mx .btn { min-height: 44px; min-width: 44px; justify-content: center; }
     .mx .icon-btn { width: 44px; height: 44px; flex: none; }
     .mx-big { min-height: 56px !important; font-size: 16px; font-weight: 700; width: 100%; justify-content: center; }
     .mx-tabbar { display: grid; grid-template-columns: repeat(5, 1fr); padding: 6px 6px calc(6px + env(safe-area-inset-bottom)); gap: 2px;
@@ -102,6 +102,35 @@
     .mx-cal i { display: block; width: 10px; height: 10px; border-radius: 50%; margin: 8px auto 0; }
     .mx-spark { height: 70px; border-radius: 12px; background: linear-gradient(180deg, rgba(124,200,255,.25), transparent);
       clip-path: polygon(0 70%, 10% 64%, 20% 60%, 30% 62%, 40% 50%, 50% 46%, 60% 48%, 70% 36%, 80% 30%, 90% 32%, 100% 24%, 100% 100%, 0 100%); }
+    .mx-lv-top { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+    .mx-zchip { height: 44px; padding: 0 14px; font-size: 13px; color: #fff; background: color-mix(in srgb, var(--zone-a) 26%, transparent); border-color: color-mix(in srgb, var(--zone-a) 50%, transparent); }
+    .mx-lv-clock { font: 500 22px var(--font-display); }
+    .mx-prog { height: 6px; border-radius: 6px; background: rgba(255,255,255,.08); overflow: hidden; }
+    .mx-prog i { display: block; height: 100%; background: linear-gradient(90deg, var(--zone-a), var(--zone-b)); }
+    .mx-hot b { color: #fff; text-shadow: 0 0 40px color-mix(in srgb, var(--zone-a) 70%, transparent); }
+    .mx-count { margin-top: 14px; display: flex; flex-direction: column; align-items: center; }
+    .mx-count span { font: 500 44px/1 var(--font-display); color: var(--zone-a); letter-spacing: -.03em; }
+    .mx-next { display: flex; align-items: center; gap: 10px; min-height: 56px; padding: 8px 14px; border-radius: 18px; background: var(--surface-2); border: 1px solid var(--line); }
+    .mx-next > div { flex: 1; } .mx-next b { display: block; } .mx-next small { color: var(--text-3); } .mx-next > span { color: var(--text-2); }
+    .mx-ramp { display: flex; align-items: flex-end; gap: 3px; height: 54px; }
+    .mx-ramp i { flex: 1; border-radius: 3px 3px 0 0; background: color-mix(in srgb, var(--zone-a) 45%, #333); }
+    .mx-ramp i.on { background: #fff; } .mx-ramp i.nx { background: rgba(255,255,255,.1); }
+    .mx-banner { display: flex; align-items: center; gap: 10px; min-height: 52px; padding: 8px 14px; border-radius: 16px; background: var(--cyan-soft); border: 1px solid rgba(124,200,255,.3); color: var(--text-1); font-size: 13px; }
+    .mx-banner > span { flex: 1; }
+    .mx-warn { background: var(--amber-soft); border-color: rgba(255,190,74,.4); }
+    .mx-spin { flex: none !important; width: 18px; height: 18px; border-radius: 50%; border: 2px solid rgba(255,190,74,.3); border-top-color: var(--amber); }
+    .mx-hrz { display: flex; gap: 4px; margin-top: 14px; justify-content: center; }
+    .mx-hrz i { width: 34px; height: 8px; border-radius: 6px; opacity: .3; } .mx-hrz i.on { opacity: 1; height: 12px; }
+    .mx-mgrid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; }
+    .mx-mgrid .kpi { padding: 10px; } .mx-mgrid .kpi-val { font-family: var(--font-display); font-weight: 500; font-size: 19px; }
+    body.mx-landscape .mx-phone { max-width: 852px; }
+    @media (min-width: 900px) { body.mx-landscape .mx-phone { height: 393px; } }
+    .mx-land { flex: 1; display: grid; grid-template-columns: 1fr 300px; gap: 14px; padding: 12px 16px; min-height: 0; }
+    .mx-land-main { display: flex; flex-direction: column; gap: 8px; min-height: 0; }
+    .mx-land-main .mx-power b { font-size: 110px; }
+    .mx-land-side { display: flex; flex-direction: column; gap: 10px; justify-content: space-between; }
+    .mx-land-ctrl { display: grid; grid-template-columns: 1fr 1.3fr 1fr 44px; gap: 6px; }
+    .mx-land-ctrl .btn { min-height: 56px; justify-content: center; padding: 0 8px; }
   </style>
 </head>
 <body class="mx">
@@ -168,6 +197,9 @@
   <div class="grp">Flows</div>
   <a href="#ride-devices">Devices sheet</a><a href="#ride-live">Riding</a><a href="#ride-more">Ride › More</a><a href="#history-detail">Ride detail</a>
   <a href="#progress-fitness">Progress › Fitness</a><a href="#you-connections">You › Connections</a><a href="#you-data">You › Data &amp; import</a>
+  <div class="grp">Live ride</div>
+  <a href="#live-vo2">a · VO2, end of step</a><a href="#live-recovery">b · Recovery step</a><a href="#live-ramp">c · Ramp test</a><a href="#live-free">d · Free ride, HR only</a>
+  <a href="#live-full">e · All metrics</a><a href="#live-landscape">f · Landscape</a><a href="#live-paused">g · Paused, reconnecting</a><a href="#live-summary">h · Ride summary</a>
   <div class="grp">First run</div>
   <a href="#ob-1">1 · Rider profile</a><a href="#ob-2">2 · Pair devices</a><a href="#ob-3">3 · Connect services</a>
 </nav>
@@ -235,6 +267,127 @@
       </div>
       <a class="btn btn-ghost mx-big" href="#ride-live">Back to ride</a>
     </div></div>
+  </section>
+
+  <!-- ===================== LIVE RIDE EXAMPLES (owner request) ===================== -->
+  <section class="mx-screen" id="live-vo2" data-tab="ride" data-notabs style="--zone-a:#f97316;--zone-b:#ef4444">
+    <div class="mx-live">
+      <div class="mx-lv-top"><span class="chip mx-zchip">VO2 4 / 5 · Zone 5</span><span class="mx-lv-clock num">31:48</span><a class="icon-btn" href="#live-full" aria-label="Ride options"><svg class="ic"><use href="#i-gear"/></svg></a></div>
+      <div class="mx-prog"><i style="width:95%"></i></div>
+      <div class="mx-power mx-hot"><div><small>Target 260 W</small><b class="num">263</b><small>W</small>
+        <div class="mx-count"><span class="num">0:12</span><small>left in this step</small></div></div></div>
+      <div class="mx-next"><span class="mx-dot" style="background:var(--z1)"></span><div><b>Next · Recovery 3:00</b><small>95 W · spin easy</small></div><span class="num">in 0:12</span></div>
+      <div class="mx-kpis"><div class="kpi"><span class="kpi-lbl">Heart rate</span><span class="kpi-val num">174</span></div><div class="kpi"><span class="kpi-lbl">Cadence</span><span class="kpi-val num">98</span></div><div class="kpi"><span class="kpi-lbl">W′ left</span><span class="kpi-val num">41%</span></div></div>
+      <div class="mx-ctrl"><a class="btn btn-stop" href="#live-summary">End</a><a class="btn btn-pause" href="#live-paused"><svg class="ic"><use href="#i-pause"/></svg>Pause</a><a class="btn" href="#live-recovery">Skip</a></div>
+    </div>
+  </section>
+
+  <section class="mx-screen" id="live-recovery" data-tab="ride" data-notabs style="--zone-a:#3b82f6;--zone-b:#7c8aa5">
+    <div class="mx-live">
+      <div class="mx-lv-top"><span class="chip mx-zchip">Recovery · Zone 1</span><span class="mx-lv-clock num">32:17</span><a class="icon-btn" href="#live-full" aria-label="Ride options"><svg class="ic"><use href="#i-gear"/></svg></a></div>
+      <div class="mx-prog"><i style="width:16%"></i></div>
+      <div class="mx-power"><div><small>Target 95 W</small><b class="num">98</b><small>W</small>
+        <div class="mx-count"><span class="num">2:31</span><small>of recovery left</small></div></div></div>
+      <div class="card" style="padding:12px 14px"><span class="eyebrow">Recover</span><p style="margin:2px 0 0">Spin easy and drink. HR is dropping: 174 → 138 bpm in 29 s.</p></div>
+      <div class="mx-next"><span class="mx-dot" style="background:var(--z5)"></span><div><b>Next · VO2 5 / 5 · 4:00</b><small>260 W · last one</small></div><span class="num">in 2:31</span></div>
+      <div class="mx-ctrl"><a class="btn btn-stop" href="#live-summary">End</a><a class="btn btn-pause" href="#live-paused"><svg class="ic"><use href="#i-pause"/></svg>Pause</a><a class="btn" href="#live-vo2">Skip</a></div>
+    </div>
+  </section>
+
+  <section class="mx-screen" id="live-ramp" data-tab="ride" data-notabs style="--zone-a:#ef4444;--zone-b:#a855f7">
+    <div class="mx-live">
+      <div class="mx-lv-top"><span class="chip mx-zchip">Ramp test · step 14</span><span class="mx-lv-clock num">18:38</span><a class="icon-btn" href="#live-full" aria-label="Ride options"><svg class="ic"><use href="#i-gear"/></svg></a></div>
+      <div class="mx-ramp"><i style="height:20%"></i><i style="height:25%"></i><i style="height:30%"></i><i style="height:35%"></i><i style="height:40%"></i><i style="height:45%"></i><i style="height:50%"></i><i style="height:55%"></i><i style="height:60%"></i><i style="height:65%"></i><i style="height:70%"></i><i style="height:75%"></i><i style="height:80%"></i><i class="on" style="height:85%"></i><i class="nx" style="height:90%"></i><i class="nx" style="height:95%"></i></div>
+      <div class="mx-power mx-hot"><div><small>Target 260 W · +20 W every minute</small><b class="num">261</b><small>W</small>
+        <div class="mx-count"><span class="num">0:22</span><small>until 280 W</small></div></div></div>
+      <div class="mx-kpis"><div class="kpi"><span class="kpi-lbl">Best 1 min</span><span class="kpi-val num">258</span></div><div class="kpi"><span class="kpi-lbl">FTP so far</span><span class="kpi-val num">194</span></div><div class="kpi"><span class="kpi-lbl">Heart rate</span><span class="kpi-val num">178</span></div></div>
+      <p class="mx-note" style="text-align:center">Keep going until you can't hold the target. Then tap <b>I'm done</b>.</p>
+      <div class="mx-ctrl" style="grid-template-columns:1fr 1.6fr"><a class="btn btn-pause" href="#live-paused"><svg class="ic"><use href="#i-pause"/></svg>Pause</a><a class="btn btn-stop" href="#live-summary" style="font-size:16px">I'm done</a></div>
+    </div>
+  </section>
+
+  <section class="mx-screen" id="live-free" data-tab="ride" data-notabs style="--zone-a:#3b82f6;--zone-b:#1fd1b2">
+    <div class="mx-live">
+      <div class="mx-lv-top"><span class="chip mx-zchip">Free ride · HR only</span><span class="mx-lv-clock num">42:05</span><a class="icon-btn" href="#live-full" aria-label="Ride options"><svg class="ic"><use href="#i-gear"/></svg></a></div>
+      <a class="mx-banner" href="#ride-devices"><svg class="ic"><use href="#i-bluetooth"/></svg><span>No power source. Connect pedals or a trainer for watts.</span><svg class="ic"><use href="#i-right"/></svg></a>
+      <div class="mx-power"><div><small>Heart rate</small><b class="num" style="color:var(--text-1)">142</b><small>bpm · Zone 2 · 76 % of max</small>
+        <div class="mx-hrz"><i style="background:var(--z1)"></i><i class="on" style="background:var(--z2)"></i><i style="background:var(--z3)"></i><i style="background:var(--z4)"></i><i style="background:var(--z5)"></i></div></div></div>
+      <div class="mx-kpis"><div class="kpi"><span class="kpi-lbl">Avg HR</span><span class="kpi-val num">138</span></div><div class="kpi"><span class="kpi-lbl">Max HR</span><span class="kpi-val num">156</span></div><div class="kpi"><span class="kpi-lbl">Calories</span><span class="kpi-val num">412</span></div></div>
+      <div class="mx-ctrl"><a class="btn btn-stop" href="#live-summary">End</a><a class="btn btn-pause" href="#live-paused"><svg class="ic"><use href="#i-pause"/></svg>Pause</a><a class="btn" href="#live-free">Lap</a></div>
+    </div>
+  </section>
+
+  <section class="mx-screen" id="live-full" data-tab="ride" data-notabs style="--zone-a:#f97316;--zone-b:#ef4444">
+    <header class="mx-top"><a class="icon-btn mx-back" href="#live-vo2" aria-label="Back to simple view"><svg class="ic"><use href="#i-left"/></svg></a><h2 style="font-size:19px">All metrics</h2><a class="btn btn-pause" href="#live-paused" style="min-height:44px"><svg class="ic"><use href="#i-pause"/></svg></a></header>
+    <div class="mx-body">
+      <div class="mx-next" style="margin:0"><span class="mx-dot" style="background:var(--z5)"></span><div><b>VO2 4 / 5 · 0:12 left</b><small>Next: Recovery 3:00 at 95 W</small></div><span class="num">31:48</span></div>
+      <div class="mx-mgrid">
+        <div class="kpi"><span class="kpi-lbl">Power 3 s</span><span class="kpi-val num">263</span></div><div class="kpi"><span class="kpi-lbl">Target</span><span class="kpi-val num">260</span></div><div class="kpi"><span class="kpi-lbl">Heart rate</span><span class="kpi-val num">174</span></div>
+        <div class="kpi"><span class="kpi-lbl">Cadence</span><span class="kpi-val num">98</span></div><div class="kpi"><span class="kpi-lbl">W′ balance</span><span class="kpi-val num">8.1 kJ</span></div><div class="kpi"><span class="kpi-lbl">L / R</span><span class="kpi-val num">49/51</span></div>
+        <div class="kpi"><span class="kpi-lbl">NP</span><span class="kpi-val num">204</span></div><div class="kpi"><span class="kpi-lbl">IF</span><span class="kpi-val num">1.10</span></div><div class="kpi"><span class="kpi-lbl">TSS</span><span class="kpi-val num">52</span></div>
+        <div class="kpi"><span class="kpi-lbl">Avg power</span><span class="kpi-val num">188</span></div><div class="kpi"><span class="kpi-lbl">kJ</span><span class="kpi-val num">358</span></div><div class="kpi"><span class="kpi-lbl">Remaining</span><span class="kpi-val num">23:12</span></div>
+      </div>
+      <div class="card" style="padding:12px"><span class="eyebrow">Live power &amp; HR</span><div class="mx-chart" style="margin-top:6px;height:100px"></div></div>
+      <div class="card" style="padding:12px"><span class="eyebrow">Workout</span>
+        <div class="mx-wo" style="height:40px"><i style="height:30%;background:var(--z1)"></i><i style="height:90%;background:var(--z5)"></i><i style="height:25%;background:var(--z1)"></i><i style="height:90%;background:var(--z5)"></i><i style="height:25%;background:var(--z1)"></i><i style="height:90%;background:var(--z5)"></i><i style="height:25%;background:var(--z1)"></i><i style="height:90%;background:var(--z5);outline:2px solid #fff"></i><i style="height:25%;background:var(--z1)"></i><i style="height:90%;background:var(--z5);opacity:.5"></i><i style="height:30%;background:var(--z1);opacity:.5"></i></div></div>
+      <div class="mx-label">Display</div>
+      <div class="mx-seg"><a href="#live-full">1 s</a><a class="on" href="#live-full">3 s</a><a href="#live-full">10 s</a><a href="#live-full">30 s</a></div>
+      <div class="card mx-list">
+        <div class="mx-row"><svg class="ic"><use href="#i-target"/></svg><div><b>Intensity</b><small>100 %</small></div><span class="btn-row"><a class="icon-btn" href="#live-full">−</a><a class="icon-btn" href="#live-full">+</a></span></div>
+        <div class="mx-row"><svg class="ic"><use href="#i-bolt"/></svg><div><b>Mode · ERG</b><small>ERG response: normal</small></div><svg class="ic"><use href="#i-right"/></svg></div>
+        <div class="mx-row"><svg class="ic"><use href="#i-volume"/></svg><div><b>Audio cues</b></div><span class="mx-switch"></span></div>
+      </div>
+      <a class="btn btn-ghost mx-big" href="#live-vo2">Back to simple view</a>
+    </div>
+  </section>
+
+  <section class="mx-screen" id="live-landscape" data-tab="ride" data-notabs data-landscape style="--zone-a:#f97316;--zone-b:#ef4444">
+    <div class="mx-land">
+      <div class="mx-land-main">
+        <div class="mx-lv-top"><span class="chip mx-zchip">VO2 4 / 5 · Zone 5</span><span class="mx-lv-clock num">31:48</span></div>
+        <div class="mx-prog"><i style="width:95%"></i></div>
+        <div class="mx-power mx-hot" style="flex-direction:row"><div style="display:flex;align-items:center;gap:28px"><div><small>Target 260 W</small><b class="num">263</b><small>W</small></div>
+          <div class="mx-count" style="margin:0"><span class="num">0:12</span><small>Next: Recovery 3:00 · 95 W</small></div></div></div>
+      </div>
+      <div class="mx-land-side">
+        <div class="mx-kpis" style="grid-template-columns:1fr 1fr"><div class="kpi"><span class="kpi-lbl">HR</span><span class="kpi-val num">174</span></div><div class="kpi"><span class="kpi-lbl">Cadence</span><span class="kpi-val num">98</span></div><div class="kpi"><span class="kpi-lbl">W′ left</span><span class="kpi-val num">41%</span></div><div class="kpi"><span class="kpi-lbl">Elapsed</span><span class="kpi-val num">31:48</span></div></div>
+        <div class="mx-land-ctrl"><a class="btn btn-stop" href="#live-summary">End</a><a class="btn btn-pause" href="#live-paused"><svg class="ic"><use href="#i-pause"/></svg>Pause</a><a class="btn" href="#live-recovery">Skip</a><a class="icon-btn" href="#live-full" aria-label="Ride options"><svg class="ic"><use href="#i-gear"/></svg></a></div>
+      </div>
+    </div>
+  </section>
+
+  <section class="mx-screen" id="live-paused" data-tab="ride" data-notabs style="--zone-a:#ffbe4a;--zone-b:#ff8a3d">
+    <div class="mx-live">
+      <div class="mx-lv-top"><span class="chip chip-amber" style="height:44px">Paused</span><span class="mx-lv-clock num">24:10</span><a class="icon-btn" href="#live-full" aria-label="Ride options"><svg class="ic"><use href="#i-gear"/></svg></a></div>
+      <div class="mx-banner mx-warn"><span class="mx-spin"></span><span><b>Power pedals lost</b><br>Reconnecting to ASSIOMA 31877… attempt 2. Pedal a turn to wake them.</span></div>
+      <div class="mx-power" style="opacity:.55"><div><small>Sweet spot 2 / 3 · paused at</small><b class="num">7:48</b><small>left in this step</small></div></div>
+      <div class="card mx-list">
+        <div class="mx-row"><svg class="ic"><use href="#i-bolt"/></svg><div><b>Trainer · KICKR SHIFT</b><small>Connected</small></div><span class="chip chip-lime">On</span></div>
+        <div class="mx-row"><svg class="ic"><use href="#i-crank"/></svg><div><b>Power pedals</b><small>Reconnecting…</small></div><span class="chip chip-amber">…</span></div>
+        <div class="mx-row"><svg class="ic"><use href="#i-heart"/></svg><div><b>Heart rate · Polar H10</b><small>Connected</small></div><span class="chip chip-lime">On</span></div>
+      </div>
+      <a class="btn btn-ghost" href="#live-vo2" style="justify-content:center">Resume with trainer power instead</a>
+      <div class="mx-ctrl" style="grid-template-columns:1fr 1.6fr"><a class="btn btn-stop" href="#live-summary">End ride</a><a class="btn btn-start" href="#live-vo2" style="font-size:16px"><svg class="ic"><use href="#i-play"/></svg>Resume</a></div>
+    </div>
+  </section>
+
+  <section class="mx-screen" id="live-summary" data-tab="ride" data-notabs>
+    <header class="mx-top"><h2>Nice ride!</h2></header>
+    <div class="mx-body">
+      <p class="mx-note" style="margin:-6px 0 0">VO2 5 × 4 · today 07:12 · completed 100 %</p>
+      <div class="mx-kpis"><div class="kpi"><span class="kpi-lbl">Time</span><span class="kpi-val num">55:02</span></div><div class="kpi"><span class="kpi-lbl">NP</span><span class="kpi-val num">198</span></div><div class="kpi"><span class="kpi-lbl">TSS</span><span class="kpi-val num">71</span></div>
+        <div class="kpi"><span class="kpi-lbl">Avg HR</span><span class="kpi-val num">151</span></div><div class="kpi"><span class="kpi-lbl">kJ</span><span class="kpi-val num">612</span></div><div class="kpi"><span class="kpi-lbl">Best 4 min</span><span class="kpi-val num">266</span></div></div>
+      <div class="card" style="padding:12px"><div class="mx-chart" style="height:80px"></div>
+        <p style="margin:8px 0 0"><span class="chip chip-xs chip-lime" style="margin:0 6px 0 0">PR</span>New 4-minute best: 266 W (+9 W).</p></div>
+      <div class="mx-field"><label>Name</label><input value="VO2 5 × 4"></div>
+      <div class="card mx-list">
+        <div class="mx-row"><span class="mx-dot" style="background:#fc4c02"></span><div><b>Send to Strava</b><small>Uploads when you save</small></div><span class="mx-switch"></span></div>
+        <div class="mx-row"><span class="mx-dot" style="background:var(--lime)"></span><div><b>Save to Health Connect</b><small>As a cycling session</small></div><span class="mx-switch"></span></div>
+        <div class="mx-row"><svg class="ic"><use href="#i-heart"/></svg><div><b>How did it feel?</b><small>Optional</small></div><span class="btn-row"><a class="btn btn-sm" href="#live-summary">Easy</a><a class="btn btn-sm" href="#live-summary">OK</a><a class="btn btn-sm" href="#live-summary">Hard</a></span></div>
+      </div>
+      <a class="btn btn-start mx-big" href="#history-detail"><svg class="ic"><use href="#i-save"/></svg>Save ride</a>
+      <a class="btn btn-ghost" href="#ride" style="justify-content:center;color:var(--rose)">Discard</a>
+    </div>
   </section>
 
   <!-- ===================== TRAIN ===================== -->
@@ -464,6 +617,7 @@
     if (el.dataset.under) { const u = document.getElementById(el.dataset.under); u.classList.add('on'); }
     el.classList.add('on');
     if (el.dataset.under) { el.style.cssText = 'position:absolute;inset:0;z-index:5'; }
+    document.body.classList.toggle('mx-landscape', el.hasAttribute('data-landscape'));
     document.getElementById('mxTabs').hidden = el.hasAttribute('data-notabs');
     document.querySelectorAll('.mx-tab').forEach(t => t.classList.toggle('on', t.dataset.t === el.dataset.tab));
     document.querySelectorAll('.mx-index a').forEach(a => a.classList.toggle('on', a.getAttribute('href') === '#' + el.id));
