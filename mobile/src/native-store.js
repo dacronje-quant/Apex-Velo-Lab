@@ -159,7 +159,8 @@ export class NativeStore {
    * Use `await NativeStore.open({ db, files })`. `dir` and `file` are only shown to the rider (the
    * state response carries them, as on the PC). `backupDelayMs` is the pause after a save before the
    * automatic snapshot. `summarize(ride)` makes a ride's sample summary (VeloRideSummary.of, from the page)
-   * and `summaryVersion` is its version; without them rides are kept without summaries.
+   * and `summaryVersion` is its version, or a function giving it (the page's scripts load after the store
+   * opens); without them rides are kept without summaries.
    */
   constructor({ db, files, clock = () => new Date(), dir = 'app storage', file = 'apex.sqlite', backupDelayMs = 60000, summarize = null, summaryVersion = 0 } = {}) {
     this.db = db; this.files = files; this.clock = clock; this.dir = dir; this.file = file; this.backupDelayMs = backupDelayMs;
@@ -169,6 +170,8 @@ export class NativeStore {
     this.lastBackupError = null;
     this.queue = Promise.resolve();
   }
+  get summaryVersion() { return this.versionOf(); }
+  set summaryVersion(v) { this.versionOf = typeof v === 'function' ? v : () => v; }
   static async open(options) {
     const store = new NativeStore(options);
     await store.init();

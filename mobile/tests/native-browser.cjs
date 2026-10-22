@@ -116,8 +116,14 @@ async function migrationFlow(browser, errors) {
   assert.doesNotMatch(row.json, /"hr"/, 'samples are stored compressed');
   assert.equal(phone.db.prepare("SELECT value FROM settings WHERE key='apex_erg_response'").get().value, 'steady');
   assert.ok(fs.readdirSync(phone.backups).some((n) => /^apex_.*\.json\.gz$/.test(n)), 'migration snapshot kept');
+  // The app starts summary-only: no samples in memory, a summary for the analytics; opening the ride loads its samples.
   const moved = await page.evaluate(() => app.completedWorkouts.find((r) => r.id === 'ride_before_update'));
-  assert.deepEqual(moved.samples, samples);
+  assert.equal(moved.samples, undefined);
+  assert.equal(moved.sampleSummary.n, 600, 'the summary was made during the move');
+  await page.evaluate(() => app.showRideSummary(app.completedWorkouts.find((r) => r.id === 'ride_before_update')));
+  await page.waitForFunction(() => document.getElementById('rideSummaryModal').classList.contains('open'));
+  assert.deepEqual(await page.evaluate(() => app.completedWorkouts.find((r) => r.id === 'ride_before_update').samples), samples, 'opening the ride loads its exact samples');
+  await page.evaluate(() => app.closeModal('rideSummaryModal'));
   assert.equal(phone.db.prepare('SELECT COUNT(*) AS n FROM rides').get().n, 6);
   const seen = await page.evaluate(() => window.__migrationSeen);
   assert.ok(seen.some((t) => /Moving your rides into the phone database/.test(t) && /Don't close the app/.test(t)), 'the rider is told to keep the app open');
@@ -546,6 +552,33 @@ async function migrationFlow(browser, errors) {
     assert.equal(await page.evaluate(() => app.healthDays.length), 30);
     assert.equal(await page.evaluate(() => !!document.querySelector('#anaPinnedGrid #anaCardHealthHr')), true, 'pins are kept');
     step('after an app restart the ride, its Strava link, the health days and the pinned chart are still there');
+
+    // ------------------------------------------------------------- samples per ride --
+    const lazy = await page.evaluate((id) => { const r = app.completedWorkouts.find((x) => x.id === id); return { samples: r.samples, n: VeloRideSummary.count(r), summary: !!VeloRideSummary.get(r) }; }, rideId);
+    assert.equal(lazy.samples, undefined, 'the app starts without samples in memory');
+    assert.ok(lazy.summary && lazy.n >= 65, 'the ride has its summary');
+    assert.ok(await page.evaluate((id) => app.powerEntries().some((e) => e.id === id), rideId), 'the power curve uses the summary');
+    assert.match(await page.locator(`#historyTableBody tr[data-id="${rideId}"]`).innerText().catch(() => '1 Hz'), /1 Hz/);
+    const filesBefore = await page.evaluate(() => __nativeLog.files.length);
+    await page.evaluate((id) => app.exportFitForRide(id), rideId);
+    await page.waitForFunction((n) => __nativeLog.files.length > n, filesBefore);
+    const fit = Buffer.from(await page.evaluate(() => __nativeLog.files.at(-1).data), 'base64');
+    assert.ok(fit.length > 65 * 10, `the FIT export has the ride's trackpoints (${fit.length} bytes)`);
+    await page.evaluate(() => app.exportJson());
+    await page.waitForFunction(() => /apex_velo_backup_.*\.json$/.test(__nativeLog.files.at(-1).path));
+    const backup = JSON.parse(Buffer.from(await page.evaluate(() => __nativeLog.files.at(-1).data), 'base64').toString('utf8'));
+    const inBackup = backup.history.find((r) => r.id === rideId);
+    assert.ok(inBackup && inBackup.samples.length >= 65, 'the JSON backup carries the samples');
+    assert.equal(inBackup.sampleSummary, undefined, 'and not the phone-only summary');
+    assert.ok(backup.profiles.length && backup.settings, 'with profiles and settings');
+    // A ride saved before summaries existed gets one in the background after the start.
+    phone.db.prepare('UPDATE rides SET summary=NULL, summary_v=NULL').run();
+    await page.reload();
+    await page.waitForFunction(() => window.app && app.completedWorkouts);
+    assert.equal(await page.evaluate((id) => !!app.completedWorkouts.find((r) => r.id === id).sampleSummary, rideId), false);
+    await page.waitForFunction((id) => !!VeloRideSummary.get(app.completedWorkouts.find((r) => r.id === id)), rideId, { timeout: 15000 });
+    assert.equal(phone.db.prepare('SELECT COUNT(*) AS n FROM rides WHERE sample_count > 0 AND summary IS NULL').get().n, 0);
+    step('samples load per ride: the app starts summary-only, the power curve reads the summaries, FIT and JSON exports carry the samples, older rides get summaries in the background');
 
     const unexpected = errors.filter((e) => !/ResizeObserver/.test(e));
     assert.deepEqual(unexpected, [], 'no uncaught page errors');
