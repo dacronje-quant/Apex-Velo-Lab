@@ -1,6 +1,8 @@
 import groovy.json.JsonSlurper
+import org.jetbrains.kotlin.gradle.dsl.JvmTarget
 
 apply plugin: 'com.android.application'
+apply plugin: 'kotlin-android'
 
 // versionName comes from mobile/package.json, versionCode is 1000 + the CI run number (1000 for local builds),
 // so every CI build installs over the previous one and Play accepts each upload. The 1000 offset keeps codes
@@ -68,6 +70,10 @@ android {
     }
 }
 
+kotlin {
+    compilerOptions { jvmTarget = JvmTarget.JVM_21 }
+}
+
 repositories {
     flatDir{
         dirs '../capacitor-cordova-android-plugins/src/main/libs', 'libs'
@@ -80,7 +86,12 @@ dependencies {
     implementation "androidx.coordinatorlayout:coordinatorlayout:$androidxCoordinatorLayoutVersion"
     implementation "androidx.core:core-splashscreen:$coreSplashScreenVersion"
     implementation project(':capacitor-android')
+    // Health Connect (src/main/java/com/apexvelo/lab/plugins/HealthConnect*.kt) and its daily background sync
+    implementation "androidx.health.connect:connect-client:$healthConnectVersion"
+    implementation "androidx.work:work-runtime-ktx:$workVersion"
+    implementation "org.jetbrains.kotlinx:kotlinx-coroutines-android:$coroutinesVersion"
     testImplementation "junit:junit:$junitVersion"
+    testImplementation 'org.json:json:20240303' // the real org.json for JVM tests (android.jar only has stubs)
     androidTestImplementation "androidx.test.ext:junit:$androidxJunitVersion"
     androidTestImplementation "androidx.test.espresso:espresso-core:$androidxEspressoCoreVersion"
     implementation project(':capacitor-cordova-android-plugins')
