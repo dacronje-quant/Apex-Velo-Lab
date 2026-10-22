@@ -1,9 +1,10 @@
 /**
  * Entry point of the Android layer, bundled to www/mobile/apex-native.js and loaded first in <head>.
  * In a plain browser it does nothing, so the same www/ folder still opens on a PC.
- * Browser tests set window.__APEX_NATIVE_FAKE__ = { ble, http, aiHttp, prefs, plugins, sqlite, backupFiles, importPlugin, ridePlugin } before
+ * Browser tests set window.__APEX_NATIVE_FAKE__ = { ble, http, aiHttp, prefs, plugins, sqlite, backupFiles, importPlugin, ridePlugin, brokerUrl } before
  * this runs (`sqlite` is a native-store db driver; without it the app keeps the WebView storage; plugins.HealthConnect
- * is the Health Connect plugin, left out when the test has none).
+ * is the Health Connect plugin, left out when the test has none; `brokerUrl` replaces the build's token broker, so
+ * tests do not depend on how the app was built).
  */
 import { Capacitor, CapacitorHttp, registerPlugin } from '@capacitor/core';
 import { BleClient } from '@capacitor-community/bluetooth-le';
@@ -16,6 +17,7 @@ import { KeepAwake } from '@capacitor-community/keep-awake';
 import { CapacitorSQLite, SQLiteConnection } from '@capacitor-community/sqlite';
 import { installNativeBluetooth } from './native-ble.js';
 import { NativeStrava, StravaDestination } from './native-strava.js';
+import { BROKER_URL } from './app-config.js';
 import { PrefsSyncLedger, UploadQueue } from './native-outbox.js';
 import { NativeAi } from './native-ai.js';
 import { NativeIcu } from './native-icu.js';
@@ -36,7 +38,8 @@ if (fake || Capacitor.isNativePlatform()) {
     remove: (key) => Preferences.remove({ key })
   };
   const bluetooth = installNativeBluetooth((fake && fake.ble) || BleClient);
-  const strava = new NativeStrava({ http: (fake && fake.http) || CapacitorHttp, prefs, openUrl: (url) => plugins.Browser.open({ url }) });
+  // One-tap Strava sign-in through the token broker when this build has one (src/app-config.js).
+  const strava = new NativeStrava({ http: (fake && fake.http) || CapacitorHttp, prefs, openUrl: (url) => plugins.Browser.open({ url }), brokerUrl: fake ? fake.brokerUrl || '' : BROKER_URL });
   const ai = new NativeAi({ http: (fake && (fake.aiHttp || fake.http)) || CapacitorHttp, prefs, ...(fake && fake.aiBases ? { bases: fake.aiBases } : {}) });
   const icu = new NativeIcu({ http: (fake && fake.http) || CapacitorHttp, prefs });
   // Saved data: SQLite in the app's private storage, opened once; a failure is reported by every

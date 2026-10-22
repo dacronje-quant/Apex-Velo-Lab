@@ -75,7 +75,12 @@
       log.http.push(opts);
       const u = new URL(opts.url);
       const ok = (data, headers = {}) => ({ status: 200, headers: { 'Content-Type': 'application/json', ...headers }, data });
-      if (u.pathname === '/oauth/token') {
+      // The token broker (window.__brokerUrl): it adds the secret, so the phone must never send one.
+      if (u.host === 'broker.test') {
+        if (JSON.stringify(opts.data || {}).includes('client_secret')) throw new Error('client secret sent to the broker');
+        if (u.pathname === '/strava/config') return ok({ clientId: '777' });
+      }
+      if (u.pathname === '/oauth/token' || (u.host === 'broker.test' && u.pathname === '/strava/token')) {
         if (opts.data.grant_type === 'authorization_code' && opts.data.code === 'good-code') return ok({ access_token: 'acc1', refresh_token: 'ref1', expires_at: Math.floor(Date.now() / 1000) + 3600, athlete: { id: 7, firstname: 'Test', lastname: 'Rider' } });
         if (opts.data.grant_type === 'refresh_token') return ok({ access_token: 'acc2', refresh_token: 'ref2', expires_at: Math.floor(Date.now() / 1000) + 3600 });
         return { status: 400, headers: {}, data: { message: 'Bad Request' } };
@@ -249,6 +254,7 @@
     get sqlite() { return window.__noSqlite || !window.__sqlite ? undefined : sqlite; },
     backupFiles,
     get ridePlugin() { return window.__rideNative ? ridePlugin : null; },
+    get brokerUrl() { return window.__brokerUrl || ''; },
     prefs: { async get(k) { return prefsStore.has(k) ? prefsStore.get(k) : null; }, async set(k, v) { prefsStore.set(k, v); }, async remove(k) { prefsStore.delete(k); } }
   };
 })();
