@@ -1,10 +1,10 @@
 /**
  * Entry point of the Android layer, bundled to www/mobile/apex-native.js and loaded first in <head>.
  * In a plain browser it does nothing, so the same www/ folder still opens on a PC.
- * Browser tests set window.__APEX_NATIVE_FAKE__ = { ble, http, aiHttp, prefs, plugins, sqlite, backupFiles } before
+ * Browser tests set window.__APEX_NATIVE_FAKE__ = { ble, http, aiHttp, prefs, plugins, sqlite, backupFiles, importPlugin } before
  * this runs (`sqlite` is a native-store db driver; without it the app keeps the WebView storage).
  */
-import { Capacitor, CapacitorHttp } from '@capacitor/core';
+import { Capacitor, CapacitorHttp, registerPlugin } from '@capacitor/core';
 import { BleClient } from '@capacitor-community/bluetooth-le';
 import { App } from '@capacitor/app';
 import { Browser } from '@capacitor/browser';
@@ -22,6 +22,7 @@ import { bootNativeApp } from './native-app.js';
 import { NativeStore, openingLedger } from './native-store.js';
 import { openCapacitorDatabase, filesystemFiles } from './native-sqlite.js';
 import { WebViewMigration, webViewSource } from './native-migrate.js';
+import { NativeImport, SqliteImportJobs, installNativeImportUi } from './native-import.js';
 
 const fake = window.__APEX_NATIVE_FAKE__;
 if (fake || Capacitor.isNativePlatform()) {
@@ -73,6 +74,12 @@ if (fake || Capacitor.isNativePlatform()) {
     },
     buildFit: (ride) => window.VeloExport.buildFit(ride, ride.samples)
   });
-  window.ApexNative = { bluetooth, store, strava, ai, icu, uploads, platform: fake ? 'test' : Capacitor.getPlatform() };
+  // Ride import from Android: watched folder, share target, streamed reads of content URIs (ApexImportPlugin.kt).
+  // Import jobs are logged in the phone database's import_jobs / import_files tables when it is open.
+  const importPlugin = fake ? fake.importPlugin : registerPlugin('ApexImport');
+  const nativeImport = importPlugin ? new NativeImport({ plugin: importPlugin, store, getApp: () => window.app }) : null;
+  const importJobs = store ? new SqliteImportJobs(store, () => new window.VeloImportJobs()) : null;
+  window.ApexNative = { bluetooth, store, strava, ai, icu, uploads, nativeImport, platform: fake ? 'test' : Capacitor.getPlatform() };
   bootNativeApp({ bluetooth, storage, strava, ai, icu, uploads, plugins });
+  installNativeImportUi({ nativeImport, jobs: importJobs, App: plugins.App });
 }

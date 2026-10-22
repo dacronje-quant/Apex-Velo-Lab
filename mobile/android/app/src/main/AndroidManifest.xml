@@ -35,6 +35,26 @@
                 <data android:scheme="apexvelo" android:host="localhost" />
             </intent-filter>
 
+            <!-- Share target: ride files shared from Garmin Connect, Wahoo, Files or email are imported.
+                 A share carries its file outside the intent data, so the extension is checked in
+                 ApexImportPlugin (octet-stream is taken only for .fit/.tcx/.gpx/.zip/.gz names). -->
+            <intent-filter>
+                <action android:name="android.intent.action.SEND" />
+                <action android:name="android.intent.action.SEND_MULTIPLE" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <data android:mimeType="application/vnd.ant.fit" />
+                <data android:mimeType="application/fit" />
+                <data android:mimeType="application/x-fit" />
+                <data android:mimeType="application/gpx+xml" />
+                <data android:mimeType="application/vnd.garmin.tcx+xml" />
+                <data android:mimeType="application/tcx+xml" />
+                <data android:mimeType="application/zip" />
+                <data android:mimeType="application/x-zip-compressed" />
+                <data android:mimeType="application/gzip" />
+                <data android:mimeType="application/x-gzip" />
+                <data android:mimeType="application/octet-stream" />
+            </intent-filter>
+
         </activity>
 
         <provider
@@ -66,4 +86,6 @@
          without encryption and never asks for a fingerprint, so these merged permissions are removed. -->
     <uses-permission android:name="android.permission.USE_BIOMETRIC" tools:node="remove" />
     <uses-permission android:name="android.permission.USE_FINGERPRINT" tools:node="remove" />
+    <!-- Android 13+: the daily watched-folder check says when new rides are waiting (asked when a folder is picked) -->
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
 </manifest>

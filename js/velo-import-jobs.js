@@ -27,10 +27,11 @@ class VeloImportJobs {
     try { if (this.store) this.store.setItem(key, JSON.stringify(value)); return true; } catch (e) { return false; } // quota: the log is best-effort
   }
 
-  async create({ source = 'files', total = 0 } = {}) {
+  async create({ source = 'files', total = 0, cursor = null } = {}) {
     const now = new Date().toISOString();
     const id = `job_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 6)}`;
-    const job = { id, source, status: 'running', total, done: 0, skipped: 0, errors: 0, created_at: now, updated_at: now, cursor: null };
+    const job = { id, source, status: 'running', total, done: 0, skipped: 0, errors: 0, created_at: now, updated_at: now,
+      cursor: cursor === null || typeof cursor === 'string' ? cursor : JSON.stringify(cursor) };
     this._set(`apex_import_job_${id}`, job);
     const ids = this._get('apex_import_jobs', []).concat(id);
     for (const old of ids.splice(0, Math.max(0, ids.length - VeloImportJobs.KEEP))) {

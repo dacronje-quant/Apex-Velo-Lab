@@ -357,3 +357,24 @@ test('import job adapter: rows shaped like import_jobs / import_files in apex_im
   assert.ok([...mem.keys()].every(k => k.startsWith('apex_import_')));
   assert.equal([...mem.keys()].filter(k => k.startsWith('apex_import_files_')).length, 0, 'files of dropped jobs are removed');
 });
+
+test('import job adapter: a job can start with a cursor (the phone keeps which kind of source it read)', async () => {
+  const mem = new Map();
+  const jobs = new Jobs({ getItem: (k) => mem.get(k) ?? null, setItem: (k, v) => mem.set(k, String(v)), removeItem: (k) => mem.delete(k) });
+  assert.deepEqual(JSON.parse((await jobs.create({ source: 'a.zip', cursor: { native: 'share' } })).cursor), { native: 'share' });
+  assert.equal((await jobs.create({ source: 'b.zip' })).cursor, null);
+});
+
+test('File-like sources ({ name, size, stream() }, as Android content URIs arrive) stream like Files', async () => {
+  const bytes = fs.readFileSync(path.join(dir, 'strava-export.zip'));
+  let pulls = 0;
+  const source = { name: 'strava-export.zip', size: bytes.length, stream: () => new ReadableStream({
+    start() { this.at = 0; },
+    pull(ctrl) { pulls++; const chunk = bytes.subarray(this.at, this.at + 1024); this.at += chunk.length; if (chunk.length) ctrl.enqueue(new Uint8Array(chunk)); if (this.at >= bytes.length) ctrl.close(); }
+  }, { highWaterMark: 1 }) };
+  const fromFile = await runAll([fixture('strava-export.zip')], { mode: 'all' });
+  const fromSource = await runAll([source], { mode: 'all' });
+  assert.ok(pulls > 2, 'read in pieces');
+  assert.deepEqual(fromSource.counts, fromFile.counts);
+  assert.deepEqual(fromSource.rides.map(r => [r.fileHash, r.importPath]), fromFile.rides.map(r => [r.fileHash, r.importPath]));
+});
