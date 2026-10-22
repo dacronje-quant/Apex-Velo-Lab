@@ -357,6 +357,16 @@ function lazySamples(P, storage, win) {
     }
     return result;
   };
+  // Bulk import (js/app-bulk-import.js) drops each saved batch's samples from memory and puts them all back
+  // for one analytics refresh at the end; on the phone the analytics read the rides' summaries instead.
+  if (P.restoreBulkSamples) {
+    P.restoreBulkSamples = async function (rides) {
+      const want = (rides || []).filter((r) => !hasSamples(r) && !summary().get(r));
+      if (!want.length) return;
+      const got = await storage.summaries(want.map((r) => r.id)).catch(() => ({}));
+      for (const r of want) if (got[r.id]) r.sampleSummary = got[r.id];
+    };
+  }
   P.backfillRideSummaries = async function () {
     if (this._summaryBackfill) return this._summaryBackfill;
     const run = async () => {

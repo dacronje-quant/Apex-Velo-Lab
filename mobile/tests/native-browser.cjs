@@ -568,8 +568,10 @@ async function migrationFlow(browser, errors) {
       assert.ok(row && row.sample_count >= 60, `imported ride ${id} and its samples are in the phone's SQLite`);
       assert.equal(JSON.parse(row.json).origin, 'strava');
     }
-    assert.ok(await page.evaluate(() => app.completedWorkouts.filter((r) => r.source?.startsWith('import:')).every((r) => r.samples?.length >= 60)),
-      'samples are back in memory for the analytics after the batch commits');
+    assert.ok(await page.evaluate(() => app.completedWorkouts.filter((r) => r.source?.startsWith('import:')).every((r) => !r.samples && VeloRideSummary.count(r) >= 60)),
+      'after the batch commits the samples leave memory and the analytics read the summaries the phone database made');
+    assert.ok(await page.evaluate(() => app.completedWorkouts.filter((r) => r.source?.startsWith('import:') && r.avgWatts > 0).every((r) => app.powerEntries().some((e) => e.id === r.id))),
+      'the imported rides are on the power curve');
     assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth + 1), true, 'import panel fits the phone');
     // A Garmin export saved one ride per batch: each batch lands in SQLite and its samples leave memory until the end.
     const garminZip = [...fs.readFileSync(path.resolve(__dirname, '..', '..', 'tests', 'fixtures', 'bulk-import', 'garmin-export.zip'))];
@@ -579,10 +581,10 @@ async function migrationFlow(browser, errors) {
       return r;
     }, garminZip);
     assert.deepEqual([garmin.imported, garmin.duplicates, garmin.errors, garmin.error], [1, 2, 1, null], JSON.stringify(garmin));
-    const edge = await page.evaluate(() => app.completedWorkouts.find((r) => r.origin === 'garmin'));
-    assert.ok(edge && edge.samples.length >= 60 && edge.avgWatts > 0, 'the Garmin copy with power, samples restored');
+    const edge = await page.evaluate(() => { const r = app.completedWorkouts.find((x) => x.origin === 'garmin'); return r && { ...r, count: VeloRideSummary.count(r) }; });
+    assert.ok(edge && !edge.samples && edge.count >= 60 && edge.avgWatts > 0, 'the Garmin copy with power, its summary in memory instead of its samples');
     assert.ok(phone.db.prepare('SELECT sample_count FROM rides WHERE id=?').get(edge.id).sample_count >= 60, 'batch-saved ride and samples in SQLite');
-    step('Import history: a Strava export zip parsed in a worker on the phone, sport filter applied, ride names restored; a Garmin export saved in batches to the phone\'s SQLite');
+    step('Import history: a Strava export zip parsed in a worker on the phone, sport filter applied, ride names restored; a Garmin export saved in batches to the phone\'s SQLite, the analytics reading their summaries');
 
     // -------------------------------------------------------------------- persistence --
     await page.reload();
