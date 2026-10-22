@@ -2,12 +2,12 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { NativeStrava, ByoExchanger, BrokerExchanger, StravaDestination, UploadError, convertUpload } from '../src/native-strava.js';
 
-function setup({ now = 1_800_000_000_000, exchanger } = {}) {
-  const store = new Map(), requests = [], opened = [];
+function setup({ now = 1_800_000_000_000, exchanger, brokerUrl, prefs: initial = {} } = {}) {
+  const store = new Map(Object.entries(initial)), requests = [], opened = [];
   const replies = [];
   const http = { async request(o) { requests.push(o); const r = replies.shift(); if (!r) throw new Error('unexpected request ' + o.url); return typeof r === 'function' ? r(o) : r; } };
   const prefs = { get: async (k) => store.get(k) ?? null, set: async (k, v) => store.set(k, v), remove: async (k) => store.delete(k) };
-  const strava = new NativeStrava({ http, prefs, openUrl: async (u) => opened.push(u), now: () => now, ...(exchanger ? { exchanger: exchanger(http) } : {}) });
+  const strava = new NativeStrava({ http, prefs, openUrl: async (u) => opened.push(u), now: () => now, brokerUrl, ...(exchanger ? { exchanger: exchanger(http) } : {}) });
   return { strava, store, requests, replies, opened };
 }
 const SECRET = '0123456789abcdef0123456789abcdef01234567';
@@ -48,7 +48,7 @@ test('sign-in: state must match and be fresh, upload permission is required', as
   });
   const ok = await strava.handleRedirect(`apexvelo://localhost/strava?state=${s3}&code=c&scope=read,activity:write,activity:read_all`);
   assert.deepEqual(ok, { ok: true, athlete: 'Ana B' });
-  assert.deepEqual(await strava.status(), { configured: true, connected: true, athlete: 'Ana B', canUpload: true, canCheck: false, canSync: false, uploadOnly: true, signIn: 'byo' });
+  assert.deepEqual(await strava.status(), { configured: true, connected: true, athlete: 'Ana B', canUpload: true, canCheck: false, canSync: false, uploadOnly: true, signIn: 'byo', brokerAvailable: false });
 });
 
 test('an expired sign-in link is refused', async () => {
@@ -122,10 +122,90 @@ test('the broker exchanger needs no secret on the phone', async () => {
   assert.equal(requests.some((o) => JSON.stringify(o.data || {}).includes('client_secret')), false);
 });
 
-test('the own-application exchanger is the default', () => {
+test('without a broker URL the own-application exchanger is the default', async () => {
   const { strava } = setup();
-  assert.ok(strava.exchanger instanceof ByoExchanger);
-  assert.equal(strava.exchanger.kind, 'byo');
+  assert.ok((await strava.exchanger()) instanceof ByoExchanger);
+  assert.equal((await strava.status()).brokerAvailable, false);
+  await assert.rejects(strava.setOwnApp(true), /no other Strava sign-in/);
+});
+
+test('with a broker URL the broker is the default; Advanced switches to the own application and back', async () => {
+  const { strava, store, replies, requests } = setup({ brokerUrl: 'https://broker.example' });
+  let st = await strava.status();
+  assert.deepEqual([st.signIn, st.brokerAvailable, st.configured], ['broker', true, true]);
+  await assert.rejects(strava.setCredentials('123', SECRET), /no API application/);
+
+  // Signed in through the broker; switching revokes that sign-in (Strava deauthorize) and forgets it.
+  store.set('strava_tokens', JSON.stringify({ access_token: 'a', refresh_token: 'r', expires_at: 1_900_000_000, scope: 'activity:write' }));
+  replies.push((o) => { assert.equal(o.url, 'https://www.strava.com/oauth/deauthorize'); return { status: 200, headers: {}, data: {} }; });
+  await strava.setOwnApp(true);
+  assert.equal(requests.length, 1);
+  st = await strava.status();
+  assert.deepEqual([st.signIn, st.connected, st.configured], ['byo', false, false]);
+  await strava.setCredentials('123', SECRET);
+  assert.equal((await strava.status()).configured, true);
+
+  // Back to the broker: the own application's credentials are kept for later, the sign-in is not.
+  store.set('strava_tokens', JSON.stringify({ access_token: 'b', refresh_token: 'r', expires_at: 1_900_000_000, scope: 'activity:write' }));
+  replies.push({ status: 200, headers: {}, data: {} });
+  await strava.setOwnApp(false);
+  st = await strava.status();
+  assert.deepEqual([st.signIn, st.connected], ['broker', false]);
+  assert.ok(store.has('strava_credentials'));
+  // Choosing the one already in use changes nothing.
+  store.set('strava_tokens', JSON.stringify({ access_token: 'c', refresh_token: 'r', expires_at: 1_900_000_000, scope: 'activity:write' }));
+  await strava.setOwnApp(false);
+  assert.equal((await strava.status()).connected, true);
+});
+
+test('an update that brings the broker keeps riders signed in with their own application on it', async () => {
+  const creds = JSON.stringify({ clientId: '123', clientSecret: SECRET });
+  const tokens = JSON.stringify({ access_token: 'a', refresh_token: 'r', expires_at: 1_900_000_000, scope: 'activity:write' });
+  const kept = setup({ brokerUrl: 'https://broker.example', prefs: { strava_credentials: creds, strava_tokens: tokens } });
+  let st = await kept.strava.status();
+  assert.deepEqual([st.signIn, st.connected, st.brokerAvailable], ['byo', true, true]);
+  assert.equal(kept.store.get('strava_use_own_app'), '1');
+
+  // Credentials saved but never signed in, or signed out: the broker (one tap) is the default.
+  const notSignedIn = setup({ brokerUrl: 'https://broker.example', prefs: { strava_credentials: creds } });
+  assert.equal((await notSignedIn.strava.status()).signIn, 'broker');
+  assert.equal(notSignedIn.store.has('strava_use_own_app'), false);
+
+  // A rider who chose the broker before (key present) is not moved back.
+  const chose = setup({ brokerUrl: 'https://broker.example', prefs: { strava_credentials: creds, strava_tokens: tokens } });
+  await chose.strava.exchanger();
+  chose.store.set('strava_tokens', tokens);
+  chose.replies.push({ status: 200, headers: {}, data: {} }); // deauthorize when switching
+  await chose.strava.setOwnApp(false);
+  const again = setup({ brokerUrl: 'https://broker.example', prefs: Object.fromEntries([...chose.store, ['strava_tokens', tokens]]) });
+  assert.equal(chose.store.get('strava_use_own_app'), '0');
+  st = await again.strava.status();
+  assert.equal(st.signIn, 'broker', 'a broker sign-in with kept own credentials stays on the broker after a restart');
+});
+
+test('broker: a broker fault (5xx) or its rate limit (429) is an outage, Strava 400/401 passed through signs out', async () => {
+  for (const [status, signedOut] of [[500, false], [502, false], [503, false], [504, false], [429, false], [400, true], [401, true]]) {
+    const { strava, store, replies } = setup({ brokerUrl: 'https://broker.example' });
+    store.set('strava_tokens', JSON.stringify({ access_token: 'old', refresh_token: 'r1', expires_at: 1, scope: 'activity:write' }));
+    replies.push((o) => { assert.equal(o.url, 'https://broker.example/strava/token'); return { status, headers: {}, data: { error: 'x' } }; });
+    const r = await strava.upload({ fitBase64: 'x'.repeat(40) });
+    assert.equal(r.status, signedOut ? 401 : 502, `broker ${status}`);
+    assert.equal((await strava.status()).connected, !signedOut, `broker ${status}`);
+  }
+});
+
+test('broker: an attestation token, when the app has one, is sent as X-Apex-Attestation', async () => {
+  const requests = [];
+  const http = { async request(o) { requests.push(o); return { status: 200, headers: {}, data: { clientId: '9', access_token: 'a', refresh_token: 'r' } }; } };
+  const withToken = new BrokerExchanger({ http, brokerUrl: 'https://b.example', attest: async () => 'integrity-token' });
+  await withToken.clientId();
+  await withToken.refresh('r1');
+  assert.equal(requests[0].headers['X-Apex-Attestation'], 'integrity-token');
+  assert.equal(requests[1].headers['X-Apex-Attestation'], 'integrity-token');
+  assert.equal(requests[1].headers['Content-Type'], 'application/json');
+  const without = new BrokerExchanger({ http, brokerUrl: 'https://b.example', attest: async () => { throw new Error('no Play services'); } });
+  await without.exchangeCode('c');
+  assert.equal('X-Apex-Attestation' in requests[2].headers, false, 'a failed attestation still signs in (the broker decides)');
 });
 
 function destination(answers) {

@@ -13,7 +13,24 @@ fs.rmSync(www, { recursive: true, force: true });
 fs.mkdirSync(path.join(www, 'mobile'), { recursive: true });
 for (const item of COPY) fs.cpSync(path.join(root, item), path.join(www, item), { recursive: true });
 
+/**
+ * The token broker URL (broker/README.md): APEX_BROKER_URL when set and non-empty, else "brokerUrl" in app-config.json; empty means the
+ * rider's own Strava API application. https only: the phone sends sign-in codes and refresh tokens there.
+ */
+function brokerUrl() {
+  let url = process.env.APEX_BROKER_URL; // CI passes an unset repository variable as ''
+  if (!url) {
+    const file = path.join(mobile, 'app-config.json');
+    url = fs.existsSync(file) ? JSON.parse(fs.readFileSync(file, 'utf8')).brokerUrl : '';
+  }
+  url = String(url || '').trim().replace(/\/+$/, '');
+  if (url && !/^https:\/\/[^\s/?#]+(\/[^\s?#]*)?$/.test(url)) throw new Error(`build-web: the broker URL must be https://... (got "${url}")`);
+  return url;
+}
+const BROKER_URL = brokerUrl();
+
 esbuild.buildSync({
+  define: { __APEX_BROKER_URL__: JSON.stringify(BROKER_URL) },
   entryPoints: [path.join(mobile, 'src', 'index.js')],
   outfile: path.join(www, 'mobile', 'apex-native.js'),
   bundle: true, format: 'iife', target: ['chrome89'], legalComments: 'none', logLevel: 'warning'
@@ -32,4 +49,4 @@ const inject = (anchor, tag) => {
 inject('<script src="vendor/chart.umd.min.js"></script>', '<script src="mobile/apex-native.js"></script>');
 inject('</head>', '<link rel="stylesheet" href="mobile/apex-native.css">');
 fs.writeFileSync(indexPath, html);
-console.log(`build-web: ${path.relative(root, www)} ready`);
+console.log(`build-web: ${path.relative(root, www)} ready (Strava sign-in: ${BROKER_URL ? `broker ${BROKER_URL}` : 'own API application'})`);

@@ -12,6 +12,8 @@ jobs:
       # Signed release builds only run outside pull requests, and only when the release keystore secrets
       # exist (forks have none). Everything else builds the debug APK only. See mobile/README.md.
       SIGN_RELEASE: ${{ github.event_name != 'pull_request' && secrets.ANDROID_KEYSTORE_BASE64 != '' && secrets.ANDROID_KEYSTORE_PASSWORD != '' && secrets.ANDROID_KEY_ALIAS != '' && secrets.ANDROID_KEY_PASSWORD != '' }}
+      # Token broker for one-tap Strava sign-in (broker/README.md); unset builds use mobile/app-config.json.
+      APEX_BROKER_URL: ${{ vars.APEX_BROKER_URL }}
     defaults:
       run:
         working-directory: mobile
