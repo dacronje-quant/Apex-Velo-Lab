@@ -22,6 +22,7 @@ import { PrefsSyncLedger, UploadQueue } from './native-outbox.js';
 import { NativeAi } from './native-ai.js';
 import { NativeIcu } from './native-icu.js';
 import { bootNativeApp } from './native-app.js';
+import { installShell } from './native-shell.js';
 import { NativeRide } from './native-ride.js';
 import { NativeStore, openingLedger } from './native-store.js';
 import { openCapacitorDatabase, filesystemFiles } from './native-sqlite.js';
@@ -107,6 +108,9 @@ if (fake || Capacitor.isNativePlatform()) {
   const ridePlugin = fake ? fake.ridePlugin : registerPlugin('ApexRide');
   const ride = ridePlugin ? new NativeRide({ plugin: ridePlugin, prefs }) : null;
   window.ApexNative.ride = ride;
-  bootNativeApp({ bluetooth, storage, strava, ai, icu, uploads, plugins, ride, healthConnect, wellness });
+  // Phone navigation (docs/ANDROID-UX.md): bottom tabs, pages, sheets, routes; the screens register their pages on it.
+  const shell = installShell({ exit: () => plugins.App.minimizeApp().catch(() => {}) });
+  window.ApexNative.shell = shell;
+  bootNativeApp({ bluetooth, storage, strava, ai, icu, uploads, plugins, ride, healthConnect, wellness, shell });
   installNativeImportUi({ nativeImport, jobs: importJobs, App: plugins.App });
 }

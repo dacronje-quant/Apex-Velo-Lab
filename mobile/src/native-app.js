@@ -448,7 +448,7 @@ const localDay = (d = new Date()) => `${d.getFullYear()}-${String(d.getMonth() +
 const UPLOAD_DEST = 'strava';
 const hhmm = (t) => new Date(t).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' });
 
-export function bootNativeApp({ bluetooth, storage, strava, ai, icu, uploads, plugins, ride, healthConnect = null, wellness = null, win = window }) {
+export function bootNativeApp({ bluetooth, storage, strava, ai, icu, uploads, plugins, ride, healthConnect = null, wellness = null, shell = null, win = window }) {
   const doc = win.document;
   const { App, Browser, KeepAwake, Filesystem, Share } = plugins;
   doc.documentElement.classList.add('apex-native');
@@ -1186,12 +1186,16 @@ export function bootNativeApp({ bluetooth, storage, strava, ai, icu, uploads, pl
     if (healthConnect && app.syncHealthConnect) app.syncHealthConnect().catch(() => {}); // at most every 15 minutes
   });
 
-  // Android back: close the chooser, then the top dialog, then Zen; never quit mid-ride.
+  // Android back: close the chooser, then the top dialog, then follow the shell's stack (sheet > page > tab
+  // root > Ride > leave); never quit mid-ride.
   App.addListener('backButton', () => {
     if (bluetooth && bluetooth.cancelChooser()) return;
     const app = win.app;
     const open = [...doc.querySelectorAll('.modal-overlay.open')].pop();
     if (open && app) { app.closeModal(open.id); return; }
+    const devices = doc.getElementById('hardwareModal');
+    if (devices && !devices.hidden && app && app.closeDevicesFocus) { app.closeDevicesFocus(); return; }
+    if (shell) { shell.back(); return; }
     const zen = doc.getElementById('zenCockpitOverlay');
     if (zen && zen.style.display !== 'none') { const b = doc.getElementById('btnCloseZenCockpit'); if (b) { b.click(); return; } }
     const cockpit = doc.querySelector('.nav-btn[data-tab="cockpit"]');
