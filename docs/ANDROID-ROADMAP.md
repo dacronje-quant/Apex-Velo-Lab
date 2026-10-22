@@ -38,8 +38,8 @@ Garmin GDPR export, Wahoo/Zwift/Karoo folders, intervals.icu originals).
 | 2 | F | Health Connect read/write | `feat/android-health-connect` |
 | 2 | G | Foreground ride service | `feat/android-ride-service` |
 | 2 | H | Token broker (Cloudflare Worker) for Strava/intervals.icu OAuth | `feat/token-broker` |
-| 3 | I | AI: share-to-AI, on-device Gemini Nano, MCP connector + opt-in encrypted mirror | `feat/ai-connect` |
-| 3 | J | Onboarding + Connections screen + phone UX pass | `feat/android-onboarding` |
+| 3 | UX | UI overhaul: audit, simpler navigation (design approved by owner first), then screen rebuilds and onboarding | `feat/ux-*` |
+| 4 | I | AI: share-to-AI, on-device Gemini Nano, MCP connector + opt-in encrypted mirror | `feat/ai-connect` |
 
 Every workstream opens a PR into `claude/android-apk-poc`, is reviewed by a separate reviewer agent, and must
 keep the root test suite (`npm test`) and the mobile suites (`cd mobile && npm test && npm run test:browser`) green.
