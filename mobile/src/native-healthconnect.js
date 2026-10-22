@@ -14,7 +14,8 @@
  *   - HealthConnectDestination: rides recorded in the app go to Health Connect through the upload queue and
  *     its sync ledger. A ride that came from Health Connect is never written back.
  *   - NativeHealthConnect.sync(): a two-year backfill in 30-day chunks (resumable), then only the days and
- *     sessions the changes token reports.
+ *     sessions the changes token reports, at app start and on resume. A token that expired (the app unused
+ *     for about 30 days) reads everything again.
  * Times from the plugin are epoch ms with zone offsets in seconds (null: the phone's own zone).
  */
 
@@ -324,7 +325,7 @@ export function toRide(session, series = {}, { ftp = 0, profileName = '', summar
  * Adds Health Connect rides to `list` (the app's history, changed in place), per the dedupe contract
  * (js/velo-dedupe.js `admit`): a new ride is added; a copy of a stored ride replaces it only when it is better
  * (power, then more channels, then longer) and the stored one was not recorded in this app, keeping the stored
- * id, title and Strava link; otherwise it is skipped. A session read again (edited in its app) updates its ride.
+ * id, title, file hash and Strava link (and its source as replacedFrom); otherwise it is skipped. A session read again (edited in its app) updates its ride.
  */
 export function importRides(list, incoming, Dedupe) {
   const out = { added: [], replaced: [], updated: [], skipped: 0 };
@@ -333,7 +334,7 @@ export function importRides(list, incoming, Dedupe) {
     const at = list.findIndex((r) => r.id === ride.id || (r.hc && ride.hc && r.hc.id === ride.hc.id));
     const keep = (old) => {
       const k = { id: old.id, title: old.title || ride.title, description: old.description, strava: old.strava, stravaActivityId: old.stravaActivityId,
-        replacedFrom: old.source === HC_SOURCE ? old.replacedFrom : old.source };
+        fileHash: old.fileHash, replacedFrom: old.source === HC_SOURCE ? old.replacedFrom : old.source };
       Object.keys(k).forEach((x) => k[x] === undefined && delete k[x]);
       return { ...ride, ...k };
     };
@@ -356,15 +357,27 @@ export function importRides(list, incoming, Dedupe) {
   return out;
 }
 
-/** Removes rides of deleted Health Connect sessions (only rides that are still the Health Connect copy). */
+/** True when a ride also came from somewhere other than Health Connect (a replaced copy, a file, Strava). */
+export const hasOtherSource = (r) => !!(r.replacedFrom || r.fileHash || r.stravaActivityId || (r.strava && (r.strava.activityId || r.strava.state === 'sent')));
+
+/**
+ * A session deleted in Health Connect: its ride goes only when Health Connect is its only source. A ride that
+ * replaced a file copy, has a file hash on record (a duplicate file was dropped for it) or a Strava link is
+ * detached instead: it loses its Health Connect link and gets back the source it replaced.
+ * Resolves to { removed, detached }.
+ */
 export function removeRides(list, sessionIds) {
   const ids = new Set(sessionIds);
-  const removed = [];
+  const out = { removed: [], detached: [] };
   for (let i = list.length - 1; i >= 0; i--) {
     const r = list[i];
-    if (r.source === HC_SOURCE && r.hc && ids.has(r.hc.id)) removed.push(...list.splice(i, 1));
+    if (r.source !== HC_SOURCE || !r.hc || !ids.has(r.hc.id)) continue;
+    if (!hasOtherSource(r)) { out.removed.push(...list.splice(i, 1)); continue; }
+    delete r.hc;
+    if (r.replacedFrom) { r.source = r.replacedFrom; delete r.replacedFrom; }
+    out.detached.push(r);
   }
-  return removed;
+  return out;
 }
 
 // ------------------------------------------------------------------ writing --
@@ -406,7 +419,6 @@ export class HealthConnectDestination {
 
 // --------------------------------------------------------------------- sync --
 const STATE_KEY = 'hc_sync_state';
-const BACKGROUND_KEY = 'hc_background';
 
 /**
  * The plugin wrapper and the sync. plugin: the HealthConnect Capacitor plugin (or a test fake); prefs:
@@ -424,18 +436,18 @@ export class NativeHealthConnect {
     try { return await this.plugin.availability(); } catch { return { status: 'unsupported' }; }
   }
   async granted() {
-    try { return await this.plugin.grantedHealthPermissions(); } catch { return { read: [], write: [], history: false, background: false }; }
+    try { return await this.plugin.grantedHealthPermissions(); } catch { return { read: [], write: [], history: false }; }
   }
   async canWrite() {
     if ((await this.availability()).status !== 'available') return false;
     return (await this.granted()).write.includes('ExerciseSession');
   }
 
-  /** Health Connect's permission screen for one group: 'recovery', 'rides', 'write' or 'background'. */
+  /** Health Connect's permission screen for one group: 'recovery', 'rides' or 'write'. */
   request(group) {
-    const ask = { recovery: { read: WELLNESS_TYPES, history: true }, rides: { read: RIDE_TYPES, history: true }, write: { write: WRITE_TYPES }, background: { background: true } }[group];
+    const ask = { recovery: { read: WELLNESS_TYPES, history: true }, rides: { read: RIDE_TYPES, history: true }, write: { write: WRITE_TYPES } }[group];
     if (!ask) throw new Error('Unknown Health Connect permission group.');
-    return this.plugin.requestHealthPermissions({ read: [], write: [], history: false, background: false, ...ask });
+    return this.plugin.requestHealthPermissions({ read: [], write: [], history: false, ...ask });
   }
 
   async state() {
@@ -447,16 +459,7 @@ export class NativeHealthConnect {
     return { availability, granted: availability.status === 'available' ? await this.granted() : null, state: st };
   }
   /** Forgets the sync position (after disconnecting): the next sync backfills again. */
-  async reset() { await this.prefs.remove(STATE_KEY); await this.prefs.remove(BACKGROUND_KEY); }
-
-  async backgroundOn() { return (await this.prefs.get(BACKGROUND_KEY)) === '1'; }
-  /** The daily background check: asks for its permission first. Resolves to whether it is on. */
-  async setBackground(on) {
-    if (on && !(await this.granted()).background) on = !!(await this.request('background')).background;
-    await this.plugin.setBackgroundSync({ on });
-    await this.prefs.set(BACKGROUND_KEY, on ? '1' : '0');
-    return on;
-  }
+  async reset() { await this.prefs.remove(STATE_KEY); }
 
   async _readAll(type, start, end, origin) {
     const out = [];

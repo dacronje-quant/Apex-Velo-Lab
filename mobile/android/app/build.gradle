@@ -89,9 +89,8 @@ dependencies {
     implementation "androidx.core:core-splashscreen:$coreSplashScreenVersion"
     implementation "androidx.work:work-runtime:$androidxWorkVersion"
     implementation project(':capacitor-android')
-    // Health Connect (src/main/java/com/apexvelo/lab/plugins/HealthConnect*.kt) and its daily background sync
+    // Health Connect (src/main/java/com/apexvelo/lab/plugins/Health*.kt)
     implementation "androidx.health.connect:connect-client:$healthConnectVersion"
-    implementation "androidx.work:work-runtime-ktx:$androidxWorkVersion"
     implementation "org.jetbrains.kotlinx:kotlinx-coroutines-android:$coroutinesVersion"
     testImplementation "junit:junit:$junitVersion"
     testImplementation 'org.json:json:20240303' // the real org.json for JVM tests (android.jar only has stubs)

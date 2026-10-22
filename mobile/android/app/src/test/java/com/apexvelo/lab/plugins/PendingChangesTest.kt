@@ -50,4 +50,18 @@ class PendingChangesTest {
         f.writeText("{not json")
         assertTrue(PendingChanges(f).read().getBoolean("overflow"))
     }
+
+    @Test
+    fun instancesOnOneFileNeverLoseOrRepeatEntries() {
+        val f = file()
+        val threads = (0 until 8).map { t ->
+            Thread { val p = PendingChanges(f); repeat(25) { i -> p.append(listOf(change("$t-$i"))) } }
+        }
+        threads.forEach { it.start() }
+        threads.forEach { it.join() }
+        val list = PendingChanges(f).read().getJSONArray("changes")
+        val seqs = (0 until list.length()).map { list.getJSONObject(it).getLong("seq") }
+        assertEquals(200, list.length())
+        assertEquals((1L..200L).toList(), seqs.sorted())
+    }
 }

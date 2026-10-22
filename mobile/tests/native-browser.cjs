@@ -763,9 +763,7 @@ async function migrationFlow(browser, errors) {
     await page.evaluate(() => app.syncHealthConnect({ force: true }));
     assert.equal(await page.evaluate(() => app.healthDays.at(-1).hrv), 85, 'a new reading changes only its day (average of the night)');
     assert.deepEqual(await page.evaluate(() => window.__hcChanges), [], 'changes are acknowledged once stored');
-    await page.locator('#nativeHcBackground').check();
-    await page.waitForFunction(() => __nativeLog.hc.background.at(-1) === true);
-    step('Health Connect: changes from the token update only the days they touch and are acknowledged; the daily background check asks for its permission');
+    step('Health Connect: changes from the token update only the days they touch and are acknowledged');
 
     // ------------------------------------------------------------------ exports, back key --
     await page.evaluate(() => { window.__takenFiles = ['ApexVelo/old.fit']; return app.downloadFile('old.fit', new Uint8Array([1, 2, 3]), 'application/octet-stream'); });

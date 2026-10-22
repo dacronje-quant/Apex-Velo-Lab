@@ -127,7 +127,7 @@
   // 30 days of recovery data (Oura-like: overnight rMSSD 75, resting HR 45, staged sleep), one Zwift ride
   // yesterday at 18:00 with 1 Hz power and a session the app wrote itself (never imported). Permissions are
   // granted as asked; window.__hcChanges is what the changes token reports next.
-  const hc = log.hc = { requests: [], writes: [], background: [], granted: { read: [], write: [], history: false, background: false } };
+  const hc = log.hc = { requests: [], writes: [], granted: { read: [], write: [], history: false } };
   window.__hcChanges = [];
   const hcRecords = () => {
     const out = [], day0 = new Date(); day0.setHours(0, 0, 0, 0);
@@ -148,13 +148,13 @@
     return out;
   };
   const HealthConnect = {
-    async availability() { return { status: window.__hcStatus || 'available', history: true, background: true }; },
+    async availability() { return { status: window.__hcStatus || 'available', history: true }; },
     async grantedHealthPermissions() { return JSON.parse(JSON.stringify(hc.granted)); },
     async requestHealthPermissions(o) {
       hc.requests.push(o);
       const g = hc.granted;
       g.read = [...new Set([...g.read, ...o.read])]; g.write = [...new Set([...g.write, ...o.write])];
-      g.history = g.history || o.history; g.background = g.background || o.background;
+      g.history = g.history || o.history;
       return JSON.parse(JSON.stringify(g));
     },
     async readRecords({ type, start, end, origin }) {
@@ -165,9 +165,8 @@
     async pendingChanges() { return { changes: window.__hcChanges, hasToken: !!hc.started, tokenExpired: false }; },
     async ackChanges({ upTo }) { window.__hcChanges = window.__hcChanges.filter((c) => c.seq > upTo); },
     async writeRide(r) { hc.writes.push(r); return { id: 'hc-session-' + hc.writes.length }; },
-    async setBackgroundSync({ on }) { hc.background.push(on); },
     async openInstall() { log.opened.push('hc:install'); }, async openSettings() { log.opened.push('hc:settings'); },
-    async disconnect() { hc.granted = { read: [], write: [], history: false, background: false }; }
+    async disconnect() { hc.granted = { read: [], write: [], history: false }; }
   };
   window.__hcRecords = hcRecords;
 

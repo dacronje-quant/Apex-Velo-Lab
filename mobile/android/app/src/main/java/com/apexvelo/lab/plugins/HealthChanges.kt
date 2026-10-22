@@ -10,15 +10,20 @@ import org.json.JSONObject
 import java.io.File
 
 /**
- * Changes noticed in Health Connect but not yet taken in by the app, as one JSON file: the daily background
- * job and the app both append to it, and the app removes entries once it has stored what they point to.
- * Each entry gets a rising `seq`. Plain JSON and java.io only, so it runs in JVM unit tests.
+ * Changes noticed in Health Connect but not yet taken in by the app, as one JSON file: the app appends to it
+ * and removes entries once it has stored what they point to. Each entry gets a rising `seq`. Every instance
+ * (one per plugin call) locks the same process-wide LOCK, so two calls never interleave a read and a write.
+ * Plain JSON and java.io only, so it runs in JVM unit tests.
  */
 class PendingChanges(private val file: File, private val max: Int = MAX) {
-    companion object { const val MAX = 20000 }
+    companion object {
+        const val MAX = 20000
+        private val LOCK = Any()
+    }
 
-    @Synchronized
-    fun read(): JSONObject {
+    fun read(): JSONObject { synchronized(LOCK) { return readLocked() } }
+
+    private fun readLocked(): JSONObject {
         if (!file.exists()) return JSONObject().put("next", 1).put("changes", JSONArray()).put("overflow", false)
         return try { JSONObject(file.readText()) } catch (e: Exception) {
             // Unreadable: start over and say so, so the app reads its history again rather than miss changes.
@@ -34,10 +39,13 @@ class PendingChanges(private val file: File, private val max: Int = MAX) {
     }
 
     /** Adds entries. Past `max` they are dropped and `overflow` is set: the app then backfills instead. */
-    @Synchronized
     fun append(entries: List<JSONObject>) {
         if (entries.isEmpty()) return
-        val state = read()
+        synchronized(LOCK) { appendLocked(entries) }
+    }
+
+    private fun appendLocked(entries: List<JSONObject>) {
+        val state = readLocked()
         val list = state.getJSONArray("changes")
         var next = state.getLong("next")
         for (e in entries) {
@@ -48,9 +56,10 @@ class PendingChanges(private val file: File, private val max: Int = MAX) {
     }
 
     /** Removes the entries up to and including `seq`. */
-    @Synchronized
-    fun ack(seq: Long) {
-        val state = read()
+    fun ack(seq: Long) { synchronized(LOCK) { ackLocked(seq) } }
+
+    private fun ackLocked(seq: Long) {
+        val state = readLocked()
         val kept = JSONArray()
         val list = state.getJSONArray("changes")
         for (i in 0 until list.length()) list.getJSONObject(i).let { if (it.getLong("seq") > seq) kept.put(it) }
@@ -58,11 +67,10 @@ class PendingChanges(private val file: File, private val max: Int = MAX) {
     }
 
     /** Empties the buffer (a new changes token: the app reads history from scratch). */
-    @Synchronized
-    fun clear() { val next = read().getLong("next"); write(JSONObject().put("next", next).put("changes", JSONArray()).put("overflow", false)) }
+    fun clear() { synchronized(LOCK) { val next = readLocked().getLong("next"); write(JSONObject().put("next", next).put("changes", JSONArray()).put("overflow", false)) } }
 }
 
-/** The changes token (kept natively so the background job can use it) and the pull into PendingChanges. */
+/** The changes token and the pull into PendingChanges. */
 class HealthChanges(context: Context) {
     private val app = context.applicationContext
     private val prefs = app.getSharedPreferences("apex_healthconnect", Context.MODE_PRIVATE)

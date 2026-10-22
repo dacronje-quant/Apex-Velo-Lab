@@ -9,7 +9,7 @@ With your permission (Settings > Health, one permission per data type, each of w
 - **reads** heart rate variability, resting heart rate, sleep and its stages, weight, blood oxygen and breathing rate, to calculate your daily readiness and show recovery trends;
 - **reads** exercise sessions and, for cycling sessions only, the heart rate, power, speed, cadence and distance recorded during them, to add rides from other apps to your training history;
 - **writes**, only if you switch it on, the rides you record in Apex Velo (session, heart rate, power, cadence, speed, distance and calories);
-- reads past data (up to two years) once, and, if you allow it, checks once a day in the background for changes.
+- reads past data (up to two years) once, then only what changed, and only while the app is open.
 
 ## Where your data goes
 

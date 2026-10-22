@@ -123,8 +123,37 @@ test('rides from Health Connect are deduplicated against the history; the copy w
   const other = [];
   r = importRides(other, [ride()], VeloDedupe);
   assert.equal(r.added.length, 1);
-  assert.equal(removeRides(other, ['ex1']).length, 1);
+  assert.deepEqual(removeRides(other, ['ex1']).removed.map((x) => x.id), ['hc_ex1'], 'a ride only Health Connect had goes with its session');
   assert.equal(other.length, 0);
+});
+
+test('a session deleted in Health Connect never deletes a ride that has another source', () => {
+  const { session, series } = fixture.ride;
+  const ride = () => toRide(session, series, { ftp: 250, summarize });
+  const start = new Date(session.start + 30000).toISOString();
+  // Health Connect replaced a FIT copy without power: the ride goes back to being the FIT ride.
+  const list = [{ id: 'fit_1', date: start, duration: 590, source: 'import:fit', fileHash: 'abc', title: 'Commute' }];
+  importRides(list, [ride()], VeloDedupe);
+  assert.deepEqual([list[0].source, list[0].replacedFrom, list[0].fileHash], [HC_SOURCE, 'import:fit', 'abc'], 'the replaced copy is remembered');
+  let r = removeRides(list, ['ex1']);
+  assert.deepEqual([r.removed.length, r.detached.length], [0, 1]);
+  assert.deepEqual([list.length, list[0].id, list[0].source, list[0].hc, list[0].replacedFrom, list[0].avgWatts], [1, 'fit_1', 'import:fit', undefined, undefined, 200]);
+
+  // Health Connect first, then the same ride's FIT file was dropped as a duplicate: bulk import records the
+  // file's hash on the kept ride (js/app-bulk-import.js markFileCopy), so the deletion only detaches it.
+  const VeloApp = class {};
+  vm.runInNewContext(fs.readFileSync(path.join(root, 'js/app-bulk-import.js'), 'utf8'), { VeloApp, window: {}, document: {} });
+  const kept = ride(), st = { pending: new Set(), touched: new Set() };
+  VeloApp.prototype.markFileCopy(kept, { fileHash: 'def', source: 'import:fit' }, st);
+  assert.deepEqual([kept.fileHash, st.touched.has(kept)], ['def', true], 'the dropped file is on record and the ride is saved again');
+  const both = [kept];
+  r = removeRides(both, ['ex1']);
+  assert.deepEqual([both.length, r.detached.length, both[0].hc, both[0].fileHash], [1, 1, undefined, 'def']);
+
+  // A Strava link also keeps the ride.
+  const linked = [{ ...ride(), strava: { state: 'sent', activityId: '77' } }];
+  assert.equal(removeRides(linked, ['ex1']).detached.length, 1);
+  assert.equal(linked.length, 1);
 });
 
 test('rides recorded here are written as an exercise session with series; Health Connect rides never are', async () => {
@@ -156,8 +185,8 @@ function fakePlugin({ granted: allowed = ['HeartRateVariabilityRmssd', 'RestingH
   const log = { reads: [], started: 0, acked: [] };
   const p = {
     log, all, pending: [], tokenExpired: false, allowed,
-    async availability() { return { status: 'available', history: true, background: true }; },
-    async grantedHealthPermissions() { return { read: p.allowed, write: [], history: true, background: false }; },
+    async availability() { return { status: 'available', history: true }; },
+    async grantedHealthPermissions() { return { read: p.allowed, write: [], history: true }; },
     async readRecords({ type, start, end, origin, pageToken }) {
       log.reads.push(type);
       const hits = all.filter((r) => r.type === type && (r.time ?? r.start) >= start && (r.time ?? r.start) < end && (!origin || r.origin === origin));

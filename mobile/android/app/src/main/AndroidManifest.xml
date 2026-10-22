@@ -137,7 +137,6 @@
     <uses-permission android:name="android.permission.health.WRITE_SPEED" />
     <uses-permission android:name="android.permission.health.WRITE_DISTANCE" />
     <uses-permission android:name="android.permission.health.WRITE_TOTAL_CALORIES_BURNED" />
-    <!-- Older than 30 days (the two-year backfill) and the daily background check -->
+    <!-- Data older than 30 days: the two-year backfill -->
     <uses-permission android:name="android.permission.health.READ_HEALTH_DATA_HISTORY" />
-    <uses-permission android:name="android.permission.health.READ_HEALTH_DATA_IN_BACKGROUND" />
 </manifest>

@@ -29,8 +29,8 @@ import kotlin.reflect.KClass
 
 /**
  * Health Connect for the JS layer (src/native-healthconnect.js wraps it). Record types are named as in
- * HealthRecords; times are epoch milliseconds. The changes token lives here (HealthChanges) so the daily
- * background job can keep it fresh while the app is closed.
+ * HealthRecords; times are epoch milliseconds. The changes token lives here (HealthChanges). An expired
+ * token (the app unused for about 30 days) makes the app read its history again.
  */
 @CapacitorPlugin(name = "HealthConnect")
 class HealthConnectPlugin : Plugin() {
@@ -39,7 +39,8 @@ class HealthConnectPlugin : Plugin() {
     }
 
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
-    private val contract = PermissionController.createRequestPermissionResultContract()
+    // Lazy: on Android 7 and 8 (API 24/25 below the library's minimum) no Health Connect class is ever loaded.
+    private val contract by lazy { PermissionController.createRequestPermissionResultContract() }
 
     private fun client() = HealthConnectClient.getOrCreate(context)
 
@@ -67,7 +68,6 @@ class HealthConnectPlugin : Plugin() {
         })
         if (status == HealthConnectClient.SDK_AVAILABLE) {
             out.put("history", feature(HealthConnectFeatures.FEATURE_READ_HEALTH_DATA_HISTORY))
-            out.put("background", feature(HealthConnectFeatures.FEATURE_READ_HEALTH_DATA_IN_BACKGROUND))
         }
         call.resolve(out)
     }
@@ -95,7 +95,6 @@ class HealthConnectPlugin : Plugin() {
         call.getArray("read", JSArray())?.toList<String>()?.forEach { t -> HealthRecords.readPermission(t)?.let { out.add(it) } }
         call.getArray("write", JSArray())?.toList<String>()?.forEach { t -> HealthRecords.writePermission(t)?.let { out.add(it) } }
         if (call.getBoolean("history", false) == true && feature(HealthConnectFeatures.FEATURE_READ_HEALTH_DATA_HISTORY)) out.add(HealthPermission.PERMISSION_READ_HEALTH_DATA_HISTORY)
-        if (call.getBoolean("background", false) == true && feature(HealthConnectFeatures.FEATURE_READ_HEALTH_DATA_IN_BACKGROUND)) out.add(HealthPermission.PERMISSION_READ_HEALTH_DATA_IN_BACKGROUND)
         return out
     }
 
@@ -105,13 +104,12 @@ class HealthConnectPlugin : Plugin() {
             .put("read", JSArray(HealthRecords.READ.keys.filter { HealthRecords.readPermission(it) in g }))
             .put("write", JSArray(HealthRecords.WRITE.keys.filter { HealthRecords.writePermission(it) in g }))
             .put("history", HealthPermission.PERMISSION_READ_HEALTH_DATA_HISTORY in g)
-            .put("background", HealthPermission.PERMISSION_READ_HEALTH_DATA_IN_BACKGROUND in g)
     }
 
     @PluginMethod
     fun grantedHealthPermissions(call: PluginCall) = withHc(call) { call.resolve(granted()) }
 
-    /** Health Connect's permission screen for the types asked for ({ read, write, history, background }). */
+    /** Health Connect's permission screen for the types asked for ({ read, write, history }). */
     @PluginMethod
     fun requestHealthPermissions(call: PluginCall) {
         if (sdkStatus() != HealthConnectClient.SDK_AVAILABLE) { call.reject("Health Connect is not available on this phone.", "UNAVAILABLE"); return }
@@ -132,7 +130,6 @@ class HealthConnectPlugin : Plugin() {
     fun disconnect(call: PluginCall) = withHc(call) {
         client().permissionController.revokeAllPermissions()
         HealthChanges(context).forget()
-        HealthSyncWorker.schedule(context, false)
         call.resolve()
     }
 
@@ -187,10 +184,4 @@ class HealthConnectPlugin : Plugin() {
         call.resolve(JSObject().put("id", r.recordIdsList.firstOrNull()))
     }
 
-    /** Turns the daily background job on or off. */
-    @PluginMethod
-    fun setBackgroundSync(call: PluginCall) {
-        HealthSyncWorker.schedule(context, call.getBoolean("on", false) == true)
-        call.resolve()
-    }
 }

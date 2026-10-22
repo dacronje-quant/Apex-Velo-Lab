@@ -209,8 +209,7 @@ function healthConnectSection() {
             </div>`).join('')}
           </div>
           <label class="native-toggle"><input type="checkbox" id="nativeHcAutoWrite"> Save each ride I record here to Health Connect</label>
-          <label class="native-toggle"><input type="checkbox" id="nativeHcBackground"> Look for changes once a day while the app is closed</label>
-          <p class="field-help">The first sync reads the last two years. After that only what changed is read: when the app opens, when you come back to it, and (if allowed) once a day in the background. Rides already in your history (the same start and length) are not added twice: the copy with power is kept. Rides that came from Health Connect are never written back.</p>
+          <p class="field-help">The first sync reads the last two years. After that only what changed is read, when the app opens and when you come back to it. Rides already in your history (the same start and length) are not added twice: the copy with power is kept. Rides that came from Health Connect are never written back.</p>
           <h4 class="native-hc-title">When intervals.icu and Health Connect both have a day</h4>
           <div class="native-hc-prefs">${Object.entries(HC_FIELDS).map(([k, label]) => `
             <label for="nativeHcPref-${k}">${label}</label>
@@ -937,9 +936,10 @@ export function bootNativeApp({ bluetooth, storage, strava, ai, icu, uploads, pl
             }
           },
           async removed(ids) {
-            const gone = removeRides(app.completedWorkouts, ids);
-            if (gone.length) { rides += gone.length; await app.saveHistory(); }
-            return gone.length;
+            const r = removeRides(app.completedWorkouts, ids);
+            const n = r.removed.length + r.detached.length;
+            if (n) { rides += n; await app.saveHistory(); }
+            return r.removed.length;
           },
           daysWithIds: (ids) => sources.daysWithIds(ids)
         };
@@ -993,7 +993,6 @@ export function bootNativeApp({ bluetooth, storage, strava, ai, icu, uploads, pl
           b.disabled = all;
         });
         if ($('nativeHcAutoWrite')) { $('nativeHcAutoWrite').checked = !!uploads && await uploads.autoUpload(HC_SOURCE); $('nativeHcAutoWrite').disabled = !g.write.includes('ExerciseSession'); }
-        if ($('nativeHcBackground')) $('nativeHcBackground').checked = !!g.background && await healthConnect.backgroundOn();
         const sources = wellness ? await wellness.catch(() => null) : null;
         if (sources) {
           const prefs = await sources.fieldPrefs();
@@ -1033,11 +1032,6 @@ export function bootNativeApp({ bluetooth, storage, strava, ai, icu, uploads, pl
           if (!uploads) return;
           await uploads.setAutoUpload(HC_SOURCE, on);
           app.showToast(on ? 'Rides you record will be saved to Health Connect.' : 'Rides are no longer saved to Health Connect.', 'info');
-        }));
-        this.on($('nativeHcBackground'), 'change', (e) => busy(null, async () => {
-          const wanted = e.currentTarget.checked;
-          const on = await healthConnect.setBackground(wanted);
-          if (wanted && !on) app.showToast('Health Connect did not allow reading in the background. The app still syncs when it opens.', 'info');
         }));
         this.on($('nativeHc'), 'change', (e) => {
           const sel = e.target.closest('[data-hc-pref]');
