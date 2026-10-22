@@ -1,7 +1,7 @@
 /**
  * Entry point of the Android layer, bundled to www/mobile/apex-native.js and loaded first in <head>.
  * In a plain browser it does nothing, so the same www/ folder still opens on a PC.
- * Browser tests set window.__APEX_NATIVE_FAKE__ = { ble, http, aiHttp, prefs, plugins, sqlite, backupFiles, importPlugin } before
+ * Browser tests set window.__APEX_NATIVE_FAKE__ = { ble, http, aiHttp, prefs, plugins, sqlite, backupFiles, importPlugin, ridePlugin } before
  * this runs (`sqlite` is a native-store db driver; without it the app keeps the WebView storage).
  */
 import { Capacitor, CapacitorHttp, registerPlugin } from '@capacitor/core';
@@ -19,6 +19,7 @@ import { PrefsSyncLedger, UploadQueue } from './native-outbox.js';
 import { NativeAi } from './native-ai.js';
 import { NativeIcu } from './native-icu.js';
 import { bootNativeApp } from './native-app.js';
+import { NativeRide } from './native-ride.js';
 import { NativeStore, openingLedger } from './native-store.js';
 import { openCapacitorDatabase, filesystemFiles } from './native-sqlite.js';
 import { WebViewMigration, webViewSource } from './native-migrate.js';
@@ -90,6 +91,10 @@ if (fake || Capacitor.isNativePlatform()) {
   const nativeImport = importPlugin ? new NativeImport({ plugin: importPlugin, store, getApp: () => window.app }) : null;
   const importJobs = store ? new SqliteImportJobs(store, () => new window.VeloImportJobs()) : null;
   window.ApexNative = { bluetooth, store, strava, ai, icu, uploads, nativeImport, platform: fake ? 'test' : Capacitor.getPlatform() };
-  bootNativeApp({ bluetooth, storage, strava, ai, icu, uploads, plugins });
+  // Riding with the screen off: the native recorder in a foreground service (com.apexvelo.lab.ride).
+  const ridePlugin = fake ? fake.ridePlugin : registerPlugin('ApexRide');
+  const ride = ridePlugin ? new NativeRide({ plugin: ridePlugin, prefs }) : null;
+  window.ApexNative.ride = ride;
+  bootNativeApp({ bluetooth, storage, strava, ai, icu, uploads, plugins, ride });
   installNativeImportUi({ nativeImport, jobs: importJobs, App: plugins.App });
 }

@@ -397,7 +397,7 @@ const localDay = (d = new Date()) => `${d.getFullYear()}-${String(d.getMonth() +
 const UPLOAD_DEST = 'strava';
 const hhmm = (t) => new Date(t).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' });
 
-export function bootNativeApp({ bluetooth, storage, strava, ai, icu, uploads, plugins, win = window }) {
+export function bootNativeApp({ bluetooth, storage, strava, ai, icu, uploads, plugins, ride, win = window }) {
   const doc = win.document;
   const { App, Browser, KeepAwake, Filesystem, Share } = plugins;
   doc.documentElement.classList.add('apex-native');
@@ -458,6 +458,9 @@ export function bootNativeApp({ bluetooth, storage, strava, ai, icu, uploads, pl
       V.render = () => { const el = doc.getElementById('localStorageStatus'); if (el) { el.textContent = 'Saved on this phone. Use History > Export to keep a copy elsewhere.'; el.classList.remove('backup-warn'); } };
     }
     if (!P) return;
+    // Riding with the screen off (src/native-ride.js). VeloDB is still the WebView's IndexedDB here.
+    const DB = win.VeloDB;
+    if (ride) ride.install(P, V, DB && { getSetting: DB.getSetting.bind(DB), putSetting: DB.putSetting.bind(DB) });
     const lazy = storage ? lazySamples(P, storage, win) : null;
 
     // ------------------------------------------------------------ features that need the PC --
