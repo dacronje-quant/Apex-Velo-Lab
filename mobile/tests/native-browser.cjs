@@ -2,8 +2,8 @@
 // origin Capacitor uses), with tests/fake-native.js standing in for the BLE plugin, native HTTP and
 // the other plugins. Covers pairing, ERG control, recording and saving a ride, auto-reconnect,
 // Strava sign-in and upload-only (ledger, auto-upload, offline retry queue), the on-phone AI engine (API key, Ask, coach),
-// intervals.icu health and the phone's SQLite store (node:sqlite stands in for the plugin), including the move of earlier
-// WebView data into it and the upload ledger in SQLite. Run `npm run build` first.
+// intervals.icu health, bulk history import and the phone's SQLite store (node:sqlite stands in for the plugin), including
+// the move of earlier WebView data into it and the upload ledger in SQLite. Run `npm run build` first.
 const { chromium } = require('playwright');
 const fs = require('node:fs');
 const os = require('node:os');
@@ -545,13 +545,53 @@ async function migrationFlow(browser, errors) {
     assert.equal(await page.evaluate(() => document.getElementById('settingsModal').classList.contains('open')), false);
     step('exports save to Documents/ApexVelo (a name an old install left gets _2), the image goes to the share sheet, auto-save can be turned off; Settings > About shows the open-source licences (SQLCipher in full); back closes the open dialog');
 
+    // ------------------------------------------------------------------ bulk history import --
+    const workerRequests = [];
+    context.on('request', (r) => { if (r.url().endsWith('/js/velo-import-worker.js')) workerRequests.push(r.url()); });
+    const ridesBefore = await page.evaluate(() => { app.switchTab('history'); return app.completedWorkouts.length; });
+    assert.equal(await page.locator('#bulkImportMode').inputValue(), 'cycling', 'all cycling (incl. indoor/virtual) is the default');
+    await page.locator('#bulkImportMode').selectOption('outdoor');
+    const strava = path.resolve(__dirname, '..', '..', 'tests', 'fixtures', 'bulk-import', 'strava-export.zip');
+    await page.locator('#fileInputBulk').setInputFiles(strava);
+    await page.waitForFunction(() => document.getElementById('bulkImportPanel').dataset.state === 'done', null, { timeout: 20000 });
+    const bulk = await page.evaluate(() => app.bulkSummary());
+    assert.deepEqual(bulk, { found: 4, imported: 2, duplicates: 0, skipped: 2, errors: 0 }, 'outdoor only: the run and the Zwift ride are skipped');
+    assert.equal(workerRequests.length, 1, 'parsed in the Web Worker');
+    assert.equal(await page.evaluate(() => app.completedWorkouts.length), ridesBefore + 2);
+    assert.ok(await page.evaluate(() => app.completedWorkouts.some((r) => r.title === 'Morning ride, hills' && r.source === 'import:fit' && r.origin === 'strava')));
+    assert.ok(!(await page.evaluate(() => app.completedWorkouts.some((r) => r.title === 'Zwift - Watopia'))));
+    assert.equal(await page.evaluate(() => localStorage.getItem('apex_import_mode')), 'outdoor');
+    await page.evaluate(() => VeloStorage.flush());
+    const importedIds = await page.evaluate(() => app.completedWorkouts.filter((r) => r.source?.startsWith('import:')).map((r) => r.id));
+    for (const id of importedIds) {
+      const row = phone.db.prepare('SELECT sample_count, json FROM rides WHERE id=?').get(id);
+      assert.ok(row && row.sample_count >= 60, `imported ride ${id} and its samples are in the phone's SQLite`);
+      assert.equal(JSON.parse(row.json).origin, 'strava');
+    }
+    assert.ok(await page.evaluate(() => app.completedWorkouts.filter((r) => r.source?.startsWith('import:')).every((r) => r.samples?.length >= 60)),
+      'samples are back in memory for the analytics after the batch commits');
+    assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth + 1), true, 'import panel fits the phone');
+    // A Garmin export saved one ride per batch: each batch lands in SQLite and its samples leave memory until the end.
+    const garminZip = [...fs.readFileSync(path.resolve(__dirname, '..', '..', 'tests', 'fixtures', 'bulk-import', 'garmin-export.zip'))];
+    const garmin = await page.evaluate(async (bytes) => {
+      const r = await app.startBulkImport([new File([new Uint8Array(bytes)], 'garmin-export.zip')], { commitEvery: 1, mode: 'cycling' });
+      await VeloStorage.flush();
+      return r;
+    }, garminZip);
+    assert.deepEqual([garmin.imported, garmin.duplicates, garmin.errors, garmin.error], [1, 2, 1, null], JSON.stringify(garmin));
+    const edge = await page.evaluate(() => app.completedWorkouts.find((r) => r.origin === 'garmin'));
+    assert.ok(edge && edge.samples.length >= 60 && edge.avgWatts > 0, 'the Garmin copy with power, samples restored');
+    assert.ok(phone.db.prepare('SELECT sample_count FROM rides WHERE id=?').get(edge.id).sample_count >= 60, 'batch-saved ride and samples in SQLite');
+    step('Import history: a Strava export zip parsed in a worker on the phone, sport filter applied, ride names restored; a Garmin export saved in batches to the phone\'s SQLite');
+
     // -------------------------------------------------------------------- persistence --
     await page.reload();
     await page.waitForFunction(() => window.app && app.completedWorkouts);
     await page.waitForFunction((id) => app.completedWorkouts.some((r) => r.id === id && r.strava?.state === 'sent'), rideId, { timeout: 10000 });
     assert.equal(await page.evaluate(() => app.healthDays.length), 30);
     assert.equal(await page.evaluate(() => !!document.querySelector('#anaPinnedGrid #anaCardHealthHr')), true, 'pins are kept');
-    step('after an app restart the ride, its Strava link, the health days and the pinned chart are still there');
+    assert.equal(await page.evaluate(() => app.completedWorkouts.filter((r) => r.source?.startsWith('import:') && r.origin === 'strava').length), 2, 'imported rides and their Strava origin are kept');
+    step('after an app restart the ride, its Strava link, the imported rides, the health days and the pinned chart are still there');
 
     // ------------------------------------------------------------- samples per ride --
     const lazy = await page.evaluate((id) => { const r = app.completedWorkouts.find((x) => x.id === id); return { samples: r.samples, n: VeloRideSummary.count(r), summary: !!VeloRideSummary.get(r) }; }, rideId);

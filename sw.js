@@ -1,10 +1,11 @@
 // APEX VELO // LAB service worker - network-first for app files so updates are never
 // masked by a stale cache; the cache is only a fallback when offline.
-const CACHE_NAME = 'apex-velo-cache-v59';
+const CACHE_NAME = 'apex-velo-cache-v60';
 const CORE = [
   './css/ftp-history.css', './js/velo-ftp-history.js', './js/velo-ftp-model.js', './js/velo-ride-summary.js', './js/app-ftp-history.js',
   './js/phone-zen.js',
   './js/velo-storage.js',
+  './vendor/fflate.min.js', './js/velo-bulk-import.js', './js/velo-import-jobs.js', './js/velo-import-worker.js', './js/app-bulk-import.js',
   './css/phone-layout.css',
   './js/app-devices.js',
   './', './index.html', './live.html', './manifest.json', './apex-velo-icon.png', './apex-velo-icon-192.png', './apex-velo-icon.ico', './css/style.css', './css/fonts.css', './css/analytics-studio.css', './vendor/chart.umd.min.js', './vendor/qrcode.js',

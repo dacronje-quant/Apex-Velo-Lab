@@ -1191,6 +1191,34 @@
             <input type="file" id="fileInputTcx" accept=".fit,.tcx,.json,.gz,.csv" multiple hidden>
             <button type="button" class="btn" id="btnChooseImportFiles"><svg class="ic"><use href="#i-download"/></svg>Choose files</button>
           </div>
+          <div class="import-row bulk-import-row">
+            <div><h4>Import history</h4><p class="dim">Many files at once: .fit .tcx .gpx .csv (also .gz) and .zip archives, including a Garmin data export or Strava's &ldquo;Download your data&rdquo; zip. Duplicates are skipped.</p></div>
+            <div class="btn-row btn-row-tight">
+              <label class="field bulk-mode-field"><span class="sr-only">Activities to import</span>
+                <select id="bulkImportMode" class="input-field" title="Which activities to import, from the sport recorded in each file">
+                  <option value="cycling" selected>All cycling (incl. indoor/virtual)</option>
+                  <option value="outdoor">Outdoor cycling only</option>
+                  <option value="all">Everything</option>
+                </select>
+              </label>
+              <input type="file" id="fileInputBulk" accept=".fit,.tcx,.gpx,.csv,.gz,.zip" multiple hidden>
+              <button type="button" class="btn btn-sm btn-primary" id="btnImportHistory"><svg class="ic"><use href="#i-download"/></svg>Import history</button>
+            </div>
+          </div>
+          <div class="bulk-import-panel" id="bulkImportPanel" role="status" aria-live="polite" hidden>
+            <div class="bulk-counts">
+              <div><b class="num" data-count="found">0</b><span>found</span></div>
+              <div><b class="num" data-count="imported">0</b><span>imported</span></div>
+              <div><b class="num" data-count="duplicates">0</b><span>duplicates</span></div>
+              <div><b class="num" data-count="skipped">0</b><span>skipped</span></div>
+              <div><b class="num" data-count="errors">0</b><span>errors</span></div>
+            </div>
+            <div class="bulk-foot">
+              <span class="bulk-status dim"></span>
+              <button type="button" class="btn btn-sm" id="btnBulkImportCancel">Cancel</button>
+              <button type="button" class="btn btn-sm btn-ghost" id="btnBulkImportClose" hidden>Close</button>
+            </div>
+          </div>
           <div class="import-row">
             <div><h4>HealthFit folder</h4><p class="dim">Reads the HealthFit export folder on this PC and adds new rides.</p></div>
             <div class="btn-row btn-row-tight">
@@ -1828,6 +1856,9 @@
   <script src="js/velo-clock.js"></script>
   <script src="js/velo-progress.js"></script>
   <script src="js/velo-dedupe.js"></script>
+  <script src="vendor/fflate.min.js"></script>
+  <script src="js/velo-bulk-import.js"></script>
+  <script src="js/velo-import-jobs.js"></script>
   <script src="js/velo-strava-sync.js"></script>
   <script src="js/velo-health.js"></script>
   <script src="js/velo-wellness.js"></script>
@@ -1849,6 +1880,7 @@
   <script src="js/app-ana-plus.js"></script>
   <script src="js/app-ftp-history.js"></script>
   <script src="js/app-history.js"></script>
+  <script src="js/app-bulk-import.js"></script>
   <script src="js/app-coach.js"></script>
   <script src="js/app-describe.js"></script>
   <script src="js/app-block.js"></script>

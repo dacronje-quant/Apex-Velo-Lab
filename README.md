@@ -76,7 +76,7 @@ No account, no cloud service, no subscription. Your rides stay in your browser a
    The app opens at **http://localhost:8080**. Use this address for Web Bluetooth and migration of your existing browser data. Confirmed rides and settings live in SQLite and load in other PC browsers too.
 3. **Set up** - choose **Set up my rider** and enter your FTP, weight and max heart rate, or **Explore a demo** to look around with synthetic rides (kept separate from your own data).
 4. **Ride** - open **Devices** in the header, choose a device type and **Pair device**. Next time, **Connect saved devices** reconnects everything. Pick a workout and press **Start**.
-5. **Bring your history (optional)** - drop FIT, TCX or CSV files from Garmin, Wahoo, Strava, Apple Watch and others into **History > Import**, or connect Strava.
+5. **Bring your history (optional)** - drop FIT, TCX or CSV files from Garmin, Wahoo, Strava, Apple Watch and others into **History > Import**, or use **Import history** for many files or whole archives at once (GPX, .gz, .zip, a Garmin data export or Strava's "Download your data" zip; duplicates are skipped), or connect Strava.
 
 ### Optional: AI coach, Strava, phone
 
