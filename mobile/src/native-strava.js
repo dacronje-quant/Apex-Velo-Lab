@@ -13,7 +13,9 @@
  * Tokens are kept in Capacitor Preferences (never in the WebView's localStorage or in exports). How a sign-in
  * code or refresh token becomes an access token is a TokenExchanger:
  *   - ByoExchanger: the rider's own Strava API application (client id + secret, Settings > Strava), today's path;
- *   - BrokerExchanger: the token broker (workstream H) holds the secret; the phone only knows the broker URL.
+ *   - BrokerExchanger: the token broker (broker/, a Cloudflare Worker) holds the secret; the phone only knows the
+ *     broker URL, set at build time (src/app-config.js). With a broker URL it is the default sign-in, and the
+ *     rider's own application stays available under Settings > Strava > Advanced.
  *
  * Sign-in uses Strava's mobile OAuth page and returns to apexvelo://localhost/strava. "localhost" is the
  * Authorization Callback Domain the desktop setup already uses, so one Strava API application serves both.
@@ -22,7 +24,8 @@
 export const STRAVA_BASE = 'https://www.strava.com';
 export const REDIRECT_URI = 'apexvelo://localhost/strava';
 export const SCOPE = 'activity:write';
-const KEYS = { creds: 'strava_credentials', tokens: 'strava_tokens', state: 'strava_oauth_state' };
+const KEYS = { creds: 'strava_credentials', tokens: 'strava_tokens', state: 'strava_oauth_state', ownApp: 'strava_use_own_app' };
+export const ATTESTATION_HEADER = 'X-Apex-Attestation';
 const TIMEOUT_MS = 30000, UPLOAD_TIMEOUT_MS = 120000;
 const POLL_MS = 2000, POLL_MAX = 45; // ~90 s; Strava usually needs 5-20 s
 
@@ -101,21 +104,29 @@ export class ByoExchanger {
 }
 
 /**
- * Stub for the token broker (workstream H): the broker adds the client secret, so the phone holds none.
- * Provisional broker API, to be fixed by H:
+ * The token broker (broker/README.md) adds the client secret, so the phone holds none:
  *   GET  {brokerUrl}/strava/config   -> { clientId }       (public; used to build Strava's sign-in URL)
  *   POST {brokerUrl}/strava/token    { grant_type: 'authorization_code', code }
  *                                    { grant_type: 'refresh_token', refresh_token }  -> Strava's token answer
+ * Strava's own refusals (400/401) come back unchanged; the broker's own faults are 5xx (or 429 for its rate
+ * limit), so a broker problem is an outage to retry, never a sign-out.
+ * attest() -> string: an app-attestation token (Play Integrity) sent as X-Apex-Attestation when non-empty;
+ * none yet (the broker's check is off, broker/README.md).
  */
 export class BrokerExchanger {
-  constructor({ http, brokerUrl, clientId = '', base = STRAVA_BASE }) {
-    Object.assign(this, { http, brokerUrl: String(brokerUrl || '').replace(/\/+$/, ''), base, kind: 'broker' });
+  constructor({ http, brokerUrl, clientId = '', base = STRAVA_BASE, attest = async () => '' }) {
+    Object.assign(this, { http, brokerUrl: String(brokerUrl || '').replace(/\/+$/, ''), base, attest, kind: 'broker' });
     this._clientId = clientId ? String(clientId) : '';
+  }
+
+  async _headers(extra = {}) {
+    const token = await Promise.resolve(this.attest()).catch(() => '');
+    return token ? { ...extra, [ATTESTATION_HEADER]: String(token) } : extra;
   }
 
   async clientId() {
     if (!this._clientId && this.brokerUrl) {
-      const r = await request(this.http, { url: `${this.brokerUrl}/strava/config`, method: 'GET' });
+      const r = await request(this.http, { url: `${this.brokerUrl}/strava/config`, method: 'GET', headers: await this._headers() });
       if (r.ok && r.data && r.data.clientId) this._clientId = String(r.data.clientId);
     }
     return this._clientId;
@@ -130,43 +141,64 @@ export class BrokerExchanger {
     return `${this.base}/oauth/mobile/authorize?client_id=${encodeURIComponent(id)}&response_type=code&redirect_uri=${encodeURIComponent(redirectUri)}&approval_prompt=auto&scope=${encodeURIComponent(scope)}&state=${state}`;
   }
 
-  exchangeCode(code) {
-    return request(this.http, { url: `${this.brokerUrl}/strava/token`, method: 'POST', headers: { 'Content-Type': 'application/json' }, data: { grant_type: 'authorization_code', code } });
+  async _token(data) {
+    return request(this.http, { url: `${this.brokerUrl}/strava/token`, method: 'POST', headers: await this._headers({ 'Content-Type': 'application/json' }), data });
   }
 
-  refresh(refreshToken) {
-    return request(this.http, { url: `${this.brokerUrl}/strava/token`, method: 'POST', headers: { 'Content-Type': 'application/json' }, data: { grant_type: 'refresh_token', refresh_token: refreshToken } });
-  }
+  exchangeCode(code) { return this._token({ grant_type: 'authorization_code', code }); }
+  refresh(refreshToken) { return this._token({ grant_type: 'refresh_token', refresh_token: refreshToken }); }
 }
 
 /**
  * http.request({ url, method, headers, data, dataType, readTimeout }) -> { status, headers, data } (CapacitorHttp).
  * prefs: { get(key) -> string|null, set(key, value), remove(key) }.
- * exchanger: a TokenExchanger; defaults to the rider's own application (ByoExchanger).
+ * Sign-in: `exchanger` fixes one TokenExchanger (tests). Otherwise, with a `brokerUrl` the broker is used unless
+ * the rider chose their own application (Settings > Strava > Advanced); without one, the rider's own application.
  */
 export class NativeStrava {
-  constructor({ http, prefs, openUrl, exchanger, base = STRAVA_BASE, now = () => Date.now() }) {
+  constructor({ http, prefs, openUrl, exchanger, brokerUrl = '', attest, base = STRAVA_BASE, now = () => Date.now() }) {
     Object.assign(this, { http, prefs, openUrl, base, now });
-    this.exchanger = exchanger || new ByoExchanger({ http, prefs, base });
+    this.fixed = exchanger || null;
+    this.byo = new ByoExchanger({ http, prefs, base });
+    this.broker = brokerUrl ? new BrokerExchanger({ http, brokerUrl, base, ...(attest ? { attest } : {}) }) : null;
   }
 
   async _json(key) { try { return JSON.parse((await this.prefs.get(key)) || 'null'); } catch (e) { return null; } }
   tokens() { return this._json(KEYS.tokens); }
 
+  /** The TokenExchanger in use now (read each time, so switching in Settings needs no restart). */
+  async exchanger() {
+    if (this.fixed) return this.fixed;
+    if (this.broker && (await this.prefs.get(KEYS.ownApp)) !== '1') return this.broker;
+    return this.byo;
+  }
+
+  /** Advanced: the rider's own Strava API application instead of the broker. A change of application signs out. */
+  async setOwnApp(on) {
+    if (this.fixed || !this.broker) throw new Error('This app has no other Strava sign-in.');
+    const before = await (await this.exchanger()).identity();
+    const after = await (on ? this.byo : this.broker).identity();
+    // Tokens belong to one API application: revoke them before switching (the old exchanger refreshes if needed).
+    if (before !== after && (await this.tokens())) await this.disconnect();
+    if (on) await this.prefs.set(KEYS.ownApp, '1'); else await this.prefs.remove(KEYS.ownApp);
+  }
+
   /** Own-application credentials (Settings > Strava); null with the broker. */
-  credentials() { return this.exchanger.credentials ? this.exchanger.credentials() : Promise.resolve(null); }
+  async credentials() { const ex = await this.exchanger(); return ex.credentials ? ex.credentials() : null; }
 
   async setCredentials(clientId, clientSecret) {
-    if (!this.exchanger.setCredentials) throw new Error('Strava sign-in is handled by Apex Velo; no API application is needed.');
-    const before = await this.exchanger.identity();
-    await this.exchanger.setCredentials(clientId, clientSecret);
+    const ex = await this.exchanger();
+    if (!ex.setCredentials) throw new Error('Strava sign-in is handled by Apex Velo; no API application is needed.');
+    const before = await ex.identity();
+    await ex.setCredentials(clientId, clientSecret);
     // Tokens belong to one API application: changing it signs out.
-    if (before && before !== (await this.exchanger.identity())) await this.prefs.remove(KEYS.tokens);
+    if (before && before !== (await ex.identity())) await this.prefs.remove(KEYS.tokens);
   }
 
   async clearCredentials() {
     await this.disconnect();
-    if (this.exchanger.clearCredentials) await this.exchanger.clearCredentials();
+    const ex = await this.exchanger();
+    if (ex.clearCredentials) await ex.clearCredentials();
   }
 
   async _saveTokens(d, scope, athlete) {
@@ -179,7 +211,7 @@ export class NativeStrava {
 
   async accessToken() {
     const t = await this.tokens();
-    if (!t || !t.refresh_token || !(await this.exchanger.isConfigured())) return null;
+    if (!t || !t.refresh_token || !(await (await this.exchanger()).isConfigured())) return null;
     if (t.access_token && Number(t.expires_at) > this.now() / 1000 + 120) return t.access_token;
     // Single flight: concurrent callers share one refresh (Strava rotates the refresh token on each one).
     if (!this._refreshing) this._refreshing = this._refresh(t).finally(() => { this._refreshing = null; });
@@ -187,7 +219,7 @@ export class NativeStrava {
   }
 
   async _refresh(t) {
-    const r = await this.exchanger.refresh(t.refresh_token);
+    const r = await (await this.exchanger()).refresh(t.refresh_token);
     if (r.ok && r.data && r.data.access_token) {
       await this._saveTokens(r.data, t.scope, t.athlete);
       return r.data.access_token;
@@ -205,9 +237,9 @@ export class NativeStrava {
   }
 
   async status() {
-    const t = await this.tokens();
+    const t = await this.tokens(), ex = await this.exchanger();
     return {
-      configured: await this.exchanger.isConfigured(),
+      configured: await ex.isConfigured(),
       connected: !!(t && t.refresh_token),
       athlete: t && t.athlete ? `${t.athlete.firstname || ''} ${t.athlete.lastname || ''}`.trim() : null,
       canUpload: !!(t && /activity:write/.test(t.scope || '')),
@@ -215,18 +247,21 @@ export class NativeStrava {
       canCheck: false,
       canSync: false,
       uploadOnly: true,
-      signIn: this.exchanger.kind
+      signIn: ex.kind,
+      // One-tap sign-in exists in this build; the own-application choice is then under Advanced.
+      brokerAvailable: !this.fixed && !!this.broker
     };
   }
 
   /** Opens Strava's sign-in page; the answer comes back through handleRedirect(). */
   async connect() {
-    if (!(await this.exchanger.isConfigured())) {
-      throw new Error(this.exchanger.kind === 'broker' ? 'Strava sign-in is not available right now. Try again later.' : 'Add your Strava Client ID and Secret first (Settings > Strava).');
+    const ex = await this.exchanger();
+    if (!(await ex.isConfigured())) {
+      throw new Error(ex.kind === 'broker' ? 'Strava sign-in is not available right now. Try again later.' : 'Add your Strava Client ID and Secret first (Settings > Strava).');
     }
     const bytes = crypto.getRandomValues(new Uint8Array(16));
     const state = [...bytes].map((b) => b.toString(16).padStart(2, '0')).join('');
-    const url = await this.exchanger.authorizeUrl({ state, redirectUri: REDIRECT_URI, scope: SCOPE });
+    const url = await ex.authorizeUrl({ state, redirectUri: REDIRECT_URI, scope: SCOPE });
     await this.prefs.set(KEYS.state, JSON.stringify({ state, at: this.now() }));
     await this.openUrl(url);
     return url;
@@ -243,12 +278,13 @@ export class NativeStrava {
     if (q.get('error') || !q.get('code')) return { ok: false, error: 'Strava access was not granted. Nothing was changed.' };
     const scope = q.get('scope') || '';
     if (!/activity:write/.test(scope)) return { ok: false, error: 'Tick "Upload your activities" on the Strava screen, then connect again.' };
-    if (!(await this.exchanger.isConfigured())) return { ok: false, error: this.exchanger.kind === 'broker' ? 'Strava sign-in is not available right now. Try again later.' : 'Strava is not set up. Add your Client ID and Secret first.' };
+    const ex = await this.exchanger();
+    if (!(await ex.isConfigured())) return { ok: false, error: ex.kind === 'broker' ? 'Strava sign-in is not available right now. Try again later.' : 'Strava is not set up. Add your Client ID and Secret first.' };
     let r;
-    try { r = await this.exchanger.exchangeCode(q.get('code')); }
+    try { r = await ex.exchangeCode(q.get('code')); }
     catch (e) { return { ok: false, error: `Could not reach Strava (${e.message}).` }; }
     if (!r.ok || !r.data || !r.data.refresh_token) {
-      return { ok: false, error: this.exchanger.kind === 'byo' ? `Could not finish connecting (Strava answered ${r.status}). Check the Client ID and Secret.` : `Could not finish connecting (sign-in service answered ${r.status}). Try again.` };
+      return { ok: false, error: ex.kind === 'byo' ? `Could not finish connecting (Strava answered ${r.status}). Check the Client ID and Secret.` : `Could not finish connecting (sign-in service answered ${r.status}). Try again.` };
     }
     await this._saveTokens(r.data, scope);
     return { ok: true, athlete: (await this.status()).athlete };

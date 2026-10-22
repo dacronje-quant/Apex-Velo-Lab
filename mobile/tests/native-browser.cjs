@@ -336,6 +336,41 @@ async function migrationFlow(browser, errors) {
   phone.db.close();
 }
 
+/** A build with a token broker: one-tap Strava sign-in without an API application, own application under Advanced. */
+async function brokerFlow(browser, errors) {
+  const context = await newContext(browser);
+  const page = await context.newPage();
+  page.on('pageerror', (e) => errors.push(e.message));
+  await page.addInitScript(() => { window.__brokerUrl = 'https://broker.test'; window.__noSqlite = true; });
+  try {
+    await page.goto(`${ORIGIN}/index.html`);
+    await page.waitForFunction(() => window.app && window.ApexNative);
+    await page.evaluate(() => app.openSettings('strava'));
+    await page.waitForFunction(() => !document.getElementById('nativeStravaAdvanced').hidden);
+    assert.equal(await page.locator('#nativeStravaClientId').isVisible(), false, 'no API application fields in broker mode');
+    assert.equal(await page.locator('#nativeStravaBrokerIntro').isVisible(), true);
+    await page.locator('#btnNativeStravaConnect').click();
+    await page.waitForFunction(() => __nativeLog.opened.length === 1);
+    const auth = new URL(await page.evaluate(() => __nativeLog.opened[0]));
+    assert.equal(auth.searchParams.get('client_id'), '777', 'client id from the broker');
+    await page.evaluate((s) => __fireNative('appUrlOpen', { url: `apexvelo://localhost/strava?state=${s}&code=good-code&scope=read,activity:write` }), auth.searchParams.get('state'));
+    await page.waitForFunction(() => app.strava.connected && app.strava.athlete === 'Test Rider');
+    const hosts = await page.evaluate(() => __nativeLog.http.map((o) => new URL(o.url).host + new URL(o.url).pathname));
+    assert.deepEqual(hosts, ['broker.test/strava/config', 'broker.test/strava/token'], 'the code goes to the broker, never to Strava with a secret');
+
+    // Advanced: the rider's own application signs out and shows the fields again.
+    await page.locator('#nativeStravaAdvanced summary').click();
+    await page.locator('#nativeStravaUseOwn').check();
+    await page.waitForFunction(() => !app.strava.connected && !document.getElementById('nativeStravaOwnApp').hidden);
+    assert.equal(await page.locator('#nativeStravaClientId').isVisible(), true);
+    assert.equal(await page.evaluate(() => app.strava.configured), false);
+    await page.locator('#nativeStravaUseOwn').uncheck();
+    await page.waitForFunction(() => app.strava.configured && document.getElementById('nativeStravaOwnApp').hidden);
+  } finally {
+    await context.close();
+  }
+}
+
 (async () => {
   if (!fs.existsSync(path.join(www, 'mobile', 'apex-native.js'))) throw new Error('Run npm run build first');
   const browser = await chromium.launch({ headless: true, executablePath });
@@ -802,6 +837,8 @@ async function migrationFlow(browser, errors) {
     step('samples load per ride: the app starts summary-only, the power curve reads the summaries, FIT and JSON exports carry the samples, older rides get summaries in the background');
 
     await importFlow(browser, errors);
+    await brokerFlow(browser, errors);
+    step('with a token broker: one-tap Strava sign-in (no API application, no secret on the phone), own application under Advanced');
 
     const unexpected = errors.filter((e) => !/ResizeObserver/.test(e));
     assert.deepEqual(unexpected, [], 'no uncaught page errors');

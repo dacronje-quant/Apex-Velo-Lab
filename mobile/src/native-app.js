@@ -8,7 +8,8 @@
  *   - answers /api/storage/* from the phone's SQLite database (src/native-store.js), so js/velo-storage.js
  *     saves there as it does on the PC and moves the earlier WebView data (IndexedDB + localStorage) in
  *     on the first start; without a database it keeps the WebView storage,
- *   - adds Settings > Strava for the rider's own Strava API application, and the sign-in redirect;
+ *   - adds Settings > Strava (one-tap sign-in through the token broker when the build has one, the rider's own
+ *     Strava API application otherwise or under Advanced), and the sign-in redirect;
  *     Strava is upload-only on the phone (per-ride "Send to Strava", optional auto-upload, an offline retry
  *     queue), so "Sync from Strava" and "Check Strava" are hidden,
  *   - adds Settings > About with the open-source licences of what the app ships,
@@ -133,24 +134,32 @@ function filesSection() {
 function stravaSection() {
   return `
       <section class="settings-section" data-sec="strava" id="nativeStravaSettings">
-        <p class="field-help">Rides are sent to Strava with your own free Strava API application, the same one the desktop app uses. The app only uploads: it never reads your Strava activities.</p>
-        <ol class="setup-steps">
-          <li>Open <a href="https://www.strava.com/settings/api" target="_blank" rel="noopener">strava.com/settings/api</a> and create an application (any name and website).</li>
-          <li>Set <b>Authorization Callback Domain</b> to <code>localhost</code>.</li>
-          <li>Copy the <b>Client ID</b> and <b>Client Secret</b> here, press Save, then Connect Strava.</li>
-        </ol>
-        <div class="form-group"><label for="nativeStravaClientId">Client ID</label><input type="text" id="nativeStravaClientId" class="input-field" inputmode="numeric" autocomplete="off" placeholder="e.g. 123456"></div>
-        <div class="form-group"><label for="nativeStravaSecret">Client Secret</label><input type="password" id="nativeStravaSecret" class="input-field" autocomplete="off" placeholder="40 letters and numbers"></div>
+        <p class="field-help" id="nativeStravaBrokerIntro" hidden>Press Connect Strava and allow uploads: that's all. The app only uploads: it never reads your Strava activities.</p>
+        <div id="nativeStravaOwnApp">
+          <p class="field-help">Rides are sent to Strava with your own free Strava API application, the same one the desktop app uses. The app only uploads: it never reads your Strava activities.</p>
+          <ol class="setup-steps">
+            <li>Open <a href="https://www.strava.com/settings/api" target="_blank" rel="noopener">strava.com/settings/api</a> and create an application (any name and website).</li>
+            <li>Set <b>Authorization Callback Domain</b> to <code>localhost</code>.</li>
+            <li>Copy the <b>Client ID</b> and <b>Client Secret</b> here, press Save, then Connect Strava.</li>
+          </ol>
+          <div class="form-group"><label for="nativeStravaClientId">Client ID</label><input type="text" id="nativeStravaClientId" class="input-field" inputmode="numeric" autocomplete="off" placeholder="e.g. 123456"></div>
+          <div class="form-group"><label for="nativeStravaSecret">Client Secret</label><input type="password" id="nativeStravaSecret" class="input-field" autocomplete="off" placeholder="40 letters and numbers"></div>
+          <div class="btn-row"><button type="button" class="btn btn-primary" id="btnNativeStravaSave">Save</button></div>
+        </div>
         <div class="settings-kv" id="nativeStravaStatus" aria-live="polite"><span class="dim">Checking...</span></div>
         <div class="btn-row">
-          <button type="button" class="btn btn-primary" id="btnNativeStravaSave">Save</button>
           <button type="button" class="btn btn-strava" id="btnNativeStravaConnect">Connect Strava</button>
           <button type="button" class="btn btn-ghost" id="btnNativeStravaDisconnect">Disconnect</button>
         </div>
         <label class="native-toggle"><input type="checkbox" id="nativeStravaAuto"> Auto-upload new rides to Strava</label>
         <p class="field-help">Each ride recorded here is sent when it finishes. Without a connection it waits and is retried when the app opens or comes back. Rides imported from Strava are never sent back.</p>
         <div class="settings-kv" id="nativeStravaQueue" aria-live="polite"></div>
-        <p class="field-help">The secret and sign-in stay in this app's private storage on the phone. They are not part of exports.</p>
+        <p class="field-help">The sign-in (and your own application's secret, if you use one) stays in this app's private storage on the phone. It is not part of exports.</p>
+        <details id="nativeStravaAdvanced" hidden>
+          <summary>Advanced</summary>
+          <label class="native-toggle"><input type="checkbox" id="nativeStravaUseOwn"> Use my own Strava API app</label>
+          <p class="field-help">For riders who already have a Strava API application. Switching signs you out of Strava; connect again afterwards.</p>
+        </details>
       </section>`;
 }
 
@@ -682,12 +691,17 @@ export function bootNativeApp({ bluetooth, storage, strava, ai, icu, uploads, pl
       const $ = (id) => doc.getElementById(id);
       const renderSettings = async () => {
         const [c, st] = await Promise.all([strava.credentials(), strava.status()]);
+        const broker = st.signIn === 'broker';
+        if ($('nativeStravaBrokerIntro')) $('nativeStravaBrokerIntro').hidden = !broker;
+        if ($('nativeStravaOwnApp')) $('nativeStravaOwnApp').hidden = broker;
+        if ($('nativeStravaAdvanced')) $('nativeStravaAdvanced').hidden = !st.brokerAvailable;
+        if ($('nativeStravaUseOwn')) $('nativeStravaUseOwn').checked = st.brokerAvailable && !broker;
         if (c && $('nativeStravaClientId') && !$('nativeStravaClientId').value) $('nativeStravaClientId').value = c.clientId;
         if (c && $('nativeStravaSecret') && !$('nativeStravaSecret').value) $('nativeStravaSecret').placeholder = 'Saved - leave blank to keep it';
         const el = $('nativeStravaStatus');
         if (el) el.innerHTML = !st.configured ? '<span class="dim">Not set up yet.</span>'
           : st.connected ? `<span>Connected${st.athlete ? ' as <b>' + String(st.athlete).replace(/[&<>"']/g, '') + '</b>' : ''}.</span>`
-            : '<span class="dim">Saved. Press Connect Strava to sign in.</span>';
+            : `<span class="dim">${broker ? 'Not connected.' : 'Saved.'} Press Connect Strava to sign in.</span>`;
         if ($('btnNativeStravaConnect')) $('btnNativeStravaConnect').disabled = !st.configured;
         if ($('btnNativeStravaDisconnect')) $('btnNativeStravaDisconnect').hidden = !st.connected;
         if (!uploads) return;
@@ -711,6 +725,15 @@ export function bootNativeApp({ bluetooth, storage, strava, ai, icu, uploads, pl
         renderSettings();
       });
       on('btnNativeStravaConnect', () => app.connectStrava());
+      this.on($('nativeStravaUseOwn'), 'change', async (e) => {
+        const own = e.currentTarget.checked;
+        try {
+          await strava.setOwnApp(own);
+          await app.refreshStravaStatus(false);
+          app.showToast(own ? 'Using your own Strava API application. Add it below, then Connect Strava.' : 'Using Apex Velo sign-in. Press Connect Strava.', 'info');
+        } catch (err) { app.showToast(err.message, 'warning'); }
+        renderSettings();
+      });
       if (uploads) {
         this.on($('nativeStravaAuto'), 'change', async (e) => {
           const on = e.currentTarget.checked;

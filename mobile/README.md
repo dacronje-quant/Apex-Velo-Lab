@@ -58,13 +58,17 @@ Big exports are read from storage a piece at a time, never loaded whole: the sam
 
 ## Connect Strava
 
-The app uses your own free Strava API application, the same as the desktop setup:
+**One tap (builds with a token broker).** In **Settings (gear) > Strava**, press **Connect Strava** and approve on the Strava page, keeping **Upload your activities** ticked (the app asks for nothing else). You return to the app automatically (`apexvelo://localhost/strava`). No API application or secret is needed: the Apex Velo token broker ([`broker/`](../broker/README.md), a small stateless Cloudflare Worker) holds the client secret and turns the sign-in code into tokens. Only the code and, later, the refresh token pass through it; it stores nothing.
+
+**Your own Strava API application** (builds without a broker, or **Settings > Strava > Advanced > Use my own Strava API app**), the same as the desktop setup:
 
 1. At [strava.com/settings/api](https://www.strava.com/settings/api), create an application (or reuse your desktop one). **Authorization Callback Domain** must be `localhost`.
 2. In the app: **Settings (gear) > Strava**, enter the **Client ID** and **Client Secret**, press **Save**, then **Connect Strava**.
-3. Approve on the Strava page, keeping **Upload your activities** ticked (the app asks for nothing else). You return to the app automatically (`apexvelo://localhost/strava`).
+3. Approve on the Strava page as above.
 
-The secret and tokens are kept in the app's private Android storage (not in the web storage or in exports). Strava's API is called directly from the phone.
+Switching between the two signs you out of Strava (a sign-in belongs to one API application); connect again afterwards. Your own application's credentials are kept for when you switch back.
+
+Tokens (and your own secret, if you use one) are kept in the app's private Android storage (not in the web storage or in exports). Uploads go from the phone straight to Strava's API; only sign-in and token refresh use the broker. If the broker is down or busy, uploads wait in the queue and you stay signed in; only Strava itself refusing the sign-in signs you out.
 
 **Sending rides.** Open a ride and press **Send to Strava**, or switch on **Auto-upload new rides to Strava** in Settings > Strava to send each ride recorded on the phone when it finishes. Without a connection the ride waits in a queue and is retried when the app opens or comes back to the screen, with growing gaps (1 min, 5 min, 15 min, 1 h, then every 6 h; it gives up after 8 tries, and **Send now** on the ride tries again). Settings > Strava shows how many rides are waiting.
 
@@ -106,6 +110,8 @@ npx cap sync android   # copies www/ and the plugins into the Android project
 cd android && ./gradlew assembleDebug
 # -> android/app/build/outputs/apk/debug/app-debug.apk
 ```
+
+**Strava sign-in.** Set the token broker URL (see [broker/README.md](../broker/README.md)) for one-tap Strava sign-in, either in `mobile/app-config.json` (`"brokerUrl": "https://..."`) or as `APEX_BROKER_URL=https://... npm run build`; the environment variable wins. https only. Without one, the app uses the rider's own Strava API application. CI reads the repository variable `APEX_BROKER_URL` (Settings > Secrets and variables > Actions > Variables); it is a public URL, not a secret.
 
 Or open `mobile/android` in Android Studio after `npm run sync`, and run it on a connected phone. Chrome's `chrome://inspect` shows the app's console and DevTools.
 
@@ -159,18 +165,18 @@ Without them, `bundleRelease`/`assembleRelease` still work but leave the output 
 ## Tests
 
 ```bash
-npm test               # unit tests: Bluetooth shim, Strava upload client and token exchangers, upload queue and ledger, AI engine vs server.js, intervals.icu wellness (Node, no browser)
+npm test               # unit tests: Bluetooth shim, Strava upload client and token exchangers (own application, broker, switching), upload queue and ledger, AI engine vs server.js, intervals.icu wellness (Node, no browser)
 npm run test:browser   # the built app in Chromium with a simulated FTMS trainer, HR strap, Strava, Claude and intervals.icu
 ```
 
-The browser test pairs the trainer through the in-app chooser and rides an ERG workout. It checks the trainer gets its targets, drops and reconnects the link, saves the ride, signs in to Strava, uploads the FIT file and records it in the ledger, checks that no Strava activity is ever read, queues an auto-upload while offline and sends it on resume, saves an AI key, asks a question in Ask, gets an AI interval breakdown, backfills health data from intervals.icu and reloads the app. The **Android app** GitHub workflow runs both, then builds the APK.
+The browser test pairs the trainer through the in-app chooser and rides an ERG workout. It checks the trainer gets its targets, drops and reconnects the link, saves the ride, signs in to Strava, uploads the FIT file and records it in the ledger, checks that no Strava activity is ever read, signs in through a token broker in a second app (no secret on the phone, own application under Advanced), queues an auto-upload while offline and sends it on resume, saves an AI key, asks a question in Ask, gets an AI interval breakdown, backfills health data from intervals.icu and reloads the app. The **Android app** GitHub workflow runs both, then builds the APK.
 
 ## How it works
 
 | File | Role |
 |---|---|
 | `src/native-ble.js` | `navigator.bluetooth` (Web Bluetooth) on top of the native BLE plugin, including an in-app device chooser. `js/velo-ble.js` runs unchanged |
-| `src/native-strava.js` | The upload subset of the desktop server's `/api/strava/*` routes, answered on the phone with native HTTP and the mobile OAuth flow; the `TokenExchanger` for sign-in (`ByoExchanger`: your own client id and secret; `BrokerExchanger`: a token broker URL, no secret on the phone); `StravaDestination` for the upload queue |
+| `src/native-strava.js` | The upload subset of the desktop server's `/api/strava/*` routes, answered on the phone with native HTTP and the mobile OAuth flow; the `TokenExchanger` for sign-in (`ByoExchanger`: your own client id and secret; `BrokerExchanger`: the token broker, no secret on the phone; the broker is the default when the build has one, `src/app-config.js`); `StravaDestination` for the upload queue |
 | `src/native-outbox.js` | The sync ledger (one row per ride and destination, kept under `apex_sync_` keys until the SQLite `sync_ledger` table exists) and the offline upload queue with backoff |
 | `src/native-icu.js` | Reads intervals.icu wellness (resting HR, HRV, sleep) and turns it into the day records `js/velo-health.js` uses |
 | `src/native-store.js` | The desktop SQLite store (`scripts/sqlite-store.cjs`) on an async driver: answers `/api/storage/*` with the same shapes, so `js/velo-storage.js` runs unchanged. `GET /api/storage` answers the rides without samples and with their `sampleSummary`; `src/native-app.js` loads one ride's samples when a view needs them. Also the `import_jobs`, `import_files`, `sync_ledger` and `wellness_days` tables with a small API (`await ApexNative.store`, then `putImportJob`, `putImportFiles`, `findImportFileByHash`, `putSyncEntry`, `listSyncEntries`, `putWellnessDays`, `listWellnessDays`, ...), and `SqliteSyncLedger`, the upload queue's ledger with the same methods as `PrefsSyncLedger` (`src/native-outbox.js`) plus a one-time move of its Preferences rows |
