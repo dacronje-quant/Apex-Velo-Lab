@@ -147,6 +147,7 @@ export class NativeImport {
     this.queue = Promise.resolve();
     this.inFlight = new Set();
     this.paused = false; // a watched-folder import the rider cancelled is not started again until the next app start
+    this.inboxPaused = false; // the same for shared files, until something new is shared
     this.catching = null;
   }
 
@@ -305,7 +306,11 @@ export class NativeImport {
       this.toast(`${f.name}: ${plural(imported, 'ride')} imported from ${plural(todo.length, 'new file')}, ${plural(duplicates, 'duplicate')}${failed ? `, ${plural(failed, 'file')} could not be read` : ''}${stopped ? `. Stopped: ${stopped}` : ''}.`,
         stopped || failed ? 'warning' : 'success');
     }
-    const rows = await s.listImportFiles(WATCH_JOB);
+    let rows = await s.listImportFiles(WATCH_JOB);
+    // Rows of files no longer in the folder (deleted, or saved again under a new stamp) are dropped.
+    const listed = new Set(files.map(stamp));
+    const gone = rows.filter((r) => !listed.has(r.path)).map((r) => r.path);
+    if (gone.length) { await s.deleteImportFiles(WATCH_JOB, gone); rows = rows.filter((r) => listed.has(r.path)); }
     const done = new Set(rows.filter((r) => ![READING, RETRYING, QUEUED].includes(r.status)).map((r) => r.path));
     const present = files.map(stamp).filter((k) => done.has(k));
     await s.putImportJob({ id: WATCH_JOB, source: f.name, status: 'watching', total: files.length, done: present.length, errors: rows.filter((r) => r.status === 'error').length,
@@ -328,16 +333,25 @@ export class NativeImport {
   }
 
   // ------------------------------------------------------------------ share --
-  importInbox() { return this.serial(() => this.importInboxNow()); }
+  importInbox(opts) { return this.serial(() => this.importInboxNow(opts)); }
 
   /**
    * Imports the files waiting in the share inbox in one bulk job and removes them once read. A file whose
    * import the app was killed in stays in the inbox and is tried once more (then dropped).
    */
-  async importInboxNow() {
-    const all = ((await this.plugin.listInbox()).files || []).filter((f) => !this.inFlight.has(f.uri));
-    if (!all.length) return null;
+  async importInboxNow({ force = false } = {}) {
+    if (this.inboxPaused && !force) return null;
+    this.inboxPaused = false;
+    const inbox = (await this.plugin.listInbox()).files || [];
     const s = await this.db();
+    if (s) {
+      // Rows of shared files that have left the inbox are not needed any more.
+      const here = new Set(inbox.map((f) => f.uri));
+      const gone = (await s.listImportFiles(SHARE_JOB)).filter((r) => !here.has(r.path)).map((r) => r.path);
+      if (gone.length) await s.deleteImportFiles(SHARE_JOB, gone);
+    }
+    const all = inbox.filter((f) => !this.inFlight.has(f.uri));
+    if (!all.length) return null;
     let todo = all;
     if (s) {
       const p = await this.pending(s, SHARE_JOB, all, (f) => f.uri);
@@ -353,6 +367,12 @@ export class NativeImport {
       this.toast(`Importing ${todo.length === 1 ? todo[0].name : plural(todo.length, 'shared file')}...`);
       const summary = await this.importSources(todo, { label: todo.length === 1 ? todo[0].name : plural(todo.length, 'shared file'), kind: 'share' });
       if (!summary || summary.error) return summary; // kept in the inbox (marked read once): tried again at the next start
+      if (summary.cancelled) {
+        // Kept in the inbox and read from the start next time: at the next app start, or when something new is shared.
+        if (s) await s.putImportFiles(SHARE_JOB, todo.map((f) => ({ path: f.uri, status: QUEUED })));
+        this.inboxPaused = true;
+        return summary;
+      }
       if (s) {
         const out = await this.outcomes(s, summary, todo, (f) => f.name);
         await s.putImportFiles(SHARE_JOB, todo.map((f) => ({ path: f.uri, ...out.get(f) })));
@@ -367,7 +387,7 @@ export class NativeImport {
   /** The plugin copied shared files into the inbox (or turned some down). */
   onShared({ accepted = 0, rejected = [] } = {}) {
     if (rejected.length) this.toast(`${rejected.join(', ')}: not a ride file. Share .fit, .tcx, .gpx, .zip or .gz files.`, 'warning');
-    if (accepted) return this.importInbox().catch((e) => this.toast(`Shared files could not be imported (${e.message || e}).`, 'warning'));
+    if (accepted) return this.importInbox({ force: true }).catch((e) => this.toast(`Shared files could not be imported (${e.message || e}).`, 'warning'));
     return null;
   }
 

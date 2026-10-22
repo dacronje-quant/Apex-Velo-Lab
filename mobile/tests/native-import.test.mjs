@@ -328,3 +328,50 @@ test('watched folder: a big first scan runs in batches, so a kill costs only the
   assert.deepEqual(await status(), { 'a.fit': 'imported', 'b.fit': 'imported', 'c.fit': 'imported', 'd.fit': 'imported', 'e.fit': 'imported' });
   assert.equal((await store.getImportJob(WATCH_JOB)).done, 5);
 });
+
+test('share inbox: a cancelled import keeps the shared files, queued to be read from the start', async (t) => {
+  const store = await openStore(t);
+  const plugin = fakePlugin({ inbox: [{ uri: 'file:///inbox/1-0/a.fit', name: 'a.fit', bytes: bytes('aaa') }] });
+  let cancel = true;
+  const { app, ni } = setup(store, plugin, () => ({ cancelled: cancel }));
+  await ni.importInbox();
+  assert.equal(plugin.inbox.length, 1, 'nothing is deleted');
+  assert.deepEqual((await store.listImportFiles(SHARE_JOB)).map((r) => r.status), ['queued']);
+  await ni.catchUp();
+  assert.equal(app.runs.length, 1, 'resume does not start it again');
+  cancel = false;
+  await ni.onShared({ accepted: 1 }); // something new is shared: the queued file goes with it
+  assert.equal(app.runs.length, 2);
+  assert.equal(plugin.inbox.length, 0);
+  assert.deepEqual((await store.listImportFiles(SHARE_JOB)).map((r) => r.status), ['imported'], 'read as a first try, not a retry');
+  await ni.importInbox();
+  assert.deepEqual(await store.listImportFiles(SHARE_JOB), [], 'rows of files that left the inbox are dropped');
+});
+
+test('watched folder: rows of files that are gone are dropped at each scan', async (t) => {
+  const store = await openStore(t);
+  const plugin = fakePlugin({ folder: [{ path: 'a.fit', bytes: bytes('a') }, { path: 'b.fit', bytes: bytes('b'), mtime: 1 }] });
+  const { ni } = setup(store, plugin, (names) => ({ failed: names.includes('a.fit') ? ['a.fit'] : [] }));
+  await ni.scanFolder();
+  plugin.folder.shift(); // a.fit deleted
+  plugin.folder[0].mtime = 2; // b.fit saved again
+  await ni.scanFolder();
+  assert.deepEqual((await store.listImportFiles(WATCH_JOB)).map((r) => [r.path, r.status]), [['b.fit|1|2', 'imported']]);
+  const job = await store.getImportJob(WATCH_JOB);
+  assert.equal(job.errors, 0, 'the deleted file no longer counts as an error');
+  assert.equal(job.done, 1);
+});
+
+test('watched folder: a folder that was moved or deleted is reported, not read as empty', async (t) => {
+  const store = await openStore(t);
+  const plugin = fakePlugin({ folder: [{ path: 'a.fit', bytes: bytes('a') }] });
+  const { app, ni } = setup(store, plugin);
+  await ni.scanFolder();
+  plugin.listFolder = async () => { throw new Error('Folder not found. Choose it again.'); };
+  assert.deepEqual(await ni.scanFolder(), { error: 'Folder not found. Choose it again.' });
+  const st = await ni.folderStatus();
+  assert.equal(st.lastError, 'Folder not found. Choose it again.');
+  assert.equal(st.tracked, 1, 'what was imported is still counted');
+  assert.equal((await store.listImportFiles(WATCH_JOB)).length, 1, 'the records are kept for when the folder is back');
+  assert.equal(app.runs.length, 1);
+});

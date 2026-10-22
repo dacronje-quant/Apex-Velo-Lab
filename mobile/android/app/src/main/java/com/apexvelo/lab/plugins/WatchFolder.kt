@@ -26,6 +26,9 @@ object WatchFolder {
     /** Entries looked at in one listing, so a folder of photos cannot keep a scan busy forever. */
     const val MAX_ENTRIES = 50_000
 
+    /** The picked folder itself cannot be read: moved, deleted, or its storage (SD card, cloud app) is gone. */
+    class FolderMissing : Exception("Folder not found. Choose it again.")
+
     class Entry(val uri: Uri, val path: String, val name: String, val size: Long, val mtime: Long) {
         val stamp: String get() = ImportFiles.stamp(path, size, mtime)
     }
@@ -58,7 +61,10 @@ object WatchFolder {
         return DocumentsContract.getTreeDocumentId(tree).substringAfterLast(':').ifEmpty { "Folder" }
     }
 
-    /** Every ride file (and Strava activities.csv) in the folder and its subfolders, paths relative to it. */
+    /**
+     * Every ride file (and Strava activities.csv) in the folder and its subfolders, paths relative to it.
+     * Throws FolderMissing when the folder itself cannot be listed, so a moved folder never reads as empty.
+     */
     fun list(ctx: Context, tree: Uri): List<Entry> {
         val cols = arrayOf(
             DocumentsContract.Document.COLUMN_DOCUMENT_ID, DocumentsContract.Document.COLUMN_DISPLAY_NAME,
@@ -72,7 +78,13 @@ object WatchFolder {
         while (queue.isNotEmpty() && seen < MAX_ENTRIES) {
             val (parentId, prefix, depth) = queue.removeFirst()
             val children = DocumentsContract.buildChildDocumentsUriUsingTree(tree, parentId)
-            ctx.contentResolver.query(children, cols, null, null, null)?.use { c ->
+            val cursor = try {
+                ctx.contentResolver.query(children, cols, null, null, null)
+            } catch (e: Exception) {
+                if (depth == 0) throw FolderMissing() else null // a subfolder that went away mid-scan is skipped
+            }
+            if (cursor == null && depth == 0) throw FolderMissing()
+            cursor?.use { c ->
                 while (c.moveToNext() && seen < MAX_ENTRIES) {
                     seen++
                     val id = c.getString(0) ?: continue

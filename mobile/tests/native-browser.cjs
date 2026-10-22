@@ -181,7 +181,7 @@ async function importFlow(browser, errors) {
     await page.evaluate(() => __fireImport('folderChanged', { newFiles: 2 })); // the daily worker found them
     await page.waitForFunction(() => app.completedWorkouts.some((r) => r.importPath === 'new.fit'), null, { timeout: 20000 });
     await page.waitForFunction((n) => __nativeLog.import.opened === n + 2, opened);
-    assert.equal(sql("SELECT count(*) AS n FROM import_files WHERE job_id='watch_folder' AND status='imported'")[0].n, 6);
+    assert.equal(sql("SELECT count(*) AS n FROM import_files WHERE job_id='watch_folder' AND status='imported'")[0].n, 5, 'the five files now in the folder; the GPX\'s old stamp is dropped');
     assert.equal((await rides()).filter((r) => r.path === 'ride.gpx').length, 1, 'the re-read GPX is a duplicate, not a second ride');
     step('watched folder: Scan now reads nothing twice; the daily check brings in a new file and re-reads a changed one');
 
@@ -211,7 +211,12 @@ async function importFlow(browser, errors) {
     await page.reload();
     await page.waitForFunction(() => window.app && app.completedWorkouts.some((r) => r.fileName === 'Lunch.fit'), null, { timeout: 20000 });
     await page.waitForFunction(() => !app._bulk);
-    const killed = sql("SELECT status, cursor FROM import_jobs WHERE id='job_killed'")[0];
+    let killed;
+    for (let i = 0; i < 100; i++) { // markResumed runs after the import's summary
+      killed = sql("SELECT status, cursor FROM import_jobs WHERE id='job_killed'")[0];
+      if (JSON.parse(killed.cursor).resumedBy) break;
+      await new Promise((r) => setTimeout(r, 100));
+    }
     assert.equal(killed.status, 'interrupted');
     assert.ok(JSON.parse(killed.cursor).resumedBy, 'points at the job that resumed it');
     for (let i = 0; i < 50 && fs.readdirSync(imp.inbox).length; i++) await new Promise((r) => setTimeout(r, 100));

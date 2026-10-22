@@ -635,6 +635,12 @@ export class NativeStore {
       }
     }));
   }
+  /** Deletes files of a job by path (rows of files that are gone), all or none. */
+  deleteImportFiles(jobId, paths) {
+    return this.exclusive(() => this.transaction(async () => {
+      for (const p of paths) await this.db.run('DELETE FROM import_files WHERE job_id=? AND path=?', [String(jobId), String(p)]);
+    }));
+  }
   listImportFiles(jobId, { status } = {}) {
     return this.exclusive(async () => (status ? await this.db.all('SELECT * FROM import_files WHERE job_id=? AND status=? ORDER BY path', [String(jobId), status])
       : await this.db.all('SELECT * FROM import_files WHERE job_id=? ORDER BY path', [String(jobId)])).map(fileFromRow));

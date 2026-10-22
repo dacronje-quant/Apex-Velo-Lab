@@ -186,6 +186,8 @@ class ApexImportPlugin : Plugin() {
                     files.put(JSObject().put("uri", e.uri.toString()).put("path", e.path).put("name", e.name).put("size", e.size).put("mtime", e.mtime))
                 }
                 call.resolve(JSObject().put("files", files))
+            } catch (e: WatchFolder.FolderMissing) {
+                call.reject(e.message)
             } catch (e: Exception) {
                 call.reject("Could not read the folder (${e.message ?: e.javaClass.simpleName}).")
             }
@@ -313,7 +315,24 @@ class ApexImportPlugin : Plugin() {
         if (!dir.mkdirs() && !dir.isDirectory) return false
         val part = File(dir, ImportFiles.safeSegment(name) + ".part")
         return try {
-            context.contentResolver.openInputStream(uri)?.use { input -> part.outputStream().use { input.copyTo(it, 256 * 1024) } } ?: throw IllegalStateException("no data")
+            context.contentResolver.openInputStream(uri)?.use { input ->
+                part.outputStream().use { out ->
+                    val buf = ByteArray(256 * 1024)
+                    var copied = 0L
+                    var nextCheck = SPACE_CHECK_BYTES
+                    while (true) {
+                        val n = input.read(buf)
+                        if (n < 0) break
+                        out.write(buf, 0, n)
+                        copied += n
+                        // The sender did not say how big the file is: stop before the phone runs out of space.
+                        if (size <= 0 && copied >= nextCheck) {
+                            nextCheck += SPACE_CHECK_BYTES
+                            if (StatFs(context.noBackupFilesDir.path).availableBytes < MIN_FREE) throw IllegalStateException("not enough space")
+                        }
+                    }
+                }
+            } ?: throw IllegalStateException("no data")
             part.renameTo(File(dir, ImportFiles.safeSegment(name)))
         } catch (e: Exception) {
             dir.deleteRecursively()
@@ -330,6 +349,8 @@ class ApexImportPlugin : Plugin() {
         private const val SHARE_HANDLED = "com.apexvelo.lab.SHARE_HANDLED"
         /** Space left on the phone after copying a shared file. */
         private const val MIN_FREE = 200L * 1024 * 1024
+        /** How often free space is checked while copying a shared file of unknown size. */
+        private const val SPACE_CHECK_BYTES = 64L * 1024 * 1024
         @Volatile private var instance: WeakReference<ApexImportPlugin>? = null
 
         fun notifyFolderChanged(count: Int): Boolean {

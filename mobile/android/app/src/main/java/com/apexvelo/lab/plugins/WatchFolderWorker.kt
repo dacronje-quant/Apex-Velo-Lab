@@ -29,6 +29,8 @@ class WatchFolderWorker(ctx: Context, params: WorkerParameters) : Worker(ctx, pa
         if (!WatchFolder.hasPermission(ctx, tree)) return Result.success() // the rider revoked it; Settings says so
         val fresh = try {
             ImportFiles.newFiles(WatchFolder.list(ctx, tree), WatchFolder.readSeen(ctx)) { it.stamp }
+        } catch (e: WatchFolder.FolderMissing) {
+            return Result.success() // the app says so in Settings at its next scan; nothing to retry
         } catch (e: Exception) {
             return Result.retry() // provider not ready (cloud folder offline): WorkManager backs off and tries again
         }
