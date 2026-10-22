@@ -239,7 +239,7 @@ group) and in `docs/ux/after/` at 393×852 (landscape is 852×393). The rules th
 | b | Recovery step | `ux/after/live-b-recovery.png` |
 | c | Ramp test in progress | `ux/after/live-c-ramp.png` |
 | d | Free ride, HR only (no power) | `ux/after/live-d-free.png` |
-| e | All metrics (⚙ › Show all metrics) | `ux/after/live-e-full.png` |
+| e | All metrics (⚙ › Show all metrics): step strip, live power/HR/cadence graph over the workout profile, 12 tiles, no scrolling. Everything else is in the Controls sheet. | `ux/after/live-e-full.png`, `ux/after/live-e-full-landscape.png` |
 | f | Landscape | `ux/after/live-f-landscape.png` |
 | g | Paused, a device reconnecting | `ux/after/live-g-paused.png` |
 | h | End-of-ride summary | `ux/after/live-h-summary.png` |
