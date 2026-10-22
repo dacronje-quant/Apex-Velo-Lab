@@ -238,7 +238,7 @@
         const tss = pos(r.tss) ? r.tss : (np > 0 ? '0' : '--');
         const ifv = pos(r.if) ? Number(r.if).toFixed(2) : (np > 0 ? '0.00' : '--');
         const z = pos(r.if) ? VeloProgress.ifBand(parseFloat(r.if)) : null;
-        const hasSamples = r.samples && r.samples.length >= 5;
+        const hasSamples = VeloRideSummary.count(r) >= 5;
         return `
           <tr data-id="${esc(r.id)}">
             <td class="num nowrap">${dateStr}</td>

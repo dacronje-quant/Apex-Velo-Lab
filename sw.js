@@ -2,7 +2,7 @@
 // masked by a stale cache; the cache is only a fallback when offline.
 const CACHE_NAME = 'apex-velo-cache-v59';
 const CORE = [
-  './css/ftp-history.css', './js/velo-ftp-history.js', './js/velo-ftp-model.js', './js/app-ftp-history.js',
+  './css/ftp-history.css', './js/velo-ftp-history.js', './js/velo-ftp-model.js', './js/velo-ride-summary.js', './js/app-ftp-history.js',
   './js/phone-zen.js',
   './js/velo-storage.js',
   './css/phone-layout.css',
