@@ -45,18 +45,38 @@
    * { ok, implied, se, n, r2, slope, hrMax, reason }.
    */
   function hrPowerEstimate(prep, thrHr, ftp) {
-    const fail = (reason) => ({ ok: false, reason });
-    if (!prep || !prep.n || !thrHr) return fail('no samples');
+    if (!prep || !prep.n || !thrHr) return { ok: false, reason: 'no samples' };
+    return hrPowerFromBlocks(hrPowerBlocks(prep), thrHr, ftp);
+  }
+
+  /**
+   * The rider-independent part of hrPowerEstimate: per steady minute (after 5 min, heart rate 30 s later,
+   * 80% of it with heart rate, power varying under 15%) the mean power and heart rate. Kept per ride.
+   */
+  function hrPowerBlocks(prep) {
+    if (!prep || !prep.n) return { n: 0, blocks: [] };
     const { power, hr, n } = prep;
     const LAG = 30, BLOCK = 60, SKIP = 300;
-    const xs = [], ys = [];
+    const blocks = [];
     for (let a = SKIP; a + BLOCK + LAG <= n; a += BLOCK) {
       let sp = 0, sp2 = 0, sh = 0, nh = 0;
       for (let i = a; i < a + BLOCK; i++) { sp += power[i]; sp2 += power[i] * power[i]; }
       for (let i = a + LAG; i < a + BLOCK + LAG; i++) if (hr[i] > 40) { sh += hr[i]; nh++; }
       const mp = sp / BLOCK, sd = Math.sqrt(Math.max(0, sp2 / BLOCK - mp * mp));
-      if (nh < BLOCK * 0.8 || mp < 0.4 * ftp || sd / mp > 0.15) continue;
-      xs.push(sh / nh); ys.push(mp);
+      if (nh < BLOCK * 0.8 || sd / mp > 0.15) continue;
+      blocks.push([mp, sh / nh]);
+    }
+    return { n, blocks };
+  }
+
+  /** hrPowerEstimate from hrPowerBlocks: minutes under 40% FTP are left out, then power is fitted to heart rate. */
+  function hrPowerFromBlocks(b, thrHr, ftp) {
+    const fail = (reason) => ({ ok: false, reason });
+    if (!b || !b.n || !thrHr) return fail('no samples');
+    const xs = [], ys = [];
+    for (const [mp, h] of b.blocks) {
+      if (mp < 0.4 * ftp) continue;
+      xs.push(h); ys.push(mp);
     }
     const m = xs.length;
     if (m < 12) return fail(`${m} steady minutes with heart rate (12 needed)`);
@@ -172,7 +192,7 @@
     return { series, stats: { rides: list.length, hrRides: bObs.length, thr } };
   }
 
-  const VeloFtpModel = { thresholdHr, hrPowerEstimate, kalman, capacityFloor, build, MODEL_VERSION: 'app-1' };
+  const VeloFtpModel = { thresholdHr, hrPowerEstimate, hrPowerBlocks, hrPowerFromBlocks, kalman, capacityFloor, build, MODEL_VERSION: 'app-1' };
   if (typeof module !== 'undefined' && module.exports) module.exports = VeloFtpModel;
   if (root) root.VeloFtpModel = VeloFtpModel;
 })(typeof window !== 'undefined' ? window : globalThis);

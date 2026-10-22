@@ -40,7 +40,9 @@ if (fake || Capacitor.isNativePlatform()) {
   // /api/storage answer, and js/velo-storage.js then keeps the WebView storage and shows why.
   const store = fake && !fake.sqlite ? null : (async () => {
     const db = fake ? fake.sqlite : await openCapacitorDatabase(SQLiteConnection, CapacitorSQLite);
-    const s = await NativeStore.open({ db, files: (fake && fake.backupFiles) || filesystemFiles(plugins.Filesystem), dir: 'this phone', file: 'apexSQLite.db' });
+    // Ride summaries are made by the page's js/velo-ride-summary.js, which loads after this module.
+    const s = await NativeStore.open({ db, files: (fake && fake.backupFiles) || filesystemFiles(plugins.Filesystem), dir: 'this phone', file: 'apexSQLite.db',
+      summarize: (ride) => (window.VeloRideSummary ? window.VeloRideSummary.of(ride) : null), summaryVersion: () => (window.VeloRideSummary ? window.VeloRideSummary.VERSION : 0) });
     s.startDailyBackups(60000).catch(() => {}); // after the app has started
     return s;
   })();
@@ -51,6 +53,14 @@ if (fake || Capacitor.isNativePlatform()) {
       try { s = await store; } catch (e) { return { status: 503, body: { error: `The phone database could not be opened (${(e && e.message) || e}).` } }; }
       return s.route(pathname, method, body);
     },
+    /** One ride with its samples, or null. */
+    async ride(id) { return (await store).ride(id); },
+    /** Rides whose summary is missing, one ride's new summary, and the summaries of some rides ({ id: summary }). */
+    async summariesNeeded() { return (await store).summariesNeeded(); },
+    async summarizeRide(id) { return (await store).summarizeRide(id); },
+    async summaries(ids) { return (await store).summaries(ids); },
+    /** The JSON backup with every ride's samples, as UTF-8 pieces. */
+    async exportChunks(head, tail) { return (await store).exportChunks(head, tail); },
     /** Moves earlier WebView data in (once); onProgress(done, total). */
     async migrate(onProgress) {
       return new WebViewMigration({ store: await store, source: webViewSource(window), onProgress }).run();

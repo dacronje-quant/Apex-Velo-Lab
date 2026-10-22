@@ -289,6 +289,108 @@ function migrationOverlay(doc) {
   };
 }
 
+/**
+ * Rides start without their samples on the phone (the store answers /api/storage summary-only), so the
+ * history of a long-time rider fits in memory. Views of one ride load that ride's samples first; the
+ * analytics across rides use each ride's sampleSummary (js/velo-ride-summary.js). At most LOADED_MAX rides
+ * keep loaded samples; rides recorded or imported in this session keep theirs.
+ */
+const LOADED_MAX = 3;
+function lazySamples(P, storage, win) {
+  /* global VeloInsight, VeloRideSummary */
+  const hasSamples = (r) => (typeof VeloInsight !== 'undefined' ? VeloInsight : win.VeloInsight).hasSamples(r);
+  const summary = () => (typeof VeloRideSummary !== 'undefined' ? VeloRideSummary : win.VeloRideSummary);
+  const loaded = [];
+  /** Puts the ride's samples back on it (from the phone database) when they are not in memory. */
+  const withSamples = async (ride) => {
+    if (!ride || hasSamples(ride)) return ride;
+    let full = null;
+    try { full = await storage.ride(ride.id); } catch (e) { /* the view shows the summary-only ride */ }
+    if (full && Array.isArray(full.samples) && full.samples.length && !hasSamples(ride)) {
+      ride.samples = full.samples;
+      loaded.push(ride);
+      while (loaded.length > LOADED_MAX) { const old = loaded.shift(); if (old !== ride && loaded.indexOf(old) < 0) delete old.samples; }
+    }
+    return ride;
+  };
+  const byId = (app, id) => (app.completedWorkouts || []).find((r) => r.id === id);
+  const before = (name, find) => {
+    const original = P[name];
+    if (!original) return;
+    P[name] = async function (...args) { await withSamples(find(this, ...args)); return original.apply(this, args); };
+  };
+  before('showRideSummary', (app, record) => record);
+  before('exportRide', (app, ride) => ride);
+  before('requestAiBreakdown', (app, id) => byId(app, id));
+  before('saveStravaImage', (app, id) => byId(app, id));
+  // Whether a ride can go to Strava (60 s or more of samples) is known from its summary as well.
+  const canSend = P.canSendToStrava;
+  if (canSend) {
+    P.canSendToStrava = function (ride) {
+      if (!ride || hasSamples(ride)) return canSend.call(this, ride);
+      return ride.source !== 'Strava' && summary().count(ride) >= 60;
+    };
+  }
+  // History > Export JSON: the backup carries every ride's samples, read from the database a ride at a time.
+  P.exportJson = async function () {
+    const data = this.backupPayload(), head = {}, tail = {};
+    let after = false;
+    for (const [k, v] of Object.entries(data)) { if (k === 'history') after = true; else (after ? tail : head)[k] = v; }
+    try {
+      const chunks = await storage.exportChunks(head, tail);
+      const name = `apex_velo_backup_${win.VeloMetrics.localDateKey(new Date())}.json`;
+      return this.downloadFile(name, new Blob(chunks, { type: 'application/json' }), 'application/json');
+    } catch (e) { this.showToast(`Could not export the backup: ${(e && e.message) || e}`, 'error'); }
+  };
+  // After a save, rides that dropped their samples from memory (a bulk import) pick up their summaries.
+  const saveHistory = P.saveHistory;
+  P.saveHistory = async function (...args) {
+    const result = await saveHistory.apply(this, args);
+    const want = (this.completedWorkouts || []).filter((r) => !hasSamples(r) && !summary().get(r)).map((r) => r.id);
+    if (want.length) {
+      try {
+        const got = await storage.summaries(want);
+        let n = 0;
+        for (const r of this.completedWorkouts) if (got[r.id] && !summary().get(r)) { r.sampleSummary = got[r.id]; n++; }
+        if (n && this.refreshAnalytics) this.refreshAnalytics();
+      } catch (e) { /* the background pass fills them in */ }
+    }
+    return result;
+  };
+  // Bulk import (js/app-bulk-import.js) drops each saved batch's samples from memory and puts them all back
+  // for one analytics refresh at the end; on the phone the analytics read the rides' summaries instead.
+  if (P.restoreBulkSamples) {
+    P.restoreBulkSamples = async function (rides) {
+      const want = (rides || []).filter((r) => !hasSamples(r) && !summary().get(r));
+      if (!want.length) return;
+      const got = await storage.summaries(want.map((r) => r.id)).catch(() => ({}));
+      for (const r of want) if (got[r.id]) r.sampleSummary = got[r.id];
+    };
+  }
+  P.backfillRideSummaries = async function () {
+    if (this._summaryBackfill) return this._summaryBackfill;
+    const run = async () => {
+      const ids = await storage.summariesNeeded();
+      if (!ids.length) return 0;
+      const rides = new Map((this.completedWorkouts || []).map((r) => [String(r.id), r]));
+      let done = 0;
+      for (const id of ids) {
+        const s = await storage.summarizeRide(id).catch(() => null);
+        const r = rides.get(String(id));
+        if (r && s) r.sampleSummary = s;
+        if (++done % 25 === 0 && this.refreshAnalytics) this.refreshAnalytics();
+        await new Promise((res) => setTimeout(res, 0)); // one ride at a time, between the app's own work
+      }
+      if (this.refreshAnalytics) this.refreshAnalytics();
+      if (this.renderHistoryTable) this.renderHistoryTable();
+      return done;
+    };
+    this._summaryBackfill = run().finally(() => { this._summaryBackfill = null; });
+    return this._summaryBackfill;
+  };
+  return { withSamples };
+}
+
 const HEALTH_SYNC_EVERY_MS = 60 * 60 * 1000;
 const localDay = (d = new Date()) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
 
@@ -356,6 +458,7 @@ export function bootNativeApp({ bluetooth, storage, strava, ai, icu, uploads, pl
       V.render = () => { const el = doc.getElementById('localStorageStatus'); if (el) { el.textContent = 'Saved on this phone. Use History > Export to keep a copy elsewhere.'; el.classList.remove('backup-warn'); } };
     }
     if (!P) return;
+    const lazy = storage ? lazySamples(P, storage, win) : null;
 
     // ------------------------------------------------------------ features that need the PC --
     P.initRemoteView = function () { this.remoteTrace = []; this.remoteLastTraceSecond = -1; this._remoteEnabled = false; };
@@ -527,6 +630,14 @@ export function bootNativeApp({ bluetooth, storage, strava, ai, icu, uploads, pl
     };
     const canSend = P.canSendToStrava;
     P.canSendToStrava = function (ride) { return !isFromDestination(ride, UPLOAD_DEST) && canSend.call(this, ride); };
+    if (lazy) {
+      // The workout card made for the upload draws the ride's samples: load them first (the queue reads its own).
+      const send = P.sendRideToStrava;
+      P.sendRideToStrava = async function (rideId) {
+        await lazy.withSamples((this.completedWorkouts || []).find((r) => r.id === rideId));
+        return send.call(this, rideId);
+      };
+    }
     const stravaChip = P.stravaChip;
     P.stravaChip = function (ride) {
       const st = this.stravaStateOf(ride);
@@ -812,6 +923,9 @@ export function bootNativeApp({ bluetooth, storage, strava, ai, icu, uploads, pl
 
   // Strava sign-in returns through the apexvelo:// link (also when Android restarted the app meanwhile).
   const whenApp = async () => { for (let i = 0; i < 100 && !win.app; i++) await new Promise((r) => setTimeout(r, 100)); return win.app; };
+  // Rides saved before summaries existed get them in the background, a few seconds after the start.
+  if (storage) whenApp().then((app) => app && win.VeloStorage && win.VeloStorage.enabled && app.backfillRideSummaries
+    && new Promise((r) => setTimeout(r, 3000)).then(() => app.backfillRideSummaries())).catch(() => {});
   const onAppUrl = async ({ url }) => {
     if (!strava.isRedirect(url)) return;
     Browser.close().catch(() => {});

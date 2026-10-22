@@ -119,7 +119,7 @@
       const r = this.askRange();
       const rides = this.cyclingRides().filter(x => { const t = Date.parse(x.date); return t >= r.from.getTime() && t <= r.to.getTime(); });
       const hours = rides.reduce((a, x) => a + (Number(x.duration) || 0), 0) / 3600;
-      const withPower = rides.filter(x => VeloInsight.hasSamples(x) || Number(x.np) > 0 || Number(x.avgWatts) > 0).length;
+      const withPower = rides.filter(x => VeloRideSummary.has(x) || Number(x.np) > 0 || Number(x.avgWatts) > 0).length;
       const scope = document.getElementById('askScope');
       if (scope) {
         scope.innerHTML = rides.length
@@ -180,7 +180,7 @@
           sec += d; km += Number(r.distanceKm) || 0; tss += Number(r.tss) || 0; kj += Number(r.kj) || 0; longest = Math.max(longest, d);
           const np = Number(r.np) || 0;
           if (np > 0) { npSum += np; npN++; }
-          if (VeloInsight.hasSamples(r) || np > 0 || Number(r.avgWatts) > 0) withPower++;
+          if (VeloRideSummary.has(r) || np > 0 || Number(r.avgWatts) > 0) withPower++;
           if (Number(r.avgHr) > 0) withHr++;
         });
         return { rides: list.length, hours: sec / 3600, km, tss: Math.round(tss), kj: Math.round(kj), avgNp: npN ? Math.round(npSum / npN) : 0, longestSec: longest, withPower, withHr };
@@ -273,12 +273,12 @@
 
     /** Heart-rate drift (Pw:HR, %) of a steady ride, or null; cached per ride. */
     askDrift(r) {
-      if (!VeloInsight.hasSamples(r)) return null;
+      if (!VeloRideSummary.has(r)) return null;
       const cache = this._askDrift || (this._askDrift = new Map());
-      const key = `${r.id}|${r.samples.length}`;
+      const key = `${r.id}|${VeloRideSummary.count(r)}`;
       if (!cache.has(key)) {
         if (cache.size > 2 * (this.completedWorkouts || []).length + 50) cache.clear();
-        const d = VeloInsight.decoupling(r.samples);
+        const d = this.rideDecoupling(r);
         cache.set(key, d && d.status === 'ok' ? d.pct : null);
       }
       return cache.get(key);
