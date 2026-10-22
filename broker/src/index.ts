@@ -38,6 +38,21 @@ const TOKEN_FIELDS = ['token_type', 'access_token', 'refresh_token', 'expires_at
 const ATHLETE_FIELDS = ['id', 'firstname', 'lastname'];
 const TOKEN_RE = /^[A-Za-z0-9._~-]{1,256}$/;
 
+/**
+ * Whether a Strava refusal is about the broker's own application (wrong client id or secret, e.g.
+ * { errors: [{ resource: 'Application', field: 'client_secret', code: 'invalid' }] }) rather than the rider's grant.
+ * That is a broker fault: passing it through as 400/401 would sign every rider out.
+ */
+export function refusesApplication(body: string): boolean {
+  let data: unknown;
+  try { data = JSON.parse(body); } catch { return false; }
+  const errors = data && typeof data === 'object' ? (data as { errors?: unknown }).errors : null;
+  if (!Array.isArray(errors)) return false;
+  return errors.some((e) => e && typeof e === 'object' && (
+    String((e as Record<string, unknown>).resource || '').toLowerCase() === 'application' ||
+    ['client_id', 'client_secret'].includes(String((e as Record<string, unknown>).field || '').toLowerCase())));
+}
+
 interface Provider {
   tokenUrl: string;
   credentials(env: Env): { clientId: string; clientSecret: string } | null;
@@ -179,11 +194,15 @@ async function token(provider: Provider, request: Request, env: Env, fetcher: ty
   } finally { clearTimeout(timer); }
 
   if (PASS_THROUGH.has(upstream.status)) {
-    // Strava's own refusal, unchanged: the app decides (400/401 sign out, 429 retries later).
+    const text = await upstream.text();
+    if ((upstream.status === 400 || upstream.status === 401) && refusesApplication(text)) {
+      return [fail(502, 'The sign-in service is misconfigured.'), `strava refused the application (${upstream.status})`];
+    }
+    // Strava's refusal of the rider's grant, unchanged: the app decides (400/401 sign out, 429 retries later).
     const headers: Record<string, string> = { ...HEADERS, 'Content-Type': upstream.headers.get('content-type') || 'application/json' };
     const retry = upstream.headers.get('retry-after');
     if (retry) headers['Retry-After'] = retry;
-    return [new Response(await upstream.text(), { status: upstream.status, headers }), 'strava refused'];
+    return [new Response(text, { status: upstream.status, headers }), 'strava refused'];
   }
   if (!upstream.ok) return [fail(502, `Strava sign-in is unavailable (HTTP ${upstream.status}).`), `upstream ${upstream.status}`];
   let data: unknown;

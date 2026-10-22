@@ -2,8 +2,8 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { NativeStrava, ByoExchanger, BrokerExchanger, StravaDestination, UploadError, convertUpload } from '../src/native-strava.js';
 
-function setup({ now = 1_800_000_000_000, exchanger, brokerUrl } = {}) {
-  const store = new Map(), requests = [], opened = [];
+function setup({ now = 1_800_000_000_000, exchanger, brokerUrl, prefs: initial = {} } = {}) {
+  const store = new Map(Object.entries(initial)), requests = [], opened = [];
   const replies = [];
   const http = { async request(o) { requests.push(o); const r = replies.shift(); if (!r) throw new Error('unexpected request ' + o.url); return typeof r === 'function' ? r(o) : r; } };
   const prefs = { get: async (k) => store.get(k) ?? null, set: async (k, v) => store.set(k, v), remove: async (k) => store.delete(k) };
@@ -156,6 +156,31 @@ test('with a broker URL the broker is the default; Advanced switches to the own 
   store.set('strava_tokens', JSON.stringify({ access_token: 'c', refresh_token: 'r', expires_at: 1_900_000_000, scope: 'activity:write' }));
   await strava.setOwnApp(false);
   assert.equal((await strava.status()).connected, true);
+});
+
+test('an update that brings the broker keeps riders signed in with their own application on it', async () => {
+  const creds = JSON.stringify({ clientId: '123', clientSecret: SECRET });
+  const tokens = JSON.stringify({ access_token: 'a', refresh_token: 'r', expires_at: 1_900_000_000, scope: 'activity:write' });
+  const kept = setup({ brokerUrl: 'https://broker.example', prefs: { strava_credentials: creds, strava_tokens: tokens } });
+  let st = await kept.strava.status();
+  assert.deepEqual([st.signIn, st.connected, st.brokerAvailable], ['byo', true, true]);
+  assert.equal(kept.store.get('strava_use_own_app'), '1');
+
+  // Credentials saved but never signed in, or signed out: the broker (one tap) is the default.
+  const notSignedIn = setup({ brokerUrl: 'https://broker.example', prefs: { strava_credentials: creds } });
+  assert.equal((await notSignedIn.strava.status()).signIn, 'broker');
+  assert.equal(notSignedIn.store.has('strava_use_own_app'), false);
+
+  // A rider who chose the broker before (key present) is not moved back.
+  const chose = setup({ brokerUrl: 'https://broker.example', prefs: { strava_credentials: creds, strava_tokens: tokens } });
+  await chose.strava.exchanger();
+  chose.store.set('strava_tokens', tokens);
+  chose.replies.push({ status: 200, headers: {}, data: {} }); // deauthorize when switching
+  await chose.strava.setOwnApp(false);
+  const again = setup({ brokerUrl: 'https://broker.example', prefs: Object.fromEntries([...chose.store, ['strava_tokens', tokens]]) });
+  assert.equal(chose.store.get('strava_use_own_app'), '0');
+  st = await again.strava.status();
+  assert.equal(st.signIn, 'broker', 'a broker sign-in with kept own credentials stays on the broker after a restart');
 });
 
 test('broker: a broker fault (5xx) or its rate limit (429) is an outage, Strava 400/401 passed through signs out', async () => {

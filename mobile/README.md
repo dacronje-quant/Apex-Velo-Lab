@@ -67,7 +67,7 @@ Big exports are read from storage a piece at a time, never loaded whole: the sam
 2. In the app: **Settings (gear) > Strava**, enter the **Client ID** and **Client Secret**, press **Save**, then **Connect Strava**.
 3. Approve on the Strava page as above.
 
-Switching between the two signs you out of Strava (a sign-in belongs to one API application); connect again afterwards. Your own application's credentials are kept for when you switch back.
+Switching between the two signs you out of Strava (a sign-in belongs to one API application); connect again afterwards. Your own application's credentials are kept for when you switch back. Riders already connected with their own application stay on it when an update adds the broker.
 
 Tokens (and your own secret, if you use one) are kept in the app's private Android storage (not in the web storage or in exports). Uploads go from the phone straight to Strava's API; only sign-in and token refresh use the broker. If the broker is down or busy, uploads wait in the queue and you stay signed in; only Strava itself refusing the sign-in signs you out.
 

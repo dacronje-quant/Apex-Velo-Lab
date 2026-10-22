@@ -94,6 +94,23 @@ describe('POST /strava/token: pass-through', () => {
     expect(await r.json()).toEqual(refusal);
   });
 
+  test.each([
+    [400, { message: 'Bad Request', errors: [{ resource: 'Application', field: 'client_id', code: 'invalid' }] }],
+    [401, { message: 'Authorization Error', errors: [{ resource: 'Application', field: 'client_secret', code: 'invalid' }] }],
+    [401, { message: 'Authorization Error', errors: [{ resource: 'Athlete', field: 'client_secret', code: 'invalid' }] }]
+  ])('a Strava %i about the broker\'s own application is a 502, so riders stay signed in', async (status, body) => {
+    const r = await handle(tokenReq({ grant_type: 'refresh_token', refresh_token: 'r1' }), env(), strava(() => jsonRes(status, body)).fetcher);
+    expect(r.status).toBe(502);
+    expect(await r.json()).toEqual({ error: 'The sign-in service is misconfigured.' });
+  });
+
+  test('a rider grant refusal with no errors list, or not JSON, still passes through', async () => {
+    for (const answer of [() => jsonRes(401, { message: 'Authorization Error' }), () => new Response('Bad Request', { status: 400 })]) {
+      const r = await handle(tokenReq({ grant_type: 'authorization_code', code: 'c' }), env(), strava(answer).fetcher);
+      expect([400, 401]).toContain(r.status);
+    }
+  });
+
   test('a Strava 429 stays 429 (the app retries later) and keeps Retry-After', async () => {
     const s = strava(() => jsonRes(429, { message: 'Rate Limit Exceeded' }, { 'Retry-After': '900' }));
     const r = await handle(tokenReq({ grant_type: 'refresh_token', refresh_token: 'r1' }), env(), s.fetcher);

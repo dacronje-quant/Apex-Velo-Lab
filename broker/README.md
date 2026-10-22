@@ -29,7 +29,7 @@ The app signs a rider out when a token refresh is refused with **400 or 401**, a
 | Status | Meaning |
 |---|---|
 | 200 | Tokens |
-| 400, 401 | **Only Strava's own refusals**, body passed through unchanged (expired or revoked sign-in, bad code) |
+| 400, 401 | **Only Strava's refusals of the rider's grant**, body passed through unchanged (expired or revoked sign-in, bad code) |
 | 403 | Strava's 403, passed through; or the broker refusing a browser (`Origin` / `Sec-Fetch-*` / `OPTIONS`) or, with attestation enforced, an unverified app |
 | 404, 405 | Unknown route, wrong method |
 | 413 | Body over 2 KB |
@@ -37,7 +37,7 @@ The app signs a rider out when a token refresh is refused with **400 or 401**, a
 | 422 | Not exactly one of the two grant shapes above, or a malformed code/token |
 | 429 | Rate limit (the broker's own, `Retry-After: 60`, or Strava's, passed through) |
 | 500 | Broker misconfigured (missing secrets or rate-limit bindings, bad `ATTESTATION` value) |
-| 502 | Strava 5xx or another unexpected status, network error, unreadable answer |
+| 502 | Strava 5xx or another unexpected status, network error, unreadable answer; or a Strava 400/401 about the broker's own application (an error with `resource: "Application"` or field `client_id` / `client_secret`), which is a misconfiguration, not the rider's sign-in |
 | 503 | Attestation enforced but the verifier cannot decide |
 | 504 | Strava did not answer within 10 s |
 
@@ -46,8 +46,10 @@ never signs riders out.
 
 ### Abuse protection
 
-- Per-IP rate limits with the Workers rate-limit binding (`wrangler.toml`): 10 token requests and 30 config
-  requests per minute per address. A missing binding fails closed (500).
+- Per-IP rate limits with the Workers rate-limit binding (`wrangler.toml`): 100 token requests and 300 config
+  requests per minute per address, sized for carrier-grade NAT (many riders behind one mobile address; a rider
+  makes a few token calls a day). Keying on the token instead was rejected: a caller could pass the limit by
+  sending made-up tokens. A missing binding fails closed (500).
 - Strict input: JSON only, at most 2 KB (checked while reading, whatever `Content-Length` says), exactly the two
   grant shapes, codes and tokens limited to `[A-Za-z0-9._~-]{1,256}`.
 - No CORS: the app calls the broker natively (CapacitorHttp sends neither `Origin` nor `Sec-Fetch-*`), so any

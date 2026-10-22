@@ -161,6 +161,13 @@ export class NativeStrava {
     this.fixed = exchanger || null;
     this.byo = new ByoExchanger({ http, prefs, base });
     this.broker = brokerUrl ? new BrokerExchanger({ http, brokerUrl, base, ...(attest ? { attest } : {}) }) : null;
+    // Riders already signed in with their own application stay on it when an update brings the broker.
+    this._kept = this.fixed || !this.broker ? Promise.resolve() : this._keepOwnApp().catch(() => {});
+  }
+
+  async _keepOwnApp() {
+    if ((await this.prefs.get(KEYS.ownApp)) !== null) return;
+    if ((await this.prefs.get(KEYS.creds)) && (await this.prefs.get(KEYS.tokens))) await this.prefs.set(KEYS.ownApp, '1');
   }
 
   async _json(key) { try { return JSON.parse((await this.prefs.get(key)) || 'null'); } catch (e) { return null; } }
@@ -169,6 +176,7 @@ export class NativeStrava {
   /** The TokenExchanger in use now (read each time, so switching in Settings needs no restart). */
   async exchanger() {
     if (this.fixed) return this.fixed;
+    await this._kept;
     if (this.broker && (await this.prefs.get(KEYS.ownApp)) !== '1') return this.broker;
     return this.byo;
   }
@@ -180,7 +188,8 @@ export class NativeStrava {
     const after = await (on ? this.byo : this.broker).identity();
     // Tokens belong to one API application: revoke them before switching (the old exchanger refreshes if needed).
     if (before !== after && (await this.tokens())) await this.disconnect();
-    if (on) await this.prefs.set(KEYS.ownApp, '1'); else await this.prefs.remove(KEYS.ownApp);
+    // '0' (not removed) records the choice, so _keepOwnApp() never moves a broker sign-in to the own application.
+    await this.prefs.set(KEYS.ownApp, on ? '1' : '0');
   }
 
   /** Own-application credentials (Settings > Strava); null with the broker. */
