@@ -68,7 +68,7 @@ test('wellness_days: both sources stored, merged into the health store, preferen
   const w = new WellnessSources({ store, prefs });
   // A day the app stored from intervals.icu before Health Connect existed (only in the health store).
   const target = { '2026-10-15': { src: 'icu', summary: { rhr: 50, hrv: 70, hrvKind: 'rmssd', hrvSrc: 'icu', sleepH: 7 } }, '2026-10-14': { src: 'icu', summary: { rhr: 51, hrv: 71, hrvKind: 'rmssd' } } };
-  assert.equal(await w.apply(target, HC_SOURCE, toHealthDays(fixture.wellness)), 2, 'the first merge looks at every day');
+  assert.equal(await w.apply(target, HC_SOURCE, toHealthDays(fixture.wellness)), 1, 'the first merge looks at every day; only the shared one changes');
   assert.equal(target['2026-10-15'].src, 'merged');
   assert.equal(target['2026-10-15'].summary.rhr, 46);
   assert.equal(target['2026-10-14'].src, 'icu');
@@ -149,22 +149,22 @@ test('rides recorded here are written as an exercise session with series; Health
 });
 
 /** A scripted plugin over the fixture: every record is "in" Health Connect; changes are queued by the test. */
-function fakePlugin({ granted = ['HeartRateVariabilityRmssd', 'RestingHeartRate', 'SleepSession', 'Weight', 'OxygenSaturation', 'RespiratoryRate', 'ExerciseSession', 'HeartRate', 'Power', 'Speed', 'Cadence', 'Distance'] } = {}) {
+function fakePlugin({ granted: allowed = ['HeartRateVariabilityRmssd', 'RestingHeartRate', 'SleepSession', 'Weight', 'OxygenSaturation', 'RespiratoryRate', 'ExerciseSession', 'HeartRate', 'Power', 'Speed', 'Cadence', 'Distance'] } = {}) {
   const all = [...Object.values(fixture.wellness).flat(), { ...fixture.ride.session }, { ...fixture.ride.session, id: 'ex-self', origin: 'com.apexvelo.lab' },
     { ...fixture.ride.session, id: 'ex-run', exerciseType: 56 }];
   for (const [type, list] of Object.entries(fixture.ride.series)) for (const r of list) all.push({ ...r, type });
   const log = { reads: [], started: 0, acked: [] };
   const p = {
-    log, all, pending: [], tokenExpired: false,
+    log, all, pending: [], tokenExpired: false, allowed,
     async availability() { return { status: 'available', history: true, background: true }; },
-    async grantedHealthPermissions() { return { read: granted, write: [], history: true, background: false }; },
+    async grantedHealthPermissions() { return { read: p.allowed, write: [], history: true, background: false }; },
     async readRecords({ type, start, end, origin, pageToken }) {
       log.reads.push(type);
       const hits = all.filter((r) => r.type === type && (r.time ?? r.start) >= start && (r.time ?? r.start) < end && (!origin || r.origin === origin));
       const from = Number(pageToken || 0);
       return { records: hits.slice(from, from + 2), pageToken: from + 2 < hits.length ? String(from + 2) : null };
     },
-    async startChanges() { log.started++; p.pending = []; },
+    async startChanges({ types }) { log.started++; log.tokenTypes = types; p.pending = []; },
     async pendingChanges() { return { changes: p.pending, hasToken: log.started > 0, tokenExpired: p.tokenExpired }; },
     async ackChanges({ upTo }) { log.acked.push(upTo); p.pending = p.pending.filter((c) => c.seq > upTo); }
   };
@@ -232,4 +232,19 @@ test('sync: an interrupted backfill goes on from its last chunk; nothing is read
   assert.equal(plugin.log.started, 1);
   const none = new NativeHealthConnect({ plugin: fakePlugin({ granted: [] }), prefs: memPrefs() });
   assert.deepEqual(await none.sync(handlers, { today: '2026-10-17' }), { days: 0, sessions: 0, removed: 0, backfilled: false });
+});
+
+test('sync: types allowed later (rides after recovery) start the token and the backfill again', async () => {
+  const plugin = fakePlugin({ granted: ['HeartRateVariabilityRmssd', 'RestingHeartRate'] });
+  const hc = new NativeHealthConnect({ plugin, prefs: memPrefs() });
+  const sessions = [];
+  const handlers = { days: async () => {}, sessions: async (l) => sessions.push(...l), removed: async () => 0, daysWithIds: async () => [] };
+  await hc.sync(handlers, { today: '2026-10-17' });
+  assert.deepEqual(plugin.log.tokenTypes, ['HeartRateVariabilityRmssd', 'RestingHeartRate'], 'the token covers only allowed types');
+  assert.equal(sessions.length, 0);
+  plugin.allowed = [...plugin.allowed, 'ExerciseSession', 'Power'];
+  await hc.sync(handlers, { today: '2026-10-17' });
+  assert.equal(plugin.log.started, 2);
+  assert.deepEqual(sessions.map((s) => s.session.id), ['ex1']);
+  assert.deepEqual(Object.keys(sessions[0].series), ['Power'], 'only allowed series are read');
 });

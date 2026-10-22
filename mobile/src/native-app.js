@@ -13,8 +13,9 @@
  *     queue), so "Sync from Strava" and "Check Strava" are hidden,
  *   - adds Settings > About with the open-source licences of what the app ships,
  *   - adds the API key fields to Settings > AI engine (the keys stay in Android app storage),
- *   - reads resting HR, HRV and sleep from intervals.icu (Settings > Health) instead of Apple Health
- *     via the PC, for readiness, the calendar and the recovery trends,
+ *   - reads resting HR, HRV and sleep from intervals.icu and Health Connect (Settings > Health) instead of
+ *     Apple Health via the PC, for readiness, the calendar and the recovery trends; Health Connect also brings
+ *     other apps' rides in and takes rides recorded here (src/native-healthconnect.js),
  *   - keeps the screen on during a ride, shares exported files, and handles the Android back button.
  *
  * Dropped in this version (they need the PC server or another device): phone remote view,
@@ -24,6 +25,7 @@
 import { BACKFILL_DAYS, RECENT_DAYS } from './native-icu.js';
 import { aboutSection } from './native-licences.js';
 import { isFromDestination } from './native-outbox.js';
+import { HC_SOURCE, TYPE_TEXT, WELLNESS_TYPES, RIDE_TYPES, WRITE_TYPES, MERGE_FIELDS, RESUME_SYNC_MS, toRide, importRides, removeRides, recordedHere } from './native-healthconnect.js';
 
 const json = (status, body) => new Response(JSON.stringify(body), { status, headers: { 'Content-Type': 'application/json' } });
 const AI_PATHS = ['/api/coach', '/api/coach/status', '/api/ask'];
@@ -185,6 +187,47 @@ function healthSection() {
         <p class="field-help">The key stays in this app's private storage on the phone, goes only to intervals.icu and is not part of exports. The app only reads your wellness data.</p>`;
 }
 
+const HC_GROUPS = [
+  ['recovery', 'Recovery data', WELLNESS_TYPES, 'read'],
+  ['rides', 'Rides from other apps', RIDE_TYPES, 'read'],
+  ['write', 'Save rides recorded here', WRITE_TYPES, 'write']
+];
+const HC_FIELDS = { rhr: 'Resting heart rate', hrv: 'HRV', sleep: 'Sleep and its stages', weight: 'Weight', spo2: 'Blood oxygen', resp: 'Breathing rate' };
+
+function healthConnectSection() {
+  return `
+        <div class="native-hc" id="nativeHc">
+          <h4 class="native-hc-title">Health Connect</h4>
+          <p class="field-help">Android's <b>Health Connect</b> shares data between your health apps (Samsung Health, Fitbit, Google Fit, Garmin, Oura, Zwift...). Apex Velo can read your recovery data and rides from them, and save the rides you record here. Each kind of data is asked for separately, and everything stays on this phone.</p>
+          <div class="settings-kv" id="nativeHcStatus" aria-live="polite"><span class="dim">Checking...</span></div>
+          <div class="btn-row"><button type="button" class="btn btn-primary" id="btnNativeHcInstall" hidden>Get Health Connect</button></div>
+          <div id="nativeHcGroups">${HC_GROUPS.map(([id, label, types, mode]) => `
+            <div class="native-hc-group" data-hc-group="${id}">
+              <b>${label}</b>
+              <ul class="native-hc-types">${types.map((t) => `<li data-hc-type="${mode}:${t}"><span class="native-hc-mark" aria-hidden="true"></span>${TYPE_TEXT[t]}</li>`).join('')}</ul>
+              <button type="button" class="btn" data-hc-request="${id}">Allow</button>
+            </div>`).join('')}
+          </div>
+          <label class="native-toggle"><input type="checkbox" id="nativeHcAutoWrite"> Save each ride I record here to Health Connect</label>
+          <label class="native-toggle"><input type="checkbox" id="nativeHcBackground"> Look for changes once a day while the app is closed</label>
+          <p class="field-help">The first sync reads the last two years. After that only what changed is read: when the app opens, when you come back to it, and (if allowed) once a day in the background. Rides already in your history (the same start and length) are not added twice: the copy with power is kept. Rides that came from Health Connect are never written back.</p>
+          <h4 class="native-hc-title">When intervals.icu and Health Connect both have a day</h4>
+          <div class="native-hc-prefs">${Object.entries(HC_FIELDS).map(([k, label]) => `
+            <label for="nativeHcPref-${k}">${label}</label>
+            <select id="nativeHcPref-${k}" class="input-field" data-hc-pref="${k}">
+              <option value="${HC_SOURCE}">Health Connect first</option>
+              <option value="icu">intervals.icu first</option>
+            </select>`).join('')}
+          </div>
+          <p class="field-help">The other source fills in a day the first one has no value for. HRV is never mixed: Health Connect has overnight rMSSD, so SDNN from intervals.icu is not used to fill its gaps (or the other way round).</p>
+          <div class="btn-row">
+            <button type="button" class="btn" id="btnNativeHcSync">Sync now</button>
+            <button type="button" class="btn btn-ghost" id="btnNativeHcManage">Manage in Health Connect</button>
+            <button type="button" class="btn btn-ghost" id="btnNativeHcDisconnect">Disconnect</button>
+          </div>
+        </div>`;
+}
+
 /**
  * The phone does not read Strava: "Sync from Strava" and "Check Strava" go. The strength-load switches in the
  * same card stay (they are about training load, not Strava).
@@ -203,7 +246,7 @@ function hideStravaSync(doc) {
 }
 
 /** Settings > Strava: the DOM must exist before VeloApp binds the settings tabs. */
-function addSettingsUi(doc, icu) {
+function addSettingsUi(doc, icu, healthConnect) {
   hideStravaSync(doc);
   const nav = doc.getElementById('settingsNav');
   if (nav && !nav.querySelector('[data-sec="strava"]')) {
@@ -224,7 +267,7 @@ function addSettingsUi(doc, icu) {
   if (status) status.textContent = 'Saved on this phone.';
   const health = doc.getElementById('healthSettings');
   if (icu && health && !doc.getElementById('nativeIcuKey')) {
-    health.innerHTML = healthSection();
+    health.innerHTML = healthSection() + (healthConnect ? healthConnectSection() : '');
     const pill = nav && nav.querySelector('[data-sec="health"]');
     if (pill) pill.textContent = 'Health';
     // Static wording that names Apple Health / Health Auto Export as the source.
@@ -295,7 +338,7 @@ const localDay = (d = new Date()) => `${d.getFullYear()}-${String(d.getMonth() +
 const UPLOAD_DEST = 'strava';
 const hhmm = (t) => new Date(t).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' });
 
-export function bootNativeApp({ bluetooth, storage, strava, ai, icu, uploads, plugins, win = window }) {
+export function bootNativeApp({ bluetooth, storage, strava, ai, icu, uploads, plugins, healthConnect = null, wellness = null, win = window }) {
   const doc = win.document;
   const { App, Browser, KeepAwake, Filesystem, Share } = plugins;
   doc.documentElement.classList.add('apex-native');
@@ -313,7 +356,7 @@ export function bootNativeApp({ bluetooth, storage, strava, ai, icu, uploads, pl
 
   win.addEventListener('DOMContentLoaded', () => {
     doc.body.classList.add('apex-native');
-    addSettingsUi(doc, icu);
+    addSettingsUi(doc, icu, healthConnect);
     if (ai) addAiSettingsUi(doc);
     // `class VeloApp` in js/app.js is a global binding of the page's scripts, not a window property.
     /* global VeloApp, VeloExport */
@@ -410,6 +453,9 @@ export function bootNativeApp({ bluetooth, storage, strava, ai, icu, uploads, pl
     // keep a FIT file of each ride recorded on the phone, outside the app's own storage.
     P.preparePhoneFit = function (ride) {
       if (uploads && ride) this.autoUploadRide(ride).catch(() => {});
+      if (uploads && healthConnect && recordedHere(ride)) {
+        uploads.autoUpload(HC_SOURCE).then((on) => on && uploads.enqueue(ride, HC_SOURCE).then(() => uploads.run())).catch(() => {});
+      }
       if (!autoSaveFit() || !ride || !Array.isArray(ride.samples) || !ride.samples.length) return;
       const name = `${VeloExport.fileStem(ride)}.fit`;
       saveRideFile(Filesystem, name, new Blob([VeloExport.buildFit(ride, ride.samples)], { type: 'application/vnd.ant.fit' }))
@@ -644,11 +690,16 @@ export function bootNativeApp({ bluetooth, storage, strava, ai, icu, uploads, pl
         let added = 0, days = 0;
         try {
           const r = await icu.wellness(localDay(), full ? BACKFILL_DAYS : RECENT_DAYS);
-          for (const [day, rec] of Object.entries(r.days)) {
-            days++;
-            if (JSON.stringify(this.healthStore.days[day]) === JSON.stringify(rec)) continue;
-            this.healthStore.days[day] = rec;
-            added++;
+          days = Object.keys(r.days).length;
+          // With Health Connect the days of both sources are kept and merged (Settings > Health picks the order).
+          const sources = wellness ? await wellness.catch(() => null) : null;
+          if (sources) added = await sources.apply(this.healthStore.days, 'icu', r.days);
+          else {
+            for (const [day, rec] of Object.entries(r.days)) {
+              if (JSON.stringify(this.healthStore.days[day]) === JSON.stringify(rec)) continue;
+              this.healthStore.days[day] = rec;
+              added++;
+            }
           }
           if (added) this.saveHealthStore();
           this._healthError = null;
@@ -729,6 +780,161 @@ export function bootNativeApp({ bluetooth, storage, strava, ai, icu, uploads, pl
           if (!confirm('Remove the intervals.icu API key from this phone? The health days already stored stay.')) return;
           await icu.removeKey();
           app.showToast('intervals.icu API key removed from this phone.', 'success');
+        }));
+      };
+    }
+
+    // ------------------------------------------------------------------------ Health Connect --
+    if (healthConnect) {
+      const esc = (v) => String(v ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+      /* global VeloRideImporter, VeloDedupe */
+      const importer = () => (typeof VeloRideImporter !== 'undefined' ? VeloRideImporter : win.VeloRideImporter);
+      const dedupe = () => (typeof VeloDedupe !== 'undefined' ? VeloDedupe : win.VeloDedupe);
+      /**
+       * Reads Health Connect: the backfill on the first run, then the changes. Days go into wellness_days and
+       * the merged health store (saved as they arrive, so a killed app keeps them); rides into the history.
+       * At app start always, on resume at most every 15 minutes unless forced.
+       */
+      P.syncHealthConnect = async function ({ force = false, announce = false } = {}) {
+        const sources = wellness ? await wellness.catch(() => null) : null;
+        if (!sources) {
+          if (announce) this.showToast('Health Connect needs the phone database, which could not be opened.', 'warning');
+          return null;
+        }
+        if (!force && this._hcLastSync && Date.now() - this._hcLastSync < RESUME_SYNC_MS) return null;
+        this._hcLastSync = Date.now();
+        const app = this;
+        let days = 0, rides = 0, res = null;
+        const handlers = {
+          async days(map) {
+            const n = await sources.apply(app.healthStore.days, HC_SOURCE, map);
+            if (n) { days += n; app.saveHealthStore(); }
+          },
+          async sessions(list) {
+            const profile = app.activeProfile || {};
+            const made = list.map(({ session, series }) => toRide(session, series, { ftp: Number(profile.ftp) || 0, profileName: profile.name || '', summarize: (s, f, m) => importer().summarize(s, f, m) }));
+            const r = importRides(app.completedWorkouts, made, dedupe());
+            const n = r.added.length + r.replaced.length + r.updated.length;
+            if (n) { rides += n; await app.saveHistory(); }
+          },
+          async removed(ids) {
+            const gone = removeRides(app.completedWorkouts, ids);
+            if (gone.length) { rides += gone.length; await app.saveHistory(); }
+            return gone.length;
+          },
+          daysWithIds: (ids) => sources.daysWithIds(ids)
+        };
+        this._hcBusy = true;
+        this.renderHealthConnect().catch(() => {});
+        try {
+          res = await healthConnect.sync(handlers, { today: localDay(), onProgress: (done, total) => { this._hcProgress = `${done} of ${total} days`; this.renderHealthConnect().catch(() => {}); } });
+          this._hcError = null;
+        } catch (e) {
+          this._hcError = `Health Connect: ${(e && e.message) || e}`;
+        } finally {
+          this._hcBusy = false; this._hcProgress = null;
+        }
+        if (days) { this.refreshHealthDerived(); this.afterHealthChange(); }
+        if (rides) { this.renderHistoryTable(); this.refreshAnalytics(); }
+        if (announce) {
+          this.showToast(this._hcError || (res && (res.days || res.sessions) ? `Health Connect: ${days} day${days === 1 ? '' : 's'} and ${rides} ride${rides === 1 ? '' : 's'} added or updated.` : 'Health Connect: up to date.'), this._hcError ? 'warning' : 'success');
+        }
+        this.renderHealthConnect().catch(() => {});
+        return res;
+      };
+
+      P.renderHealthConnect = async function () {
+        const box = doc.getElementById('nativeHcStatus');
+        if (!box) return;
+        const st = await healthConnect.status();
+        const $ = (id) => doc.getElementById(id);
+        const av = st.availability.status, ok = av === 'available', g = st.granted || { read: [], write: [] };
+        const kv = (k, v) => `<div><span>${esc(k)}</span><b>${v}</b></div>`;
+        const text = { available: 'Available', not_installed: 'Not installed', update_required: 'Needs an update', unsupported: 'Not available on this phone (Android 9 or newer)' }[av] || esc(av);
+        const last = st.state && st.state.lastSync ? new Date(st.state.lastSync).toLocaleString('en-GB', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' }) : 'not yet';
+        box.innerHTML = [
+          kv('Health Connect', text),
+          ok ? kv('Last sync', this._hcBusy ? `syncing${this._hcProgress ? ` (${esc(this._hcProgress)})` : ''}...` : esc(last)) : '',
+          this._hcError ? `<div class="backup-warn">${esc(this._hcError)}</div>` : ''
+        ].join('');
+        const install = $('btnNativeHcInstall');
+        if (install) { install.hidden = !['not_installed', 'update_required'].includes(av); install.textContent = av === 'update_required' ? 'Update Health Connect' : 'Get Health Connect'; }
+        ['nativeHcGroups', 'btnNativeHcSync', 'btnNativeHcManage', 'btnNativeHcDisconnect'].forEach((id) => { if ($(id)) $(id).hidden = !ok; });
+        doc.querySelectorAll('#nativeHc .native-toggle, #nativeHc .native-hc-prefs').forEach((el) => { el.hidden = !ok; });
+        doc.querySelectorAll('[data-hc-type]').forEach((li) => {
+          const [mode, type] = li.dataset.hcType.split(':');
+          const on = (mode === 'write' ? g.write : g.read).includes(type);
+          li.classList.toggle('granted', on);
+          li.querySelector('.native-hc-mark').textContent = on ? '✓' : '–';
+        });
+        doc.querySelectorAll('[data-hc-request]').forEach((b) => {
+          const [, , types, mode] = HC_GROUPS.find((x) => x[0] === b.dataset.hcRequest);
+          const all = types.every((t) => (mode === 'write' ? g.write : g.read).includes(t));
+          b.textContent = all ? 'Allowed' : 'Allow';
+          b.disabled = all;
+        });
+        if ($('nativeHcAutoWrite')) { $('nativeHcAutoWrite').checked = !!uploads && await uploads.autoUpload(HC_SOURCE); $('nativeHcAutoWrite').disabled = !g.write.includes('ExerciseSession'); }
+        if ($('nativeHcBackground')) $('nativeHcBackground').checked = !!g.background && await healthConnect.backgroundOn();
+        const sources = wellness ? await wellness.catch(() => null) : null;
+        if (sources) {
+          const prefs = await sources.fieldPrefs();
+          doc.querySelectorAll('[data-hc-pref]').forEach((sel) => { sel.value = prefs[sel.dataset.hcPref]; });
+        }
+      };
+
+      const renderHealth = P.renderHealthSettings;
+      P.renderHealthSettings = async function (...args) {
+        await renderHealth.apply(this, args);
+        await this.renderHealthConnect().catch(() => {});
+      };
+
+      const initHealthHc = P.initHealth;
+      P.initHealth = function () {
+        initHealthHc.call(this);
+        const app = this;
+        const $ = (id) => doc.getElementById(id);
+        const busy = async (btn, fn) => {
+          if (btn) btn.disabled = true;
+          try { await fn(); } catch (e) { app.showToast((e && e.message) || String(e), 'warning'); } finally { if (btn) btn.disabled = false; app.renderHealthConnect().catch(() => {}); }
+        };
+        this.on($('btnNativeHcInstall'), 'click', () => plugins.HealthConnect.openInstall().catch(() => {}));
+        this.on($('btnNativeHcManage'), 'click', () => plugins.HealthConnect.openSettings().catch(() => {}));
+        this.on($('nativeHcGroups'), 'click', (e) => {
+          const b = e.target.closest('[data-hc-request]');
+          if (!b) return;
+          busy(b, async () => {
+            const g = await healthConnect.request(b.dataset.hcRequest);
+            if (b.dataset.hcRequest === 'write' && g.write.includes('ExerciseSession') && uploads) await uploads.setAutoUpload(HC_SOURCE, true);
+            if (b.dataset.hcRequest !== 'write' && g.read.length) await app.syncHealthConnect({ force: true, announce: true });
+          });
+        });
+        this.on($('btnNativeHcSync'), 'click', (e) => busy(e.currentTarget, () => app.syncHealthConnect({ force: true, announce: true })));
+        this.on($('nativeHcAutoWrite'), 'change', (e) => busy(null, async () => {
+          const on = e.currentTarget.checked;
+          if (!uploads) return;
+          await uploads.setAutoUpload(HC_SOURCE, on);
+          app.showToast(on ? 'Rides you record will be saved to Health Connect.' : 'Rides are no longer saved to Health Connect.', 'info');
+        }));
+        this.on($('nativeHcBackground'), 'change', (e) => busy(null, async () => {
+          const wanted = e.currentTarget.checked;
+          const on = await healthConnect.setBackground(wanted);
+          if (wanted && !on) app.showToast('Health Connect did not allow reading in the background. The app still syncs when it opens.', 'info');
+        }));
+        this.on($('nativeHc'), 'change', (e) => {
+          const sel = e.target.closest('[data-hc-pref]');
+          if (!sel || !MERGE_FIELDS[sel.dataset.hcPref]) return;
+          busy(sel, async () => {
+            const sources = await wellness;
+            await sources.setFieldPref(sel.dataset.hcPref, sel.value);
+            if (await sources.remerge(app.healthStore.days)) { app.saveHealthStore(); app.refreshHealthDerived(); app.afterHealthChange(); }
+          });
+        });
+        this.on($('btnNativeHcDisconnect'), 'click', (e) => busy(e.currentTarget, async () => {
+          if (!confirm('Disconnect Health Connect? Apex Velo loses its Health Connect permissions. Days and rides already read stay.')) return;
+          await plugins.HealthConnect.disconnect();
+          await healthConnect.reset();
+          if (uploads) await uploads.setAutoUpload(HC_SOURCE, false);
+          app.showToast('Health Connect disconnected.', 'success');
         }));
       };
     }
@@ -828,12 +1034,14 @@ export function bootNativeApp({ bluetooth, storage, strava, ai, icu, uploads, pl
   App.getLaunchUrl().then((r) => { if (r && r.url) onAppUrl(r); }).catch(() => {});
   // Uploads left in the queue by the last session go out at app start.
   if (uploads) whenApp().then((app) => { if (app) return uploads.run(); }).catch(() => {});
+  if (healthConnect) whenApp().then((app) => { if (app && app.syncHealthConnect && !win.__APEX_TEST_MODE__) return app.syncHealthConnect({ force: true }); }).catch(() => {});
   App.addListener('resume', () => {
     const app = win.app;
     if (!app) return;
     if (app._awaitingStravaConnect) app.refreshStravaStatus(true);
     if (uploads) uploads.run().catch(() => {}); // the offline retry queue
     if (icu && app.pullHealthInbox) app.pullHealthInbox().catch(() => {}); // at most hourly
+    if (healthConnect && app.syncHealthConnect) app.syncHealthConnect().catch(() => {}); // at most every 15 minutes
   });
 
   // Android back: close the chooser, then the top dialog, then Zen; never quit mid-ride.

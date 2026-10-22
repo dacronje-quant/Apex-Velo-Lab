@@ -152,9 +152,16 @@ class HealthConnectPlugin : Plugin() {
         call.resolve(JSObject().put("records", list).put("pageToken", r.pageToken))
     }
 
-    /** Starts following changes from now (before a backfill, so nothing written during it is missed). */
+    /**
+     * Starts following changes from now (before a backfill, so nothing written during it is missed) for
+     * { types }: the tracked types the rider allowed (a token cannot cover types without permission).
+     */
     @PluginMethod
-    fun startChanges(call: PluginCall) = withHc(call) { HealthChanges(context).start(client(), HealthRecords.TRACKED); call.resolve() }
+    fun startChanges(call: PluginCall) = withHc(call) {
+        val asked = call.getArray("types", JSArray())?.toList<String>() ?: emptyList()
+        HealthChanges(context).start(client(), HealthRecords.TRACKED.filter { it in asked })
+        call.resolve()
+    }
 
     /** Reads new changes into the pending list and returns it: { changes, hasToken, tokenExpired }. */
     @PluginMethod

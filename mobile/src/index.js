@@ -2,9 +2,10 @@
  * Entry point of the Android layer, bundled to www/mobile/apex-native.js and loaded first in <head>.
  * In a plain browser it does nothing, so the same www/ folder still opens on a PC.
  * Browser tests set window.__APEX_NATIVE_FAKE__ = { ble, http, aiHttp, prefs, plugins, sqlite, backupFiles } before
- * this runs (`sqlite` is a native-store db driver; without it the app keeps the WebView storage).
+ * this runs (`sqlite` is a native-store db driver; without it the app keeps the WebView storage; plugins.HealthConnect
+ * is the Health Connect plugin, left out when the test has none).
  */
-import { Capacitor, CapacitorHttp } from '@capacitor/core';
+import { Capacitor, CapacitorHttp, registerPlugin } from '@capacitor/core';
 import { BleClient } from '@capacitor-community/bluetooth-le';
 import { App } from '@capacitor/app';
 import { Browser } from '@capacitor/browser';
@@ -22,10 +23,11 @@ import { bootNativeApp } from './native-app.js';
 import { NativeStore, openingLedger } from './native-store.js';
 import { openCapacitorDatabase, filesystemFiles } from './native-sqlite.js';
 import { WebViewMigration, webViewSource } from './native-migrate.js';
+import { NativeHealthConnect, HealthConnectDestination, WellnessSources } from './native-healthconnect.js';
 
 const fake = window.__APEX_NATIVE_FAKE__;
 if (fake || Capacitor.isNativePlatform()) {
-  const plugins = (fake && fake.plugins) || { App, Browser, KeepAwake, Filesystem, Share };
+  const plugins = (fake && fake.plugins) || { App, Browser, KeepAwake, Filesystem, Share, HealthConnect: registerPlugin('HealthConnect') };
   const prefs = (fake && fake.prefs) || {
     get: async (key) => (await Preferences.get({ key })).value,
     set: (key, value) => Preferences.set({ key, value }),
@@ -59,9 +61,16 @@ if (fake || Capacitor.isNativePlatform()) {
   // loads after this module, so they are looked up when an upload runs. The ledger is the sync_ledger table
   // (D's Preferences rows moved in once); without a phone database it stays in Preferences.
   const stravaOut = new StravaDestination({ strava, describe: (ride) => (window.app ? window.app.stravaDescription(ride) : '') });
+  // Health Connect (Android 9+): recovery data and other apps' rides in, rides recorded here out. Its days are
+  // kept in the phone database (wellness_days), so it needs one.
+  const healthConnect = plugins.HealthConnect ? new NativeHealthConnect({ plugin: plugins.HealthConnect, prefs }) : null;
+  const wellness = healthConnect && store ? store.then((s) => new WellnessSources({ store: s, prefs })) : null;
+  if (wellness) wellness.catch(() => {});
+  const hcOut = healthConnect ? new HealthConnectDestination({ hc: healthConnect }) : null;
+  const outs = [stravaOut, hcOut].filter(Boolean);
   const uploads = new UploadQueue({
     ledger: store ? openingLedger(store, { prefs, destinations: [stravaOut.id], options: [`auto_${stravaOut.id}`], fallback: new PrefsSyncLedger({ prefs }) }) : new PrefsSyncLedger({ prefs }),
-    destinations: [stravaOut],
+    destinations: outs,
     getRide: async (id) => {
       const ride = window.app && window.app.completedWorkouts.find((r) => r.id === id);
       if (ride && Array.isArray(ride.samples) && ride.samples.length) return ride;
@@ -73,6 +82,6 @@ if (fake || Capacitor.isNativePlatform()) {
     },
     buildFit: (ride) => window.VeloExport.buildFit(ride, ride.samples)
   });
-  window.ApexNative = { bluetooth, store, strava, ai, icu, uploads, platform: fake ? 'test' : Capacitor.getPlatform() };
-  bootNativeApp({ bluetooth, storage, strava, ai, icu, uploads, plugins });
+  window.ApexNative = { bluetooth, store, strava, ai, icu, uploads, healthConnect, platform: fake ? 'test' : Capacitor.getPlatform() };
+  bootNativeApp({ bluetooth, storage, strava, ai, icu, uploads, plugins, healthConnect, wellness });
 }

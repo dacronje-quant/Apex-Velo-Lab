@@ -74,8 +74,9 @@ class HealthChanges(context: Context) {
     /** A fresh token from now on for the tracked types; earlier pending entries no longer apply. */
     suspend fun start(client: HealthConnectClient, types: List<String>) {
         val classes = types.mapNotNull { HealthRecords.READ[it] }.toSet()
-        val token = client.getChangesToken(ChangesTokenRequest(classes))
         pending.clear()
+        if (classes.isEmpty()) { prefs.edit().remove("token").putBoolean("expired", false).apply(); return }
+        val token = client.getChangesToken(ChangesTokenRequest(classes))
         prefs.edit().putString("token", token).putBoolean("expired", false).apply()
     }
 

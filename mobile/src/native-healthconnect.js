@@ -180,16 +180,20 @@ export function mergeDay(icu, hc, prefs = DEFAULT_PREFS) {
   const a = (icu && icu.summary) || {}, b = (hc && hc.summary) || {};
   // HRV kind of each source: Health Connect only has rMSSD; intervals.icu has whichever its days use.
   const kind = (source) => (source === 'icu' ? prefs.icuHrvKind || a.hrvKind || 'rmssd' : 'rmssd');
-  const out = { ...a };
+  // A day only one source has stays as it is, except an HRV of the kind not in use.
+  const single = !icu || !hc;
+  const out = { ...(single ? (icu || hc).summary : a) };
   for (const [group, keys] of Object.entries(MERGE_FIELDS)) {
     const icuFirst = (prefs[group] || HC_SOURCE) === 'icu';
     const [first, second] = icuFirst ? [a, b] : [b, a];
     let pick = has(first, keys[0]) ? first : has(second, keys[0]) ? second : null;
     if (group === 'hrv' && pick === second && kind('icu') !== kind(HC_SOURCE)) pick = null;
+    if (single) { if (!pick && has(out, keys[0])) for (const k of keys) if (k in out) out[k] = null; continue; }
     for (const k of keys) out[k] = has(pick, k) ? pick[k] : null;
   }
+  if (single) return { ...(icu || hc), summary: out };
   if (has(b, 'hrvRmssd') || has(a, 'hrvRmssd')) out.hrvRmssd = has(b, 'hrvRmssd') ? b.hrvRmssd : a.hrvRmssd;
-  return { summary: out, src: icu && hc ? 'merged' : (icu || hc).src };
+  return { summary: out, src: 'merged' };
 }
 
 const PREFS_KEY = 'hc_field_prefs';
@@ -402,6 +406,7 @@ export class HealthConnectDestination {
 
 // --------------------------------------------------------------------- sync --
 const STATE_KEY = 'hc_sync_state';
+const BACKGROUND_KEY = 'hc_background';
 
 /**
  * The plugin wrapper and the sync. plugin: the HealthConnect Capacitor plugin (or a test fake); prefs:
@@ -442,7 +447,16 @@ export class NativeHealthConnect {
     return { availability, granted: availability.status === 'available' ? await this.granted() : null, state: st };
   }
   /** Forgets the sync position (after disconnecting): the next sync backfills again. */
-  async reset() { await this.prefs.remove(STATE_KEY); }
+  async reset() { await this.prefs.remove(STATE_KEY); await this.prefs.remove(BACKGROUND_KEY); }
+
+  async backgroundOn() { return (await this.prefs.get(BACKGROUND_KEY)) === '1'; }
+  /** The daily background check: asks for its permission first. Resolves to whether it is on. */
+  async setBackground(on) {
+    if (on && !(await this.granted()).background) on = !!(await this.request('background')).background;
+    await this.plugin.setBackgroundSync({ on });
+    await this.prefs.set(BACKGROUND_KEY, on ? '1' : '0');
+    return on;
+  }
 
   async _readAll(type, start, end, origin) {
     const out = [];
@@ -489,11 +503,15 @@ export class NativeHealthConnect {
     if (!types.length) return res;
     let st = await this.state();
     const limit = addDays(today, 1 - BACKFILL_DAYS);
+    // The token follows the day-level types allowed; more allowed later (e.g. rides) reads everything again.
+    const tracked = [...WELLNESS_TYPES, 'ExerciseSession'].filter((t) => types.includes(t));
+    if (!tracked.length) return res;
+    if (st && JSON.stringify(st.types || []) !== JSON.stringify(tracked)) st = null;
     for (let round = 0; round < 2; round++) {
       // Two years back in 30-day chunks, newest first; the position is kept, so a killed app goes on from it.
       // The changes token is taken first: anything written during the backfill comes as a change after it.
       if (!st || !st.done) {
-        if (!st) { await this.plugin.startChanges(); st = { next: addDays(today, 1), done: false }; await this._save(st); }
+        if (!st) { await this.plugin.startChanges({ types: tracked }); st = { types: tracked, next: addDays(today, 1), done: false }; await this._save(st); }
         while (!st.done) {
           const from = addDays(st.next, -CHUNK_DAYS) < limit ? limit : addDays(st.next, -CHUNK_DAYS);
           const found = await this._readDays(from, st.next, types);
