@@ -18,7 +18,7 @@
     },
 
     medalHistory() {
-      return this.cyclingRides().filter(VeloInsight.hasSamples).map(r => ({ id: r.id, date: r.date, peaks: this.ridePeaks(r) }));
+      return this.cyclingRides().filter(VeloRideSummary.has).map(r => ({ id: r.id, date: r.date, peaks: this.ridePeaks(r) }));
     },
 
     medalArchive() {
@@ -41,13 +41,16 @@
 
     // -------------------------------------------------------------- FTP --
     ftpEvidenceOf(r) {
-      if (!VeloInsight.hasSamples(r) || !VeloMetrics.isCycling(r)) return null;
+      if (!VeloRideSummary.has(r) || !VeloMetrics.isCycling(r)) return null;
       const p = this.activeProfile || {};
       this._ftpEvCache = this._ftpEvCache || new Map();
-      const key = `${r.id}|${r.samples.length}|${p.maxHr || 0}|${p.lthr || 0}`;
-      if (!this._ftpEvCache.has(key)) this._ftpEvCache.set(key, (r.rampTest
-        ? VeloInsight.rampEvidence(r.samples, { maxHr: p.maxHr })
-        : VeloInsight.ftpEvidence(r.samples, { maxHr: p.maxHr, lthr: p.lthr })));
+      const key = `${r.id}|${VeloRideSummary.count(r)}|${r.rampTest ? 1 : 0}|${p.maxHr || 0}|${p.lthr || 0}`;
+      if (!this._ftpEvCache.has(key)) {
+        const s = !VeloInsight.hasSamples(r) && VeloRideSummary.get(r);
+        this._ftpEvCache.set(key, r.rampTest
+          ? (s ? VeloInsight.rampEvidenceFor(s.ramp, { maxHr: p.maxHr }) : VeloInsight.rampEvidence(r.samples, { maxHr: p.maxHr }))
+          : (s ? VeloInsight.ftpEvidenceFor(s.ftp, { maxHr: p.maxHr, lthr: p.lthr }) : VeloInsight.ftpEvidence(r.samples, { maxHr: p.maxHr, lthr: p.lthr })));
+      }
       return this._ftpEvCache.get(key);
     },
 
@@ -84,9 +87,9 @@
 
     /** A higher-FTP suggestion from this ride (and, if needed, a confirming ride), or null. */
     ftpSuggestionFor(record) {
-      if (!record || !VeloInsight.hasSamples(record) || Date.now() - Date.parse(record.date) > FRESH_DAYS * VeloInsight.DAY) return null;
+      if (!record || !VeloRideSummary.has(record) || Date.now() - Date.parse(record.date) > FRESH_DAYS * VeloInsight.DAY) return null;
       const t = Date.parse(record.date);
-      const rides = this.cyclingRides().filter(r => VeloInsight.hasSamples(r) && Date.parse(r.date) <= t && t - Date.parse(r.date) <= FRESH_DAYS * VeloInsight.DAY)
+      const rides = this.cyclingRides().filter(r => VeloRideSummary.has(r) && Date.parse(r.date) <= t && t - Date.parse(r.date) <= FRESH_DAYS * VeloInsight.DAY)
         .sort((a, b) => Date.parse(a.date) - Date.parse(b.date));
       const list = rides.filter(r => r.id !== record.id).concat([record]).map(r => ({ id: r.id, date: r.date, evidence: this.ftpEvidenceOf(r) }));
       return VeloInsight.ftpSuggestion(list, this.activeProfile.ftp, { dismissed: this.dismissedFtp() });
@@ -125,7 +128,7 @@
     rideInsightHtml(record) {
       if (!VeloMetrics.isCycling(record) || !VeloInsight.hasSamples(record)) return '';
       const medals = this.rideMedals(record);
-      const dec = VeloInsight.decoupling(record.samples);
+      const dec = this.rideDecoupling(record);
       const sug = this.ftpSuggestionFor(record);
       const decHtml = dec.status === 'ok'
         ? `<span class="chip decoupling decoupling-${dec.level} decoupling-${dec.tier}" title="Power per heartbeat, first vs second half of ${dec.minutes} min after the warm-up. 3.5% or less = base consolidated, under 5% = coupled, 5-8% = mild drift, over 8% = decoupled.">Heart-rate drift (Pw:HR) ${dec.pct}% &middot; ${esc(dec.label)}</span>`
@@ -159,13 +162,10 @@
      * cannot be read is left out (it would otherwise scramble the order); limit keeps the latest ones.
      */
     driftTrendData(limit = 400) {
-      this._decCache = this._decCache || new Map();
       const pts = [];
-      this.cyclingRides().filter(VeloInsight.hasSamples).map(r => ({ r, t: Date.parse(r.date) })).filter(e => Number.isFinite(e.t))
+      this.cyclingRides().filter(VeloRideSummary.has).map(r => ({ r, t: Date.parse(r.date) })).filter(e => Number.isFinite(e.t))
         .sort((a, b) => a.t - b.t).forEach(({ r, t }) => {
-        const key = `${r.id}|${r.samples.length}`;
-        if (!this._decCache.has(key)) this._decCache.set(key, VeloInsight.decoupling(r.samples));
-        const d = this._decCache.get(key);
+        const d = this.rideDecoupling(r);
         if (d.status === 'ok') pts.push({ id: r.id, t, date: r.date, title: r.title, pct: d.pct, level: d.level, minutes: d.minutes, np: r.np || r.avgWatts || null });
         });
       return pts.slice(-limit);
@@ -236,7 +236,7 @@
      */
     coachInsight(lookbackDays = 28, now = new Date()) {
       const within = (r, days) => now - new Date(r.date) <= days * VeloInsight.DAY && now >= new Date(r.date);
-      const rides = this.cyclingRides().filter(r => VeloInsight.hasSamples(r) && within(r, lookbackDays))
+      const rides = this.cyclingRides().filter(r => VeloRideSummary.has(r) && within(r, lookbackDays))
         .sort((a, b) => new Date(b.date) - new Date(a.date));
       const out = { lines: [], lastHard: null, drift: [], medals: [], ftp: null };
       if (!rides.length) return out;
@@ -244,7 +244,7 @@
 
       // Last hard session (at least one step at 88% FTP or more)
       for (const r of rides) {
-        const rows = VeloInsight.intervalRows(r.samples, r.ftpAtRide || this.activeProfile.ftp);
+        const rows = this.rideIntervalRows(r, r.ftpAtRide || this.activeProfile.ftp);
         if (!rows.some(x => x.work)) continue;
         const diag = VeloInsight.offlineBreakdown(rows).slice(0, 4);
         out.lastHard = { id: r.id, date: day(r), title: r.title, diag, ai: r.aiBreakdown && r.aiBreakdown.text ? r.aiBreakdown.text.replace(/\s+/g, ' ').slice(0, 320) : null };
@@ -254,11 +254,8 @@
       }
 
       // Aerobic decoupling of steady rides (newest first, up to 5)
-      this._decCache = this._decCache || new Map();
       for (const r of rides) {
-        const key = `${r.id}|${r.samples.length}`;
-        if (!this._decCache.has(key)) this._decCache.set(key, VeloInsight.decoupling(r.samples));
-        const d = this._decCache.get(key);
+        const d = this.rideDecoupling(r);
         if (d.status === 'ok') out.drift.push({ date: day(r), pct: d.pct, label: d.label });
         if (out.drift.length >= 5) break;
       }

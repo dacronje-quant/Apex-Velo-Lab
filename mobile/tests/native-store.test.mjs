@@ -389,20 +389,25 @@ test('a snapshot that does not read back the same is not kept', async (t) => {
   assert.deepEqual(fs.readdirSync(s.files.dir).filter((n) => n.endsWith('.tmp')), [], 'the damaged file is removed');
 });
 
-test('200 hour-long rides move in and load within a 512 MB heap', { timeout: 300000 }, async (t) => {
+test('200 hour-long rides move in within a 512 MB heap, and a later app start stays under 150 MB', { timeout: 300000 }, async (t) => {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'apex-native-store-'));
   t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
   const script = new URL('./migrate-memory-run.mjs', import.meta.url).pathname;
-  const child = spawn(process.execPath, ['--max-old-space-size=512', script, dir, '200', '3600'], { stdio: ['ignore', 'pipe', 'pipe'] });
-  let out = '', err = '';
-  child.stdout.on('data', (d) => { out += d; }); child.stderr.on('data', (d) => { err += d; });
-  const code = await new Promise((r) => child.once('exit', r));
-  assert.equal(code, 0, err.slice(-2000));
-  const result = JSON.parse(out.trim().split('\n').pop());
-  assert.equal(result.rides, 200); assert.equal(result.loaded, 200); assert.equal(result.samples, 200 * 3600);
-  assert.ok(result.heapPeakMB < 512, `heap peak ${result.heapPeakMB} MB`);
-  t.diagnostic(`history ${result.historyMB} MB as JSON; move: heap peak ${result.moveHeapPeakMB} MB, RSS peak ${result.moveRssPeakMB} MB; `
-    + `with the full GET /api/storage load: heap peak ${result.heapPeakMB} MB, RSS peak ${result.rssPeakMB} MB; ${result.seconds} s`);
+  const run = async (mode, heapMb) => {
+    const child = spawn(process.execPath, [`--max-old-space-size=${heapMb}`, script, mode, dir, '200', '3600'], { stdio: ['ignore', 'pipe', 'pipe'] });
+    let out = '', err = '';
+    child.stdout.on('data', (d) => { out += d; }); child.stderr.on('data', (d) => { err += d; });
+    const code = await new Promise((r) => child.once('exit', r));
+    assert.equal(code, 0, err.slice(-2000));
+    return JSON.parse(out.trim().split('\n').pop());
+  };
+  const move = await run('move', 512);
+  assert.equal(move.rides, 200);
+  const start = await run('start', 512);
+  assert.deepEqual([start.loaded, start.withSamples, start.withSummary, start.samples], [200, 0, 200, 200 * 3600], 'every ride, no samples in memory, every summary');
+  assert.ok(start.rssPeakMB < 150, `app start RSS peak ${start.rssPeakMB} MB`);
+  t.diagnostic(`history ${move.historyMB} MB as JSON; move: heap peak ${move.heapPeakMB} MB, RSS peak ${move.rssPeakMB} MB, ${move.seconds} s; `
+    + `app start: heap peak ${start.heapPeakMB} MB, RSS peak ${start.rssPeakMB} MB, ${start.seconds} s`);
 });
 
 test('the upload queue\'s ledger waits for the store and moves the Preferences rows in once, retrying a failed move', async (t) => {
@@ -451,4 +456,69 @@ test('without a phone database the upload queue\'s ledger falls back to Preferen
   assert.deepEqual(await ledger.get('r1', 'strava'), { status: 'sent' });
   assert.equal(await ledger.getOption('auto_strava'), '1');
   assert.deepEqual(calls, [['get', 'r1', 'strava']]);
+});
+
+// ------------------------------------------------------------ sample summaries --
+const summarizer = { summarize: (r) => ({ v: 3, n: r.samples.length, best: Math.max(...r.samples.map((x) => x.power)) }), summaryVersion: 3 };
+
+test('a ride saved with samples gets its summary; the app starts with summaries and no samples', async (t) => {
+  const s = await fixture(t, summarizer); await migrate(s);
+  const [start] = (await s.state()).rides;
+  assert.equal(start.samples, undefined, 'no samples at the app start');
+  assert.deepEqual(start.sampleSummary, { v: 3, n: 2, best: 240 });
+  assert.deepEqual(await s.rides(), [ride], 'full reads, snapshots and exports still carry the samples and no summary');
+  // The app saves the ride back as it holds it (summary, no samples): samples and summary are kept, the summary not stored twice.
+  await s.update(await request(s, { put: [{ ...start, title: 'Renamed' }] }));
+  assert.deepEqual(await s.rides(), [{ ...ride, title: 'Renamed' }]);
+  assert.doesNotMatch((await s.db.all('SELECT json FROM rides'))[0].json, /sampleSummary/);
+  assert.deepEqual((await s.state()).rides[0].sampleSummary, { v: 3, n: 2, best: 240 });
+  // New samples give a new summary.
+  await s.update(await request(s, { put: [{ ...ride, samples: [{ time: 1, power: 300 }, { time: 2, power: 310 }, { time: 3, power: 305 }] }] }));
+  assert.deepEqual((await s.state()).rides[0].sampleSummary, { v: 3, n: 3, best: 310 });
+});
+
+test('rides without a current summary are found and summarized in the background, without a new revision', async (t) => {
+  const s = await fixture(t); await migrate(s); // no summarizer: kept without summaries
+  const rev = await s.revision();
+  s.summarize = summarizer.summarize; s.summaryVersion = summarizer.summaryVersion;
+  assert.deepEqual(await s.summariesNeeded(), ['ride-1']);
+  assert.equal((await s.state()).rides[0].sampleSummary, undefined);
+  assert.deepEqual(await s.summarizeRide('ride-1'), { v: 3, n: 2, best: 240 });
+  assert.deepEqual(await s.summariesNeeded(), []);
+  assert.deepEqual(await s.summaries(['ride-1', 'nope']), { 'ride-1': { v: 3, n: 2, best: 240 } });
+  assert.equal(await s.revision(), rev, 'a summary is derived data: other tabs need not reload');
+  s.summaryVersion = 4; s.summarize = (r) => ({ v: 4, n: r.samples.length });
+  assert.deepEqual(await s.summariesNeeded(), ['ride-1'], 'a newer summary version summarizes again');
+  assert.equal((await s.state()).rides[0].sampleSummary, undefined, 'an older summary is not handed out');
+  s.summarize = () => { throw new Error('page not ready'); };
+  assert.equal(await s.summarizeRide('ride-1'), null, 'a failing summary leaves the ride without one');
+});
+
+test('the WebView move and restores keep summaries too', async (t) => {
+  const s = await fixture(t, summarizer); await migrate(s); const b = await s.backup();
+  await s.update(await request(s, { clear: true }));
+  await s.restore(await request(s, { name: b.name }));
+  assert.deepEqual((await s.state()).rides[0].sampleSummary, { v: 3, n: 2, best: 240 });
+});
+
+test('a database from the first phone version gets the summary columns, its rides intact', async (t) => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'apex-native-store-'));
+  t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
+  const { DatabaseSync } = await import('node:sqlite');
+  const old = new DatabaseSync(path.join(dir, 'apex.sqlite'));
+  old.exec(`CREATE TABLE meta (key TEXT PRIMARY KEY, value TEXT NOT NULL); CREATE TABLE rides (id TEXT PRIMARY KEY, json TEXT NOT NULL, position INTEGER NOT NULL, samples_gz TEXT, sample_count INTEGER NOT NULL DEFAULT 0);
+    CREATE TABLE migration_rides (id TEXT PRIMARY KEY, json TEXT NOT NULL, samples_gz TEXT, sample_count INTEGER NOT NULL DEFAULT 0, hash TEXT NOT NULL); PRAGMA user_version=1;`);
+  old.prepare('INSERT INTO rides VALUES (?,?,?,?,?)').run('old', JSON.stringify({ id: 'old', date: ride.date, samples: null }), 0, null, 0);
+  old.prepare("INSERT INTO meta VALUES ('initialized','1')").run();
+  old.close();
+  const s = await open(dir, summarizer);
+  assert.equal((await s.db.all('PRAGMA user_version'))[0].user_version, 2);
+  assert.deepEqual((await s.state()).rides, [{ id: 'old', date: ride.date, samples: null }]);
+  await s.close(); opened.delete(s);
+});
+
+test('the JSON backup export carries every ride with its samples, in pieces', async (t) => {
+  const s = await fixture(t, summarizer); await migrate(s);
+  const chunks = await s.exportChunks({ app: 'APEX VELO LAB', profiles: [] }, { settings: { apex_x: '1' } });
+  assert.deepEqual(JSON.parse(Buffer.concat(chunks).toString('utf8')), { app: 'APEX VELO LAB', profiles: [], history: [ride], settings: { apex_x: '1' } });
 });

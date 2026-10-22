@@ -31,9 +31,12 @@ jobs:
       - run: npx playwright install --with-deps chromium
       - run: npm run test:browser
       - run: npx cap sync android
-      - name: Build debug APK and run the JVM tests
+      - name: Build debug APK
         working-directory: mobile/android
-        run: ./gradlew assembleDebug testDebugUnitTest --no-daemon
+        run: ./gradlew assembleDebug --no-daemon
+      - name: Kotlin unit tests
+        working-directory: mobile/android
+        run: ./gradlew testDebugUnitTest --no-daemon
       - uses: actions/upload-artifact@v4
         with:
           name: apex-velo-android-debug

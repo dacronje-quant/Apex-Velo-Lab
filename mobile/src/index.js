@@ -1,7 +1,7 @@
 /**
  * Entry point of the Android layer, bundled to www/mobile/apex-native.js and loaded first in <head>.
  * In a plain browser it does nothing, so the same www/ folder still opens on a PC.
- * Browser tests set window.__APEX_NATIVE_FAKE__ = { ble, http, aiHttp, prefs, plugins, sqlite, backupFiles } before
+ * Browser tests set window.__APEX_NATIVE_FAKE__ = { ble, http, aiHttp, prefs, plugins, sqlite, backupFiles, importPlugin } before
  * this runs (`sqlite` is a native-store db driver; without it the app keeps the WebView storage; plugins.HealthConnect
  * is the Health Connect plugin, left out when the test has none).
  */
@@ -24,6 +24,7 @@ import { NativeStore, openingLedger } from './native-store.js';
 import { openCapacitorDatabase, filesystemFiles } from './native-sqlite.js';
 import { WebViewMigration, webViewSource } from './native-migrate.js';
 import { NativeHealthConnect, HealthConnectDestination, WellnessSources } from './native-healthconnect.js';
+import { NativeImport, SqliteImportJobs, installNativeImportUi } from './native-import.js';
 
 const fake = window.__APEX_NATIVE_FAKE__;
 if (fake || Capacitor.isNativePlatform()) {
@@ -41,7 +42,9 @@ if (fake || Capacitor.isNativePlatform()) {
   // /api/storage answer, and js/velo-storage.js then keeps the WebView storage and shows why.
   const store = fake && !fake.sqlite ? null : (async () => {
     const db = fake ? fake.sqlite : await openCapacitorDatabase(SQLiteConnection, CapacitorSQLite);
-    const s = await NativeStore.open({ db, files: (fake && fake.backupFiles) || filesystemFiles(plugins.Filesystem), dir: 'this phone', file: 'apexSQLite.db' });
+    // Ride summaries are made by the page's js/velo-ride-summary.js, which loads after this module.
+    const s = await NativeStore.open({ db, files: (fake && fake.backupFiles) || filesystemFiles(plugins.Filesystem), dir: 'this phone', file: 'apexSQLite.db',
+      summarize: (ride) => (window.VeloRideSummary ? window.VeloRideSummary.of(ride) : null), summaryVersion: () => (window.VeloRideSummary ? window.VeloRideSummary.VERSION : 0) });
     s.startDailyBackups(60000).catch(() => {}); // after the app has started
     return s;
   })();
@@ -52,6 +55,14 @@ if (fake || Capacitor.isNativePlatform()) {
       try { s = await store; } catch (e) { return { status: 503, body: { error: `The phone database could not be opened (${(e && e.message) || e}).` } }; }
       return s.route(pathname, method, body);
     },
+    /** One ride with its samples, or null. */
+    async ride(id) { return (await store).ride(id); },
+    /** Rides whose summary is missing, one ride's new summary, and the summaries of some rides ({ id: summary }). */
+    async summariesNeeded() { return (await store).summariesNeeded(); },
+    async summarizeRide(id) { return (await store).summarizeRide(id); },
+    async summaries(ids) { return (await store).summaries(ids); },
+    /** The JSON backup with every ride's samples, as UTF-8 pieces. */
+    async exportChunks(head, tail) { return (await store).exportChunks(head, tail); },
     /** Moves earlier WebView data in (once); onProgress(done, total). */
     async migrate(onProgress) {
       return new WebViewMigration({ store: await store, source: webViewSource(window), onProgress }).run();
@@ -82,6 +93,12 @@ if (fake || Capacitor.isNativePlatform()) {
     },
     buildFit: (ride) => window.VeloExport.buildFit(ride, ride.samples)
   });
-  window.ApexNative = { bluetooth, store, strava, ai, icu, uploads, healthConnect, platform: fake ? 'test' : Capacitor.getPlatform() };
+  // Ride import from Android: watched folder, share target, streamed reads of content URIs (ApexImportPlugin.kt).
+  // Import jobs are logged in the phone database's import_jobs / import_files tables when it is open.
+  const importPlugin = fake ? fake.importPlugin : registerPlugin('ApexImport');
+  const nativeImport = importPlugin ? new NativeImport({ plugin: importPlugin, store, getApp: () => window.app }) : null;
+  const importJobs = store ? new SqliteImportJobs(store, () => new window.VeloImportJobs()) : null;
+  window.ApexNative = { bluetooth, store, strava, ai, icu, uploads, nativeImport, healthConnect, platform: fake ? 'test' : Capacitor.getPlatform() };
   bootNativeApp({ bluetooth, storage, strava, ai, icu, uploads, plugins, healthConnect, wellness });
+  installNativeImportUi({ nativeImport, jobs: importJobs, App: plugins.App });
 }

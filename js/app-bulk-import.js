@@ -39,19 +39,22 @@
      * Imports many ride files / archives. Rides are committed to history in batches (every COMMIT_RIDES
      * rides or ~COMMIT_BYTES of samples): each batch is saved, then its samples are dropped from memory, so
      * a cancelled or crashed import keeps what was committed and a big export never piles up on the page.
-     * Resolves with the final summary. opts: { mode, inline (no Web Worker), commitEvery, watchdogMs, limits }.
+     * Resolves with the final summary. opts: { mode, inline (no Web Worker), commitEvery, watchdogMs, limits,
+     * jobSource / jobCursor (what the job log shows as the source, and extra state for the job's cursor),
+     * quiet (no toast at the end: the caller sums up several imports in one) }.
+     * `files` are File/Blob objects or File-like sources ({ name, size, stream() }, e.g. Android content URIs).
      */
     async startBulkImport(files, opts = {}) {
       if (this._bulk) { this.showToast('An import is already running.', 'info'); return null; }
       const mode = opts.mode || this.bulkImportMode();
       const jobs = this.importJobs || (this.importJobs = new VeloImportJobs());
-      const job = await jobs.create({ source: files.length === 1 ? files[0].name : `${files.length} files`, total: 0 });
+      const job = await jobs.create({ source: opts.jobSource || (files.length === 1 ? files[0].name : `${files.length} files`), total: 0, cursor: opts.jobCursor || null });
       const st = this._bulk = {
         job, mode, cancelled: false, worker: null, index: VeloDedupe.rideIndex(this.completedWorkouts),
         counts: { found: 0, parsed: 0, skipped: 0, errors: 0, duplicates: 0 }, sameRide: 0, imported: 0, replaced: 0,
         pending: new Set(), replaceOf: new Map(), pendingSamples: 0, committed: [], logRows: [], stravaDups: [],
         strava: new Map(), touched: new Set(), path: '', done: false, chain: Promise.resolve(),
-        commitEvery: opts.commitEvery || 50
+        commitEvery: opts.commitEvery || 50, quiet: !!opts.quiet
       };
       this.renderBulkPanel();
 
@@ -123,7 +126,19 @@
           else if (m.type === 'done') { h.onProgress(m.counts, null); end({ counts: m.counts, cancelled: m.cancelled }); }
           else if (m.type === 'error') end({ counts: st.counts, cancelled: st.cancelled, error: m.message });
         };
-        worker.postMessage({ type: 'start', files, opts: runOpts });
+        // Blobs are cloned; a File-like source sends its stream (transferred: the worker reads it, the page feeds it).
+        const streams = [];
+        const sent = files.map((f) => {
+          if (typeof Blob !== 'undefined' && f instanceof Blob) return f;
+          const readable = f.stream();
+          streams.push(readable);
+          return { name: f.name, size: f.size, readable };
+        });
+        try { worker.postMessage({ type: 'start', files: sent, opts: runOpts }, streams); } catch (e) {
+          streams.forEach((s) => s.cancel().catch(() => {})); // streams cannot be transferred here: read on the page instead
+          end(null);
+          return;
+        }
         if (st.cancelled) worker.postMessage({ type: 'cancel' });
       });
     },
@@ -210,7 +225,7 @@
       this._lastBulk = st;
       const msg = result.error ? `Import stopped: ${result.error}. Rides saved so far were kept.`
         : `${result.cancelled ? 'Import cancelled' : 'Import finished'}: ${summary.imported} ride${summary.imported === 1 ? '' : 's'} imported, ${summary.duplicates} duplicate${summary.duplicates === 1 ? '' : 's'}, ${summary.skipped} skipped${summary.errors ? `, ${summary.errors} error${summary.errors === 1 ? '' : 's'}` : ''}.`;
-      this.showToast(msg, result.error || summary.errors ? 'warning' : 'success');
+      if (!st.quiet) this.showToast(msg, result.error || summary.errors ? 'warning' : 'success');
       return { ...summary, replaced: st.replaced, cancelled: !!result.cancelled, error: result.error || null, jobId: st.job.id };
     },
 

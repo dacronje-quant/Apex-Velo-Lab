@@ -2,7 +2,7 @@
  * APEX VELO // LAB - Web Worker for bulk history import: reads archives and parses ride files off the
  * page thread, posting rides back in batches (see js/velo-bulk-import.js).
  *
- * In:  { type: 'start', files, opts: { mode, profile, knownHashes } }, { type: 'cancel' }
+ * In:  { type: 'start', files (Files, or { name, size, readable } with a transferred ReadableStream), opts: { mode, profile, knownHashes } }, { type: 'cancel' }
  * Out: { type: 'alive' } (every 5 s, and between zip entries), { type: 'progress', counts, path }, { type: 'rides', rides }, { type: 'index', entries },
  *      { type: 'files', rows }, { type: 'done', counts, cancelled }, { type: 'error', message }
  */
@@ -20,7 +20,9 @@ self.onmessage = async (e) => {
   try {
     let lastBeat = Date.now();
     const onTick = () => { const now = Date.now(); if (now - lastBeat >= 2000) { lastBeat = now; self.postMessage({ type: 'alive' }); } };
-    const result = await VeloBulkImport.run(msg.files, { ...msg.opts, isCancelled: () => cancelled, onTick }, {
+    // A File-like source arrives as { name, size, readable } with its stream transferred from the page.
+    const files = msg.files.map((f) => (f && f.readable ? { name: f.name, size: f.size, stream: () => f.readable } : f));
+    const result = await VeloBulkImport.run(files, { ...msg.opts, isCancelled: () => cancelled, onTick }, {
       onProgress: (counts, path) => {
         const now = Date.now();
         if (path && now - lastProgress < 100) return;

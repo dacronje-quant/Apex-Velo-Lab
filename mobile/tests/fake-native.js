@@ -211,9 +211,31 @@
     list: () => window.__backupFiles('list'), stat: (name) => window.__backupFiles('stat', name),
     rename: (from, to) => window.__backupFiles('rename', from, to), remove: (name) => window.__backupFiles('remove', name)
   };
+  // ---------------------------------------------------------------- ApexImport --
+  // The native import plugin. Its folder, inbox and file reads are served by window.__importFs (exposed by
+  // tests/native-browser.cjs from a real folder); without it there is no folder and the inbox is empty.
+  const importLog = log.import = { opened: 0, reads: 0, closed: 0, seen: null, maxRead: 0 };
+  const importListeners = {};
+  const importFs = (...a) => (window.__importFs ? window.__importFs(...a) : Promise.resolve(null));
+  const importPlugin = {
+    async getFolder() { return (await importFs('getFolder')) || { uri: null }; },
+    async pickFolder() { return importFs('pickFolder'); },
+    async removeFolder() { await importFs('removeFolder'); },
+    async listFolder() { const r = await importFs('listFolder'); if (!r) throw new Error('No folder is watched.'); return r; },
+    async setSeen({ stamps }) { importLog.seen = stamps; },
+    async listInbox() { return (await importFs('listInbox')) || { files: [] }; },
+    async removeInbox({ uri }) { await importFs('removeInbox', uri); },
+    async open({ uri }) { const r = await importFs('open', uri); if (!r) throw new Error('Could not open the file.'); importLog.opened++; return r; },
+    async read({ handle, length }) { importLog.reads++; importLog.maxRead = Math.max(importLog.maxRead, length); return importFs('read', handle, length); },
+    async close({ handle }) { importLog.closed++; await importFs('close', handle); },
+    async closeAll() { await importFs('closeAll'); },
+    addListener(name, cb) { (importListeners[name] = importListeners[name] || []).push(cb); return Promise.resolve({ remove() {} }); }
+  };
+  window.__fireImport = (name, data) => Promise.all((importListeners[name] || []).map((cb) => cb(data)));
+
   window.__fireNative = (name, data) => Promise.all((listeners[name] || []).map((cb) => cb(data)));
   window.__APEX_NATIVE_FAKE__ = {
-    ble, http, plugins,
+    ble, http, plugins, importPlugin,
     get sqlite() { return window.__noSqlite || !window.__sqlite ? undefined : sqlite; },
     backupFiles,
     prefs: { async get(k) { return prefsStore.has(k) ? prefsStore.get(k) : null; }, async set(k, v) { prefsStore.set(k, v); }, async remove(k) { prefsStore.delete(k); } }
