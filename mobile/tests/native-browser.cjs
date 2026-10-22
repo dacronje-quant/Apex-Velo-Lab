@@ -3,7 +3,8 @@
 // the other plugins. Covers pairing, ERG control, recording and saving a ride, auto-reconnect,
 // Strava sign-in and upload-only (ledger, auto-upload, offline retry queue), the on-phone AI engine (API key, Ask, coach),
 // intervals.icu health, bulk history import and the phone's SQLite store (node:sqlite stands in for the plugin), including
-// the move of earlier WebView data into it and the upload ledger in SQLite. Run `npm run build` first.
+// the move of earlier WebView data into it and the upload ledger in SQLite, and native import (watched folder, share
+// target, resuming a killed import) through a fake ApexImport plugin. Run `npm run build` first.
 const { chromium } = require('playwright');
 const fs = require('node:fs');
 const os = require('node:os');
@@ -63,6 +64,184 @@ async function newContext(browser) {
     return route.fulfill({ body: fs.readFileSync(file), contentType: TYPES[path.extname(file)] || 'application/octet-stream' });
   });
   return context;
+}
+
+/**
+ * The folder and share inbox behind the fake ApexImport plugin (tests/fake-native.js): a real folder on disk
+ * read in the chunks the page asks for, as ApexImportPlugin.kt reads content URIs.
+ */
+async function importFiles(context, name) {
+  const dir = path.join(tmpRoot, name), folder = path.join(dir, 'folder'), inbox = path.join(dir, 'inbox');
+  fs.mkdirSync(folder, { recursive: true });
+  fs.mkdirSync(inbox, { recursive: true });
+  const state = { picked: false, permission: true };
+  const handles = new Map();
+  let next = 1;
+  const WATCHED = /(\.(fit|tcx|gpx|zip)|\.(fit|tcx|gpx)\.gz|(^|\/)activities\.csv)$/i; // ImportFiles.isWatched
+  const list = (d, prefix = '') => fs.readdirSync(d, { withFileTypes: true }).flatMap((e) => {
+    const rel = prefix ? `${prefix}/${e.name}` : e.name;
+    return e.isDirectory() ? list(path.join(d, e.name), rel) : WATCHED.test(rel) ? [rel] : [];
+  });
+  const fileOf = (uri) => {
+    const [base, rest] = uri.startsWith('content://tree/') ? [folder, uri.slice(15)] : uri.startsWith('file:///inbox/') ? [inbox, uri.slice(14)] : [null, ''];
+    const f = base && path.resolve(base, decodeURIComponent(rest));
+    return f && f.startsWith(base + path.sep) && fs.existsSync(f) ? f : null;
+  };
+  const folderInfo = () => (state.picked ? { uri: 'content://tree', name: 'Dropbox/Rides', permission: state.permission, pendingNew: 0, workerCheckedAt: 0 } : null);
+  await context.exposeFunction('__importFs', (op, a, b) => {
+    if (op === 'getFolder') return folderInfo();
+    if (op === 'pickFolder') { state.picked = true; return folderInfo(); }
+    if (op === 'removeFolder') { state.picked = false; return null; }
+    if (op === 'listFolder') {
+      if (!state.picked) return null;
+      return { files: list(folder).sort().map((rel) => { const st = fs.statSync(path.join(folder, rel)); return { uri: `content://tree/${encodeURIComponent(rel)}`, path: rel, name: path.basename(rel), size: st.size, mtime: Math.round(st.mtimeMs) }; }) };
+    }
+    if (op === 'listInbox') {
+      return { files: fs.readdirSync(inbox).sort().flatMap((id) => fs.readdirSync(path.join(inbox, id)).map((n) => {
+        const st = fs.statSync(path.join(inbox, id, n));
+        return { uri: `file:///inbox/${id}/${encodeURIComponent(n)}`, name: n, size: st.size, mtime: Math.round(st.mtimeMs) };
+      })) };
+    }
+    if (op === 'removeInbox') { const f = fileOf(a); if (f) fs.rmSync(path.dirname(f), { recursive: true, force: true }); return null; }
+    if (op === 'open') { const f = fileOf(a); if (!f) return null; const h = next++; handles.set(h, { fd: fs.openSync(f, 'r'), size: fs.statSync(f).size, pos: 0 }); return { handle: h, size: handles.get(h).size }; }
+    if (op === 'read') {
+      const h = handles.get(a);
+      const buf = Buffer.alloc(Math.min(b, Math.max(0, h.size - h.pos)));
+      const n = buf.length ? fs.readSync(h.fd, buf, 0, buf.length, h.pos) : 0;
+      h.pos += n;
+      const eof = h.pos >= h.size;
+      if (eof) { fs.closeSync(h.fd); handles.delete(a); }
+      return { data: buf.subarray(0, n).toString('base64'), eof };
+    }
+    if (op === 'close') { const h = handles.get(a); if (h) { fs.closeSync(h.fd); handles.delete(a); } return null; }
+    if (op === 'closeAll') { for (const h of handles.values()) fs.closeSync(h.fd); handles.clear(); return null; }
+    return null;
+  });
+  return { folder, inbox, state, handles };
+}
+
+/** Watched folder, share target and resuming a killed import, on the phone database. */
+async function importFlow(browser, errors) {
+  const fx = require('../../tests/fixtures/bulk-import/make-fixtures.cjs');
+  const built = fx.build();
+  const context = await newContext(browser);
+  const phone = await phoneStorage(context, 'import');
+  const imp = await importFiles(context, 'import');
+  const put = (rel, bytes) => { const f = path.join(imp.folder, rel); fs.mkdirSync(path.dirname(f), { recursive: true }); fs.writeFileSync(f, bytes); };
+  put('Garmin/garmin-export.zip', built['garmin-export.zip']);
+  put('ride.gpx', built['ride.gpx']);
+  put('notes.txt', 'not a ride');
+  put('Strava/activities.csv', fx.CSV);  // an unzipped Strava export: names come from its activities.csv
+  put('Strava/activities/1004.tcx.gz', fx.gz(fx.enc(fx.tcx(fx.RIDES.stravaTcx))));
+  const workers = [];
+  context.on('request', (r) => { if (r.url().endsWith('/js/velo-import-worker.js')) workers.push(r.url()); });
+  const page = await context.newPage();
+  page.on('pageerror', (e) => errors.push(e.message));
+  const spy = () => page.evaluate(() => {
+    window.__toasts = [];
+    const show = app.showToast.bind(app);
+    app.showToast = (m, k) => { __toasts.push(m); return show(m, k); };
+    ApexNative.nativeImport.chunk = 512; // several reads per file, as a big export is read in 1 MB pieces
+  });
+  const sql = (q, ...p) => phone.db.prepare(q).all(...p).map((r) => ({ ...r }));
+  const rides = () => page.evaluate(() => app.completedWorkouts.map((r) => ({ title: r.title, path: r.importPath || null, origin: r.origin || null })));
+  try {
+    await page.goto(`${ORIGIN}/index.html`);
+    await page.waitForFunction(() => window.app && window.ApexNative && ApexNative.nativeImport);
+    await spy();
+    await page.evaluate(() => app.openSettings('importfolder'));
+    await page.locator('#nativeImportStatus', { hasText: 'No folder chosen' }).waitFor();
+    assert.equal(await page.locator('#btnNativeImportRemove').isVisible(), false);
+
+    // ------------------------------------------------------------ choose a folder --
+    await page.locator('#btnNativeImportPick').click();
+    await page.locator('#nativeImportStatus', { hasText: '4 imported of 4 in the folder' }).waitFor({ timeout: 20000 });
+    let list = await rides();
+    assert.ok(list.some((r) => r.path === 'ride.gpx'), 'GPX in the folder imported');
+    assert.ok(list.some((r) => r.path && r.path.startsWith('Garmin/garmin-export.zip/DI_CONNECT/') && r.origin === 'garmin'), 'Garmin export in the folder keeps its origin');
+    assert.ok(list.some((r) => r.path === 'Strava/activities/1004.tcx.gz' && r.title === 'Coffee spin' && r.origin === 'strava'), 'an unzipped Strava export is named and tagged from its activities.csv');
+    const log = await page.evaluate(() => __nativeLog.import);
+    assert.ok(log.reads > log.opened * 2 && log.maxRead === 512, `read in chunks (${log.reads} reads of ${log.opened} files)`);
+    assert.ok(workers.length >= 1, 'parsed in the Web Worker (streams handed over)');
+    assert.equal(imp.handles.size, 0, 'every file closed');
+    assert.deepEqual(sql("SELECT status FROM import_files WHERE job_id='watch_folder'").map((r) => r.status), ['imported', 'imported', 'imported', 'imported']);
+    const folderJob = sql("SELECT * FROM import_jobs WHERE cursor LIKE '%\"native\":\"folder\"%'");
+    assert.equal(folderJob.length, 1);
+    assert.equal(folderJob[0].status, 'done', 'the import job is logged in SQLite');
+    assert.equal(log.seen.length, 4, 'the daily worker knows the four files');
+    // Lazy samples: the imported rides stay in memory as summaries (made by the phone database), not samples.
+    assert.ok(await page.evaluate(() => app.completedWorkouts.filter((r) => r.importPath).every((r) => !r.samples && (VeloRideSummary.count(r) === 0 || VeloRideSummary.get(r)))),
+      'natively imported rides hold their summaries, not their samples');
+    assert.equal(sql('SELECT COUNT(*) AS n FROM rides WHERE sample_count >= 5 AND summary IS NULL')[0].n, 0, 'every imported ride with samples has a summary');
+    step('watched folder: picked in Settings, its ride files (Garmin export, GPX, unzipped Strava export) streamed in chunks into the bulk importer, origins kept, tracked in import_files');
+
+    const opened = log.opened;
+    await page.locator('#btnNativeImportScan').click();
+    await page.waitForFunction(() => __toasts.includes('No new ride files in the folder.'));
+    assert.equal(await page.evaluate(() => __nativeLog.import.opened), opened, 'nothing read again');
+    put('new.fit', fx.fit({ start: '2026-03-09T07:00:00Z', seconds: 90, power: 220 }));
+    const later = new Date(Date.now() + 5000);
+    fs.utimesSync(path.join(imp.folder, 'ride.gpx'), later, later); // saved again by the sync app
+    await page.evaluate(() => __fireImport('folderChanged', { newFiles: 2 })); // the daily worker found them
+    await page.waitForFunction(() => app.completedWorkouts.some((r) => r.importPath === 'new.fit'), null, { timeout: 20000 });
+    await page.waitForFunction((n) => __nativeLog.import.opened === n + 2, opened);
+    assert.equal(sql("SELECT count(*) AS n FROM import_files WHERE job_id='watch_folder' AND status='imported'")[0].n, 5, 'the five files now in the folder; the GPX\'s old stamp is dropped');
+    assert.equal((await rides()).filter((r) => r.path === 'ride.gpx').length, 1, 'the re-read GPX is a duplicate, not a second ride');
+    step('watched folder: Scan now reads nothing twice; the daily check brings in a new file and re-reads a changed one');
+
+    // ------------------------------------------------------------- share target --
+    fs.mkdirSync(path.join(imp.inbox, '77-0'));
+    fs.writeFileSync(path.join(imp.inbox, '77-0', 'strava-export.zip'), built['strava-export.zip']);
+    await page.evaluate(() => __fireImport('sharedFiles', { accepted: 1, rejected: ['photo.jpg'] }));
+    await page.waitForFunction(() => app.completedWorkouts.some((r) => r.title === 'Zwift - Watopia'), null, { timeout: 20000 });
+    await page.waitForFunction(() => !app._bulk);
+    const toasts = await page.evaluate(() => __toasts.join('\n'));
+    assert.match(toasts, /photo\.jpg: not a ride file/);
+    assert.match(toasts, /Importing strava-export\.zip/);
+    assert.match(toasts, /Import finished/);
+    list = await rides();
+    assert.ok(list.some((r) => r.title === 'Zwift - Watopia' && r.origin === 'strava'));
+    // Strava's ride 1001 is the same file as one in the Garmin export: kept once, now known to be on Strava.
+    assert.ok(list.some((r) => r.path === 'Garmin/garmin-export.zip/DI_CONNECT/DI-Connect-Uploaded-Files/UploadedFiles_0-_Part1.zip/rider_2026-03-02.fit' && r.origin === 'strava'));
+    assert.deepEqual(fs.readdirSync(imp.inbox), [], 'the inbox is emptied');
+    step('share target: a shared Strava export is imported with a confirmation toast, a photo is turned down, the inbox is emptied');
+
+    // --------------------------------------------------------- resume after a kill --
+    fs.mkdirSync(path.join(imp.inbox, '88-0'));
+    fs.writeFileSync(path.join(imp.inbox, '88-0', 'Lunch.fit'), fx.fit({ start: '2026-03-10T07:00:00Z', seconds: 80, power: 205 }));
+    const now = new Date().toISOString();
+    phone.db.prepare('INSERT INTO import_jobs VALUES (?,?,?,?,?,?,?,?,?,?)').run('job_killed', 'Lunch.fit', 'running', 1, 0, 0, 0, now, now, '{"native":"share"}');
+    phone.db.prepare('INSERT INTO import_files VALUES (?,?,?,?,?,?)').run('share_inbox', 'file:///inbox/88-0/Lunch.fit', null, null, 'reading', null);
+    await page.reload();
+    await page.waitForFunction(() => window.app && app.completedWorkouts.some((r) => r.fileName === 'Lunch.fit'), null, { timeout: 20000 });
+    await page.waitForFunction(() => !app._bulk);
+    let killed;
+    for (let i = 0; i < 100; i++) { // markResumed runs after the import's summary
+      killed = sql("SELECT status, cursor FROM import_jobs WHERE id='job_killed'")[0];
+      if (JSON.parse(killed.cursor).resumedBy) break;
+      await new Promise((r) => setTimeout(r, 100));
+    }
+    assert.equal(killed.status, 'interrupted');
+    assert.ok(JSON.parse(killed.cursor).resumedBy, 'points at the job that resumed it');
+    for (let i = 0; i < 50 && fs.readdirSync(imp.inbox).length; i++) await new Promise((r) => setTimeout(r, 100));
+    assert.deepEqual(fs.readdirSync(imp.inbox), []);
+    assert.equal(sql("SELECT status FROM import_files WHERE job_id='share_inbox' AND path='file:///inbox/88-0/Lunch.fit'")[0].status, 'imported');
+    step('a shared file whose import the app was killed in is imported at the next start; the killed job is marked interrupted');
+
+    // ------------------------------------------------------------------- remove --
+    await spy();
+    await page.evaluate(() => app.openSettings('importfolder'));
+    await page.locator('#nativeImportStatus', { hasText: 'Dropbox/Rides' }).waitFor();
+    assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth + 1), true, 'Settings > Import fits the phone');
+    await page.locator('#btnNativeImportRemove').click();
+    await page.locator('#nativeImportStatus', { hasText: 'No folder chosen' }).waitFor();
+    assert.equal(imp.state.picked, false);
+    assert.equal(sql("SELECT count(*) AS n FROM import_files WHERE job_id='watch_folder'")[0].n, 0);
+    assert.ok((await rides()).some((r) => r.path === 'new.fit'), 'imported rides stay');
+    step('Settings > Import shows the folder, last scan and counts; Remove forgets the folder and keeps the rides');
+  } finally {
+    await context.close();
+  }
 }
 
 /** An earlier install kept its rides in WebView storage; the first start after the update moves them into SQLite. */
@@ -621,6 +800,8 @@ async function migrationFlow(browser, errors) {
     await page.waitForFunction((id) => !!VeloRideSummary.get(app.completedWorkouts.find((r) => r.id === id)), rideId, { timeout: 15000 });
     assert.equal(phone.db.prepare('SELECT COUNT(*) AS n FROM rides WHERE sample_count > 0 AND summary IS NULL').get().n, 0);
     step('samples load per ride: the app starts summary-only, the power curve reads the summaries, FIT and JSON exports carry the samples, older rides get summaries in the background');
+
+    await importFlow(browser, errors);
 
     const unexpected = errors.filter((e) => !/ResizeObserver/.test(e));
     assert.deepEqual(unexpected, [], 'no uncaught page errors');
