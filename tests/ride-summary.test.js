@@ -127,3 +127,12 @@ test('the split analytics give exactly what they gave before', () => {
   assert.equal(I.rampEvidence(RIDES[3].samples.slice(0, 50), profile), null);
   assert.deepEqual(plain(F.hrPowerEstimate(null, 172, 250)), { ok: false, reason: 'no samples' });
 });
+
+// What each summary version holds, as a hash of the fixtures' summaries. A summary saved on a phone is reused until
+// VERSION changes, so a change to what a summary holds (or to an analytic it keeps) must come with a new VERSION.
+const PINNED = { 1: '91edd242cf9a0fd8ea74ec17197d345741d4666674f04b1bbebedfe6ecb824aa' };
+test('a change to the summaries comes with a new VeloRideSummary.VERSION', () => {
+  const hash = require('node:crypto').createHash('sha256').update(JSON.stringify(RIDES.map((r) => S.of(r)))).digest('hex');
+  assert.ok(Object.hasOwn(PINNED, S.VERSION), `pin version ${S.VERSION}: add ${S.VERSION}: '${hash}' to PINNED`);
+  assert.equal(hash, PINNED[S.VERSION], `the summaries changed: bump VeloRideSummary.VERSION and pin ${S.VERSION + 1}: '${hash}'`);
+});

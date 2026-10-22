@@ -388,6 +388,7 @@ function lazySamples(P, storage, win) {
     this._summaryBackfill = run().finally(() => { this._summaryBackfill = null; });
     return this._summaryBackfill;
   };
+  return { withSamples };
 }
 
 const HEALTH_SYNC_EVERY_MS = 60 * 60 * 1000;
@@ -457,7 +458,7 @@ export function bootNativeApp({ bluetooth, storage, strava, ai, icu, uploads, pl
       V.render = () => { const el = doc.getElementById('localStorageStatus'); if (el) { el.textContent = 'Saved on this phone. Use History > Export to keep a copy elsewhere.'; el.classList.remove('backup-warn'); } };
     }
     if (!P) return;
-    if (storage) lazySamples(P, storage, win);
+    const lazy = storage ? lazySamples(P, storage, win) : null;
 
     // ------------------------------------------------------------ features that need the PC --
     P.initRemoteView = function () { this.remoteTrace = []; this.remoteLastTraceSecond = -1; this._remoteEnabled = false; };
@@ -629,6 +630,14 @@ export function bootNativeApp({ bluetooth, storage, strava, ai, icu, uploads, pl
     };
     const canSend = P.canSendToStrava;
     P.canSendToStrava = function (ride) { return !isFromDestination(ride, UPLOAD_DEST) && canSend.call(this, ride); };
+    if (lazy) {
+      // The workout card made for the upload draws the ride's samples: load them first (the queue reads its own).
+      const send = P.sendRideToStrava;
+      P.sendRideToStrava = async function (rideId) {
+        await lazy.withSamples((this.completedWorkouts || []).find((r) => r.id === rideId));
+        return send.call(this, rideId);
+      };
+    }
     const stravaChip = P.stravaChip;
     P.stravaChip = function (ride) {
       const st = this.stravaStateOf(ride);
