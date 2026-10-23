@@ -187,6 +187,69 @@ test('a save schedules an automatic snapshot after a pause', async (t) => {
   assert.equal(JSON.parse((await s.readSnapshot(auto.name)).payload.settings.apex_velo_profiles)[0].name, 'Fixture');
 });
 
+test('a save the app was closed before still reaches a snapshot at the next check, and nothing new means no copy', async (t) => {
+  let date = new Date('2026-10-01T08:00:00Z'); let s = await fixture(t, { clock: () => date }); await migrate(s);
+  await s.checkBackup();
+  const count = async () => (await s.backups()).files.length;
+  const first = await count();
+  date = new Date('2026-10-01T09:00:00Z'); await s.checkBackup();
+  assert.equal(await count(), first, 'unchanged and under a day old: no copy');
+  await s.update(await request(s, { settings: { apex_erg_response: 'steady' } }));
+  assert.equal(s.backupPending, true, 'the automatic snapshot waits a minute');
+  await s.close(); opened.delete(s); // the app is closed before it runs
+  s = await open(s.dir, { clock: () => date });
+  date = new Date('2026-10-01T09:05:00Z'); await s.checkBackup();
+  assert.equal(await count(), first + 1);
+  const newest = (await s.backups()).files[0];
+  assert.equal(newest.reason, 'automatic');
+  assert.equal((await s.readSnapshot(newest.name)).payload.settings.apex_erg_response, 'steady', 'the change is in the copy');
+  await s.checkBackup(); assert.equal(await count(), first + 1);
+});
+
+test('going to the background writes the pending automatic snapshot at once', async (t) => {
+  const s = await fixture(t); await migrate(s);
+  await s.flushBackup(); const before = (await s.backups()).files.length;
+  assert.equal((await s.backups()).files.length, before, 'nothing pending: nothing written');
+  await s.update(await request(s, { settings: { apex_erg_response: 'steady' } }));
+  await s.flushBackup();
+  const files = (await s.backups()).files;
+  assert.equal(files.length, before + 1); assert.equal(files[0].reason, 'automatic'); assert.equal(s.backupPending, false);
+  await s.flushBackup(); assert.equal((await s.backups()).files.length, before + 1, 'written once');
+});
+
+test('snapshots stay within the storage budget: the oldest go first, the newest three and the migration copy stay; leftovers of killed writes go', async (t) => {
+  let date = new Date('2025-01-01T08:00:00Z'); const s = await fixture(t, { clock: () => date }); await migrate(s);
+  const one = (await s.backup()).bytes;
+  s.backupBudgetBytes = Math.floor(one * 5.5);
+  fs.writeFileSync(path.join(s.files.dir, 'apex_2025-01-01T08-00-00-000Z_dead.json.gz.tmp'), 'half a file');
+  const made = [];
+  for (let day = 2; day < 60; day++) { date = new Date(Date.UTC(2025, 0, day, 8)); made.push((await s.backup('daily')).name); }
+  const files = (await s.backups()).files;
+  const total = files.reduce((n, f) => n + f.bytes, 0);
+  assert.ok(total <= s.backupBudgetBytes, `${total} bytes within ${s.backupBudgetBytes}`);
+  for (const name of made.slice(-3)) assert.ok(files.some((f) => f.name === name), 'the newest three stay');
+  assert.ok(files.some((f) => f.reason === 'migration'), 'the migration copy stays');
+  assert.equal(fs.readdirSync(s.files.dir).some((n) => n.endsWith('.tmp')), false, 'no half-written files left');
+  // Over budget with only protected copies: they stay (a backup is never dropped to make room for nothing).
+  s.backupBudgetBytes = 1; date = new Date(Date.UTC(2025, 2, 1, 8)); await s.backup();
+  assert.equal((await s.backups()).files.length, 4);
+});
+
+test('a corrupt newest snapshot does not count among the newest three: the next three readable ones stay', async (t) => {
+  let date = new Date('2025-01-01T08:00:00Z'); const s = await fixture(t, { clock: () => date }); await migrate(s);
+  const made = [];
+  for (let day = 2; day < 9; day++) { date = new Date(Date.UTC(2025, 0, day, 8)); made.push((await s.backup('daily')).name); }
+  fs.writeFileSync(snapshotPath(s, made.at(-1)), 'not gzip'); // the newest copy is damaged
+  assert.ok((await s.backups()).files.find((f) => f.name === made.at(-1)).corrupt);
+  s.backupBudgetBytes = 1; // over budget: only protected copies may stay
+  await s.pruneBackups();
+  const left = (await s.backups()).files;
+  const readable = left.filter((f) => !f.corrupt).map((f) => f.name);
+  for (const name of made.slice(-4, -1)) assert.ok(readable.includes(name), `${name} (one of the newest three readable) stays`);
+  assert.ok(left.some((f) => f.reason === 'migration'), 'the migration copy stays');
+  assert.equal(readable.length, 4, 'three readable plus the migration copy, nothing else');
+});
+
 test('corrupt and future-schema databases are never reset automatically', async (t) => {
   const s = await fixture(t); await migrate(s); s.db.raw.exec('PRAGMA user_version=99'); await s.close(); opened.delete(s); const bytes = fs.readFileSync(s.path);
   await assert.rejects(() => open(s.dir), /newer version/); assert.deepEqual(fs.readFileSync(s.path), bytes);

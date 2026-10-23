@@ -72,6 +72,10 @@ if (fake || Capacitor.isNativePlatform()) {
     async summaries(ids) { return (await store).summaries(ids); },
     /** The JSON backup with every ride's samples, as UTF-8 pieces. */
     async exportChunks(head, tail) { return (await store).exportChunks(head, tail); },
+    /** Automatic snapshots: one a minute after the last change, the pending one now, or one if it is due. */
+    async scheduleBackup() { (await store).scheduleBackup(); },
+    async flushBackup() { return (await store).flushBackup(); },
+    async checkBackup() { return (await store).checkBackup(); },
     /** Moves earlier WebView data in (once); onProgress(done, total). */
     async migrate(onProgress) {
       return new WebViewMigration({ store: await store, source: webViewSource(window), onProgress }).run();
