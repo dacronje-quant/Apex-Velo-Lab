@@ -17,10 +17,15 @@ export function onboardingState(storage) {
 }
 function saveState(storage, st) { try { storage.setItem(ONBOARDING_KEY, JSON.stringify(st)); } catch (e) { /* private mode: shows again */ } }
 
-/** True when onboarding should open: a new installation that has neither finished it nor dismissed the welcome card. */
+/**
+ * True when onboarding should open: one started and not finished (step 1 already saved the profile, so the
+ * installation no longer looks new), or a new installation that has not dismissed the welcome card.
+ */
 export function shouldOnboard({ app, storage, win }) {
   if (!app || win.__APEX_DEMO_MODE__ || win.__APEX_TEST_MODE__ || win.__apexNoOnboarding) return false;
-  if (onboardingState(storage).done) return false;
+  let saved = null;
+  try { saved = storage.getItem(ONBOARDING_KEY); } catch (e) { /* ignore */ }
+  if (saved) return !onboardingState(storage).done;
   try { if (storage.getItem('apex_setup_dismissed')) return false; } catch (e) { /* ignore */ }
   return !!app.isNewInstallation;
 }
@@ -38,8 +43,17 @@ const CSS = `
 .av-onb-link { display: inline-flex; align-items: center; min-height: 44px; color: var(--cyan); }
 `;
 
-export function installOnboarding({ shell, win = window, storage = win.localStorage }) {
+/**
+ * `storage()` returns the storage to use now. It is looked up on every read and write: js/velo-storage.js
+ * replaces window.localStorage with its phone-database mirror at start-up, and a cached reference would keep
+ * writing to the old browser storage (the flags would be lost and onboarding would show on every launch).
+ */
+export function installOnboarding({ shell, win = window, storage: getStorage = () => win.localStorage }) {
   const doc = win.document;
+  const storage = {
+    getItem: (k) => getStorage().getItem(k),
+    setItem: (k, v) => getStorage().setItem(k, v)
+  };
   const app = () => shell.getApp();
   const style = doc.createElement('style');
   style.textContent = CSS;

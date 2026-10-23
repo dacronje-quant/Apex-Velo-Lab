@@ -18,7 +18,7 @@ export const SECTION_ROUTES = {
   ai: 'you/connections/ai',
   files: 'you/data',
   importfolder: 'you/data',
-  backups: 'you/data',
+  backups: 'you/data/backups',
   guide: 'you/help/guide',
   about: 'you/help',
   phone: 'you'
@@ -221,10 +221,13 @@ export function installYou({ shell, win = window, services = {} }) {
     { icon: 'i-history', title: 'Import my history', sub: 'A Strava, Garmin or other export (.zip)', onClick: clickId('btnImportHistory'), id: 'avDataImportHistory' },
     { icon: 'i-save', title: 'Back up everything', sub: 'Full JSON backup to Documents/ApexVelo', onClick: clickId('btnExportJsonHistory'), id: 'avDataBackup' }
   ]) dataActions.appendChild(shell.row(r));
+  // Backups on this phone (the phone database's snapshots): only with the phone database.
+  const backupsRow = shell.row({ icon: 'i-refresh', title: 'Backups', sub: 'Copies kept on this phone: back up now, restore', onClick: () => shell.go('you/data/backups'), id: 'avDataBackups' });
+  dataActions.appendChild(backupsRow);
   data.querySelector('#avDataDanger').appendChild(shell.row({ icon: 'i-trash', title: 'Clear all history', sub: 'Deletes every ride on this phone', onClick: clickId('btnClearAllWorkoutsTable'), id: 'avDataClear' }));
   const placeData = () => {
     adopt(data.querySelector('#avDataFolder'), 'nativeImportSettings');
-    adopt(data.querySelector('#avDataFiles'), 'nativeFileSettings', 'localStorageStatus');
+    adopt(data.querySelector('#avDataFiles'), 'nativeFileSettings');
     const adv = data.querySelector('#avDataAdvanced');
     const card = $('stravaSyncCard');
     if (card && card.parentNode !== adv) adv.insertBefore(card, adv.querySelector('#avDataDanger'));
@@ -236,7 +239,21 @@ export function installYou({ shell, win = window, services = {} }) {
       const hasFolder = !!$('nativeImportSettings');
       data.querySelector('#avDataFolder').hidden = !hasFolder;
       data.querySelector('#avDataFolder').previousElementSibling.hidden = !hasFolder;
+      backupsRow.hidden = !(win.VeloStorage && win.VeloStorage.enabled);
       section('importfolder');
+    }
+  });
+
+  // The Backups section of Settings (js/app-backup.js) works on the phone database's snapshots as on the PC's:
+  // status, Back up now, the list with Preview & restore (asks first, makes a safety copy), open a backup file.
+  const backups = page('<div class="card" id="avBackupsBox"></div>');
+  shell.registerPage('you/data/backups', {
+    title: 'Backups', el: backups, parent: 'you/data',
+    mount: () => {
+      const sec = doc.querySelector('.settings-section[data-sec="backups"]');
+      if (sec && sec.parentNode !== backups.firstChild) backups.firstChild.appendChild(sec);
+      const a = app();
+      if (a && a.runAutoBackup) a.runAutoBackup().then(() => a.showLocalBackups && a.showLocalBackups()).catch(() => {});
     }
   });
 

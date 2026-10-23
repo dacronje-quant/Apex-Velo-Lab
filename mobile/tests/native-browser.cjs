@@ -55,10 +55,11 @@ async function phoneStorage(context, name) {
   return { db, hooks, backups };
 }
 
-async function newContext(browser) {
+async function newContext(browser, { onboarding = false } = {}) {
   const context = await browser.newContext({ viewport: { width: 412, height: 915 }, isMobile: true, hasTouch: true });
   await context.addInitScript({ path: path.join(__dirname, 'fake-native.js') });
-  await context.addInitScript(() => { window.__apexNoOnboarding = true; }); // onboarding has its own flows in phone-ux.cjs
+  // Onboarding is off except in onboardingFlow (and the phone-ux.cjs flows).
+  if (!onboarding) await context.addInitScript(() => { window.__apexNoOnboarding = true; });
   await context.route(`${ORIGIN}/**`, (route) => {
     const url = new URL(route.request().url());
     const file = path.resolve(www, url.pathname === '/' ? 'index.html' : decodeURIComponent(url.pathname.slice(1)));
@@ -66,6 +67,65 @@ async function newContext(browser) {
     return route.fulfill({ body: fs.readFileSync(file), contentType: TYPES[path.extname(file)] || 'application/octet-stream' });
   });
   return context;
+}
+
+/**
+ * Onboarding and Backups with the phone database: the onboarding flags are saved through the phone database's
+ * localStorage mirror (a cold start resumes the step, and never shows it again once skipped); You > Your data >
+ * Backups makes, lists and restores the database's snapshots.
+ */
+async function onboardingFlow(browser, errors) {
+  const context = await newContext(browser, { onboarding: true });
+  const phone = await phoneStorage(context, 'onboarding');
+  const page = await context.newPage();
+  page.on('pageerror', (e) => errors.push(e.message));
+  page.on('dialog', (d) => d.accept());
+  const coldStart = async () => {
+    await page.goto(`${ORIGIN}/index.html`); // no hash: what the launcher opens
+    await page.waitForFunction(() => window.app && window.ApexNative && ApexNative.shell.current);
+    await page.waitForTimeout(400);
+    return page.evaluate(() => ApexNative.shell.current.route);
+  };
+  const saved = () => (phone.db.prepare("SELECT value FROM settings WHERE key='apex_onboarding'").get() || {}).value;
+  try {
+    assert.equal(await coldStart(), 'onboarding/profile', 'a new install opens onboarding');
+    assert.equal(await page.evaluate(() => VeloStorage.enabled), true);
+    await page.locator('#onbFtp').fill('255');
+    await page.locator('[data-onb="next"]').click();
+    await page.waitForFunction(() => ApexNative.shell.current.route === 'onboarding/devices');
+    await page.evaluate(() => VeloStorage.flush());
+    assert.deepEqual(JSON.parse(saved()), { step: 'devices', done: false }, 'the step is in the phone database');
+    assert.equal(await coldStart(), 'onboarding/devices', 'a cold start resumes the step (the profile is no longer new)');
+    assert.equal(await page.evaluate(() => app.activeProfile.ftp), 255);
+    await page.locator('[data-onb="skipall"]').click();
+    await page.waitForFunction(() => ApexNative.shell.current.route === 'ride');
+    await page.evaluate(() => VeloStorage.flush());
+    assert.equal(JSON.parse(saved()).done, true, 'skipped is in the phone database');
+    assert.equal(await coldStart(), 'ride', 'never again once skipped');
+    assert.equal(await coldStart(), 'ride');
+    step('onboarding with the phone database: a cold start resumes the step, Skip setup is saved in the settings table and it never shows again');
+
+    await page.evaluate(() => ApexNative.shell.go('you/data'));
+    assert.equal(await page.locator('#avDataBackups').isVisible(), true);
+    await page.locator('#avDataBackups').click();
+    assert.equal(await page.evaluate(() => ApexNative.shell.current.route), 'you/data/backups');
+    await page.locator('#avBackupsBox #autoBackupStatus').waitFor();
+    const before = fs.readdirSync(phone.backups).length;
+    await page.locator('#btnBackupNow').click();
+    await page.locator('.toast-msg', { hasText: 'Backup saved' }).first().waitFor();
+    assert.equal(fs.readdirSync(phone.backups).length, before + 1, 'Back up now writes a snapshot on the phone');
+    await page.locator('#btnListBackups').click();
+    await page.locator('#localBackupList [data-restore-backup]').first().waitFor();
+    await page.evaluate(() => { app.activeProfile.ftp = 199; app.saveProfiles(); return VeloStorage.flush(); });
+    await Promise.all([page.waitForEvent('load'), page.locator('#localBackupList [data-restore-backup]').first().click()]);
+    await page.waitForFunction(() => window.app && window.ApexNative && ApexNative.shell.current);
+    assert.equal(await page.evaluate(() => app.activeProfile.ftp), 255, 'the restore brought the saved profile back');
+    assert.ok(fs.readdirSync(phone.backups).length >= before + 2, 'a safety copy was made before restoring');
+    step('You > Your data > Backups: back up now, list the phone\'s copies and restore one (asks first, safety copy, reload)');
+  } finally {
+    await context.close();
+    phone.db.close();
+  }
 }
 
 /**
@@ -1024,6 +1084,7 @@ async function brokerFlow(browser, errors) {
 
     await importFlow(browser, errors);
     await brokerFlow(browser, errors);
+    await onboardingFlow(browser, errors);
     step('with a token broker: one-tap Strava sign-in (no API application, no secret on the phone), own application under Advanced');
     await rideServiceFlow(browser, errors);
 

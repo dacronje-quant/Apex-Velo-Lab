@@ -1,5 +1,5 @@
 // Builds mobile/www/ for Capacitor from the desktop app in the repository root, unchanged except for
-// three tags added to index.html: the Android layer (src/, bundled) and its stylesheets.
+// four tags added to index.html: the Android layer (src/, bundled) and its stylesheets.
 // The PC-only parts (server.js, live.html, sw.js, tests, docs, tools) are left out.
 const fs = require('node:fs'), path = require('node:path');
 const esbuild = require('esbuild');
@@ -35,7 +35,7 @@ esbuild.buildSync({
   outfile: path.join(www, 'mobile', 'apex-native.js'),
   bundle: true, format: 'iife', target: ['chrome89'], legalComments: 'none', logLevel: 'warning'
 });
-for (const css of ['apex-native.css', 'apex-shell.css']) fs.copyFileSync(path.join(mobile, 'web', css), path.join(www, 'mobile', css));
+for (const css of ['apex-native.css', 'apex-shell.css', 'apex-ride.css']) fs.copyFileSync(path.join(mobile, 'web', css), path.join(www, 'mobile', css));
 
 const indexPath = path.join(www, 'index.html');
 let html = fs.readFileSync(indexPath, 'utf8');
@@ -49,5 +49,6 @@ const inject = (anchor, tag) => {
 inject('<script src="vendor/chart.umd.min.js"></script>', '<script src="mobile/apex-native.js"></script>');
 inject('</head>', '<link rel="stylesheet" href="mobile/apex-native.css">');
 inject('</head>', '<link rel="stylesheet" href="mobile/apex-shell.css">');
+inject('</head>', '<link rel="stylesheet" href="mobile/apex-ride.css">');
 fs.writeFileSync(indexPath, html);
 console.log(`build-web: ${path.relative(root, www)} ready (Strava sign-in: ${BROKER_URL ? `broker ${BROKER_URL}` : 'own API application'})`);
