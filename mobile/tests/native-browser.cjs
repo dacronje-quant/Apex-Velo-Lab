@@ -798,6 +798,7 @@ async function brokerFlow(browser, errors) {
     step('AI coach: the ride breakdown goes through /api/coach on the phone');
 
     await page.evaluate(() => ApexNative.shell.go('train/workouts'));
+    await page.locator('#avDescribe').click(); // Train > Workouts > Describe a workout (a sheet)
     assert.match(await page.locator('#describeEngine').innerText(), /Claude Opus 5\.5 · only your request and FTP/);
     await page.locator('#describeExamples [data-example]').first().click();
     assert.equal(await page.locator('#describeInput').inputValue(), '45 min sweet spot');

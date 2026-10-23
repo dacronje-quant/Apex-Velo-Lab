@@ -232,14 +232,24 @@ Android back closes a sheet, then goes back a page, then to the tab's first scre
 - **Customise this screen** (in Controls) switches every panel, tile and graph line on or off and moves them up or
   down, in both views. It is saved for each rider. *Minimal*, *Standard* and *Everything* are presets, and *Reset*
   goes back to Standard.
-- Train, History, Progress and You show the existing screens until their phone versions land.
+- **Train** has three parts at the top: **Plan**, **Workouts** and **Ask coach**.
+  - *Plan* shows this week day by day (planned and ridden days are marked), the selected day's session with
+    **Ride it today** and *Swap*, and your training block with **Re-plan** and *Open plan*. From here, *Coach* builds
+    one workout for today or a 4-12 week plan, and *Calendar* shows the week, month, year or all time, with load and
+    recovery.
+  - *Workouts* is the library as a short list with type chips (Endurance, Sweet spot, Threshold, VO2, Hard-start,
+    Saved, Tests with the ramp test) and search. Tap a workout for its profile, then **Ride it**, which opens the
+    ride screen and starts it. *Fine-tune* opens the step table (change or add steps, Save as preset).
+    *Describe a workout* turns your words into a workout.
+  - *Ask coach* is the chat about your training. It keeps your conversation.
+- History and Progress show the existing screens until their phone versions land.
 
 ## Tests
 
 ```bash
 npm test               # unit tests: ride handoff, merging and recovery (screen off), Bluetooth shim, Strava upload client and token exchangers (own application, broker, switching), upload queue and ledger, AI engine vs server.js, intervals.icu wellness (Node, no browser)
 npm run test:browser   # the built app in Chromium with a simulated FTMS trainer, HR strap, Strava, Claude and intervals.icu
-npm run test:phone     # phone layout at 393x852 with touch: tabs, back, deep links, taps to reach, no sideways scroll, 44 px targets, ride parity, customisation
+npm run test:phone     # phone layout at 393x852 with touch: tabs, back, deep links, taps to reach, no sideways scroll, 44 px targets, ride parity, customisation, Train parity (workouts, coach, calendar, ask)
 ```
 
 The browser test pairs the trainer through the in-app chooser and rides an ERG workout. It checks the trainer gets its targets, drops and reconnects the link, saves the ride, signs in to Strava, uploads the FIT file and records it in the ledger, checks that no Strava activity is ever read, signs in through a token broker in a second app (no secret on the phone, own application under Advanced), queues an auto-upload while offline and sends it on resume, saves an AI key, asks a question in Ask, gets an AI interval breakdown, backfills health data from intervals.icu and reloads the app. The **Android app** GitHub workflow runs both, then builds the APK. For riding with the screen off it halts the page mid-ride while a fake native recorder in the test runner keeps recording and moves ERG to the next step, checks every second is merged back once on resume, then reloads the page mid-ride (the live ride is taken back), then kills the app in the background and recovers the ride from the journal. `cd android && ./gradlew testDebugUnitTest` runs the JVM tests of the native recorder (parsers, takeover, ramp test, journal).

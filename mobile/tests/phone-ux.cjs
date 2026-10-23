@@ -107,7 +107,7 @@ const FLOWS = [
   ['shell: deep links open their screen; the app\'s own tab switches follow the routes; sheets close on back', async (browser) => {
     const page = await openPhone(browser, { route: 'train/workouts' });
     assert.equal(await route(page), 'train/workouts');
-    assert.ok(await page.locator('#view-workouts').isVisible());
+    assert.ok(await page.locator('#avWorkoutList').isVisible()); // the Train tab's library (U2)
     await tap(page, '.av-subnav [data-av-seg="train/ask"]');
     assert.equal(await route(page), 'train/ask');
     assert.ok(await page.locator('#view-ask').isVisible());
