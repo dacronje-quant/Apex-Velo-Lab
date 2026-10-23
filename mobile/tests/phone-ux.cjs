@@ -904,6 +904,127 @@ module.exports.TRAIN_PARITY = TRAIN_PARITY;
 
 module.exports.PARITY = PARITY;
 
+// ------------------------------------------------------------------------------------------ progress (U4) --
+// Every Analytics card (Overview, Fitness & load, Power & CP, FTP incl. FTP over time, Intensity, Aerobic, Health,
+// and the Analytics+ / studio parts) and the Progress topic that shows it. [feature, topic, selector]
+const PROGRESS_PARITY = [
+  ['readiness ring (tap a day)', 'health', '#anaCardReady'], ['your week (AI story)', 'fitness', '#anaCardStory'],
+  ['today strip: form, fitness, ramp, FTP', 'fitness', '#anaTodayStrip'], ['progression tiles (drill down)', 'fitness', '#anaTiles'],
+  ['pinned charts', 'fitness', '#anaPinned'], ['what changed (insights)', 'fitness', '#anaCardInsights'], ['records', 'records', '#anaCardRecords'],
+  ['performance management chart', 'fitness', '#anaCardPmc'], ['weekly load, KPIs, week rides', 'fitness', '#anaCardWeekly'], ['training year heatmap', 'fitness', '#anaCardYear'],
+  ['power duration curve, scrubber, table', 'power', '#anaCardPdc'], ['critical power model', 'power', '#cpModelCard'], ['power profile', 'power', '#anaCardProfile'],
+  ['power profile (PRs)', 'records', '#anaCardProfile'], ['CP & W′ over time', 'power', '#anaCardCpHistory'], ['left / right balance', 'power', '#anaCardBalance'],
+  ['FTP history & monthly peak NP, implied FTP', 'power', '#anaCardFtpHistory'], ['FTP over time (estimates, import, table)', 'power', '#ftpMetricsHistoryCard'],
+  ['time in zones, polarisation', 'intensity', '#anaCardZones'], ['intensity mix', 'intensity', '#anaCardMix'], ['every ride: duration vs NP', 'intensity', '#anaCardScatter'],
+  ['efficiency factor', 'intensity', '#anaCardEf'], ['aerobic decoupling', 'intensity', '#anaCardDrift'],
+  ['health: no-data note', 'health', '#anaHealthEmpty'], ['health tiles', 'health', '#anaHealthTiles'], ['resting & sleeping HR', 'health', '#anaCardHealthHr'],
+  ['HRV and normal range', 'health', '#anaCardHealthHrv'], ['rMSSD and SDNN', 'health', '#anaCardHealthHrvBoth'], ['sleep stages', 'health', '#anaCardHealthSleep'],
+  ['sleep timeline', 'health', '#anaCardSleepTimeline'], ['sleep & readiness scores', 'health', '#anaCardHealthScores'], ['stress index', 'health', '#anaCardHealthStress'],
+  ['breathing & SpO2', 'health', '#anaCardHealthBreath'], ['weight', 'health', '#anaCardHealthBody'], ['blood pressure, glucose, food', 'health', '#anaCardHealthVitals'],
+  ['training vs next morning', 'health', '#anaCardHealthLoad'], ['correlation explorer', 'health', '#anaCardCorr']
+];
+
+/** 60 days of health values (the demo has none), as js/velo-health.js daily() gives them. */
+async function seedHealth(page) {
+  await page.evaluate(() => {
+    const days = [];
+    for (let i = 59; i >= 0; i--) {
+      const d = new Date(Date.now() - i * 86400000); const day = app.localDayKey(d);
+      days.push({ day, rhr: 50 + (i % 5), hrv: 60 + ((i * 7) % 11), sleepH: 7 + (i % 3) / 4, deepH: 1.2, remH: 1.5, coreH: 4, awakeH: 0.3 });
+    }
+    app.healthDays = days;
+  });
+}
+
+FLOWS.push(['progress: taps from launch (FTP 1, HRV trend 2, no scroll), sweep of every route, root ≤ 1.5 screens, back', async (browser) => {
+  const page = await openPhone(browser);
+  await seedHealth(page);
+  const c = { taps: 0 };
+  await tap(page, '.av-tabbar [data-av-tab="progress"]', c);
+  assert.equal(await route(page), 'progress');
+  assert.match(await page.locator('#avProgFtpVal').innerText(), /\d+ W/, 'FTP on the answer card');
+  assert.ok(await page.locator('#avProgFtpVal').isVisible()); assert.equal(c.taps, 1);
+  assert.ok((await page.evaluate(() => document.documentElement.scrollHeight)) <= 852 * 1.5, 'Progress fits 1.5 screens');
+  await tap(page, '#avProgRow-health', c);
+  assert.equal(c.taps, 2); assert.equal(await route(page), 'progress/health');
+  await page.waitForTimeout(400);
+  const hrv = await page.locator('#anaCardHealthHrv canvas').boundingBox();
+  assert.ok(hrv && hrv.y + hrv.height / 2 < 852 - 76, 'HRV trend on screen without scrolling');
+  for (const r of ['progress', 'progress/fitness', 'progress/power', 'progress/intensity', 'progress/health', 'progress/records']) {
+    await page.evaluate((r) => ApexNative.shell.go(r), r);
+    await page.waitForTimeout(500);
+    assert.ok(await page.locator('.av-tabbar').isVisible(), `bottom bar on ${r}`);
+    // Training-year day squares (13 px heatmap cells) are exempt: every day also opens from a tap on any time chart.
+    const sw = await sweep(page, { ignore: '.yc' });
+    assert.deepEqual(sw.small, [], `small targets on ${r}`); assert.ok(sw.overflowX <= 0, `${r} scrolls sideways (${sw.overflowX})`);
+    if (r !== 'progress') assert.equal(await page.locator('#anaSectionNav').isVisible(), false, 'no desktop module dock');
+  }
+  await back(page); assert.equal(await route(page), 'progress', 'back from a topic goes to Progress');
+  await back(page); assert.equal(await route(page), 'ride');
+  assert.deepEqual(page.errors, []);
+  await page.context().close();
+}]);
+
+FLOWS.push(['progress parity: every Analytics, Analytics+, Studio, Health and FTP-history card is on its topic page', async (browser) => {
+  const page = await openPhone(browser);
+  await seedHealth(page);
+  const missing = [];
+  for (const [feature, topic, sel] of PROGRESS_PARITY) {
+    await page.evaluate((t) => ApexNative.shell.go('progress/' + t), topic);
+    // Cards without data hide themselves ([hidden]); the check is that the topic page shows the card when it has data.
+    const ok = await page.evaluate((sel) => {
+      const el = document.querySelector(sel); if (!el) return false;
+      const was = el.hidden; el.hidden = false;
+      const r = el.getBoundingClientRect(); const vis = r.width > 0 && r.height > 0 && getComputedStyle(el).visibility !== 'hidden';
+      el.hidden = was; return vis;
+    }, sel);
+    if (!ok) missing.push(`${feature} (${topic}: ${sel})`);
+  }
+  assert.deepEqual(missing, [], 'Analytics cards missing from Progress');
+  // Studio: expand a chart, pin one (it shows on Fitness), legend chips; Analytics+: tap a day.
+  await page.evaluate(() => ApexNative.shell.go('progress/power'));
+  await tap(page, '#anaCardPdc .ana-expand-btn');
+  assert.ok(await page.locator('#anaZoomDialog').isVisible(), 'expanded chart');
+  await back(page);
+  assert.equal(await page.locator('#anaZoomDialog').isVisible(), false, 'back closes the expanded chart');
+  assert.equal(await route(page), 'progress/power');
+  await tap(page, '#anaCardPdc .ana-pin-btn');
+  await page.evaluate(() => ApexNative.shell.go('progress/fitness'));
+  assert.ok(await page.locator('#anaPinned').isVisible(), 'pinned chart on Fitness');
+  await page.evaluate(() => ApexNative.shell.go('progress/health'));
+  await tap(page, '#anaReadyRing');
+  assert.ok(await page.locator('#anaDayModal').isVisible(), 'tap a day');
+  await back(page);
+  await page.waitForTimeout(400);
+  assert.equal(await page.evaluate(() => document.getElementById('anaDayModal').classList.contains('open')), false, 'back closes the day');
+  assert.equal(await route(page), 'progress/health');
+  assert.deepEqual(page.errors, []);
+  await page.context().close();
+}]);
+
+FLOWS.push(['progress: range chip changes the page range; tiles drill down to their topic; Update FTP on Power & FTP', async (browser) => {
+  const page = await openPhone(browser, { route: 'progress/fitness' });
+  await page.waitForTimeout(400);
+  await tap(page, '#avProgRange');
+  assert.ok(await page.locator('.av-sheet #anaRangePills').isVisible());
+  const sw = await sweep(page, { ignore: '.yc' }); assert.deepEqual(sw.small, [], 'small targets in the range sheet');
+  await tap(page, '.av-sheet .ana-range[data-range="1y"]');
+  assert.equal(await page.locator('.av-sheet').count(), 0, 'sheet closed');
+  assert.equal(await page.locator('#avProgRange').innerText(), '1 year');
+  assert.equal(await page.evaluate(() => document.querySelector('#anaRangePills .ana-range.active').dataset.range), '1y');
+  assert.equal(await page.locator('#view-analytics > .ana-head #anaRangePills').count(), 1, 'pills put back');
+  await page.evaluate(() => app.showAnalyticsPanel('ftp', { spot: 'anaCardFtpHistory' }));
+  assert.equal(await route(page), 'progress/power', 'drill-down opens the topic');
+  await page.evaluate(() => { app.ftpSuggestionFor = () => ({ ftp: 260, from: 185, gain: 75, method: 'Best 20 min', basis: 'one ride' }); ApexNative.shell.go('progress'); ApexNative.shell.go('progress/power'); });
+  assert.ok(await page.locator('#avProgFtpAccept').isVisible(), 'Update FTP above the fold');
+  await tap(page, '#avProgFtpAccept');
+  assert.equal(await page.evaluate(() => app.activeProfile.ftp), 260);
+  assert.deepEqual(page.errors, []);
+  await page.context().close();
+}]);
+
+module.exports.PROGRESS_PARITY = PROGRESS_PARITY;
+
 if (require.main === module) {
   (async () => {
     const browser = await chromium.launch({ executablePath });

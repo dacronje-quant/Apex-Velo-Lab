@@ -909,10 +909,12 @@ async function brokerFlow(browser, errors) {
     assert.equal(await page.locator('#corrY').inputValue(), 'h:hrv');
     step('Analytics: tap a day on a chart opens it (prev / next), sleep timeline of 14 nights, correlation explorer');
 
-    await page.evaluate(() => app.showAnalyticsPanel('overview', { instant: true }));
+    // On the phone, readiness is on Progress > Health and the week story on Progress > Fitness & load.
+    await page.evaluate(() => ApexNative.shell.go('progress/health'));
     await page.locator('#anaReadyRing svg').waitFor();
     assert.match(await page.locator('#anaReadyRing').getAttribute('data-level'), /green|amber|red/);
     assert.equal(await page.locator('#anaReadyParts .ready-part').count(), 3, 'HRV, resting HR and sleep');
+    await page.evaluate(() => ApexNative.shell.go('progress/fitness'));
     assert.match(await page.locator('#anaStoryText').innerText(), /Next:/, 'the week from the numbers, without AI');
     await page.locator('#btnAnaStory').click();
     await page.locator('#anaStoryText', { hasText: 'test breakdown' }).waitFor({ timeout: 10000 });

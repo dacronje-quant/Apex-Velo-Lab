@@ -242,7 +242,17 @@ Android back closes a sheet, then goes back a page, then to the tab's first scre
     ride screen and starts it. *Fine-tune* opens the step table (change or add steps, Save as preset).
     *Describe a workout* turns your words into a workout.
   - *Ask coach* is the chat about your training. It keeps your conversation.
-- Progress shows the existing screen until its phone version lands.
+- **Progress** answers *Am I getting fitter?* in one card: the fitness trend over 6 weeks, fitness, fatigue, form
+  and FTP. Below it are five topics, each a page with the charts of the PC's Analytics:
+  - *Fitness & load*: performance management chart, weekly load, training year, your week, what changed, pinned charts.
+  - *Power & FTP*: **Update FTP** when your rides suggest a higher one, FTP history, FTP over time, power curve,
+    critical power and W′, power profile and left / right balance.
+  - *Intensity*: time in zones, intensity mix, every ride's duration against NP, efficiency factor and decoupling.
+  - *Health & recovery*: the HRV trend, readiness, and every health value from intervals.icu and Health Connect,
+    plus the correlation explorer.
+  - *Records*: all-time bests and the power profile.
+  The range chip at the top sets the time range for every chart. Charts expand, pin and open a day as on the PC;
+  back closes an expanded chart or a day first.
 
 ## Tests
 
