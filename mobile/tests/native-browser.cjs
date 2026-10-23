@@ -122,6 +122,23 @@ async function onboardingFlow(browser, errors) {
     assert.equal(await page.evaluate(() => app.activeProfile.ftp), 255, 'the restore brought the saved profile back');
     assert.ok(fs.readdirSync(phone.backups).length >= before + 2, 'a safety copy was made before restoring');
     step('You > Your data > Backups: back up now, list the phone\'s copies and restore one (asks first, safety copy, reload)');
+
+    await page.evaluate(() => ApexNative.shell.go('you/data/backups'));
+    const text = await page.locator('#avBackupsBox .settings-section').innerText();
+    assert.match(text, /saved in the app on this phone/); assert.doesNotMatch(text, /this PC|History > Export/);
+    assert.equal(await page.locator('#btnBackupNow').getAttribute('title'), 'Save a verified backup on this phone now');
+    await page.evaluate(() => app.showSettingsSection('backups'));
+    assert.equal(await page.evaluate(() => app._settingsSection), 'backups', 'the Backups section is no longer sent to Rider');
+    const count = () => fs.readdirSync(phone.backups).filter((n) => n.endsWith('.json.gz')).length;
+    await page.evaluate(async () => { await VeloStorage.flush(); await (await ApexNative.store).flushBackup(); });
+    const n = count();
+    await page.evaluate(() => { app.scheduleAutoBackup(); });
+    assert.equal(await page.evaluate(async () => (await ApexNative.store).backupPending), true, 'scheduleAutoBackup reaches the phone database');
+    await page.evaluate(() => __fireNative('pause'));
+    await page.waitForFunction(async () => !(await ApexNative.store).backupPending);
+    for (let i = 0; i < 50 && count() === n; i++) await page.waitForTimeout(100);
+    assert.equal(count(), n + 1, 'going to the background writes the pending snapshot');
+    step('automatic backups on the phone: scheduleAutoBackup reaches the phone database, going to the background writes the pending copy, the Backups text describes the phone');
   } finally {
     await context.close();
     phone.db.close();
@@ -472,7 +489,7 @@ async function migrationFlow(browser, errors) {
   await page.reload();
   await page.waitForFunction(() => window.app && window.ApexNative);
   assert.equal(await page.evaluate(() => VeloStorage.enabled), true);
-  assert.equal(await page.locator('#localStorageStatus').textContent(), 'Saved on this phone. Use History > Export to keep a copy elsewhere.');
+  assert.equal(await page.locator('#localStorageStatus').textContent(), 'Saved on this phone. Use Back up everything in You > Your data to keep a copy elsewhere.');
   const row = phone.db.prepare("SELECT json, samples_gz, sample_count FROM rides WHERE id='ride_before_update'").get();
   assert.equal(row.sample_count, 600);
   assert.doesNotMatch(row.json, /"hr"/, 'samples are stored compressed');

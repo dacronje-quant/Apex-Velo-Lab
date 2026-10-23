@@ -273,6 +273,12 @@ function addSettingsUi(doc, icu, healthConnect) {
   }
   const status = doc.getElementById('localStorageStatus');
   if (status) status.textContent = 'Saved on this phone.';
+  // Settings > Backups (You > Your data > Backups): the phone database's own snapshots.
+  const backups = doc.querySelector('#settingsModal .settings-section[data-sec="backups"]');
+  const intro = backups && backups.querySelector('.field-help');
+  if (intro) intro.textContent = BACKUPS_TEXT;
+  const now = doc.getElementById('btnBackupNow');
+  if (now) now.title = 'Save a verified backup on this phone now';
   const health = doc.getElementById('healthSettings');
   if (icu && health && !doc.getElementById('nativeIcuKey')) {
     health.innerHTML = healthSection() + (healthConnect ? healthConnectSection() : '');
@@ -283,6 +289,11 @@ function addSettingsUi(doc, icu, healthConnect) {
     doc.querySelectorAll('#calRecoveryHint').forEach((el) => { el.textContent = el.textContent.replace('Apple Health', 'intervals.icu'); });
   }
 }
+
+const BACKUPS_TEXT = 'Your rides, profiles, settings and plans are saved in the app on this phone. Verified copies are kept here too: '
+  + 'a minute after each change, when the app goes to the background, and at least once a day, with daily, weekly and monthly copies '
+  + 'kept for a year and the newest three always kept (up to about 500 MB in all). They are in the app\'s private storage, so '
+  + 'uninstalling the app removes them: use Back up everything in You > Your data to keep a copy elsewhere.';
 
 const blobToBase64 = (blob) => new Promise((resolve, reject) => {
   const r = new FileReader();
@@ -498,15 +509,15 @@ export function bootNativeApp({ bluetooth, storage, strava, ai, icu, uploads, pl
       V.render = () => {
         const el = doc.getElementById('localStorageStatus');
         if (!el) return;
-        el.textContent = V.error ? `Not saved on this phone: ${V.error}${V.recoveryUnavailable ? ' The browser recovery copy is also unavailable; export important rides with History > Export.' : ''}`
+        el.textContent = V.error ? `Not saved on this phone: ${V.error}${V.recoveryUnavailable ? ' The browser recovery copy is also unavailable; export important rides with Back up everything in You > Your data.' : ''}`
           : !V.enabled ? 'Saved in the app\'s browser storage on this phone.'
-            : V.pending.length ? 'Saving on this phone...' : 'Saved on this phone. Use History > Export to keep a copy elsewhere.';
+            : V.pending.length ? 'Saving on this phone...' : 'Saved on this phone. Use Back up everything in You > Your data to keep a copy elsewhere.';
         el.classList.toggle('backup-warn', !!V.error);
       };
     } else if (V) {
       // No phone database: the app's own IndexedDB/localStorage (persistent in the WebView) is the store.
       V.boot = async () => {};
-      V.render = () => { const el = doc.getElementById('localStorageStatus'); if (el) { el.textContent = 'Saved on this phone. Use History > Export to keep a copy elsewhere.'; el.classList.remove('backup-warn'); } };
+      V.render = () => { const el = doc.getElementById('localStorageStatus'); if (el) { el.textContent = 'Saved on this phone. Use Back up everything in You > Your data to keep a copy elsewhere.'; el.classList.remove('backup-warn'); } };
     }
     if (!P) return;
     // Riding with the screen off (src/native-ride.js). VeloDB is still the WebView's IndexedDB here.
@@ -525,9 +536,10 @@ export function bootNativeApp({ bluetooth, storage, strava, ai, icu, uploads, pl
     const runAutoBackup = P.runAutoBackup;
     P.runAutoBackup = async function (...args) {
       if (win.VeloStorage && win.VeloStorage.enabled) return runAutoBackup.apply(this, args);
-      return { ok: false, error: 'Backups to the PC are not available in the app. Use History > Export.' };
+      return { ok: false, error: 'Backups need the phone database, which did not open. Use Back up everything in You > Your data.' };
     };
-    P.scheduleAutoBackup = function () {};
+    // Changes to the history: the phone database's automatic snapshot (a minute after the last change).
+    P.scheduleAutoBackup = function () { if (storage) storage.scheduleBackup().catch(() => {}); };
 
     // ------------------------------------------------------------------------ messages --
     const showToast = P.showToast;
@@ -804,7 +816,7 @@ export function bootNativeApp({ bluetooth, storage, strava, ai, icu, uploads, pl
     };
     const showSection = P.showSettingsSection;
     P.showSettingsSection = function (sec) {
-      if (['backups', 'phone'].includes(sec) || (sec === 'ai' && !ai) || (sec === 'health' && !icu)) sec = 'rider'; // sections that need the PC
+      if (sec === 'phone' || (sec === 'ai' && !ai) || (sec === 'health' && !icu)) sec = 'rider'; // sections that need the PC
       showSection.call(this, sec);
       if (sec === 'strava' && this._renderNativeStrava) this._renderNativeStrava().catch(() => {});
       if (sec === 'ai' && this._renderNativeAiKeys) this._renderNativeAiKeys().catch(() => {});
@@ -1183,6 +1195,12 @@ export function bootNativeApp({ bluetooth, storage, strava, ai, icu, uploads, pl
   // Uploads left in the queue by the last session go out at app start.
   if (uploads) whenApp().then((app) => { if (app) return uploads.run(); }).catch(() => {});
   if (healthConnect) whenApp().then((app) => { if (app && app.syncHealthConnect && !win.__APEX_TEST_MODE__) return app.syncHealthConnect({ force: true }); }).catch(() => {});
+  // Backups: a pending automatic snapshot is written before Android may close the app in the background, and
+  // one that is due (a day old, or changes since the last) when it comes back.
+  if (storage) {
+    App.addListener('pause', () => { storage.flushBackup().catch(() => {}); });
+    App.addListener('resume', () => { storage.checkBackup().catch(() => {}); });
+  }
   App.addListener('resume', () => {
     const app = win.app;
     if (!app) return;
