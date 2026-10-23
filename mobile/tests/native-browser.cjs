@@ -122,6 +122,23 @@ async function onboardingFlow(browser, errors) {
     assert.equal(await page.evaluate(() => app.activeProfile.ftp), 255, 'the restore brought the saved profile back');
     assert.ok(fs.readdirSync(phone.backups).length >= before + 2, 'a safety copy was made before restoring');
     step('You > Your data > Backups: back up now, list the phone\'s copies and restore one (asks first, safety copy, reload)');
+
+    await page.evaluate(() => ApexNative.shell.go('you/data/backups'));
+    const text = await page.locator('#avBackupsBox .settings-section').innerText();
+    assert.match(text, /saved in the app on this phone/); assert.doesNotMatch(text, /this PC|History > Export/);
+    assert.equal(await page.locator('#btnBackupNow').getAttribute('title'), 'Save a verified backup on this phone now');
+    await page.evaluate(() => app.showSettingsSection('backups'));
+    assert.equal(await page.evaluate(() => app._settingsSection), 'backups', 'the Backups section is no longer sent to Rider');
+    const count = () => fs.readdirSync(phone.backups).filter((n) => n.endsWith('.json.gz')).length;
+    await page.evaluate(async () => { await VeloStorage.flush(); await (await ApexNative.store).flushBackup(); });
+    const n = count();
+    await page.evaluate(() => { app.scheduleAutoBackup(); });
+    assert.equal(await page.evaluate(async () => (await ApexNative.store).backupPending), true, 'scheduleAutoBackup reaches the phone database');
+    await page.evaluate(() => __fireNative('pause'));
+    await page.waitForFunction(async () => !(await ApexNative.store).backupPending);
+    for (let i = 0; i < 50 && count() === n; i++) await page.waitForTimeout(100);
+    assert.equal(count(), n + 1, 'going to the background writes the pending snapshot');
+    step('automatic backups on the phone: scheduleAutoBackup reaches the phone database, going to the background writes the pending copy, the Backups text describes the phone');
   } finally {
     await context.close();
     phone.db.close();
@@ -472,7 +489,7 @@ async function migrationFlow(browser, errors) {
   await page.reload();
   await page.waitForFunction(() => window.app && window.ApexNative);
   assert.equal(await page.evaluate(() => VeloStorage.enabled), true);
-  assert.equal(await page.locator('#localStorageStatus').textContent(), 'Saved on this phone. Use History > Export to keep a copy elsewhere.');
+  assert.equal(await page.locator('#localStorageStatus').textContent(), 'Saved on this phone. Use Back up everything in You > Your data to keep a copy elsewhere.');
   const row = phone.db.prepare("SELECT json, samples_gz, sample_count FROM rides WHERE id='ride_before_update'").get();
   assert.equal(row.sample_count, 600);
   assert.doesNotMatch(row.json, /"hr"/, 'samples are stored compressed');
@@ -483,9 +500,10 @@ async function migrationFlow(browser, errors) {
   assert.equal(moved.samples, undefined);
   assert.equal(moved.sampleSummary.n, 600, 'the summary was made during the move');
   await page.evaluate(() => app.showRideSummary(app.completedWorkouts.find((r) => r.id === 'ride_before_update')));
-  await page.waitForFunction(() => document.getElementById('rideSummaryModal').classList.contains('open'));
+  // On the phone the summary opens as the History tab's ride page (src/native-history.js), once the samples are in.
+  await page.waitForFunction(() => ApexNative.shell.current.route === 'history/ride_before_update' && document.querySelector('.av-ride-detail #modalRideDetails .inspector-header-stats'));
   assert.deepEqual(await page.evaluate(() => app.completedWorkouts.find((r) => r.id === 'ride_before_update').samples), samples, 'opening the ride loads its exact samples');
-  await page.evaluate(() => app.closeModal('rideSummaryModal'));
+  await page.evaluate(() => ApexNative.shell.go('history'));
   assert.equal(phone.db.prepare('SELECT COUNT(*) AS n FROM rides').get().n, 6);
   const seen = await page.evaluate(() => window.__migrationSeen);
   assert.ok(seen.some((t) => /Moving your rides into the phone database/.test(t) && /Don't close the app/.test(t)), 'the rider is told to keep the app open');
@@ -1009,7 +1027,8 @@ async function brokerFlow(browser, errors) {
     // ------------------------------------------------------------------ bulk history import --
     const workerRequests = [];
     context.on('request', (r) => { if (r.url().endsWith('/js/velo-import-worker.js')) workerRequests.push(r.url()); });
-    const ridesBefore = await page.evaluate(() => { app.switchTab('history'); return app.completedWorkouts.length; });
+    // History > + opens the import card in a sheet on the phone (src/native-history.js).
+    const ridesBefore = await page.evaluate(() => { ApexNative.shell.go('history'); ApexNative.history.openImport(); return app.completedWorkouts.length; });
     assert.equal(await page.locator('#bulkImportMode').inputValue(), 'cycling', 'all cycling (incl. indoor/virtual) is the default');
     await page.locator('#bulkImportMode').selectOption('outdoor');
     const strava = path.resolve(__dirname, '..', '..', 'tests', 'fixtures', 'bulk-import', 'strava-export.zip');

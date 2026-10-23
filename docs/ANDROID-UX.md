@@ -437,3 +437,19 @@ Under `.apex-native`, `.btn-sm`, `.btn-xs`, `.icon-btn`, `.icon-btn-sm`, `.chip`
   and `everything`. Reset goes back to Standard. New catalog items are added switched off.
 - Parity: `PARITY` in `mobile/tests/phone-ux.cjs` lists every cockpit, Zen and Devices feature and where it lives.
   The test opens each location and checks the feature is visible.
+
+### 5.7 Ride polish (phase 2)
+
+- All metrics opens compact (mock-up e): the interval strip, the ride graph and 12 tiles, then the cockpit's controls.
+  The ride graph is drawn by `drawRideGraph` in `native-ride-view.js` (power, HR and cadence over the workout profile).
+  Every cockpit part is still in Customise; *Everything* shows them all.
+- With no power source (simulator off, no fresh pedal or trainer reading, but heart rate), heart rate becomes the hero
+  (mock-up d). A banner opens the devices sheet.
+- When the pedals drop but the trainer is still connected, *Use trainer power instead* calls `app.setDeviceSource('power', 'trainer')`
+  and resumes the ride (mock-up g).
+- After End, `ride/summary/<rideId>` replaces the desktop deep-dive dialog (mock-up h). It shows KPIs and the graph, and
+  offers a name (saved to history), Strava and Health Connect, Full analysis (`history/<id>`) and Discard (it asks first).
+  The ride is already saved when the page opens.
+- Live HR drift is a tile. It uses `VeloInsight.decoupling`, which needs 20 steady minutes with heart rate.
+- On step changes the screen flashes the zone colour, and the countdown pulses in the last 3 s. The app's own audio cues play.
+  A deviation bar shows the ±5 % band and where power is.

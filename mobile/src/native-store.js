@@ -30,6 +30,8 @@
 import { Sha256, writeGzipFile, hashGzipFile } from './native-snapshot.js';
 
 export const MAX_BYTES = 200 * 1024 * 1024;
+/** What the snapshots may take together on the phone before the oldest kept copies go. */
+export const BACKUP_BUDGET = 512 * 1024 * 1024;
 export const SCHEMA_VERSION = 2; // 2: rides and migration_rides keep the ride's sample summary
 const own = (o, k) => Object.prototype.hasOwnProperty.call(o, k);
 export const settingKey = (k) => typeof k === 'string' && /^apex_[a-zA-Z0-9_:-]{1,180}$/.test(k) && !['apex_velo_history', 'apex_auto_backup', 'apex_sqlite_migration'].includes(k);
@@ -158,12 +160,13 @@ export class NativeStore {
   /**
    * Use `await NativeStore.open({ db, files })`. `dir` and `file` are only shown to the rider (the
    * state response carries them, as on the PC). `backupDelayMs` is the pause after a save before the
-   * automatic snapshot. `summarize(ride)` makes a ride's sample summary (VeloRideSummary.of, from the page)
+   * automatic snapshot, and `backupBudgetBytes` bounds what the snapshots may take together (the newest three
+   * and the migration copy are always kept). `summarize(ride)` makes a ride's sample summary (VeloRideSummary.of, from the page)
    * and `summaryVersion` is its version, or a function giving it (the page's scripts load after the store
    * opens); without them rides are kept without summaries.
    */
-  constructor({ db, files, clock = () => new Date(), dir = 'app storage', file = 'apex.sqlite', backupDelayMs = 60000, summarize = null, summaryVersion = 0 } = {}) {
-    this.db = db; this.files = files; this.clock = clock; this.dir = dir; this.file = file; this.backupDelayMs = backupDelayMs;
+  constructor({ db, files, clock = () => new Date(), dir = 'app storage', file = 'apex.sqlite', backupDelayMs = 60000, backupBudgetBytes = BACKUP_BUDGET, summarize = null, summaryVersion = 0 } = {}) {
+    this.db = db; this.files = files; this.clock = clock; this.dir = dir; this.file = file; this.backupDelayMs = backupDelayMs; this.backupBudgetBytes = backupBudgetBytes;
     this.summarize = summarize; this.summaryVersion = summaryVersion;
     this.backupDir = 'backups';
     this.snapshotCache = new Map();
@@ -579,47 +582,84 @@ export class NativeStore {
       await this.setMeta('initialized', 1);
     });
   }
+  /**
+   * Keeps the 14 newest snapshots, one a day for 30 days, a week for 12 weeks and a month for 12 months, the
+   * migration copy and the last 5 before-restore copies; then, past `backupBudgetBytes`, drops the oldest of
+   * those first, never the newest three readable copies or the migration copy. Files are newest first by name.
+   */
   async pruneBackups() {
     const files = await this.backupFiles(), keep = new Set(files.slice(0, 14)), days = new Set(), weeks = new Set(), months = new Set();
-    let migration = false, restoreCount = 0;
+    const infos = new Map();
+    let migration = null, restoreCount = 0;
     for (const n of files) {
       const snap = await this.snapshotInfo(n);
+      infos.set(n, snap);
       if (snap.corrupt) { keep.add(n); continue; }
       const d = new Date(snap.at), day = d.toISOString().slice(0, 10), month = day.slice(0, 7);
       const monday = new Date(d); monday.setUTCDate(d.getUTCDate() - (d.getUTCDay() + 6) % 7); const week = monday.toISOString().slice(0, 10);
       if (!days.has(day) && days.size < 30) { days.add(day); keep.add(n); }
       if (!weeks.has(week) && weeks.size < 12) { weeks.add(week); keep.add(n); }
       if (!months.has(month) && months.size < 12) { months.add(month); keep.add(n); }
-      if (snap.reason === 'migration' && !migration) { migration = true; keep.add(n); }
+      if (snap.reason === 'migration' && !migration) { migration = n; keep.add(n); }
       if (snap.reason === 'before-restore' && restoreCount++ < 5) keep.add(n);
+    }
+    const protect = new Set(files.filter((n) => !infos.get(n).corrupt).slice(0, 3));
+    if (migration) protect.add(migration);
+    const size = async (n) => infos.get(n).bytes ?? ((await this.files.stat(n).catch(() => null))?.size || 0);
+    let total = 0;
+    for (const n of keep) total += await size(n);
+    for (const n of [...files].reverse()) {
+      if (total <= this.backupBudgetBytes) break;
+      if (keep.has(n) && !protect.has(n)) { keep.delete(n); total -= await size(n); }
     }
     for (const n of files) {
       if (keep.has(n)) continue;
       await this.files.remove(n); this.snapshotCache.delete(n);
       await this.db.run('DELETE FROM snapshots WHERE name=?', [n]);
     }
+    // Pieces of a snapshot the app was closed while writing (writes run one at a time, so none is in progress).
+    for (const n of await this.files.list().catch(() => [])) if (/\.json\.gz\.tmp$/.test(n)) await this.files.remove(n).catch(() => {});
   }
+  /** Writes a snapshot of the live data and remembers the revision it holds (checkDailyBackup compares it). */
   async backup(reason = 'manual') {
     if (!await this.initialized()) fail('Open Apex to migrate your browser data first.', 409);
-    return this.writeSnapshot(await this.payloadParts(), reason);
+    const revision = await this.revision();
+    const result = await this.writeSnapshot(await this.payloadParts(), reason);
+    await this.setMeta('backupRevision', revision);
+    return result;
   }
+  /** An automatic snapshot `backupDelayMs` after the last save (saves in a burst make one). */
   scheduleBackup() {
     clearTimeout(this.backupTimer);
-    this.backupTimer = setTimeout(() => {
-      this.exclusive(() => this.backup('automatic')).catch((e) => { this.lastBackupError = e.message; this.scheduleBackup(); });
-    }, this.backupDelayMs);
+    this.backupPending = true;
+    this.backupTimer = setTimeout(() => { this.runScheduledBackup(); }, this.backupDelayMs);
     this.backupTimer?.unref?.();
   }
+  runScheduledBackup() {
+    clearTimeout(this.backupTimer);
+    this.backupPending = false;
+    return this.exclusive(() => this.backup('automatic')).catch((e) => { this.lastBackupError = e.message; this.scheduleBackup(); });
+  }
+  /** Writes the pending automatic snapshot now (the app is going to the background, where Android may close it). */
+  flushBackup() { return this.backupPending ? this.runScheduledBackup() : Promise.resolve(); }
+  /**
+   * A snapshot when there is no readable one, the newest is a day old, or the data changed since the last one
+   * (an automatic snapshot the app was closed before), so every saved ride reaches a backup.
+   */
   async checkDailyBackup() {
     if (!await this.initialized()) return;
     const newest = (await this.backups()).files.find((f) => !f.corrupt);
-    if (!newest || this.clock().getTime() - Date.parse(newest.at) >= 86400000) {
-      try { await this.backup('daily'); } catch (e) { this.lastBackupError = e.message; }
+    const old = !newest || this.clock().getTime() - Date.parse(newest.at) >= 86400000;
+    // A change the pending automatic snapshot will cover is left to it (a closed app has none pending).
+    const changed = !this.backupPending && Number(await this.meta('backupRevision') ?? -1) !== await this.revision();
+    if (old || changed) {
+      try { await this.backup(old ? 'daily' : 'automatic'); } catch (e) { this.lastBackupError = e.message; }
     }
   }
+  checkBackup() { return this.exclusive(() => this.checkDailyBackup()); }
   /** Checks now (or after `firstCheckMs`, to keep the app start quick) and then every hour. */
   startDailyBackups(firstCheckMs = 0) {
-    const check = () => this.exclusive(() => this.checkDailyBackup());
+    const check = () => this.checkBackup();
     clearInterval(this.dailyTimer); clearTimeout(this.firstDailyTimer);
     this.dailyTimer = setInterval(check, 3600000);
     this.dailyTimer?.unref?.();
