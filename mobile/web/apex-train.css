@@ -1,0 +1,68 @@
+/* Train tab (src/native-train.js, docs/ANDROID-UX.md 2.1). Android app only. style.css tokens only.
+   The Plan and Workouts pages are the tab's own; Coach, Calendar, Ask and the custom-workout table are the app's
+   views, tidied for a 393 px screen with 44 px touch targets. */
+
+/* --- Plan: week strip, the day's session, the block --- */
+.av-week-strip { display: grid; grid-template-columns: repeat(7, 1fr); gap: 5px; }
+.av-day { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 6px; min-height: 60px; min-width: 0; padding: 6px 0;
+  border-radius: 14px; border: 1px solid var(--line); background: rgba(255, 255, 255, .04); color: var(--text-2); font: 600 12.5px var(--font-sans); cursor: pointer; }
+.av-day i { width: 8px; height: 8px; border-radius: 50%; }
+.av-day i.none { background: transparent; }
+.av-day i.done { box-shadow: 0 0 0 2px var(--lime); }
+.av-day.today { color: var(--text-1); border-color: var(--line-strong); }
+.av-day.on { background: rgba(255, 255, 255, .12); color: var(--text-1); border-color: var(--cyan); }
+.av-plan-suggest { width: 100%; margin-top: 10px; min-height: 44px; justify-content: center; }
+
+/* --- Workouts: chips, short list, sheet --- */
+.av-wk-chips { display: flex; gap: 8px; overflow-x: auto; scrollbar-width: none; margin: 0 -16px; padding: 0 16px; }
+.av-wk-chips::-webkit-scrollbar { display: none; }
+.av-wk-chips .chip { flex: none; min-height: 40px; padding: 0 14px; font-size: 13px; cursor: pointer; }
+.av-wk-search input { width: 100%; min-height: 48px; }
+.av-wk-dot { width: 10px; height: 10px; border-radius: 50%; flex: none; margin-left: 4px; }
+.av-wk-loaded .av-row-text b::after { content: ' · loaded'; color: var(--cyan); font-weight: 500; font-size: 12.5px; }
+.av-wk-all { min-height: 44px; justify-content: center; margin: 4px 0; }
+.av-wk-profile { width: 100%; height: 64px; display: block; }
+.av-wk-desc { margin: 0; color: var(--text-2); font-size: 14px; line-height: 1.45; }
+.av-wk-sheet { display: flex; flex-direction: column; gap: 10px; }
+
+/* Describe a workout: the app's box, in a sheet */
+.av-describe-sheet #describeBox { margin: 0; padding: 0; background: none; border: 0; box-shadow: none; }
+.av-describe-sheet #describeBox .describe-title { display: none; }
+.av-describe-sheet .describe-examples { display: flex; flex-wrap: wrap; gap: 8px; }
+.av-describe-sheet .btn { min-height: 44px; }
+.av-describe-sheet .btn-row .btn { flex: 1; justify-content: center; }
+
+/* Custom workout: the app's interval table */
+.av-train-builder #customWorkoutTableSection { margin: 0; padding: 12px; }
+.av-train-builder #customWorkoutTableSection .card-title { flex-wrap: wrap; gap: 8px; }
+.av-train-builder #customWorkoutTableSection .card-title .btn { min-height: 44px; }
+.av-train-builder .interval-table input, .av-train-builder .interval-table select { min-height: 44px; }
+.av-train-builder .interval-table button { min-width: 44px; min-height: 44px; }
+
+/* --- The app's views under Train --- */
+body[data-av-tab="train"] main > .tab-view .section-head { gap: 10px; }
+body[data-av-tab="train"] :is(#view-ai-coach, #view-calendar, #view-ask) :is(.btn, .preset-pill, .mode-tile, .goal-pill, .day-chip, .ask-period, .ask-chip, .engine-chip, .chip-select > button, select, input, textarea, summary):not(.sr-only) { min-height: 44px; }
+body[data-av-tab="train"] :is(#view-ai-coach, #view-ask) :is(.ask-period, .chip-select > button) { min-width: 44px; }
+body[data-av-tab="train"] #view-ai-coach .chip-select { flex-wrap: wrap; }
+body[data-av-tab="train"] :is(#view-ai-coach, #view-calendar, #view-ask) .link-btn { min-height: 44px; display: inline-flex; align-items: center; }
+body[data-av-tab="train"] #view-ai-coach .ai-coach-grid { grid-template-columns: 1fr; }
+body[data-av-tab="train"] #view-calendar .calendar-week-nav { flex-wrap: wrap; gap: 6px; }
+body[data-av-tab="train"] #view-calendar .calendar-week-nav .btn { min-width: 44px; }
+body[data-av-tab="train"] #view-ask .ask-composer textarea { min-height: 44px; }
+
+/* The top bar names the screen: the views' own headings go, their controls stay. Ask's composer stays in reach. */
+body[data-av-tab="train"] #view-ai-coach .ai-coach-header .section-head > div > :is(.eyebrow, .section-title, .section-sub),
+body[data-av-tab="train"] #view-calendar .ss-page-head,
+body[data-av-tab="train"] #view-ask .ask-head > div:first-child { display: none; }
+body[data-av-tab="train"] #view-ai-coach .ai-coach-header { padding: 12px 16px; }
+body[data-av-tab="train"] #view-ai-coach .ai-coach-header .section-head { flex-direction: row; flex-wrap: wrap; align-items: center; justify-content: space-between; margin: 0; }
+body[data-av-tab="train"] #view-ask .ask-head { margin: 0; }
+body[data-av-tab="train"] #view-ask .ask-composer { position: fixed; left: 12px; right: 12px; bottom: calc(80px + env(safe-area-inset-bottom, 0px)); z-index: 65;
+  margin: 0; padding: 6px; border-radius: 22px; background: rgba(10, 13, 28, .94); border: 1px solid var(--line); backdrop-filter: blur(14px); }
+body[data-av-tab="train"] #view-ask { animation: none; } /* its entry transform would anchor the fixed composer */
+body[data-av-tab="train"] #view-ask .ask-shell { padding-bottom: 72px; }
+body[data-av-tab="train"] #view-ask #askPeriodPills { flex-wrap: nowrap; overflow-x: auto; scrollbar-width: none; max-width: 100%; }
+body[data-av-tab="train"] #view-ask #askPeriodPills > button { flex: none; }
+details.av-more.av-coach-insights { margin-top: 6px; }
+body[data-av-tab="train"] #view-ask .ask-empty { padding-top: 8px; }
+body[data-av-tab="train"] #view-ask .ask-empty-icon { display: none; }
