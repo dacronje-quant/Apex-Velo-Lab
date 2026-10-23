@@ -68,7 +68,8 @@ export class ProgressTab {
         title: t.title, view: 'analytics', parent: 'progress',
         actions: () => this.rangeChip(),
         mount: () => this.showTopic(t),
-        unmount: () => this.leave()
+        unmount: () => this.leave(),
+        onBack: () => this.closeOverlay()
       });
     }
     // The app's own drill-downs (an overview tile, a today pill, an insight) open the topic that has the card.
@@ -133,6 +134,16 @@ export class ProgressTab {
       const stage = this.doc.getElementById('anaStage');
       if (app && app.anaChartsIn && stage) app.anaChartsIn(stage).forEach((c) => { try { c.resize(); } catch (e) { /* not drawn yet */ } });
     }));
+  }
+
+  /** Android back closes an expanded chart or the day view first. */
+  closeOverlay() {
+    const zoom = this.doc.getElementById('anaZoomDialog');
+    if (zoom && zoom.open) { zoom.close(); return true; }
+    const day = this.doc.getElementById('anaDayModal');
+    const app = this.app();
+    if (day && day.classList.contains('open') && app && app.closeModal) { app.closeModal('anaDayModal'); return true; }
+    return false;
   }
 
   /** Called before the next page mounts (a topic page sets its own again). */
