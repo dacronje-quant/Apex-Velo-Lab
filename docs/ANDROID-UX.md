@@ -1,6 +1,6 @@
 # Apex Velo for Android: phone UX proposal
 
-Status: **proposal for the owner to confirm** (decisions at the end). No app code changes in this PR.
+Status: **approved by the owner** (five tabs, simple ride view by default, phone only, "You" plus 3-step onboarding). No app code changes in this PR.
 
 The owner's brief: the look is fine, but the app is hard to use on a phone. Too much happens on each screen, finding
 tabs and sections takes too much scrolling, and moving around is hard. Make it simpler and easier to browse without
@@ -219,7 +219,32 @@ skipped**. Anything skipped can be done later from You.
 
 It ends on **Ride** with **Start ride** as the next step. "Explore a demo" stays as a link on step 1 for people who want to look around first.
 
-### 2.5 Desktop: keep the current layout (recommended)
+### 2.5 Live ride screen: examples
+
+The owner asked for more examples before the ride screen is built. All are in `docs/ux/mockups.html` (the "Live ride"
+group) and in `docs/ux/after/` at 393×852 (landscape is 852×393). The rules they follow:
+
+- **One number is the hero.** In ERG it is power against the target. With no power source it is heart rate, with a zone strip.
+- **The countdown and the next step are always visible.** The background takes the colour of the interval's zone.
+- **Three thumb-sized controls (64 px).** End stays on the left, away from Pause, so it is hard to hit by accident.
+  A ramp test swaps them for Pause and a large **I'm done**.
+- **Device problems are a banner, not a modal.** If a device drops out, the ride pauses, a banner shows that it is
+  reconnecting, and the rider can resume on another power source.
+- **Ending a ride goes to the summary:** name, Send to Strava, Save to Health Connect (both switches default to the
+  rider's Connections settings), an optional "How did it feel?", then **Save ride**.
+
+| | Screen | File |
+|---|---|---|
+| a | VO2 interval, 12 s left, next step shown | `ux/after/live-a-vo2.png` |
+| b | Recovery step | `ux/after/live-b-recovery.png` |
+| c | Ramp test in progress | `ux/after/live-c-ramp.png` |
+| d | Free ride, HR only (no power) | `ux/after/live-d-free.png` |
+| e | All metrics (⚙ › Show all metrics): step strip, live power/HR/cadence graph over the workout profile, 12 tiles, no scrolling. Everything else is in the Controls sheet. | `ux/after/live-e-full.png`, `ux/after/live-e-full-landscape.png` |
+| f | Landscape | `ux/after/live-f-landscape.png` |
+| g | Paused, a device reconnecting | `ux/after/live-g-paused.png` |
+| h | End-of-ride summary | `ux/after/live-h-summary.png` |
+
+### 2.6 Desktop: keep the current layout (recommended)
 
 **Recommendation: keep the desktop layout as it is, and turn on the new shell only in the Android app (`.apex-native`).**
 
