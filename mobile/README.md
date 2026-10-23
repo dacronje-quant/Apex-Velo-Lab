@@ -215,11 +215,30 @@ Without them, `bundleRelease`/`assembleRelease` still work but leave the output 
 3. Upload `app-release.aab` to Play Console, and with each AAB also upload that run's `mapping.txt` (App bundle explorer > the version > Downloads > ReTrace mapping file), so crash reports are readable.
 4. Bump `version` in `mobile/package.json` for each release. `versionCode` is 1000 + the workflow run number, so it always grows; if the workflow is ever re-created, raise the 1000 offset in `android/app/build.gradle` above the last code on Play.
 
+## Phone layout
+
+The app has five tabs at the bottom: **Ride**, **Train**, **History**, **Progress** and **You** (docs/ANDROID-UX.md).
+Android back closes a sheet, then goes back a page, then to the tab's first screen, then to Ride, then leaves the app.
+
+- **Ride** opens on **Today**: your readiness, today's planned or loaded workout with **Start ride**, *Change workout*
+  and *Free ride*, your last ride and this week. The devices chip at the top opens the devices sheet: each device,
+  its state and Connect. Tap a device for its details (calibration, PowerMatch, power and cadence source, fan).
+- **The ride screen** is full screen. It shows power against target, the step countdown (it pulses before a step
+  change), the next step, your tiles, and **End**, **Pause** and **Skip**. End asks before it saves, and so does
+  back. ⚙ opens **Controls** (intensity, ERG, shorten or extend the step, Stand, smoothing, ERG response, audio,
+  devices, simulator, rider) and **Show all metrics** (the full cockpit: live graph, L/R, W′ balance, time in zone,
+  the interval queue).
+- **Customise this screen** (in Controls) switches every panel, tile and graph line on or off and moves them up or
+  down, in both views. It is saved for each rider. *Minimal*, *Standard* and *Everything* are presets, and *Reset*
+  goes back to Standard.
+- Train, History, Progress and You show the existing screens until their phone versions land.
+
 ## Tests
 
 ```bash
 npm test               # unit tests: ride handoff, merging and recovery (screen off), Bluetooth shim, Strava upload client and token exchangers (own application, broker, switching), upload queue and ledger, AI engine vs server.js, intervals.icu wellness (Node, no browser)
 npm run test:browser   # the built app in Chromium with a simulated FTMS trainer, HR strap, Strava, Claude and intervals.icu
+npm run test:phone     # phone layout at 393x852 with touch: tabs, back, deep links, taps to reach, no sideways scroll, 44 px targets, ride parity, customisation
 ```
 
 The browser test pairs the trainer through the in-app chooser and rides an ERG workout. It checks the trainer gets its targets, drops and reconnects the link, saves the ride, signs in to Strava, uploads the FIT file and records it in the ledger, checks that no Strava activity is ever read, signs in through a token broker in a second app (no secret on the phone, own application under Advanced), queues an auto-upload while offline and sends it on resume, saves an AI key, asks a question in Ask, gets an AI interval breakdown, backfills health data from intervals.icu and reloads the app. The **Android app** GitHub workflow runs both, then builds the APK. For riding with the screen off it halts the page mid-ride while a fake native recorder in the test runner keeps recording and moves ERG to the next step, checks every second is merged back once on resume, then reloads the page mid-ride (the live ride is taken back), then kills the app in the background and recovers the ride from the journal. `cd android && ./gradlew testDebugUnitTest` runs the JVM tests of the native recorder (parsers, takeover, ramp test, journal).

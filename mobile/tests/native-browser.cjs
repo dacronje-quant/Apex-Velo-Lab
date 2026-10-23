@@ -710,7 +710,7 @@ async function brokerFlow(browser, errors) {
     step('Settings > AI engine: a bad key is refused, a good one is saved on the phone, and the live model list loads');
 
     await page.evaluate(() => app.closeModal('settingsModal'));
-    await page.locator('.nav-btn[data-tab="ask"]').first().click();
+    await page.evaluate(() => ApexNative.shell.go('train/ask'));
     assert.equal(await page.locator('#askEngineWarn').isVisible(), false);
     await page.locator('#askInput').fill('How many rides did I do this week?');
     await page.locator('#askForm').evaluate((f) => f.requestSubmit());
@@ -736,7 +736,7 @@ async function brokerFlow(browser, errors) {
     assert.deepEqual(coachCall.data.output_config, { effort: 'low' });
     step('AI coach: the ride breakdown goes through /api/coach on the phone');
 
-    await page.locator('.nav-btn[data-tab="workouts"]').first().click();
+    await page.evaluate(() => ApexNative.shell.go('train/workouts'));
     assert.match(await page.locator('#describeEngine').innerText(), /Claude Opus 5\.5 · only your request and FTP/);
     await page.locator('#describeExamples [data-example]').first().click();
     assert.equal(await page.locator('#describeInput').inputValue(), '45 min sweet spot');
@@ -796,7 +796,7 @@ async function brokerFlow(browser, errors) {
     await page.evaluate(() => app.pullHealthInbox());
     assert.equal(await page.evaluate(() => __nativeLog.http.filter((r) => r.url.includes('/wellness')).length), 4, 'automatic syncs wait an hour');
     await page.evaluate(() => app.closeModal('settingsModal'));
-    await page.locator('.nav-btn[data-tab="analytics"]').first().click();
+    await page.evaluate(() => ApexNative.shell.go('progress'));
     await page.evaluate(() => app.showAnalyticsPanel('health', { instant: true }));
     await page.locator('#anaHealthTiles .tile', { hasText: 'Sleeping HR' }).waitFor();
     assert.equal(await page.locator('#anaHealthTiles .tile').count(), 14, 'a tile for every metric with data');

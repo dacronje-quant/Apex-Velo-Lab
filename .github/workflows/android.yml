@@ -32,6 +32,7 @@ jobs:
       - run: npm test
       - run: npx playwright install --with-deps chromium
       - run: npm run test:browser
+      - run: node tests/phone-ux.cjs
       - run: npx cap sync android
       - name: Build debug APK
         working-directory: mobile/android

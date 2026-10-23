@@ -330,3 +330,110 @@ U2–U5 run in parallel once U1's contracts are merged. Each opens its own PR in
 4. **Desktop keeps its current layout.** The new IA ships only in the Android app for now.
 5. **Onboarding has three skippable steps** (profile → devices → connections and import) and replaces the welcome card.
    "Explore a demo" moves to a link on step 1.
+
+---
+
+## 5. Shell contract (U1, implemented)
+
+Status: **built in `feat/ux-shell`** (workstream U1). U2–U5 code against this section. Code: `mobile/src/native-shell.js`,
+`mobile/web/apex-shell.css`, tests in `mobile/tests/phone-ux.cjs`. Android app only: the desktop page never loads them.
+
+### 5.1 Layout
+
+```
+html.apex-native body.av-shell[data-av-route][data-av-tab][data-av-host="page|view"]
+  header.app-header        hidden (its controls keep their ids and bindings; use them, don't copy them)
+  header.av-topbar         back arrow (when the page has a parent) · h1.av-title · .av-actions (≤ 2 × 44 px)
+  div.av-seg.av-subnav     optional segmented sub-navigation (page option `seg`)
+  main
+    #avPages > .av-page    pages that bring their own element (`el`); one visible at a time
+    section.tab-view       the existing views; the active one shows when the page hosts a `view`
+  nav.av-tabbar            Ride · Train · History · Progress · You (hidden on `fullscreen` pages)
+  div.av-sheet-bg > .av-sheet   bottom sheets, on top of everything
+```
+
+### 5.2 API: `window.ApexNative.shell`
+
+| Call | What it does |
+|---|---|
+| `registerTab(id, { label, icon, root })` | `id` is `ride \| train \| history \| progress \| you`. `icon` is a sprite id from `index.html` (`i-play`, `i-calendar`, …). `root` is the route the tab opens. Defaults: `ride`, `train/plan`, `history`, `progress`, `you`. |
+| `registerPage(pattern, opts)` | Registers a screen. `pattern` is a route with optional `:params` (`history/:rideId`). Registering the same pattern again **replaces** the page, which is how U2–U5 take over U1's interim pages. Options below. |
+| `go(route, { replace })` | Opens a route. Unknown routes open Ride. |
+| `back()` | Android back: sheet › page's `onBack()` › parent › Ride › leave the app. |
+| `openSheet(el, { title, onClose, className })` | Shows `el` in a bottom sheet. If `el` already lives in the page, it is **moved** in and put back on close, so existing nodes keep their ids and bindings. Returns the `.av-sheet`. Pages' sheets close on navigation. |
+| `closeSheet()` | Closes the top sheet. |
+| `onRoute(fn)` | `fn({ route, tab, params, page })` after every navigation. Returns an unsubscribe function. |
+| `current` | `{ route, tab, params, page }`. |
+| `mapView(view, route)` | When the app calls `app.switchTab(view)` itself (e.g. "Load into cockpit" → `cockpit`), the shell opens `route`. Pages with a `view` map themselves (first registration wins); `cockpit` maps to `ride`. |
+| `button({ icon, label, onClick, id })` | A 44 px top-bar icon button. |
+| `row({ icon, title, sub, end, onClick, id })` | A 56 px `.av-row`. With `onClick` it is a `<button>` with a chevron; `end` (text or a Node) replaces the chevron. |
+| `more(items, { title })` | The **More** pattern for actions: a top-bar button that opens a sheet of rows (`[{ icon, title, sub, onClick }]`). |
+| `whenApp(fn)` | Runs `fn` once `window.app` exists (it is created after the saved data loads). |
+
+**Page options** (`registerPage`):
+
+| Option | Meaning |
+|---|---|
+| `title` | String or `(params) => string`, shown in the top bar. |
+| `view` | Key of an existing view (`cockpit`, `workouts`, `ai-coach`, `ask`, `analytics`, `calendar`, `history`). The shell calls `app.switchTab(view)`, so the view's lazy rendering runs as on the PC. |
+| `el` | The page's own element, built by the workstream. The shell moves it into `#avPages` and adds `.av-page`. |
+| `mount(el, params, route)` / `unmount(el)` | Called on enter and leave. Render here (data can change between visits). |
+| `parent` | Route (or `(params) => route`) that back and the top bar's back arrow go to. Default: the tab's root. `null` makes the page root-level (back goes to Ride), e.g. the segments of a tab. |
+| `actions` | `(params) => Node \| Node[]` for the top bar's right side; at most two 44 px buttons. |
+| `seg` | `[{ route, label }]`: a 44 px segmented control under the top bar for sibling pages of one tab. |
+| `fullscreen` | Hides the top bar and the tab bar (ride screen, onboarding). |
+| `onBack()` | Return `true` when the page handled Android back itself (e.g. "End this ride?"). |
+| `tab` | The tab it belongs to. Default: the route's first segment. |
+
+### 5.3 Routes
+
+Routes live in `location.hash` as `#/<route>`, so a deep link (or `location.hash = '#/progress/power'`) opens the screen.
+Owners register their own routes; U1 registers interim pages so everything stays reachable until they land:
+
+| Route | Owner | Interim page in U1 |
+|---|---|---|
+| `ride`, `ride/live`, `ride/cockpit` | U1 | built: Today (`native-today.js`), the simple ride screen and all metrics (`native-ride-view.js`) |
+| `train/plan`, `train/workouts`, `train/ask` (+ `train/calendar`) | U2 | the Coach, Workouts, Ask and Calendar views under one segmented control |
+| `history`, `history/:rideId` | U3 | the History view; `history/<id>` opens the existing ride summary |
+| `progress`, `progress/<topic>` | U4 | the Analytics view |
+| `you`, `you/<page>` | U5 | rows that open the existing Settings sections, rider profiles and Devices |
+| `onboarding/<step>` | U5 | none (the welcome card stays on Today until U5) |
+
+Links into other workstreams' screens: Today uses `go('train/workouts')` (Change workout), `go('history/' + id)`
+(last ride) and `go('train/plan')` (this week).
+
+### 5.4 CSS primitives (`mobile/web/apex-shell.css`)
+
+`.av-topbar`, `.av-tabbar`, `.av-page`, `.av-page-body`, `.av-sheet`, `.av-list` + `.av-row` (56 px), `.av-seg` (44 px),
+`details.av-more > summary` (the **More** pattern inside a page: fold less-used content behind a 44 px "More" summary),
+`.av-switch` (`<button role="switch" aria-checked>`), `.av-label` (section label), `.av-note`, `.av-big` (56 px primary button).
+Use `style.css` tokens and components (`.card`, `.btn`, `.chip`, `--cyan`, `--zone-a`, …); no new colours.
+
+Under `.apex-native`, `.btn-sm`, `.btn-xs`, `.icon-btn`, `.icon-btn-sm`, `.chip`, `.cat-pill`, `.smooth-pill` and `.ble-badge` get a
+44 × 44 px hit area through `::after`, so they look the same and pass the touch-target check. Don't put another `::after` on them.
+
+### 5.5 Rules for U2–U5
+
+- Edit only your own files (table in §3). Shell changes go through U1 (or a small PR that keeps this contract).
+- Re-use existing DOM: host a view with `view`, or move existing nodes into your `el` / a sheet. Never copy markup that has ids.
+- Register pages from your module at import time, before `DOMContentLoaded`; the shell installs after the page's
+  `DOMContentLoaded` handlers and opens the URL's route.
+- Tests: `require('./phone-ux.cjs')` gives `openPhone(browser, { route })`, `tap(page, selector, counter)`, `route(page)`,
+  `back(page)` (fires Android back), `sweep(page, { ignore })` (controls under 44 px and sideways overflow) and `screenshot(page, name)`.
+  Add your flows to `FLOWS` in `mobile/tests/phone-ux.cjs` (`npm run test:phone`).
+
+### 5.6 Ride tab (U1)
+
+- `ride`: Today (`mobile/src/native-today.js`). The app's recovery and first-run cards move here (ids kept). The
+  devices chip opens the devices sheet, `ApexNative.rideTab.today.openDevices()`.
+- `ride/live`: the simple ride screen (`mobile/src/native-ride-view.js`). It reads the outputs `js/app.js` keeps up to date
+  and presses the app's own buttons, so it computes nothing itself. The workout profile is the cockpit's own
+  `#intervalTrackWrap`, moved in while the screen is open.
+- `ride/cockpit`: all metrics. This is the cockpit view itself, flattened (`display: contents`) into one grid, so each part
+  can be shown, hidden and ordered.
+- Controls sheet: every ride control. The smoothing pills and ERG response control are moved in while the sheet is open.
+- Customise: `RideLayouts`, kept in localStorage `apex_ride_layout_v1` and keyed by `app.activeProfileId`. It stores
+  `{ simple: [{id,on}], full: [{id,on}], lines: {power,target,cadence,hr} }`, with the presets `minimal`, `standard`
+  and `everything`. Reset goes back to Standard. New catalog items are added switched off.
+- Parity: `PARITY` in `mobile/tests/phone-ux.cjs` lists every cockpit, Zen and Devices feature and where it lives.
+  The test opens each location and checks the feature is visible.
