@@ -35,7 +35,7 @@ esbuild.buildSync({
   outfile: path.join(www, 'mobile', 'apex-native.js'),
   bundle: true, format: 'iife', target: ['chrome89'], legalComments: 'none', logLevel: 'warning'
 });
-for (const css of ['apex-native.css', 'apex-shell.css', 'apex-ride.css']) fs.copyFileSync(path.join(mobile, 'web', css), path.join(www, 'mobile', css));
+for (const css of ['apex-native.css', 'apex-shell.css', 'apex-ride.css', 'apex-progress.css']) fs.copyFileSync(path.join(mobile, 'web', css), path.join(www, 'mobile', css));
 
 const indexPath = path.join(www, 'index.html');
 let html = fs.readFileSync(indexPath, 'utf8');
@@ -50,5 +50,6 @@ inject('<script src="vendor/chart.umd.min.js"></script>', '<script src="mobile/a
 inject('</head>', '<link rel="stylesheet" href="mobile/apex-native.css">');
 inject('</head>', '<link rel="stylesheet" href="mobile/apex-shell.css">');
 inject('</head>', '<link rel="stylesheet" href="mobile/apex-ride.css">');
+inject('</head>', '<link rel="stylesheet" href="mobile/apex-progress.css">');
 fs.writeFileSync(indexPath, html);
 console.log(`build-web: ${path.relative(root, www)} ready (Strava sign-in: ${BROKER_URL ? `broker ${BROKER_URL}` : 'own API application'})`);

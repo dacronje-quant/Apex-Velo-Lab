@@ -1,0 +1,54 @@
+/* Progress tab (src/native-progress.js, docs/ANDROID-UX.md 2.1). Android app only; style.css tokens only.
+   Topic pages host the Analytics view: its desktop chrome (heading, module dock, pager) is hidden and each
+   topic (body[data-av-prog]) shows only its own panels and cards. */
+
+/* --- Root: the one-card answer --- */
+.av-prog-answer { display: flex; flex-direction: column; gap: 8px; }
+.av-prog-verdict { margin: 0; font-family: var(--font-display); font-weight: 500; font-size: 22px; letter-spacing: -.02em; line-height: 1.2; }
+.av-prog-answer[data-trend="up"] .av-prog-verdict { color: var(--lime, var(--text-1)); }
+.av-prog-answer[data-trend="down"] .av-prog-verdict { color: var(--amber, var(--text-1)); }
+.av-prog-spark { width: 100%; height: 48px; display: block; }
+.av-prog-kpis { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 8px; }
+.av-prog-kpis > div { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.av-prog-kpis span { font-size: 11px; font-weight: 700; letter-spacing: .08em; text-transform: uppercase; color: var(--text-3); }
+.av-prog-kpis b { font-size: 20px; font-weight: 600; }
+.av-prog-kpis small { color: var(--text-3); font-size: 12px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.av-prog-kpis small.form-badge { align-self: flex-start; max-width: 100%; }
+
+/* --- Range chip (top bar) and its sheet (the page's own range pills, moved in) --- */
+.av-prog-range { white-space: nowrap; }
+.av-prog-range-sheet #anaRangePills { display: grid; grid-template-columns: 1fr; gap: 6px; width: 100%; background: none; border: 0; padding: 0; }
+.av-prog-range-sheet .ana-range { min-height: 48px; width: 100%; font-size: 15px; border-radius: 14px; }
+
+/* --- Topic pages: the Analytics view without its desktop chrome --- */
+body[data-av-prog] #view-analytics > .ana-head,
+body[data-av-prog] #anaSectionNav,
+body[data-av-prog] #anaDockSentinel,
+body[data-av-prog] #anaPager,
+body[data-av-prog] .ana-panel-head { display: none !important; }
+body[data-av-prog] #anaStage { display: flex; flex-direction: column; gap: var(--gap, 12px); }
+body[data-av-prog] #anaStage > .ana-panel[hidden] { display: none !important; }
+body[data-av-prog] #view-analytics .card { padding: 14px; border-radius: 22px; }
+body[data-av-prog] #view-analytics .card-title { flex-wrap: wrap; row-gap: 8px; }
+body[data-av-prog] #view-analytics .ana-grid { grid-template-columns: minmax(0, 1fr); }
+body[data-av-prog] #view-analytics .ana-grid > [class*="ana-w-"] { grid-column: auto; }
+#avProgFtp[hidden] { display: none !important; }
+body:not([data-av-prog="power"]) #avProgFtp { display: none !important; }
+.av-prog-ftp { display: flex; flex-direction: column; gap: 10px; }
+.av-prog-ftp small { display: block; color: var(--text-3); margin-top: 2px; }
+.av-prog-ftp .btn-row { display: flex; flex-direction: column; gap: 6px; }
+
+/* Fitness: the overview without readiness and records */
+body[data-av-prog="fitness"] #anaCardReady,
+body[data-av-prog="fitness"] #anaCardRecords { display: none !important; }
+/* Health: readiness from the overview, then the Health panel with the HRV trend first */
+body[data-av-prog="health"] #ana-panel-overview > :not(#anaHero),
+body[data-av-prog="health"] #anaCardStory { display: none !important; }
+body[data-av-prog="health"] #anaHero { grid-template-columns: minmax(0, 1fr); }
+body[data-av-prog="health"] #ana-panel-health { display: flex; flex-direction: column; gap: var(--gap, 12px); }
+body[data-av-prog="health"] #ana-panel-health > * { margin-bottom: 0; }
+body[data-av-prog="health"] #anaCardHealthHrv { order: -1; }
+/* Records: all-time bests and the power profile only */
+body[data-av-prog="records"] #ana-panel-overview > :not(.ana-grid),
+body[data-av-prog="records"] #anaCardInsights,
+body[data-av-prog="records"] #ana-panel-power .ana-grid > :not(#anaCardProfile) { display: none !important; }
