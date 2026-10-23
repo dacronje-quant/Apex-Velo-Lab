@@ -288,7 +288,7 @@
       const sc = VeloWellness.readinessScore(r);
       if (!sc) {
         ring.innerHTML = `<span class="ring-empty"><svg class="ic"><use href="#i-heart"/></svg></span>`;
-        const msg = !r || r.level === 'none' ? (document.documentElement.classList.contains('apex-native') ? 'Add your intervals.icu API key in Settings > Health to see your readiness.' : 'Set up Apple Health in Settings to see your readiness.')
+        const msg = !r || r.level === 'none' ? (document.documentElement.classList.contains('apex-native') ? `Add your intervals.icu API key in ${this.settingsLabel('health')} to see your readiness.` : 'Set up Apple Health in Settings to see your readiness.')
           : r.level === 'baseline' ? `${r.label}: readiness needs a week of HRV to know your normal.` : 'No health data from the last two days.';
         parts.innerHTML = `<p class="ready-empty">${esc(msg)}</p>`;
         return;
@@ -373,7 +373,7 @@
       const c = this.aiCoach;
       if (!box || !c || this._storyBusy) return;
       if (!c.isLive) await c.detectEngine();
-      if (!c.isLive) { this.showToast('Writing the week with AI needs an API key (Settings > AI engine).', 'warning'); return; }
+      if (!c.isLive) { this.showToast(`Writing the week with AI needs an API key (${this.settingsLabel('ai')}).`, 'warning'); return; }
       this._storyBusy = true;
       if (btn) { btn.disabled = true; btn.classList.add('is-loading'); }
       box.innerHTML = '<span class="skel skel-line"></span><span class="skel skel-line"></span><span class="skel skel-line short"></span>';

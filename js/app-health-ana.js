@@ -63,7 +63,7 @@
         this.setText('anaHealthEmptyText', all.length
           ? 'No health days in this time range. Pick a longer range above.'
           : document.documentElement.classList.contains('apex-native')
-            ? 'Add your intervals.icu API key in Settings > Health: resting HR, HRV, sleep and the rest of your wellness data appear here.'
+            ? `Add your intervals.icu API key in ${this.settingsLabel('health')}: resting HR, HRV, sleep and the rest of your wellness data appear here.`
             : 'Set up Apple Health in Settings: resting HR, HRV and sleep appear here.');
       }
       this.renderHealthTiles(all, today);

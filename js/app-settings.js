@@ -8,6 +8,11 @@
   const esc = (v) => String(v ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 
   Object.assign(VeloApp.prototype, {
+    // Where a settings section lives, for messages that point to it. The Android app replaces the map
+    // (its settings are in a different place); the desktop keeps these.
+    settingsLabels: { ai: 'Settings > AI engine', health: 'Settings > Health' },
+    settingsLabel(sec) { return (this.settingsLabels && this.settingsLabels[sec]) || 'Settings'; },
+
     initSettings() {
       const on = (id, fn) => this.on(document.getElementById(id), 'click', fn);
       const welcome = document.getElementById('firstRunHelp');
