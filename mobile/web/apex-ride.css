@@ -103,6 +103,8 @@ body.av-full-ride #view-cockpit .erg-response-control { order: 901; }
 body.av-full-ride #view-cockpit .timeline-controls .control-views,
 body.av-full-ride #view-cockpit .ss-dock > :is(#btnPlayPause, #btnSkipInterval, #btnEndWorkout) { display: none; }
 body.av-full-ride #view-cockpit .welcome-card { display: none; }
+body.av-full-ride #view-cockpit :is(.btn, .segmented > button, select) { min-height: 44px; }
+body.av-full-ride #view-cockpit .segmented > button { min-width: 44px; }
 .av-full-top { order: -1; display: flex; align-items: center; justify-content: space-between; padding: 8px 0; grid-column: 1 / -1; }
 .av-full-top .btn { min-height: 44px; }
 .av-full-ctrl { position: fixed; left: 0; right: 0; bottom: 0; z-index: 70; grid-template-columns: 1fr 1.3fr 1fr 1.2fr; padding: 10px 12px calc(10px + env(safe-area-inset-bottom, 0px));

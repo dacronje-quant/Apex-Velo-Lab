@@ -72,7 +72,7 @@ export const FULL_PANELS = {
   zones: ['Time in zone', '.zone-distribution-wrap']
 };
 /** The live graph's lines, by the label of their Chart.js dataset. */
-export const LINES = { power: 'Power', target: 'Target', cadence: 'Cadence', hr: 'HR' };
+export const LINES = { power: 'Power', target: 'Target', cadence: 'Cadence', hr: 'Heart rate' };
 
 const ALL_SIMPLE = [...Object.keys(SIMPLE_PANELS).map((k) => 'panel:' + k), ...Object.keys(TILES).map((k) => 'tile:' + k)];
 const ALL_FULL = Object.keys(FULL_PANELS);
@@ -105,7 +105,9 @@ export function normalizeItems(items, all) {
 
 /** Ride-screen layouts, one per rider profile, in localStorage (no secrets in it). */
 export class RideLayouts {
-  constructor(storage, key = 'apex_ride_layout_v1') { this.storage = storage; this.key = key; }
+  /** `storage` is a localStorage-like object, or a function returning one (read when used). */
+  constructor(storage, key = 'apex_ride_layout_v1') { this._storage = storage; this.key = key; }
+  get storage() { return typeof this._storage === 'function' ? this._storage() : this._storage; }
   all() { try { return JSON.parse(this.storage.getItem(this.key) || '{}') || {}; } catch (e) { return {}; } }
   get(profileId) {
     const l = this.all()[profileId] || PRESETS.standard;
@@ -125,7 +127,7 @@ export class RideLayouts {
 }
 
 export class RideView {
-  constructor({ shell, win = window, storage = win.localStorage }) {
+  constructor({ shell, win = window, storage = () => win.localStorage }) {
     this.shell = shell; this.win = win; this.doc = win.document;
     this.layouts = new RideLayouts(storage);
     this.timer = null;
