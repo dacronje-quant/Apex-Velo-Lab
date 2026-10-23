@@ -182,6 +182,51 @@ const FLOWS = [
     assert.equal(page.errors.length, 0, page.errors.join('\n'));
     await page.context().close();
   }],
+  ['history: a ride recorded here opens with its ride plot (lanes, scrub), interval diagnosis and AI breakdown', async (browser) => {
+    const page = await openPhone(browser);
+    await tap(page, '#avStartRide');
+    await page.waitForFunction(() => app.totalElapsedSeconds >= 2, null, { timeout: 15000 });
+    // Five minutes of 1 Hz data with hard steps (the few real seconds extended), then End.
+    const id = await page.evaluate(() => {
+      const ftp = app.activeProfile.ftp, last = app.recordedSamples.at(-1), t0 = last.timestamp;
+      app.recordedSamples = Array.from({ length: 300 }, (_, i) => {
+        const hard = Math.floor(i / 60) % 2 === 1, target = Math.round(ftp * (hard ? 1.05 : 0.55));
+        return { ...last, time: i, timestamp: t0 + i * 1000, target, power: target + ((i * 7) % 11) - 5, hr: hard ? 160 : 125, cadence: hard ? 95 : 85 };
+      });
+      app.totalElapsedSeconds = 300;
+      const before = app.completedWorkouts.length;
+      app.finishWorkout(false);
+      if (app.completedWorkouts.length !== before + 1) throw new Error('ride not saved');
+      const ride = [...app.completedWorkouts].sort((a, b) => new Date(b.date) - new Date(a.date))[0];
+      ride.aiBreakdown = { text: '**Steady repeats.** Cadence held on both hard steps.', model: 'test', label: 'Test coach', at: Date.now() };
+      return ride.id;
+    });
+    await page.waitForFunction(() => ApexNative.shell.current.route === 'ride');
+    await page.evaluate(() => app.closeModal('rideSummaryModal'));
+    await tap(page, '.av-tabbar [data-av-tab="history"]');
+    await tap(page, `.av-ride-row[data-ride="${id}"]`);
+    assert.equal(await route(page), `history/${id}`);
+    const canvas = page.locator('.av-ride-detail #rideScrubCanvas');
+    await canvas.waitFor();
+    await page.waitForFunction(() => window.Chart && Chart.getChart(document.getElementById('rideScrubCanvas')));
+    const box = await canvas.boundingBox();
+    assert.ok(box.height > 150 && box.width > 250, 'the ride plot has its lanes');
+    const readout = await page.locator('#scrubReadout').textContent();
+    await canvas.scrollIntoViewIfNeeded();
+    const b2 = await canvas.boundingBox();
+    await page.mouse.move(b2.x + b2.width * 0.6, b2.y + b2.height * 0.3);
+    await page.waitForFunction((t) => document.getElementById('scrubReadout').textContent !== t, readout, { timeout: 3000 }); // the scrub readout follows the pointer
+    assert.ok(await page.locator('.av-ride-detail #intervalDiagnosis').isVisible(), 'interval diagnosis');
+    assert.match(await page.locator('.av-ride-detail .ai-breakdown').textContent(), /Steady repeats/);
+    assert.ok(await page.locator('.av-ride-detail [data-ai-breakdown]').count(), 'Ask again for a new breakdown');
+    const s = await sweep(page);
+    assert.deepEqual(s.small, []); assert.ok(s.overflowX <= 0);
+    await screenshot(page, 'history-recorded');
+    await back(page);
+    assert.equal(await page.evaluate(() => Chart.getChart(document.getElementById('rideScrubCanvas')) || null), null, 'the chart is destroyed on leaving');
+    assert.equal(page.errors.length, 0, page.errors.join('\n'));
+    await page.context().close();
+  }],
   ['history: ride options edit the title and notes, export and delete', async (browser) => {
     const page = await openPhone(browser, { route: 'history' });
     const id = await page.locator('.av-ride-row').first().getAttribute('data-ride');
