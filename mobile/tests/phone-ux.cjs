@@ -188,6 +188,9 @@ const FLOWS = [
     await page.evaluate(() => app.openSettings('ai'));
     assert.ok(await page.locator('#avAiBox #selectCoachProvider').isVisible());
     assert.ok(await page.locator('#avAiAdvanced #nativeAiKey-claude').isVisible(), 'keys open when none is saved');
+    if (await page.evaluate(() => typeof app.settingsLabel === 'function')) {
+      assert.equal(await page.evaluate(() => app.settingsLabel('ai')), 'You > Connections > AI coach', 'js/ messages name the You page');
+    }
     await page.evaluate(() => app.openModal('profileManagerModal'));
     assert.equal(await route(page), 'you/profile');
     await page.context().close();

@@ -279,6 +279,8 @@ export function installYou({ shell, win = window, services = {} }) {
     if (!P) return;
     // Settings is now the You tab: every app.openSettings(section) opens the page that holds the section.
     P.openSettings = function (sec) { shell.go(SECTION_ROUTES[sec] || 'you'); };
+    // Messages in js/ that point to a setting name its You page (js/app-settings.js settingsLabel).
+    P.settingsLabels = { ai: 'You > Connections > AI coach', health: 'You > Connections > intervals.icu' };
     const openModal = P.openModal, closeModal = P.closeModal;
     P.openModal = function (id, ...rest) {
       if (id === 'settingsModal') { shell.go('you'); return; }
