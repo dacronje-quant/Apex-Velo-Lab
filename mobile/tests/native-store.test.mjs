@@ -235,6 +235,21 @@ test('snapshots stay within the storage budget: the oldest go first, the newest 
   assert.equal((await s.backups()).files.length, 4);
 });
 
+test('a corrupt newest snapshot does not count among the newest three: the next three readable ones stay', async (t) => {
+  let date = new Date('2025-01-01T08:00:00Z'); const s = await fixture(t, { clock: () => date }); await migrate(s);
+  const made = [];
+  for (let day = 2; day < 9; day++) { date = new Date(Date.UTC(2025, 0, day, 8)); made.push((await s.backup('daily')).name); }
+  fs.writeFileSync(snapshotPath(s, made.at(-1)), 'not gzip'); // the newest copy is damaged
+  assert.ok((await s.backups()).files.find((f) => f.name === made.at(-1)).corrupt);
+  s.backupBudgetBytes = 1; // over budget: only protected copies may stay
+  await s.pruneBackups();
+  const left = (await s.backups()).files;
+  const readable = left.filter((f) => !f.corrupt).map((f) => f.name);
+  for (const name of made.slice(-4, -1)) assert.ok(readable.includes(name), `${name} (one of the newest three readable) stays`);
+  assert.ok(left.some((f) => f.reason === 'migration'), 'the migration copy stays');
+  assert.equal(readable.length, 4, 'three readable plus the migration copy, nothing else');
+});
+
 test('corrupt and future-schema databases are never reset automatically', async (t) => {
   const s = await fixture(t); await migrate(s); s.db.raw.exec('PRAGMA user_version=99'); await s.close(); opened.delete(s); const bytes = fs.readFileSync(s.path);
   await assert.rejects(() => open(s.dir), /newer version/); assert.deepEqual(fs.readFileSync(s.path), bytes);

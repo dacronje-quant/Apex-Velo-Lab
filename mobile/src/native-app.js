@@ -292,7 +292,7 @@ function addSettingsUi(doc, icu, healthConnect) {
 
 const BACKUPS_TEXT = 'Your rides, profiles, settings and plans are saved in the app on this phone. Verified copies are kept here too: '
   + 'a minute after each change, when the app goes to the background, and at least once a day, with daily, weekly and monthly copies '
-  + 'kept for a year and the newest three always kept (up to about 500 MB in all). They are in the app\'s private storage, so '
+  + 'kept for a year and the newest three always kept (about 500 MB in all, or more if the newest copies need it). They are in the app\'s private storage, so '
   + 'uninstalling the app removes them: use Back up everything in You > Your data to keep a copy elsewhere.';
 
 const blobToBase64 = (blob) => new Promise((resolve, reject) => {
