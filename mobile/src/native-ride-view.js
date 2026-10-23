@@ -777,7 +777,7 @@ RideView.prototype.mountSummary = function (rideId) {
       end = this.doc.createElement('button'); end.type = 'button'; end.className = 'btn btn-sm'; end.id = 'avSendStrava'; end.textContent = 'Send';
       end.addEventListener('click', async () => { end.disabled = true; await app.sendRideToStrava(ride.id); renderSync(); });
     }
-    const where = (typeof app.settingsLabel === 'function' && app.settingsLabel('strava')) || 'You › Connections';
+    const where = app.settingsLabel('strava', 'You > Connections');
     sync.appendChild(S.row({ icon: 'i-upload', title: 'Strava', sub: st === 'sent' || st === 'duplicate' ? 'On Strava' : st === 'queued' || st === 'sending' ? 'Sending…' : st === 'failed' ? 'Not sent - tap Send to try again' : can ? `Not sent (auto-upload is in ${where})` : `Connect Strava in ${where} to send rides`, end }));
     if (N.healthConnect && N.uploads) {
       const row = await N.uploads.state(ride.id, 'healthconnect').catch(() => null);
