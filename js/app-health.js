@@ -147,7 +147,7 @@
     renderReadinessChips() {
       const r = this.healthReadiness();
       const text = `Readiness: ${this.readinessText(r)}`;
-      const title = r.reasons && r.reasons.length ? `${r.advice}\n- ${r.reasons.join('\n- ')}` : (r.advice || (r.level === 'baseline' ? 'Needs 7 nights of HRV from your Apple Watch.' : 'Set up Apple Health in Settings.'));
+      const title = r.reasons && r.reasons.length ? `${r.advice}\n- ${r.reasons.join('\n- ')}` : (r.advice || (r.level === 'baseline' ? 'Needs 7 nights of HRV from your Apple Watch.' : `${this.settingsLabel('appleHealth')}.`));
       ['cockpitReadinessChip', 'coachReadinessChip', 'anaReadinessChip'].forEach(id => {
         const el = document.getElementById(id);
         if (!el) return;

@@ -86,7 +86,7 @@ export class ByoExchanger {
 
   async authorizeUrl({ state, redirectUri, scope }) {
     const c = await this.credentials();
-    if (!c) throw new Error('Add your Strava Client ID and Secret first (Settings > Strava).');
+    if (!c) throw new Error('Add your Strava Client ID and Secret first (You > Connections > Strava).');
     return `${this.base}/oauth/mobile/authorize?client_id=${encodeURIComponent(c.clientId)}&response_type=code&redirect_uri=${encodeURIComponent(redirectUri)}&approval_prompt=auto&scope=${encodeURIComponent(scope)}&state=${state}`;
   }
 
@@ -266,7 +266,7 @@ export class NativeStrava {
   async connect() {
     const ex = await this.exchanger();
     if (!(await ex.isConfigured())) {
-      throw new Error(ex.kind === 'broker' ? 'Strava sign-in is not available right now. Try again later.' : 'Add your Strava Client ID and Secret first (Settings > Strava).');
+      throw new Error(ex.kind === 'broker' ? 'Strava sign-in is not available right now. Try again later.' : 'Add your Strava Client ID and Secret first (You > Connections > Strava).');
     }
     const bytes = crypto.getRandomValues(new Uint8Array(16));
     const state = [...bytes].map((b) => b.toString(16).padStart(2, '0')).join('');

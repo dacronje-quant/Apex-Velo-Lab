@@ -14,10 +14,14 @@ const executablePath = process.env.APEX_CHROMIUM || (fs.existsSync('/opt/pw-brow
 const PHONE = { width: 393, height: 852 };
 const out = path.join(__dirname, '..', 'test-output');
 
-/** A phone-sized page on the built app, demo data and the fake native layer; resolves once the shell is up. */
-async function openPhone(browser, { route = '', demo = true } = {}) {
+/**
+ * A phone-sized page on the built app, demo data and the fake native layer; resolves once the shell is up.
+ * `onboarding: true` lets a new install open the first-run onboarding (off otherwise, so flows start on Ride).
+ */
+async function openPhone(browser, { route = '', demo = true, onboarding = false } = {}) {
   const context = await browser.newContext({ viewport: PHONE, isMobile: true, hasTouch: true, deviceScaleFactor: 2 });
   await context.addInitScript({ path: path.join(__dirname, 'fake-native.js') });
+  if (!onboarding) await context.addInitScript(() => { window.__apexNoOnboarding = true; });
   await context.route(`${ORIGIN}/**`, (r) => {
     const url = new URL(r.request().url());
     const file = path.resolve(www, url.pathname === '/' ? 'index.html' : decodeURIComponent(url.pathname.slice(1)));
@@ -247,6 +251,164 @@ const FLOWS = [
     await page.waitForFunction(() => ApexNative.shell.current.route === 'history');
     assert.equal(await page.evaluate((id) => app.completedWorkouts.some((r) => r.id === id), id), false);
     assert.equal(page.errors.length, 0, page.errors.join('\n'));
+    await page.context().close();
+  }],
+
+  // ------------------------------------------------------------------ U5: You and onboarding --
+  ['you: six pages one tap from You; every You route passes the sweep; back follows page > You > Ride', async (browser) => {
+    const page = await openPhone(browser);
+    await tap(page, '.av-tabbar [data-av-tab="you"]');
+    const rows = (await page.locator('#avYouList > .av-row b').allTextContents()).slice(1);
+    assert.deepEqual(rows, ['Devices', 'Connections', 'Your data', 'App settings', 'Help & about']);
+    for (const r of ['you', 'you/profile', 'you/devices', 'you/connections', 'you/connections/strava', 'you/connections/icu', 'you/connections/healthconnect',
+      'you/connections/ai', 'you/data', 'you/data/backups', 'you/app', 'you/help', 'you/help/guide']) {
+      await page.evaluate((r) => ApexNative.shell.go(r), r);
+      await page.waitForTimeout(150);
+      await page.evaluate(() => document.querySelectorAll('#avPages details').forEach((d) => { d.open = true; }));
+      const s = await sweep(page);
+      assert.equal(s.overflowX, 0, `${r}: no sideways scroll`);
+      assert.deepEqual(s.small, [], `${r}: no controls under 44 px`);
+      assert.ok(await page.locator('.av-tabbar').isVisible(), `${r}: bottom bar`);
+      await screenshot(page, r.replace(/\//g, '-'));
+    }
+    await page.evaluate(() => ApexNative.shell.go('you/connections/strava'));
+    await back(page); assert.equal(await route(page), 'you/connections');
+    await back(page); assert.equal(await route(page), 'you');
+    await back(page); assert.equal(await route(page), 'ride');
+    assert.deepEqual(page.errors, []);
+    await page.context().close();
+  }],
+  ['you: edit FTP or weight in 2 taps, saved and kept ready to edit; the root fits one screen', async (browser) => {
+    const page = await openPhone(browser);
+    const c = { taps: 0 };
+    await tap(page, '.av-tabbar [data-av-tab="you"]', c);
+    assert.ok((await page.evaluate(() => document.documentElement.scrollHeight)) <= 852 * 1.5, 'You fits 1.5 screens');
+    await tap(page, '#avYouProfile', c);
+    assert.equal(c.taps, 2);
+    assert.equal(await route(page), 'you/profile');
+    const ftp = page.locator('#profInputFtp');
+    assert.equal(await ftp.inputValue(), String(await page.evaluate(() => app.activeProfile.ftp)), 'the active rider is ready to edit');
+    assert.ok((await ftp.boundingBox()).y + 44 <= 852, 'FTP field above the fold');
+    await ftp.fill('263');
+    await page.locator('#profInputWeight').fill('71');
+    await page.locator('#btnSaveNewProfile').tap();
+    assert.deepEqual(await page.evaluate(() => [app.activeProfile.ftp, app.activeProfile.weightKg]), [263, 71]);
+    assert.equal(await route(page), 'you/profile');
+    assert.equal(await ftp.inputValue(), '263', 'still editing the active rider after saving');
+    assert.equal(await page.evaluate(() => document.getElementById('profileManagerModal').classList.contains('open')), false, 'the old profile modal stays shut');
+    await page.context().close();
+  }],
+  ['you: connect Strava or Health Connect in 3 taps; links into Settings land on the new pages', async (browser) => {
+    const page = await openPhone(browser);
+    let c = { taps: 0 };
+    await page.evaluate(() => { window.__stravaConnects = 0; app.connectStrava = async () => { window.__stravaConnects++; }; });
+    await tap(page, '.av-tabbar [data-av-tab="you"]', c);
+    await tap(page, '#avYou-connections', c);
+    await page.locator('#avConnStravaConnect').waitFor();
+    await tap(page, '#avConnStravaConnect', c);
+    assert.equal(c.taps, 3);
+    assert.equal(await page.evaluate(() => window.__stravaConnects), 1);
+    c = { taps: 0 };
+    await tap(page, '.av-tabbar [data-av-tab="ride"]');
+    await tap(page, '.av-tabbar [data-av-tab="you"]', c);
+    await tap(page, '#avYou-connections', c);
+    await page.locator('#avConnHcConnect').waitFor();
+    await tap(page, '#avConnHcConnect', c);
+    assert.equal(c.taps, 3);
+    await page.waitForFunction(() => __nativeLog.hc.requests.length === 1);
+    for (const [sec, r] of [['rider', 'you/profile'], ['strava', 'you/connections/strava'], ['health', 'you/connections/icu'], ['ai', 'you/connections/ai'],
+      ['files', 'you/data'], ['importfolder', 'you/data'], ['guide', 'you/help/guide'], ['about', 'you/help'], [undefined, 'you']]) {
+      await page.evaluate((s) => app.openSettings(s), sec);
+      assert.equal(await route(page), r, `openSettings(${sec})`);
+      assert.equal(await page.evaluate(() => document.getElementById('settingsModal').classList.contains('open')), false);
+    }
+    await page.evaluate(() => app.openSettings('ai'));
+    assert.ok(await page.locator('#avAiBox #selectCoachProvider').isVisible());
+    assert.ok(await page.locator('#avAiAdvanced #nativeAiKey-claude').isVisible(), 'keys open when none is saved');
+    if (await page.evaluate(() => typeof app.settingsLabel === 'function')) {
+      assert.equal(await page.evaluate(() => app.settingsLabel('ai')), 'You > Connections > AI coach', 'js/ messages name the You page');
+      assert.equal(await page.evaluate(() => app.settingsLabel('health', 'Settings > Health')), 'You > Connections > intervals.icu');
+      assert.match(await page.evaluate(() => app.settingsLabel('appleHealth')), /Health Connect or intervals\.icu in You > Connections/, 'no Apple Health on the phone');
+    }
+    await page.evaluate(() => app.openModal('profileManagerModal'));
+    assert.equal(await route(page), 'you/profile');
+    await page.context().close();
+  }],
+  ['you: Your data holds import, backup, folder, ride files and (Advanced) training load; App settings switch audio and the simulator', async (browser) => {
+    const page = await openPhone(browser);
+    await page.evaluate(() => ApexNative.shell.go('you/data'));
+    for (const id of ['#avDataImportFiles', '#avDataImportHistory', '#avDataBackup', '#avDataFolder #nativeImportSettings', '#avDataFiles #nativeAutoFit']) {
+      assert.ok(await page.locator(id).isVisible(), id);
+    }
+    assert.equal(await page.locator('#view-history #stravaSyncCard').count(), 0, 'training load left History');
+    assert.equal(await page.locator('#avDataAdvanced #chkStrengthInFatigue').isVisible(), false, 'folded under Advanced');
+    await tap(page, '#avDataAdvanced > summary');
+    assert.ok(await page.locator('#avDataAdvanced #chkStrengthInFatigue').isVisible());
+    await page.evaluate(() => { window.__clicked = []; for (const id of ['btnExportJsonHistory', 'btnChooseImportFiles']) document.getElementById(id).addEventListener('click', (e) => { e.stopImmediatePropagation(); window.__clicked.push(id); }, true); });
+    await tap(page, '#avDataBackup');
+    await tap(page, '#avDataImportFiles');
+    assert.deepEqual(await page.evaluate(() => window.__clicked), ['btnExportJsonHistory', 'btnChooseImportFiles']);
+    await page.evaluate(() => ApexNative.shell.go('you/app'));
+    const muted = await page.evaluate(() => app.audio.muted);
+    await tap(page, '#avAudioCues');
+    assert.equal(await page.evaluate(() => app.audio.muted), !muted);
+    assert.equal(await page.locator('#avAudioCues').getAttribute('aria-checked'), String(muted));
+    await tap(page, '#avAppAdvanced > summary');
+    const sim = await page.evaluate(() => app.simulator.enabled);
+    await tap(page, '#avSimulator');
+    assert.equal(await page.evaluate(() => app.simulator.enabled), !sim);
+    await page.context().close();
+  }],
+  ['onboarding: a new install opens it full screen; steps save the profile, resume after a restart, never show again once done', async (browser) => {
+    const page = await openPhone(browser, { demo: false, onboarding: true });
+    await page.waitForFunction(() => ApexNative.shell.current.route === 'onboarding/profile');
+    assert.equal(await page.locator('.av-tabbar').isVisible(), false, 'no bottom bar during onboarding');
+    assert.equal(await page.locator('#firstRunHelp').isVisible(), false, 'the welcome card is replaced');
+    assert.equal(await page.locator('#onbDemo').getAttribute('href'), '?apexDemo=1', 'Explore a demo on step 1');
+    let s = await sweep(page);
+    assert.deepEqual(s.small, []); assert.equal(s.overflowX, 0);
+    await page.locator('#onbName').fill('Sam');
+    await page.locator('#onbFtp').fill('240');
+    await page.locator('#onbWeight').fill('68');
+    await tap(page, '[data-onb="next"]');
+    assert.equal(await route(page), 'onboarding/devices');
+    assert.deepEqual(await page.evaluate(() => [app.activeProfile.name, app.activeProfile.ftp, app.activeProfile.weightKg, !!app.activeProfile.needsSetup]), ['Sam', 240, 68, false]);
+    s = await sweep(page);
+    assert.deepEqual(s.small, []);
+    await tap(page, '#onbPairTrainer');
+    await page.locator('.apex-ble-item', { hasText: 'KICKR CORE' }).tap();
+    await page.waitForFunction(() => app.ble.isTrainerConnected(), null, { timeout: 15000 });
+    await page.waitForFunction(() => !/^\s*$|Disconnected/.test(document.getElementById('onbState-trainer').textContent), null, { timeout: 5000 });
+    await page.goto(`${ORIGIN}/index.html`); // cold start: no hash
+    await page.waitForFunction(() => window.app && ApexNative.shell.current && ApexNative.shell.current.route === 'onboarding/devices', null, { timeout: 10000 });
+    await tap(page, '[data-onb="skip"]');
+    assert.equal(await route(page), 'onboarding/connect');
+    assert.ok(await page.locator('#onbStrava').isVisible() && await page.locator('#onbImport').isVisible());
+    await back(page);
+    assert.equal(await route(page), 'onboarding/devices', 'back goes to the previous step');
+    await tap(page, '[data-onb="next"]');
+    await tap(page, '[data-onb="next"]');
+    assert.equal(await route(page), 'ride');
+    assert.ok(await page.locator('.av-tabbar').isVisible());
+    await page.goto(`${ORIGIN}/index.html`); // cold start: no hash
+    await page.waitForFunction(() => window.app && ApexNative.shell.current);
+    await page.waitForTimeout(300);
+    assert.equal(await route(page), 'ride', 'never again once completed');
+    await page.context().close();
+  }],
+  ['onboarding: Skip setup ends it for good; the demo never shows it', async (browser) => {
+    let page = await openPhone(browser, { demo: false, onboarding: true });
+    await page.waitForFunction(() => ApexNative.shell.current.route === 'onboarding/profile');
+    await tap(page, '[data-onb="skipall"]');
+    assert.equal(await route(page), 'ride');
+    await page.goto(`${ORIGIN}/index.html`); // cold start: no hash
+    await page.waitForFunction(() => window.app && ApexNative.shell.current);
+    await page.waitForTimeout(300);
+    assert.equal(await route(page), 'ride', 'never again once skipped');
+    await page.context().close();
+    page = await openPhone(browser);
+    await page.waitForTimeout(300);
+    assert.equal(await route(page), 'ride', 'demo opens on Ride');
     await page.context().close();
   }]
 ];

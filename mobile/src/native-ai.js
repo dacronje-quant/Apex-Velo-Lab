@@ -383,7 +383,7 @@ export class NativeAi {
     return { provider, model, effort, p: PROVIDERS[provider], key: keys[provider] };
   }
 
-  _noKey(p) { return reply(503, { error: `No ${p.label} API key. Add your ${p.keyName} in Settings > AI engine.` }); }
+  _noKey(p) { return reply(503, { error: `No ${p.label} API key. Add your ${p.keyName} in You > Connections > AI coach.` }); }
 
   _failed(err, p) {
     const aborted = err && err.name === 'AbortError';

@@ -25,6 +25,8 @@ import { bootNativeApp } from './native-app.js';
 import { installShell } from './native-shell.js';
 import { installHistory } from './native-history.js';
 import { installRideTab } from './native-today.js';
+import { installYou } from './native-you.js';
+import { installOnboarding } from './native-onboarding.js';
 import { NativeRide } from './native-ride.js';
 import { NativeStore, openingLedger } from './native-store.js';
 import { openCapacitorDatabase, filesystemFiles } from './native-sqlite.js';
@@ -117,4 +119,7 @@ if (fake || Capacitor.isNativePlatform()) {
   window.ApexNative.rideTab = installRideTab({ shell });
   bootNativeApp({ bluetooth, storage, strava, ai, icu, uploads, plugins, ride, healthConnect, wellness, shell });
   installNativeImportUi({ nativeImport, jobs: importJobs, App: plugins.App });
+  // You (Settings, profile, devices, connections, data) and the first-run onboarding (workstream U5).
+  installYou({ shell, services: { strava, icu, healthConnect, ai } });
+  installOnboarding({ shell });
 }
