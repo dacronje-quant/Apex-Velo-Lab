@@ -178,9 +178,7 @@ const FLOWS = [
     const rows = (await page.locator('.av-sheet .av-row b').allTextContents()).join('|');
     for (const t of ['Check Strava', 'Full backup · JSON', 'Current session · FIT', 'Training-load options', 'Clear all history...']) assert.ok(rows.includes(t), t);
     await tap(page, '.av-sheet .av-row:has-text("Training-load options")');
-    assert.ok(await page.locator('.av-sheet #chkStrengthInFatigue').count());
-    await back(page);
-    assert.equal(await page.locator('#stravaSyncCard #chkStrengthInFatigue').count(), 1, 'options restored');
+    assert.match(await route(page), /^you/, 'training-load options open You > Your data');
     assert.equal(page.errors.length, 0, page.errors.join('\n'));
     await page.context().close();
   }],

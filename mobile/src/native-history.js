@@ -196,13 +196,8 @@ export function installHistory(shell, { win = window } = {}) {
     shell.openSheet(box, { title: 'Add rides', className: 'av-import', onClose: () => { restore(); renderImportStatus(); } });
   }
 
-  /** Training-load options (strength sessions in fatigue/fitness), from the Strava sync card. */
-  function openLoadOptions() {
-    const box = doc.createElement('div');
-    box.className = 'card';
-    const restore = borrow(doc.querySelector('#stravaSyncCard .strava-sync-strength'), box);
-    shell.openSheet(box, { title: 'Training-load options', onClose: restore });
-  }
+  /** Training-load options live in You > Your data (U5); until that page exists, You. */
+  const openLoadOptions = () => shell.go(shell.resolve('you/data') ? 'you/data' : 'you');
 
   const click = (id) => () => { const b = doc.getElementById(id); if (b) b.click(); };
   const listMore = () => {
