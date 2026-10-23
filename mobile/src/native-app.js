@@ -77,9 +77,9 @@ const TOAST_TEXT = [
   [/The workout image is saved and on your clipboard - add it to the activity\./, 'Use "Save image" in the ride summary to share the workout card.'],
   [/Allow Bluetooth for localhost in Chrome site settings\./, 'Allow "Nearby devices" for Apex Velo in Android settings.'],
   [/Web Bluetooth needs Chrome, Edge or Brave on https:\/\/ or localhost\./, 'Bluetooth is not available on this phone.'],
-  [/Server found, but no \w+ yet\. Add it to \.env and restart Launch-Apex-Velo\.bat\./, 'No API key for this AI engine yet. Add it in Settings > AI engine.'],
-  [/Local server not running - open the app with Launch-Apex-Velo\.bat to use ([^.]+)\./, 'Add an API key in Settings > AI engine to use $1.'],
-  [/The AI coach is offline - start Launch-Apex-Velo\.bat and add an API key\./, 'The AI coach needs an API key: add one in Settings > AI engine.']
+  [/Server found, but no \w+ yet\. Add it to \.env and restart Launch-Apex-Velo\.bat\./, 'No API key for this AI engine yet. Add it in You > Connections > AI coach.'],
+  [/Local server not running - open the app with Launch-Apex-Velo\.bat to use ([^.]+)\./, 'Add an API key in You > Connections > AI coach to use $1.'],
+  [/The AI coach is offline - start Launch-Apex-Velo\.bat and add an API key\./, 'The AI coach needs an API key: add one in You > Connections > AI coach.']
 ];
 
 const AI_KEY_FIELDS = [
@@ -121,7 +121,7 @@ function addAiSettingsUi(doc) {
   // Static wording elsewhere that talks about the PC server.
   const askNote = doc.getElementById('askDataSize') && doc.getElementById('askDataSize').closest('.footnote');
   if (askNote) askNote.innerHTML = 'This summary of the period is sent with your question (<span id="askDataSize"></span>) to the AI engine you chose. Nothing else leaves this phone.';
-  doc.querySelectorAll('.section-sub').forEach((p) => { p.innerHTML = p.innerHTML.replace('when the local server has its API key', 'when its API key is saved in Settings'); });
+  doc.querySelectorAll('.section-sub').forEach((p) => { p.innerHTML = p.innerHTML.replace('when the local server has its API key', 'when its API key is saved in You > Connections'); });
 }
 
 function filesSection() {
@@ -520,7 +520,13 @@ export function bootNativeApp({ bluetooth, storage, strava, ai, icu, uploads, pl
       P.pullHealthInbox = async function () {};
       P.fetchHealthStatus = async function () { return null; };
     }
-    P.runAutoBackup = async function () { return { ok: false, error: 'Backups to the PC are not available in the app. Use History > Export.' }; };
+    // With the phone database (VeloStorage) the backups are its snapshots on this phone (You > Your data >
+    // Backups); without it there is nowhere to back up to but an export.
+    const runAutoBackup = P.runAutoBackup;
+    P.runAutoBackup = async function (...args) {
+      if (win.VeloStorage && win.VeloStorage.enabled) return runAutoBackup.apply(this, args);
+      return { ok: false, error: 'Backups to the PC are not available in the app. Use History > Export.' };
+    };
     P.scheduleAutoBackup = function () {};
 
     // ------------------------------------------------------------------------ messages --
@@ -729,7 +735,7 @@ export function bootNativeApp({ bluetooth, storage, strava, ai, icu, uploads, pl
       }
       if (sv.configured) return;
       const detail = el.querySelector('.strava-detail'), actions = el.querySelector('.strava-actions');
-      if (detail && /\.env|Launch-Apex-Velo/.test(detail.textContent)) detail.textContent = 'Strava is not set up yet: add your Strava API application in Settings > Strava.';
+      if (detail && /\.env|Launch-Apex-Velo/.test(detail.textContent)) detail.textContent = 'Strava is not set up yet: add your Strava API application in You > Connections > Strava.';
       if (actions && !actions.querySelector('[data-native-strava]')) actions.insertAdjacentHTML('afterbegin', '<button type="button" class="btn btn-strava" data-native-strava="setup">Set up Strava</button>');
     };
     const initStravaUi = P.initStravaUi;
@@ -817,7 +823,7 @@ export function bootNativeApp({ bluetooth, storage, strava, ai, icu, uploads, pl
         if (this._healthBusy) return { ok: false };
         const st = await icu.status();
         if (!st.configured) {
-          if (announce) this.showToast('Add your intervals.icu API key in Settings > Health first.', 'info');
+          if (announce) this.showToast('Add your intervals.icu API key in You > Connections > intervals.icu first.', 'info');
           return { ok: false };
         }
         const full = backfill || st.needsBackfill; // first sync, or the app now keeps more fields
@@ -886,7 +892,7 @@ export function bootNativeApp({ bluetooth, storage, strava, ai, icu, uploads, pl
           const el = doc.getElementById(id);
           if (!el) return;
           el.textContent = fromIcu(el.textContent).replace('No intervals.icu data', 'No health data');
-          el.title = fromIcu(el.title).replace('Set up intervals.icu in Settings.', 'Add your intervals.icu API key in Settings > Health.');
+          el.title = fromIcu(el.title).replace('Set up intervals.icu in Settings.', 'Add your intervals.icu API key in You > Connections > intervals.icu.');
         });
       };
       const initHealth = P.initHealth;
@@ -1103,13 +1109,13 @@ export function bootNativeApp({ bluetooth, storage, strava, ai, icu, uploads, pl
         P.updateAskEngine = function () {
           updateAsk.call(this);
           const c = this.aiCoach;
-          if (c && !c.isLive) this.setText('askEngineWarnText', `Ask needs a ${c.providerLabel} API key. Add it in Settings > AI engine.`);
+          if (c && !c.isLive) this.setText('askEngineWarnText', `Ask needs a ${c.providerLabel} API key. Add it in You > Connections > AI coach.`);
         };
       }
       const breakdown = P.intervalBreakdownHtml;
       if (breakdown) {
         P.intervalBreakdownHtml = function (record) {
-          return String(breakdown.call(this, record) || '').replace('Add an Anthropic, Gemini or OpenAI key to .env for an AI coach breakdown', 'Add an Anthropic, Gemini or OpenAI key in Settings &gt; AI engine for an AI coach breakdown');
+          return String(breakdown.call(this, record) || '').replace('Add an Anthropic, Gemini or OpenAI key to .env for an AI coach breakdown', 'Add an Anthropic, Gemini or OpenAI key in You &gt; Connections &gt; AI coach for an AI coach breakdown');
         };
       }
       const initSettingsAi = P.initSettings;
@@ -1186,8 +1192,8 @@ export function bootNativeApp({ bluetooth, storage, strava, ai, icu, uploads, pl
     if (healthConnect && app.syncHealthConnect) app.syncHealthConnect().catch(() => {}); // at most every 15 minutes
   });
 
-  // Android back: close the chooser, then the top dialog, then follow the shell's stack (sheet > page > tab
-  // root > Ride > leave); never quit mid-ride.
+  // Android back: close the chooser, then the top dialog, then Zen, then follow the shell's stack (sheet > page >
+  // tab root > Ride > leave); never quit mid-ride.
   App.addListener('backButton', () => {
     if (bluetooth && bluetooth.cancelChooser()) return;
     const app = win.app;
@@ -1195,9 +1201,9 @@ export function bootNativeApp({ bluetooth, storage, strava, ai, icu, uploads, pl
     if (open && app) { app.closeModal(open.id); return; }
     const devices = doc.getElementById('hardwareModal');
     if (devices && !devices.hidden && app && app.closeDevicesFocus) { app.closeDevicesFocus(); return; }
-    if (shell) { shell.back(); return; }
     const zen = doc.getElementById('zenCockpitOverlay');
     if (zen && zen.style.display !== 'none') { const b = doc.getElementById('btnCloseZenCockpit'); if (b) { b.click(); return; } }
+    if (shell) { shell.back(); return; }
     const cockpit = doc.querySelector('.nav-btn[data-tab="cockpit"]');
     if (cockpit && !cockpit.classList.contains('active')) { cockpit.click(); return; }
     App.minimizeApp().catch(() => {});
