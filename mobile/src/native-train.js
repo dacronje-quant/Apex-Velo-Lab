@@ -103,14 +103,23 @@ export class TrainTab {
     return el;
   }
 
+  /** A ride is under way (playing, or paused with time on the clock). */
+  riding() { const app = this.app; return !!(app && (app.isPlaying || app.totalElapsedSeconds > 0)); }
+
   /** Loads a workout (`load(app)`; none: the loaded one) and opens the ride screen with it (the Ride tab's flow). */
   ride(load = null) {
     const app = this.app;
     if (!app) return;
+    // A ride in progress is never replaced without a confirm (the app itself asks only after 10 s).
+    if (load && this.riding() && !(app.totalElapsedSeconds > 10) && !this.win.confirm('Replace the current ride with this workout?')) return;
     const before = app.currentWorkout;
     if (load) load(app);
-    // A ride in progress asks before it is replaced; "Cancel" keeps it and nothing starts.
+    // "Cancel" on the app's own question keeps the ride and nothing starts.
     if (load && app.currentWorkout === before) return;
+    this.startRide();
+  }
+
+  startRide() {
     this.shell.closeSheet();
     if (this.rideTab && this.rideTab.today) this.rideTab.today.startRide();
     else this.shell.go('ride/live');
@@ -168,15 +177,17 @@ export class TrainTab {
       body = `<h3 class="av-plan-title">${esc(rides[0].title || 'Ride')}</h3><p class="av-note">Ridden${rides.length > 1 ? ` (+${rides.length - 1} more)` : ''} · ${esc(fmtMin((rides[0].duration || 0) / 60))}${rides[0].tss ? ` · TSS ${Math.round(rides[0].tss)}` : ''}</p>`;
     } else body = `<h3 class="av-plan-title">${this.plan() ? 'Rest day' : 'Nothing planned'}</h3><p class="av-note">${this.plan() ? 'No session in your plan for this day.' : 'Ask the coach for today\'s workout or a training plan, or pick one from Workouts.'}</p>`;
     const canRide = s && s.status === 'planned';
+    const riding = this.riding();
     el.innerHTML = `<span class="eyebrow">${esc(when)}</span>${body}
       <div class="btn-row av-plan-more">
-        ${canRide ? `<button type="button" class="btn btn-start btn-grow" id="avPlanRide">${icon('i-play')}${isToday ? 'Ride it today' : 'Ride it now'}</button>`
+        ${canRide ? `<button type="button" class="btn btn-start btn-grow" id="avPlanRide">${icon('i-play')}${riding ? 'Back to ride' : isToday ? 'Ride it today' : 'Ride it now'}</button>`
           : rides.length && !s ? `<button type="button" class="btn btn-grow" id="avPlanSeeRide">See ride</button>`
             : `<button type="button" class="btn btn-ai btn-grow" id="avPlanAskCoach">${icon('i-sparkles')}Today's workout</button>`}
         <button type="button" class="btn btn-ghost btn-grow" id="avPlanSwap">${canRide ? 'Swap' : 'Workouts'}</button>
       </div>`;
     const on = (id, fn) => { const b = el.querySelector(id); if (b) b.addEventListener('click', fn); };
-    on('#avPlanRide', () => this.ride((a) => { a.loadBlockSession(s.id); }));
+    // During a ride this only goes back to it; the planned session is loaded once the ride has ended.
+    on('#avPlanRide', () => (this.riding() ? this.shell.go('ride/live') : this.ride((a) => { a.loadBlockSession(s.id); })));
     on('#avPlanSeeRide', () => this.shell.go('history/' + encodeURIComponent(rides[0].id)));
     on('#avPlanAskCoach', () => this.openCoach('session'));
     on('#avPlanSwap', () => this.shell.go('train/workouts'));
@@ -326,14 +337,14 @@ export class TrainTab {
       <p class="av-wk-desc">${esc(w.desc || '')}</p>
       <button type="button" class="btn btn-start av-big" id="avWorkoutRide">${icon('i-play')}Ride it</button>
       <div class="btn-row av-plan-more">
-        <button type="button" class="btn btn-ghost btn-grow" id="avWorkoutEdit">Fine-tune</button>
+        <button type="button" class="btn btn-ghost btn-grow" id="avWorkoutEdit"${this.riding() ? ' disabled' : ''}>Fine-tune</button>
         ${custom ? `<button type="button" class="btn btn-danger btn-grow" id="avWorkoutDelete">${icon('i-trash')}Delete</button>` : ''}
-      </div>`;
+      </div>${this.riding() ? '<p class="av-note">A ride is under way: finish it to fine-tune another workout.</p>' : ''}`;
     this.shell.openSheet(box, { title: w.title });
     const canvas = box.querySelector('canvas');
     if (app.drawMiniProfile) this.win.requestAnimationFrame(() => app.drawMiniProfile(canvas, w.intervals, { height: 64 }));
     box.querySelector('#avWorkoutRide').addEventListener('click', () => this.ride((a) => { a.loadWorkoutIntoCockpit(w.id); }));
-    box.querySelector('#avWorkoutEdit').addEventListener('click', () => { this.shell.closeSheet(); app.selectWorkoutById(w.id); this.shell.go('train/builder'); });
+    box.querySelector('#avWorkoutEdit').addEventListener('click', () => { if (this.riding()) return; this.shell.closeSheet(); app.selectWorkoutById(w.id); this.shell.go('train/builder'); });
     box.querySelector('#avWorkoutDelete')?.addEventListener('click', () => {
       const n = app.workoutLibrary.length;
       app.deleteWorkout(w.id);
@@ -345,6 +356,22 @@ export class TrainTab {
   openDescribe() {
     const box = this.doc.getElementById('describeBox');
     if (!box) return;
+    if (!box.dataset.avRide) {
+      // The app's Ride loads the described workout; then the ride screen opens and starts, as with Ride it.
+      box.dataset.avRide = '1';
+      let before = null;
+      box.addEventListener('click', (e) => {
+        if (!e.target.closest('[data-describe="ride"]')) return;
+        const app = this.app;
+        before = app && app.currentWorkout;
+        if (this.riding() && !(app.totalElapsedSeconds > 10) && !this.win.confirm('Replace the current ride with this workout?')) e.stopPropagation();
+      }, true);
+      box.addEventListener('click', (e) => {
+        if (!e.target.closest('[data-describe="ride"]')) return;
+        const app = this.app;
+        if (app && app.currentWorkout !== before) this.startRide();
+      });
+    }
     this.shell.openSheet(box, { title: 'Describe a workout', className: 'av-describe-sheet', onClose: () => this.renderList() });
     this.win.requestAnimationFrame(() => this.doc.getElementById('describeInput')?.focus({ preventScroll: true }));
   }

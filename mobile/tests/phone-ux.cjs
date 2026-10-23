@@ -861,6 +861,15 @@ FLOWS.push(['train: back follows the stack; the app\'s own switches land on Trai
   await tap(page, '#avPlanRide');
   assert.equal(await route(page), 'ride/live');
   assert.ok(await page.evaluate(() => /^blk_/.test(app.currentWorkout.id)), 'planned session loaded');
+  // Mid-ride, Plan's button only goes back to the ride: the planned session never replaces it.
+  await page.waitForFunction(() => app.isPlaying);
+  const riding = await page.evaluate(() => app.currentWorkout.id);
+  await page.evaluate(() => ApexNative.shell.go('train/plan'));
+  await tap(page, `[data-av-day="${day}"]`);
+  assert.match(await page.locator('#avPlanRide').textContent(), /Back to ride/);
+  await tap(page, '#avPlanRide');
+  assert.equal(await route(page), 'ride/live');
+  assert.equal(await page.evaluate(() => app.currentWorkout.id), riding, 'the ride kept its workout');
   await page.context().close();
   // Ask history: the saved chat comes back after a restart.
   page = await openPhone(browser, { route: 'train/ask', demo: false });
@@ -870,6 +879,24 @@ FLOWS.push(['train: back follows the stack; the app\'s own switches land on Trai
   assert.equal(await route(page), 'train/ask');
   assert.match(await page.locator('#askThread').textContent(), /Parity probe answer/);
   await page.evaluate(() => app.newAskChat());
+  await page.context().close();
+}]);
+
+FLOWS.push(['train: a ride in progress is never swapped from Train (Fine-tune off, Ride it asks first)', async (browser) => {
+  const page = await openPhone(browser);
+  await tap(page, '#avStartRide');
+  await page.waitForFunction(() => app.isPlaying && app.totalElapsedSeconds >= 1);
+  const riding = await page.evaluate(() => app.currentWorkout.id);
+  await page.evaluate(() => ApexNative.shell.go('train/workouts'));
+  await page.evaluate(() => ApexNative.trainTab.openWorkout('carson'));
+  assert.equal(await page.locator('#avWorkoutEdit').isDisabled(), true, 'Fine-tune is off during a ride');
+  let asked = 0;
+  page.once('dialog', (d) => { asked++; d.dismiss(); });
+  await tap(page, '#avWorkoutRide');
+  assert.equal(asked, 1, 'Ride it asks before replacing the ride');
+  assert.equal(await page.evaluate(() => app.currentWorkout.id), riding);
+  assert.ok(await page.evaluate(() => app.isPlaying), 'still riding');
+  assert.deepEqual(page.errors, []);
   await page.context().close();
 }]);
 

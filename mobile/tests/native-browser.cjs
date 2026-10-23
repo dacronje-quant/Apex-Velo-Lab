@@ -832,9 +832,9 @@ async function brokerFlow(browser, errors) {
     await page.locator('#describeResult [data-describe="save"]').click();
     assert.ok(await page.evaluate(() => app.loadSavedWorkouts().some((w) => w.title === 'Five by Three at 115%')), 'saved to the library');
     await page.locator('#describeResult [data-describe="ride"]').click();
-    await page.waitForFunction(() => app.activeTab === 'cockpit' && app.currentWorkout.title === 'Five by Three at 115%');
+    await page.waitForFunction(() => app.currentWorkout.title === 'Five by Three at 115%' && ApexNative.shell.current.route === 'ride/live' && app.isPlaying);
     assert.equal(await page.evaluate(() => app.currentWorkout.intervals.filter((i) => i.pctFtp === 115).length), 5);
-    step('Describe a workout: built from the request only (no history sent), saved to the library and loaded into the cockpit');
+    step('Describe a workout: built from the request only (no history sent), saved to the library, loaded and started on the ride screen');
 
     // ------------------------------------------------------------- health (intervals.icu) --
     const icuKey = 'abc123def456ghi789jkl0';
