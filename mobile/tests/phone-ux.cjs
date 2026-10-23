@@ -261,6 +261,173 @@ FLOWS.push(['ride: customise tiles, panels and graph lines per rider, presets an
   await page.context().close();
 }]);
 
+
+// ------------------------------------------------------------------------------------------ train parity --
+// Every feature of today's Workouts, Coach, Calendar and Ask views, and where the Train tab has it.
+// [feature, route, selector, setup?]: setup runs on the route before the check (opens a sheet or a mode).
+const sheetOf = (id) => async (page) => { await page.evaluate((id) => ApexNative.trainTab.openWorkout(id), id); };
+const TRAIN_PARITY = [
+  ['week strip with planned and ridden days', 'train/plan', '.av-week-strip [data-av-day]'],
+  ['the day\'s session: ride it / swap', 'train/plan', '#avPlanSwap'],
+  ['training block: build, re-plan, open', 'train/plan', '#avPlanBuild'],
+  ['coach and calendar', 'train/plan', '#avOpenCalendar'],
+  ['library list (name, duration, TSS)', 'train/workouts', '#avWorkoutList [data-av-workout]'],
+  ...['all', 'endurance', 'sweetspot', 'threshold', 'vo2', 'hardstart', 'custom', 'assessment'].map((c) => [`filter: ${c}`, 'train/workouts', `[data-av-cat="${c}"]`]),
+  ['search', 'train/workouts', '#avWorkoutSearch', async (page) => { await tap(page, '#avWorkoutSearchBtn'); }],
+  ['show the whole library', 'train/workouts', '#avWorkoutsAll'],
+  ['workout sheet: profile, ride it', 'train/workouts', '#avWorkoutSheet #avWorkoutRide', sheetOf('carson')],
+  ['workout sheet: fine-tune', 'train/workouts', '#avWorkoutSheet #avWorkoutEdit', sheetOf('carson')],
+  ['ramp test (Tests)', 'train/workouts', '#avWorkoutList [data-av-workout]', async (page) => { await tap(page, '[data-av-cat="assessment"]'); }],
+  ['Describe a workout (examples, create)', 'train/workouts', '.av-sheet #describeInput', async (page) => { await tap(page, '#avDescribe'); }],
+  ['describe: create', 'train/workouts', '.av-sheet #btnDescribeCreate', async (page) => { await tap(page, '#avDescribe'); }],
+  ['custom interval builder: steps table', 'train/builder', '#customIntervalTableBody tr'],
+  ['custom interval builder: add step', 'train/builder', '#btnAddIntervalRow'],
+  ['save as preset (saved workouts)', 'train/builder', '#btnSaveCustomAsPreset'],
+  ['ride the fine-tuned workout', 'train/builder', '#avBuilderRide'],
+  ['coach: one workout or plan', 'train/coach', '#coachModePills [data-coach-mode="plan"]'],
+  ['coach: goal', 'train/coach', '#aiCoachGoalPills [data-goal="vo2"]'],
+  ['coach: focus, time available', 'train/coach', '#selectAiCoachFocus'],
+  ['coach: notes, look-back', 'train/coach', '#inputAiCoachNotes'],
+  ['coach: form, fitness, fatigue, readiness', 'train/coach', '#coachReadinessChip'],
+  ['coach: insights', 'train/coach', '#aiCoachInsights', async (page) => { await tap(page, '.av-coach-insights > summary'); }],
+  ['coach: prescribe / build (top bar too)', 'train/coach', '#btnGenerateAiCoachRecommendation'],
+  ['coach: training terms explained', 'train/coach', '#view-ai-coach [data-training-guide]'],
+  ['plan: weeks, days, long day, start, hours', 'train/coach', '#blockDays [data-dow="5"]', async (page) => { await page.evaluate(() => ApexNative.trainTab.openCoach('plan')); }],
+  ['plan: block weeks', 'train/coach', '#selectBlockWeeks + .chip-select, #selectBlockWeeks', async (page) => { await page.evaluate(() => ApexNative.trainTab.openCoach('plan')); }],
+  ['calendar: week / month / year / all time', 'train/calendar', '#calPresetPills [data-preset="ytd"]'],
+  ['calendar: prev / next / current', 'train/calendar', '#btnCalNextWeek'],
+  ['calendar: load rollup', 'train/calendar', '#calWeeklyTss'],
+  ['calendar: days', 'train/calendar', '#calendarContentArea > *'],
+  ['ask: question box and send', 'train/ask', '#askInput'],
+  ['ask: period', 'train/ask', '#askPeriodPills .ask-period'],
+  ['ask: what the AI sees', 'train/ask', '#askDataPeek > summary'],
+  ['ask: AI engine', 'train/ask', '#btnAskEngine'],
+  ['ask: thread (suggestions, history)', 'train/ask', '#askThread']
+];
+
+FLOWS.push(['train parity: every Workouts, Coach, Calendar and Ask feature is reachable from the Train tab', async (browser) => {
+  const page = await openPhone(browser);
+  const missing = [];
+  for (const [feature, r, sel, setup] of TRAIN_PARITY) {
+    await page.evaluate((r) => { while (ApexNative.shell.sheets.length) ApexNative.shell.closeSheet(); ApexNative.shell.go(r); }, r);
+    if (setup) await setup(page);
+    const loc = page.locator(sel).first();
+    if (!((await loc.count()) > 0 && (await loc.isVisible()))) missing.push(`${feature} (${r}: ${sel})`);
+  }
+  assert.deepEqual(missing, [], 'features missing from the Train tab');
+  // The recovery strip and rollup are the calendar's own (they show with recovery data); they stay in the hosted view.
+  await page.evaluate(() => ApexNative.shell.go('train/calendar'));
+  assert.equal(await page.locator('#view-calendar #calRecoveryRollup').count(), 1);
+  for (const p of ['1month', 'ytd', '1week']) { await tap(page, `#calPresetPills [data-preset="${p}"]`); assert.ok(await page.locator('#calendarContentArea > *').first().isVisible(), p); }
+  assert.deepEqual(page.errors, []);
+  await page.context().close();
+}]);
+
+FLOWS.push(['train: taps from launch (library workout 4 → ride screen, ask 2), roots ≤ 1.5 screens, no sideways scroll, 44 px targets', async (browser) => {
+  let page = await openPhone(browser);
+  const c = { taps: 0 };
+  await tap(page, '.av-tabbar [data-av-tab="train"]', c);
+  assert.equal(await route(page), 'train/plan');
+  await tap(page, '.av-subnav [data-av-seg="train/workouts"]', c);
+  await tap(page, '#avWorkoutList [data-av-workout]:nth-child(3)', c);
+  const id = await page.evaluate(() => document.querySelector('#avWorkoutList [data-av-workout]:nth-child(3)').dataset.avWorkout);
+  await tap(page, '#avWorkoutRide', c);
+  assert.equal(c.taps, 4, 'pick and start a library workout');
+  assert.equal(await route(page), 'ride/live');
+  await page.waitForFunction(() => app.isPlaying);
+  assert.equal(await page.evaluate(() => app.currentWorkout.id), id);
+  await page.context().close();
+  page = await openPhone(browser);
+  c.taps = 0;
+  await tap(page, '.av-tabbar [data-av-tab="train"]', c);
+  await tap(page, '.av-subnav [data-av-seg="train/ask"]', c);
+  assert.equal(c.taps, 2); assert.equal(await route(page), 'train/ask');
+  const box = await page.locator('#askInput').boundingBox();
+  assert.ok(box && box.y + box.height <= 852 - 76, 'question box above the fold and the tab bar');
+  for (const r of ['train/plan', 'train/workouts', 'train/ask', 'train/coach', 'train/calendar', 'train/builder']) {
+    await page.evaluate((r) => ApexNative.shell.go(r), r);
+    await page.waitForTimeout(300);
+    const sw = await sweep(page, { ignore: '.sr-only' });
+    assert.deepEqual(sw.small, [], `small targets on ${r}`); assert.ok(sw.overflowX <= 0, `${r} scrolls sideways (${sw.overflowX})`);
+    assert.ok(await page.locator('.av-tabbar').isVisible(), `bottom bar on ${r}`);
+    if (['train/plan', 'train/workouts', 'train/ask'].includes(r)) assert.ok((await page.evaluate(() => document.documentElement.scrollHeight)) <= 852 * 1.5 + 80, `${r} fits 1.5 screens`);
+    await screenshot(page, r.replace('/', '-'));
+  }
+  // Detail pages keep their main action above the fold.
+  await page.evaluate(() => ApexNative.shell.go('train/coach'));
+  assert.ok(await page.locator('#avCoachGo').isVisible());
+  await page.evaluate(() => ApexNative.trainTab.openWorkout('carson'));
+  const sw = await sweep(page, { ignore: '.sr-only' }); assert.deepEqual(sw.small, [], 'small targets on the workout sheet');
+  await page.evaluate(() => ApexNative.shell.closeSheet());
+  await page.evaluate(() => ApexNative.shell.go('train/workouts'));
+  await tap(page, '#avDescribe');
+  const sd = await sweep(page, { ignore: '.sr-only' }); assert.deepEqual(sd.small, [], 'small targets on Describe');
+  assert.deepEqual(page.errors, []);
+  await page.context().close();
+}]);
+
+FLOWS.push(['train: back follows the stack; the app\'s own switches land on Train; ramp test and Fine-tune ride; Ask history kept', async (browser) => {
+  let page = await openPhone(browser, { route: 'train/plan' });
+  await tap(page, '#avOpenCalendar'); assert.equal(await route(page), 'train/calendar');
+  await back(page); assert.equal(await route(page), 'train/plan');
+  await tap(page, '#avOpenCoach'); assert.equal(await route(page), 'train/coach');
+  await back(page); assert.equal(await route(page), 'train/plan');
+  await back(page); assert.equal(await route(page), 'ride', 'a Train root goes back to Ride');
+  await page.evaluate(() => app.switchTab('calendar')); assert.equal(await route(page), 'train/calendar');
+  await page.evaluate(() => app.switchTab('ai-coach')); assert.equal(await route(page), 'train/coach');
+  await page.evaluate(() => app.switchTab('workouts')); assert.equal(await route(page), 'train/workouts');
+  // Fine-tune: the builder edits the loaded workout; back returns to Workouts.
+  await page.evaluate(() => ApexNative.trainTab.openWorkout('carson'));
+  await tap(page, '#avWorkoutEdit'); assert.equal(await route(page), 'train/builder');
+  assert.equal(await page.evaluate(() => app.currentWorkout.id), 'carson');
+  const rows = await page.locator('#customIntervalTableBody tr').count();
+  await tap(page, '#btnAddIntervalRow');
+  assert.equal(await page.locator('#customIntervalTableBody tr').count(), rows + 1, 'add step');
+  await back(page); assert.equal(await route(page), 'train/workouts');
+  assert.equal(await page.locator('#view-workouts #customWorkoutTableSection').count(), 1, 'the table goes back to its view');
+  // Ramp test from Tests: the open-ended test is loaded and the ride screen starts.
+  await tap(page, '[data-av-cat="assessment"]');
+  await tap(page, '#avWorkoutList [data-av-workout]');
+  await tap(page, '#avWorkoutRide');
+  assert.equal(await route(page), 'ride/live');
+  assert.ok(await page.evaluate(() => !!app.rampTestConfig(app.currentWorkout)), 'ramp test loaded');
+  await page.context().close();
+  // Coach: today's workout from the built-in engine, Load into cockpit opens the Ride tab with it.
+  page = await openPhone(browser, { route: 'train/coach' });
+  await tap(page, '#avCoachGo');
+  await page.waitForSelector('#btnLoadAiCoachWorkout', { state: 'visible', timeout: 30000 });
+  const title = (await page.locator('#aiCoachWorkoutTitle').textContent()).trim();
+  await page.locator('#btnLoadAiCoachWorkout').scrollIntoViewIfNeeded(); await tap(page, '#btnLoadAiCoachWorkout');
+  assert.equal(await route(page), 'ride');
+  assert.equal(await page.evaluate(() => app.currentWorkout.title), title);
+  // Plan: a block from the built-in engine shows on Plan with Re-plan; a planned day rides from Plan.
+  await page.evaluate(() => ApexNative.trainTab.openCoach('plan'));
+  await page.evaluate(() => document.querySelectorAll('#blockDays [data-dow]').forEach((b) => { if (!b.classList.contains('active')) b.click(); }));
+  await tap(page, '#avCoachGo');
+  await page.waitForFunction(() => app.blockPlanner.block, null, { timeout: 30000 });
+  await page.evaluate(() => ApexNative.shell.go('train/plan'));
+  assert.ok(await page.locator('#avPlanReplan').isVisible(), 'block on Plan');
+  const day = await page.evaluate(() => { const m = app.blockPlanner.sessionsByDate(); const d = [...document.querySelectorAll('[data-av-day]')].find((b) => (m.get(b.dataset.avDay) || []).some((s) => s.status === 'planned')); return d && d.dataset.avDay; });
+  assert.ok(day, 'a planned day this week');
+  await tap(page, `[data-av-day="${day}"]`);
+  await screenshot(page, 'train-plan-block');
+  await tap(page, '#avPlanRide');
+  assert.equal(await route(page), 'ride/live');
+  assert.ok(await page.evaluate(() => /^blk_/.test(app.currentWorkout.id)), 'planned session loaded');
+  await page.context().close();
+  // Ask history: the saved chat comes back after a restart.
+  page = await openPhone(browser, { route: 'train/ask', demo: false });
+  await page.evaluate(() => { app.askMessages.push({ role: 'user', content: 'Parity probe question' }, { role: 'assistant', content: 'Parity probe answer' }); app.saveAsk(); });
+  await page.reload();
+  await page.waitForFunction(() => window.app && ApexNative.shell.current);
+  assert.equal(await route(page), 'train/ask');
+  assert.match(await page.locator('#askThread').textContent(), /Parity probe answer/);
+  await page.evaluate(() => app.newAskChat());
+  await page.context().close();
+}]);
+
+module.exports.TRAIN_PARITY = TRAIN_PARITY;
+
 module.exports.PARITY = PARITY;
 
 if (require.main === module) {
