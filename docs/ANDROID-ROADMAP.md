@@ -68,3 +68,4 @@ Ride features that do not exist in the app today, noted during the Wave 3 ride-v
 - **Laps**: mark laps during a free ride, with lap splits in the ride summary.
 - **Workout notes / coach text per interval**: on-screen instructions per step (e.g. "stay seated, high cadence").
 - **Power range limits**: rider-set minimum and maximum watt caps that ERG never goes beyond.
+- **Auto-pause / pedal-to-start**: `js/app-autostart.js` exists but is never loaded or wired; needs hooking into the start/pause path and 1 Hz tick in `js/app.js` (desktop and phone).
