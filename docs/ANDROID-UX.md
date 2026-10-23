@@ -1,6 +1,6 @@
 # Apex Velo for Android: phone UX proposal
 
-Status: **proposal for the owner to confirm** (decisions at the end). No app code changes in this PR.
+Status: **approved by the owner** (five tabs, simple ride view by default, phone only, "You" plus 3-step onboarding). No app code changes in this PR.
 
 The owner's brief: the look is fine, but the app is hard to use on a phone. Too much happens on each screen, finding
 tabs and sections takes too much scrolling, and moving around is hard. Make it simpler and easier to browse without
@@ -219,7 +219,32 @@ skipped**. Anything skipped can be done later from You.
 
 It ends on **Ride** with **Start ride** as the next step. "Explore a demo" stays as a link on step 1 for people who want to look around first.
 
-### 2.5 Desktop: keep the current layout (recommended)
+### 2.5 Live ride screen: examples
+
+The owner asked for more examples before the ride screen is built. All are in `docs/ux/mockups.html` (the "Live ride"
+group) and in `docs/ux/after/` at 393×852 (landscape is 852×393). The rules they follow:
+
+- **One number is the hero.** In ERG it is power against the target. With no power source it is heart rate, with a zone strip.
+- **The countdown and the next step are always visible.** The background takes the colour of the interval's zone.
+- **Three thumb-sized controls (64 px).** End stays on the left, away from Pause, so it is hard to hit by accident.
+  A ramp test swaps them for Pause and a large **I'm done**.
+- **Device problems are a banner, not a modal.** If a device drops out, the ride pauses, a banner shows that it is
+  reconnecting, and the rider can resume on another power source.
+- **Ending a ride goes to the summary:** name, Send to Strava, Save to Health Connect (both switches default to the
+  rider's Connections settings), an optional "How did it feel?", then **Save ride**.
+
+| | Screen | File |
+|---|---|---|
+| a | VO2 interval, 12 s left, next step shown | `ux/after/live-a-vo2.png` |
+| b | Recovery step | `ux/after/live-b-recovery.png` |
+| c | Ramp test in progress | `ux/after/live-c-ramp.png` |
+| d | Free ride, HR only (no power) | `ux/after/live-d-free.png` |
+| e | All metrics (⚙ › Show all metrics): step strip, live power/HR/cadence graph over the workout profile, 12 tiles, no scrolling. Everything else is in the Controls sheet. | `ux/after/live-e-full.png`, `ux/after/live-e-full-landscape.png` |
+| f | Landscape | `ux/after/live-f-landscape.png` |
+| g | Paused, a device reconnecting | `ux/after/live-g-paused.png` |
+| h | End-of-ride summary | `ux/after/live-h-summary.png` |
+
+### 2.6 Desktop: keep the current layout (recommended)
 
 **Recommendation: keep the desktop layout as it is, and turn on the new shell only in the Android app (`.apex-native`).**
 
@@ -367,7 +392,7 @@ Owners register their own routes; U1 registers interim pages so everything stays
 
 | Route | Owner | Interim page in U1 |
 |---|---|---|
-| `ride`, `ride/live`, `ride/cockpit` | U1 | Today, simple ride screen, full cockpit |
+| `ride`, `ride/live`, `ride/cockpit` | U1 | built: Today (`native-today.js`), the simple ride screen and all metrics (`native-ride-view.js`) |
 | `train/plan`, `train/workouts`, `train/ask` (+ `train/calendar`) | U2 | the Coach, Workouts, Ask and Calendar views under one segmented control |
 | `history`, `history/:rideId` | U3 | the History view; `history/<id>` opens the existing ride summary |
 | `progress`, `progress/<topic>` | U4 | the Analytics view |
@@ -396,3 +421,19 @@ Under `.apex-native`, `.btn-sm`, `.btn-xs`, `.icon-btn`, `.icon-btn-sm`, `.chip`
 - Tests: `require('./phone-ux.cjs')` gives `openPhone(browser, { route })`, `tap(page, selector, counter)`, `route(page)`,
   `back(page)` (fires Android back), `sweep(page, { ignore })` (controls under 44 px and sideways overflow) and `screenshot(page, name)`.
   Add your flows to `FLOWS` in `mobile/tests/phone-ux.cjs` (`npm run test:phone`).
+
+### 5.6 Ride tab (U1)
+
+- `ride`: Today (`mobile/src/native-today.js`). The app's recovery and first-run cards move here (ids kept). The
+  devices chip opens the devices sheet, `ApexNative.rideTab.today.openDevices()`.
+- `ride/live`: the simple ride screen (`mobile/src/native-ride-view.js`). It reads the outputs `js/app.js` keeps up to date
+  and presses the app's own buttons, so it computes nothing itself. The workout profile is the cockpit's own
+  `#intervalTrackWrap`, moved in while the screen is open.
+- `ride/cockpit`: all metrics. This is the cockpit view itself, flattened (`display: contents`) into one grid, so each part
+  can be shown, hidden and ordered.
+- Controls sheet: every ride control. The smoothing pills and ERG response control are moved in while the sheet is open.
+- Customise: `RideLayouts`, kept in localStorage `apex_ride_layout_v1` and keyed by `app.activeProfileId`. It stores
+  `{ simple: [{id,on}], full: [{id,on}], lines: {power,target,cadence,hr} }`, with the presets `minimal`, `standard`
+  and `everything`. Reset goes back to Standard. New catalog items are added switched off.
+- Parity: `PARITY` in `mobile/tests/phone-ux.cjs` lists every cockpit, Zen and Devices feature and where it lives.
+  The test opens each location and checks the feature is visible.

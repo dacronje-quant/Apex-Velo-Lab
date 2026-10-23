@@ -336,10 +336,11 @@ export function installHistory(shell, { win = window } = {}) {
     const a = app();
     if (!a || showSummary) return;
     // The app's own "open this ride" (calendar, analytics, Today, prev/next) opens the detail page instead of the
-    // modal. A ride that has just ended keeps the modal, over the ride screen.
+    // modal. A ride that has just ended (from the ride screen) keeps the modal: the Ride tab takes it back to Today.
     showSummary = a.showRideSummary;
+    const onRideScreen = () => !!shell.current && /^ride\/(live|cockpit)$/.test(shell.current.route);
     a.showRideSummary = function (record, isNaturalEnd = false) {
-      if (isNaturalEnd || !record || !findRide(record.id)) return showSummary.call(this, record, isNaturalEnd);
+      if (isNaturalEnd || onRideScreen() || !record || !findRide(record.id)) return showSummary.call(this, record, isNaturalEnd);
       if (detailFor === record.id && shell.current && shell.current.page.el === detail) return showSummary.call(this, record);
       shell.go(rideRoute(record.id), { replace: detailFor != null });
       return undefined;
