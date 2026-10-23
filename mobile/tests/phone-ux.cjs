@@ -194,6 +194,8 @@ const FLOWS = [
     assert.ok(await page.locator('#avAiAdvanced #nativeAiKey-claude').isVisible(), 'keys open when none is saved');
     if (await page.evaluate(() => typeof app.settingsLabel === 'function')) {
       assert.equal(await page.evaluate(() => app.settingsLabel('ai')), 'You > Connections > AI coach', 'js/ messages name the You page');
+      assert.equal(await page.evaluate(() => app.settingsLabel('health', 'Settings > Health')), 'You > Connections > intervals.icu');
+      assert.match(await page.evaluate(() => app.settingsLabel('appleHealth')), /Health Connect or intervals\.icu in You > Connections/, 'no Apple Health on the phone');
     }
     await page.evaluate(() => app.openModal('profileManagerModal'));
     assert.equal(await route(page), 'you/profile');
