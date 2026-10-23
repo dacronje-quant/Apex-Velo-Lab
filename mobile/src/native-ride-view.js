@@ -448,7 +448,7 @@ export class RideView {
       graph.className = 'av-gcard';
       graph.dataset.avFull = 'rideGraph';
       graph.innerHTML = `<canvas id="avRideGraph" aria-label="Power, heart rate and cadence over the workout profile"></canvas>
-        <div class="av-legend"><span data-line="power"><i class="lg-power"></i>Power</span><span data-line="hr"><i class="lg-hr"></i>HR</span><span data-line="cadence"><i class="lg-cad"></i>Cadence</span><span><i class="lg-ftp"></i>FTP</span><span class="num av-legend-time" id="avGraphTime"></span></div>`;
+        <div class="av-legend"><span data-legend="power"><i class="lg-power"></i>Power</span><span data-legend="hr"><i class="lg-hr"></i>HR</span><span data-legend="cadence"><i class="lg-cad"></i>Cadence</span><span><i class="lg-ftp"></i>FTP</span><span class="num av-legend-time" id="avGraphTime"></span></div>`;
       const after = top.nextSibling;
       view.insertBefore(strip, after);
       view.insertBefore(graph, after);
@@ -507,7 +507,7 @@ export class RideView {
     });
     this.applyLines(l.lines);
     this._graphN = -1;
-    for (const n of this.doc.querySelectorAll('.av-legend [data-line]')) n.hidden = !l.lines[n.dataset.line];
+    for (const n of this.doc.querySelectorAll('.av-legend [data-legend]')) n.hidden = !l.lines[n.dataset.legend];
     const app = this.app;
     if (app && app.telemetryChart) this.win.requestAnimationFrame(() => app.telemetryChart.resize());
   }

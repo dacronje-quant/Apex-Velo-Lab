@@ -129,10 +129,12 @@ const PARITY = [
   ['step name, number, zone', 'simple', '#avRideStep'], ['total elapsed', 'simple', '#avRideClock'], ['workout progress', 'simple', '#avRideProgress'],
   ['workout profile with position', 'simple', '.av-ride-profile #intervalCanvas'], ['up next (Zen)', 'simple', '#avRideNext'],
   ['coach / pedalling insight', 'simple', '#avRideCoach'], ['End (stop & save)', 'simple', '#avRideEnd'], ['Start / Pause / Resume', 'simple', '#avRidePause'], ['Skip step', 'simple', '#avRideSkip'],
-  ...['power', 'p1s', 'p3s', 'p30s', 'target', 'wkg', 'hr', 'cadence', 'wbal', 'lr', 'speed', 'distance', 'avg', 'np', 'if', 'tss', 'elapsed', 'stepLeft', 'zone', 'deviation', 'intensity', 'erg', 'source', 'powermatch', 'readiness', 'zoneTime']
+  ...['power', 'p1s', 'p3s', 'p30s', 'target', 'wkg', 'hr', 'cadence', 'wbal', 'lr', 'speed', 'distance', 'avg', 'np', 'if', 'tss', 'elapsed', 'stepLeft', 'zone', 'deviation', 'intensity', 'erg', 'source', 'powermatch', 'readiness', 'zoneTime', 'hrDrift']
     .map((t) => [`tile: ${t}`, 'simple', `[data-av-item="tile:${t}"]`]),
   ['in-cockpit Zen / Mini-HUD / Focus buttons', 'full', '#btnToggleFocusMode'], ['fine ERG bias ±1 % and reset (cockpit)', 'full', '#btnBiasReset'],
   ['ERG response (cockpit)', 'full', '#ergResponse'],
+  ['interval strip (step, target, time left, next)', 'full', '#avIstripLeft'], ['ride graph over the workout profile', 'full', '#avRideGraph'],
+  ['all-metrics tiles', 'full', '[data-av-full="ftile:np"]'],
   ['interval name and countdown', 'full', '#hudIntervalName'], ['status pill', 'full', '#hudWorkoutStatusPill'], ['target and cadence target tags', 'full', '#hudCadenceTargetTag'],
   ['compliance pill', 'full', '#hudCompliancePill'], ['rider badge', 'full', '#cockpitRiderBadge'], ['power ring', 'full', '#valInstantPower'],
   ['power source badge', 'full', '#hudPowerSourceBadge'], ['ERG status pill (toggles ERG)', 'full', '#hudErgStatusPill'],
@@ -231,7 +233,88 @@ FLOWS.push(['ride: back asks before ending, End saves and returns to Today, all 
   const before = await page.evaluate(() => app.completedWorkouts.length);
   await tap(page, '#avRideEnd'); await tap(page, '#avEndConfirm');
   await page.waitForFunction((n) => app.completedWorkouts.length === n + 1, before);
+  assert.match(await route(page), /^ride\/summary\//, 'End opens the ride summary');
+  assert.equal(await page.locator('#rideSummaryModal.open').count(), 0, 'not the desktop dialog');
+  await tap(page, '#avSummaryDone');
   assert.equal(await route(page), 'ride');
+  await page.context().close();
+}]);
+
+FLOWS.push(['ride summary: KPIs and graph, rename saves to history, Strava send, Full analysis, Discard asks then removes; 44 px, no sideways scroll', async (browser) => {
+  const page = await openPhone(browser);
+  await tap(page, '#avStartRide');
+  await page.waitForFunction(() => app.totalElapsedSeconds >= 3, null, { timeout: 15000 });
+  await tap(page, '#avRideEnd'); await tap(page, '#avEndConfirm');
+  await page.waitForFunction(() => /^ride\/summary\//.test(ApexNative.shell.current.route));
+  const id = await page.evaluate(() => ApexNative.shell.current.params.rideId);
+  assert.ok(await page.locator('#avSummaryGraph').isVisible());
+  assert.equal(await page.locator('.av-kpi').count(), 6);
+  assert.ok(await page.locator('#avSummarySync').isVisible(), 'sync rows');
+  const sw = await sweep(page); assert.deepEqual(sw.small, [], 'small targets on the summary'); assert.ok(sw.overflowX <= 0);
+  await screenshot(page, 'summary');
+  await page.locator('#avSummaryName').fill('Morning spin');
+  await page.locator('#avSummaryName').blur();
+  assert.equal(await page.evaluate((id) => app.completedWorkouts.find((r) => r.id === id).title, id), 'Morning spin');
+  await tap(page, '#avSummaryAnalysis');
+  assert.equal(await route(page), 'history/' + id);
+  await page.evaluate((id) => { app.closeModal('rideSummaryModal'); ApexNative.shell.go('ride/summary/' + id); }, id);
+  page.once('dialog', (d) => d.accept());
+  await tap(page, '#avSummaryDiscard');
+  await page.waitForFunction((id) => !app.completedWorkouts.some((r) => r.id === id), id);
+  assert.equal(await route(page), 'ride');
+  await page.context().close();
+}]);
+
+FLOWS.push(['ride polish: HR-only hero and banner without a power source; deviation bar; step-change flash; trainer power when the pedals drop; HR drift tile', async (browser) => {
+  const page = await openPhone(browser);
+  await tap(page, '#avStartRide');
+  await page.waitForFunction(() => app.totalElapsedSeconds >= 2, null, { timeout: 15000 });
+  assert.ok(await page.locator('#avDevBar').isVisible(), 'deviation bar while riding to a target');
+  // No power source: simulator off, no fresh pedal or trainer reading, heart rate present.
+  await page.evaluate(() => { app.simulator.enabled = false; app.devicePowerFresh = () => ({ pedals: false, trainer: false }); document.getElementById('valHeartRate').textContent = '142'; });
+  await page.waitForTimeout(400);
+  assert.ok(await page.locator('#avRide.av-hr-only').count(), 'HR-only mode');
+  assert.equal(await page.locator('#avRidePower').textContent(), '142');
+  assert.ok(await page.locator('#avHrZones').isVisible());
+  assert.ok(await page.locator('#avNoPowerBanner').isVisible(), 'no power source banner');
+  assert.equal(await page.locator('#avDevBar').isVisible(), false);
+  await tap(page, '#avNoPowerBanner');
+  assert.ok(await page.locator('#avDevicesSheet').isVisible(), 'the banner opens the devices sheet');
+  await back(page);
+  // Pedals reconnecting while the trainer is connected: offer the trainer's power, which sets the source and resumes.
+  await page.evaluate(() => {
+    const diag = app.ble.getDiagnostics.bind(app.ble), conn = app.ble.isConnected.bind(app.ble);
+    app.ble.getDiagnostics = (k) => (k === 'pedals' ? { ...diag(k), state: 'reconnecting' } : diag(k));
+    app.ble.isConnected = (k) => (k === 'trainer' ? true : conn(k));
+    document.getElementById('btnPlayPause').click(); // paused by the drop
+  });
+  await page.waitForTimeout(400);
+  assert.ok(await page.locator('#avUseTrainerPower').isVisible());
+  await tap(page, '#avUseTrainerPower');
+  assert.equal(await page.evaluate(() => app.powerSourcePreference), 'trainer');
+  assert.ok(await page.evaluate(() => app.isPlaying), 'resumed');
+  // Step change: the screen flashes.
+  await page.evaluate(() => document.getElementById('btnSkipInterval').click());
+  await page.waitForFunction(() => document.getElementById('avRide').classList.contains('av-flash'));
+  // HR drift tile reads js/velo-insight.js.
+  assert.equal(await page.evaluate(() => ApexNative.rideTab.ride.hrDrift()), 'after 20 min');
+  await page.context().close();
+}]);
+
+FLOWS.push(['ride: Zen from Today before Start (deep link to the ride screen); Zen START starts the ride, Exit returns to it running', async (browser) => {
+  const page = await openPhone(browser);
+  await page.evaluate(() => ApexNative.shell.go('ride/live'));
+  assert.equal(await page.evaluate(() => app.isPlaying), false);
+  await tap(page, '#avRideControls'); await page.locator('#avZen').scrollIntoViewIfNeeded(); await tap(page, '#avZen');
+  await page.waitForTimeout(300);
+  assert.ok(await page.locator('#zenCockpitOverlay').isVisible());
+  assert.equal(await page.evaluate(() => app.isPlaying), false, 'opening Zen does not start the ride');
+  await tap(page, '#btnZenPlayPause');
+  await page.waitForFunction(() => app.isPlaying);
+  await tap(page, '#btnCloseZenCockpit');
+  assert.equal(await route(page), 'ride/live');
+  await page.waitForTimeout(300);
+  assert.match(await page.locator('#avRidePause').textContent(), /Pause/);
   await page.context().close();
 }]);
 
@@ -275,14 +358,14 @@ FLOWS.push(['ride: customise tiles, panels and graph lines per rider, presets an
   await page.evaluate(() => ApexNative.shell.go('ride/live'));
   await tap(page, '#avRideControls'); await page.locator('#avCustomise').scrollIntoViewIfNeeded(); await tap(page, '#avCustomise');
   await tap(page, '.av-customise [data-which="full"]');
-  await tap(page, '[data-av-cust="graph"] [data-toggle]');
+  await tap(page, '[data-av-cust="rideGraph"] [data-toggle]');
   await tap(page, '[data-line="hr"]');
   assert.equal(await page.evaluate(() => app.telemetryChart.data.datasets.find((d) => /^Heart rate/.test(d.label)).hidden), true, 'HR line hidden');
   await page.reload();
   await page.waitForFunction(() => window.app && ApexNative.shell.current);
   const l = await page.evaluate(() => ApexNative.rideTab.ride.layout());
   assert.equal(l.simple.find((x) => x.id === 'tile:hr').on, false);
-  assert.equal(l.full.find((x) => x.id === 'graph').on, false);
+  assert.equal(l.full.find((x) => x.id === 'rideGraph').on, false);
   assert.equal(l.lines.hr, false);
   const other = await page.evaluate(() => ApexNative.rideTab.ride.layouts.get('someone-else'));
   assert.equal(other.simple.find((x) => x.id === 'tile:hr').on, true, 'per rider');
