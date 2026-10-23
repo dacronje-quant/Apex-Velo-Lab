@@ -411,7 +411,7 @@ export class HealthConnectDestination {
       return { externalId: (r && r.id) || 'apexvelo-' + ride.id };
     } catch (e) {
       const permission = e && e.code === 'PERMISSION';
-      throw Object.assign(new Error(permission ? 'Health Connect no longer allows Apex Velo to save rides. Allow it in Settings > Health.' : `Health Connect: ${(e && e.message) || e}`),
+      throw Object.assign(new Error(permission ? 'Health Connect no longer allows Apex Velo to save rides. Allow it in You > Connections > Health Connect.' : `Health Connect: ${(e && e.message) || e}`),
         { needsConnect: permission, retryable: !permission });
     }
   }
