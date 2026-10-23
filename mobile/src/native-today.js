@@ -248,9 +248,15 @@ export function installRideTab({ shell, win = window }) {
     if (!P || !P.finishWorkout || P.finishWorkout.__avShell) return;
     const finish = P.finishWorkout;
     P.finishWorkout = function (...args) {
+      const before = new Set((this.completedWorkouts || []).map((r) => r.id));
       const r = finish.apply(this, args);
       const cur = shell.current && shell.current.route;
-      if (this.isWorkoutCompleted && (cur === 'ride/live' || cur === 'ride/cockpit')) shell.go('ride', { replace: true });
+      if (this.isWorkoutCompleted && (cur === 'ride/live' || cur === 'ride/cockpit')) {
+        // The phone's own summary (mock-up h) instead of the desktop's deep-dive dialog.
+        const saved = (this.completedWorkouts || []).find((x) => !before.has(x.id));
+        if (saved) { if (this.closeModal) this.closeModal('rideSummaryModal'); shell.go('ride/summary/' + encodeURIComponent(saved.id), { replace: true }); }
+        else shell.go('ride', { replace: true });
+      }
       return r;
     };
     P.finishWorkout.__avShell = true;
