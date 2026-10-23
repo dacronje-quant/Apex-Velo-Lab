@@ -120,6 +120,139 @@ const FLOWS = [
     assert.equal(await route(page), 'history', 'back closed the sheet only');
     await page.context().close();
   }],
+  ['history: open the last ride in 2 taps; the detail page hosts the ride summary; back returns to the list', async (browser) => {
+    const page = await openPhone(browser);
+    const c = { taps: 0 };
+    await tap(page, '.av-tabbar [data-av-tab="history"]', c);
+    assert.ok(await page.locator('.av-month').first().isVisible(), 'month groups');
+    assert.equal(await page.locator('#view-history').isVisible(), false, 'the desktop table is not shown');
+    let s = await sweep(page);
+    assert.deepEqual(s.small, []); assert.ok(s.overflowX <= 0, 'no sideways scroll on history');
+    const newest = await page.evaluate(() => [...app.completedWorkouts].sort((a, b) => new Date(b.date) - new Date(a.date))[0].id);
+    await tap(page, '.av-ride-row', c);
+    assert.equal(c.taps, 2);
+    assert.equal(await route(page), `history/${newest}`);
+    await page.locator('.av-ride-detail #modalRideDetails .inspector-header-stats').waitFor();
+    assert.equal(await page.evaluate(() => document.getElementById('rideSummaryModal').classList.contains('open')), false, 'no modal on the phone');
+    assert.ok((await page.locator('.av-ride-detail .inspector-header-stats').boundingBox()).y < 852, 'KPIs above the fold');
+    assert.ok(await page.locator('.av-tabbar').isVisible());
+    s = await sweep(page);
+    assert.deepEqual(s.small, []); assert.ok(s.overflowX <= 0, 'no sideways scroll on the ride');
+    await screenshot(page, 'history-ride');
+    await tap(page, '#btnRidePrev');
+    assert.notEqual(await route(page), `history/${newest}`, 'previous ride opens in place');
+    await back(page);
+    assert.equal(await route(page), 'history');
+    assert.equal(await page.locator('#rideSummaryModal > .modal-content').count(), 1, 'the summary went back to its modal');
+    // The app's own "open this ride" (analytics, calendar, Today) opens the page; deep links work.
+    await page.evaluate((id) => { ApexNative.shell.go('progress'); app.showRideSummaryById(id); }, newest);
+    assert.equal(await route(page), `history/${newest}`);
+    assert.equal(page.errors.length, 0, page.errors.join('\n'));
+    await page.context().close();
+    const deep = await openPhone(browser, { route: `history/${newest}` });
+    await deep.locator('.av-ride-detail .inspector-header-stats').waitFor();
+    await deep.context().close();
+  }],
+  ['history: import in 2 taps; the import card comes back after the sheet; search, filters and History options', async (browser) => {
+    const page = await openPhone(browser);
+    const c = { taps: 0 };
+    await tap(page, '.av-tabbar [data-av-tab="history"]', c);
+    await screenshot(page, 'history');
+    await tap(page, '#avHistAdd', c);
+    assert.equal(c.taps, 2);
+    const b = await page.locator('.av-sheet #btnImportHistory').boundingBox();
+    assert.ok(b && b.y + b.height <= 852, 'Import history above the fold');
+    assert.ok(await page.locator('.av-sheet #btnChooseImportFiles').isVisible());
+    const s = await sweep(page);
+    assert.deepEqual(s.small, []); assert.ok(s.overflowX <= 0);
+    await screenshot(page, 'history-import');
+    await back(page);
+    assert.equal(await page.locator('#view-history #importSyncCard').count(), 1, 'import card restored');
+    // Search and filters
+    await tap(page, '#avHistSearchBtn');
+    await page.fill('#avHistSearch', 'tempo');
+    const titles = await page.locator('.av-ride-row b').allTextContents();
+    assert.ok(titles.length && titles.every((t) => /tempo/i.test(t)), 'search filters by title');
+    await tap(page, '.av-hist-chips [data-filter="other"]');
+    assert.match(await page.locator('#avHistCount').textContent(), / of /);
+    await tap(page, '#avHistSearchBtn');
+    assert.equal(await page.locator('#avHistCount').textContent(), `${await page.evaluate(() => app.completedWorkouts.length)} rides`, 'closing search clears it');
+    // History options: Check Strava, exports, training-load options, clear
+    await tap(page, '#avHistMore');
+    const rows = (await page.locator('.av-sheet .av-row b').allTextContents()).join('|');
+    for (const t of ['Check Strava', 'Full backup · JSON', 'Current session · FIT', 'Training-load options', 'Clear all history...']) assert.ok(rows.includes(t), t);
+    await tap(page, '.av-sheet .av-row:has-text("Training-load options")');
+    assert.match(await route(page), /^you/, 'training-load options open You > Your data');
+    assert.equal(page.errors.length, 0, page.errors.join('\n'));
+    await page.context().close();
+  }],
+  ['history: a ride recorded here opens with its ride plot (lanes, scrub), interval diagnosis and AI breakdown', async (browser) => {
+    const page = await openPhone(browser);
+    await tap(page, '#avStartRide');
+    await page.waitForFunction(() => app.totalElapsedSeconds >= 2, null, { timeout: 15000 });
+    // Five minutes of 1 Hz data with hard steps (the few real seconds extended), then End.
+    const id = await page.evaluate(() => {
+      const ftp = app.activeProfile.ftp, last = app.recordedSamples.at(-1), t0 = last.timestamp;
+      app.recordedSamples = Array.from({ length: 300 }, (_, i) => {
+        const hard = Math.floor(i / 60) % 2 === 1, target = Math.round(ftp * (hard ? 1.05 : 0.55));
+        return { ...last, time: i, timestamp: t0 + i * 1000, target, power: target + ((i * 7) % 11) - 5, hr: hard ? 160 : 125, cadence: hard ? 95 : 85 };
+      });
+      app.totalElapsedSeconds = 300;
+      const before = app.completedWorkouts.length;
+      app.finishWorkout(false);
+      if (app.completedWorkouts.length !== before + 1) throw new Error('ride not saved');
+      const ride = [...app.completedWorkouts].sort((a, b) => new Date(b.date) - new Date(a.date))[0];
+      ride.aiBreakdown = { text: '**Steady repeats.** Cadence held on both hard steps.', model: 'test', label: 'Test coach', at: Date.now() };
+      return ride.id;
+    });
+    await page.waitForFunction(() => ApexNative.shell.current.route === 'ride');
+    await page.evaluate(() => app.closeModal('rideSummaryModal'));
+    await tap(page, '.av-tabbar [data-av-tab="history"]');
+    await tap(page, `.av-ride-row[data-ride="${id}"]`);
+    assert.equal(await route(page), `history/${id}`);
+    const canvas = page.locator('.av-ride-detail #rideScrubCanvas');
+    await canvas.waitFor();
+    await page.waitForFunction(() => window.Chart && Chart.getChart(document.getElementById('rideScrubCanvas')));
+    const box = await canvas.boundingBox();
+    assert.ok(box.height > 150 && box.width > 250, 'the ride plot has its lanes');
+    const readout = await page.locator('#scrubReadout').textContent();
+    await canvas.scrollIntoViewIfNeeded();
+    const b2 = await canvas.boundingBox();
+    await page.mouse.move(b2.x + b2.width * 0.6, b2.y + b2.height * 0.3);
+    await page.waitForFunction((t) => document.getElementById('scrubReadout').textContent !== t, readout, { timeout: 3000 }); // the scrub readout follows the pointer
+    assert.ok(await page.locator('.av-ride-detail #intervalDiagnosis').isVisible(), 'interval diagnosis');
+    assert.match(await page.locator('.av-ride-detail .ai-breakdown').textContent(), /Steady repeats/);
+    assert.ok(await page.locator('.av-ride-detail [data-ai-breakdown]').count(), 'Ask again for a new breakdown');
+    const s = await sweep(page);
+    assert.deepEqual(s.small, []); assert.ok(s.overflowX <= 0);
+    await screenshot(page, 'history-recorded');
+    await back(page);
+    assert.equal(await page.evaluate(() => Chart.getChart(document.getElementById('rideScrubCanvas')) || null), null, 'the chart is destroyed on leaving');
+    assert.equal(page.errors.length, 0, page.errors.join('\n'));
+    await page.context().close();
+  }],
+  ['history: ride options edit the title and notes, export and delete', async (browser) => {
+    const page = await openPhone(browser, { route: 'history' });
+    const id = await page.locator('.av-ride-row').first().getAttribute('data-ride');
+    await tap(page, '.av-ride-row');
+    await tap(page, '.av-topbar .av-more-btn');
+    await tap(page, '.av-sheet .av-row:has-text("Edit title and notes")');
+    await page.fill('#avRideTitle', 'Hill repeats');
+    await page.fill('#avRideNotes', 'Windy, legs good');
+    await tap(page, '.av-sheet button[type=submit]');
+    assert.equal(await page.evaluate((id) => app.completedWorkouts.find((r) => r.id === id).title, id), 'Hill repeats');
+    assert.equal(await page.locator('.av-topbar .av-title').textContent(), 'Hill repeats');
+    assert.equal(await page.locator('.av-ride-notes').textContent(), 'Windy, legs good');
+    await tap(page, '.av-topbar .av-more-btn');
+    const rows = (await page.locator('.av-sheet .av-row b').allTextContents()).join('|');
+    for (const t of ['Export FIT', 'Export TCX', 'Export CSV', 'Delete ride...']) assert.ok(rows.includes(t), t);
+    page.once('dialog', (d) => d.accept());
+    await tap(page, '.av-sheet .av-row:has-text("Delete ride...")');
+    await page.waitForFunction(() => ApexNative.shell.current.route === 'history');
+    assert.equal(await page.evaluate((id) => app.completedWorkouts.some((r) => r.id === id), id), false);
+    assert.equal(page.errors.length, 0, page.errors.join('\n'));
+    await page.context().close();
+  }],
 
   // ------------------------------------------------------------------ U5: You and onboarding --
   ['you: six pages one tap from You; every You route passes the sweep; back follows page > You > Ride', async (browser) => {

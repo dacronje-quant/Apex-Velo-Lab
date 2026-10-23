@@ -23,6 +23,7 @@ import { NativeAi } from './native-ai.js';
 import { NativeIcu } from './native-icu.js';
 import { bootNativeApp } from './native-app.js';
 import { installShell } from './native-shell.js';
+import { installHistory } from './native-history.js';
 import { installRideTab } from './native-today.js';
 import { installYou } from './native-you.js';
 import { installOnboarding } from './native-onboarding.js';
@@ -114,6 +115,7 @@ if (fake || Capacitor.isNativePlatform()) {
   // Phone navigation (docs/ANDROID-UX.md): bottom tabs, pages, sheets, routes; the screens register their pages on it.
   const shell = installShell({ exit: () => plugins.App.minimizeApp().catch(() => {}) });
   window.ApexNative.shell = shell;
+  window.ApexNative.history = installHistory(shell); // History tab and ride detail (U3)
   window.ApexNative.rideTab = installRideTab({ shell });
   bootNativeApp({ bluetooth, storage, strava, ai, icu, uploads, plugins, ride, healthConnect, wellness, shell });
   installNativeImportUi({ nativeImport, jobs: importJobs, App: plugins.App });
