@@ -67,6 +67,10 @@ export const FULL_PANELS = {
   tss: ['TSS and kJ', '.ss-stats > .metric-cell:nth-child(6)'],
   profile: ['Workout profile', '#intervalTrackWrap'],
   queue: ['Interval queue (tap to jump)', '#upcomingIntervalsStrip'],
+  stepControls: ['Step controls (reset, Stand 30s, ±30 s)', '.timeline-controls > .control-btn-group:nth-child(1)'],
+  biasControls: ['Fine ERG bias (±1 %, reset)', '.timeline-controls > .control-btn-group:nth-child(2)'],
+  views: ['Zen, Mini-HUD and Focus buttons', '.timeline-controls > .control-views'],
+  ergResponse: ['ERG response', '.erg-response-control'],
   graph: ['Live graph (last 2 min)', '#liveTelemetryChart'], // its card
   lr: ['Left / right balance', '.polar-card'],
   zones: ['Time in zone', '.zone-distribution-wrap']
@@ -423,6 +427,11 @@ export class RideView {
     if (erg) { const holder = this.doc.createElement('div'); holder.className = 'av-row av-row-sub'; show.appendChild(holder); this._ergHome = this._ergHome || erg.parentNode; this._ergNext = this._ergNext || erg.nextSibling; holder.appendChild(erg); }
     const full = this.shell.current && this.shell.current.route === 'ride/cockpit';
     show.appendChild(S.row({ icon: 'i-grid', title: full ? 'Simple view' : 'Show all metrics', sub: full ? 'Power, countdown and your tiles' : 'Live graph, L/R, W′ balance, every number', id: 'avToggleFull', onClick: () => { S.closeSheet(); S.go(full ? 'ride/live' : 'ride/cockpit', { replace: true }); } }));
+    show.appendChild(S.row({ icon: 'i-zen', title: 'Zen cockpit', sub: 'The full-screen Zen view; Exit or back returns here', id: 'avZen', onClick: () => { S.closeSheet(); this.$('btnToggleZenMode')?.click(); } }));
+    show.appendChild(S.row({ icon: 'i-focus', title: 'Focus mode', sub: 'All metrics with only the essentials', end: sw('avFocusSwitch', this.doc.body.classList.contains('focus-mode'), () => {
+      this.$('btnToggleFocusMode')?.click();
+      if (this.doc.body.classList.contains('focus-mode') && !full) { S.closeSheet(); S.go('ride/cockpit', { replace: true }); }
+    }) }));
     show.appendChild(S.row({ icon: 'i-edit', title: 'Customise this screen', sub: 'Tiles, panels and graph lines; presets', id: 'avCustomise', onClick: () => { S.closeSheet(); this.openCustomise(full ? 'full' : 'simple'); } }));
     const pip = this.$('btnTogglePip');
     if (pip && this.doc.pictureInPictureEnabled) show.appendChild(S.row({ icon: 'i-pip', title: 'Mini-HUD (picture in picture)', onClick: press('btnTogglePip'), id: 'avPip' }));

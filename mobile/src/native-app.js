@@ -1186,8 +1186,8 @@ export function bootNativeApp({ bluetooth, storage, strava, ai, icu, uploads, pl
     if (healthConnect && app.syncHealthConnect) app.syncHealthConnect().catch(() => {}); // at most every 15 minutes
   });
 
-  // Android back: close the chooser, then the top dialog, then follow the shell's stack (sheet > page > tab
-  // root > Ride > leave); never quit mid-ride.
+  // Android back: close the chooser, then the top dialog, then Zen, then follow the shell's stack (sheet > page >
+  // tab root > Ride > leave); never quit mid-ride.
   App.addListener('backButton', () => {
     if (bluetooth && bluetooth.cancelChooser()) return;
     const app = win.app;
@@ -1195,9 +1195,9 @@ export function bootNativeApp({ bluetooth, storage, strava, ai, icu, uploads, pl
     if (open && app) { app.closeModal(open.id); return; }
     const devices = doc.getElementById('hardwareModal');
     if (devices && !devices.hidden && app && app.closeDevicesFocus) { app.closeDevicesFocus(); return; }
-    if (shell) { shell.back(); return; }
     const zen = doc.getElementById('zenCockpitOverlay');
     if (zen && zen.style.display !== 'none') { const b = doc.getElementById('btnCloseZenCockpit'); if (b) { b.click(); return; } }
+    if (shell) { shell.back(); return; }
     const cockpit = doc.querySelector('.nav-btn[data-tab="cockpit"]');
     if (cockpit && !cockpit.classList.contains('active')) { cockpit.click(); return; }
     App.minimizeApp().catch(() => {});

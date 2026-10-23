@@ -91,20 +91,19 @@ body.av-shell[data-av-route="ride/live"] main { padding: 0; }
 /* --- All metrics: the cockpit view, flattened into one ordered grid --- */
 body.av-full-ride main { padding: 0 12px calc(96px + env(safe-area-inset-bottom, 0px)); }
 body.av-full-ride #view-cockpit { display: grid !important; grid-template-columns: repeat(6, minmax(0, 1fr)); gap: 8px; padding-top: env(safe-area-inset-top, 0px); }
-body.av-full-ride #view-cockpit :is(.ss-stage, .ss-right, .ss-timeline, .ss-stats, .cockpit-grid, .col-span-6, .col-span-3, .stack) { display: contents; }
+body.av-full-ride #view-cockpit :is(.ss-stage, .ss-right, .ss-timeline, .ss-stats, .cockpit-grid, .col-span-6, .col-span-3, .stack, .timeline-controls) { display: contents; }
+body.av-full-ride.focus-mode #view-cockpit :is(.ss-right, .ss-details, .ss-stats, .upcoming-intervals-strip, .control-views) { display: none; }
 body.av-full-ride #view-cockpit > *, body.av-full-ride #view-cockpit [data-av-full] { grid-column: span 6; min-width: 0; margin: 0; }
 body.av-full-ride #view-cockpit .ss-stats > .metric-cell,
 body.av-full-ride #view-cockpit .ss-right > .metric-cell { grid-column: span 2; }
 body.av-full-ride #view-cockpit [data-av-full].av-off { display: none !important; }
-body.av-full-ride #view-cockpit :is(.ss-tl-head, #intervalTrackWrap, #upcomingIntervalsStrip, .timeline-controls, .erg-response-control) {
+body.av-full-ride #view-cockpit :is(.ss-tl-head, #intervalTrackWrap, #upcomingIntervalsStrip, .control-btn-group, .erg-response-control) {
   padding: 12px; border-radius: 18px; border: 1px solid var(--line); background: rgba(255, 255, 255, .04); }
-body.av-full-ride #view-cockpit .timeline-controls { order: 900; }
-body.av-full-ride #view-cockpit .erg-response-control { order: 901; }
-body.av-full-ride #view-cockpit .timeline-controls .control-views,
+body.av-full-ride #view-cockpit .control-btn-group { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
 body.av-full-ride #view-cockpit .ss-dock > :is(#btnPlayPause, #btnSkipInterval, #btnEndWorkout) { display: none; }
 body.av-full-ride #view-cockpit .welcome-card { display: none; }
 body.av-full-ride #view-cockpit :is(.btn, .segmented > button, select) { min-height: 44px; }
-body.av-full-ride #view-cockpit .segmented > button { min-width: 44px; }
+body.av-full-ride #view-cockpit :is(.btn, .segmented > button) { min-width: 44px; }
 .av-full-top { order: -1; display: flex; align-items: center; justify-content: space-between; padding: 8px 0; grid-column: 1 / -1; }
 .av-full-top .btn { min-height: 44px; }
 .av-full-ctrl { position: fixed; left: 0; right: 0; bottom: 0; z-index: 70; grid-template-columns: 1fr 1.3fr 1fr 1.2fr; padding: 10px 12px calc(10px + env(safe-area-inset-bottom, 0px));
@@ -124,3 +123,9 @@ body:not(.av-full-ride) .av-full-ctrl, body:not(.av-full-ride) .av-full-top { di
 .av-cust-end .icon-btn[disabled] { opacity: .3; }
 .av-confirm { display: flex; flex-direction: column; gap: 10px; }
 .av-confirm p { margin: 0; color: var(--text-2); }
+
+/* --- Zen cockpit on the phone (Controls › Zen cockpit): above the shell, safe areas, 44 px controls, scrolls if needed --- */
+.apex-native .zen-cockpit-overlay { z-index: 300; overflow-y: auto; padding: calc(10px + env(safe-area-inset-top, 0px)) 16px calc(14px + env(safe-area-inset-bottom, 0px)); }
+.apex-native .zen-cockpit-overlay :is(.btn, .segmented > button, .smooth-pill) { min-height: 44px; min-width: 44px; }
+.apex-native .zen-top-strip, .apex-native .zen-top-right, .apex-native .zen-bottom-bar { flex-wrap: wrap; gap: 8px; }
+.apex-native .zen-cockpit-overlay .zen-mini-canvas-wrap { display: block; width: 100%; height: 44px; }
