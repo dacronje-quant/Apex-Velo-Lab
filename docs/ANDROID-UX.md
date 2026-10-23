@@ -392,7 +392,7 @@ Owners register their own routes; U1 registers interim pages so everything stays
 
 | Route | Owner | Interim page in U1 |
 |---|---|---|
-| `ride`, `ride/live`, `ride/cockpit` | U1 | Today, simple ride screen, full cockpit |
+| `ride`, `ride/live`, `ride/cockpit` | U1 | built: Today (`native-today.js`), the simple ride screen and all metrics (`native-ride-view.js`) |
 | `train/plan`, `train/workouts`, `train/ask` (+ `train/calendar`) | U2 | the Coach, Workouts, Ask and Calendar views under one segmented control |
 | `history`, `history/:rideId` | U3 | the History view; `history/<id>` opens the existing ride summary |
 | `progress`, `progress/<topic>` | U4 | the Analytics view |
@@ -421,3 +421,19 @@ Under `.apex-native`, `.btn-sm`, `.btn-xs`, `.icon-btn`, `.icon-btn-sm`, `.chip`
 - Tests: `require('./phone-ux.cjs')` gives `openPhone(browser, { route })`, `tap(page, selector, counter)`, `route(page)`,
   `back(page)` (fires Android back), `sweep(page, { ignore })` (controls under 44 px and sideways overflow) and `screenshot(page, name)`.
   Add your flows to `FLOWS` in `mobile/tests/phone-ux.cjs` (`npm run test:phone`).
+
+### 5.6 Ride tab (U1)
+
+- `ride`: Today (`mobile/src/native-today.js`). The app's recovery and first-run cards move here (ids kept). The
+  devices chip opens the devices sheet, `ApexNative.rideTab.today.openDevices()`.
+- `ride/live`: the simple ride screen (`mobile/src/native-ride-view.js`). It reads the outputs `js/app.js` keeps up to date
+  and presses the app's own buttons, so it computes nothing itself. The workout profile is the cockpit's own
+  `#intervalTrackWrap`, moved in while the screen is open.
+- `ride/cockpit`: all metrics. This is the cockpit view itself, flattened (`display: contents`) into one grid, so each part
+  can be shown, hidden and ordered.
+- Controls sheet: every ride control. The smoothing pills and ERG response control are moved in while the sheet is open.
+- Customise: `RideLayouts`, kept in localStorage `apex_ride_layout_v1` and keyed by `app.activeProfileId`. It stores
+  `{ simple: [{id,on}], full: [{id,on}], lines: {power,target,cadence,hr} }`, with the presets `minimal`, `standard`
+  and `everything`. Reset goes back to Standard. New catalog items are added switched off.
+- Parity: `PARITY` in `mobile/tests/phone-ux.cjs` lists every cockpit, Zen and Devices feature and where it lives.
+  The test opens each location and checks the feature is visible.
