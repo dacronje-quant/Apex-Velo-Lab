@@ -205,8 +205,8 @@ const FLOWS = [
       ride.aiBreakdown = { text: '**Steady repeats.** Cadence held on both hard steps.', model: 'test', label: 'Test coach', at: Date.now() };
       return ride.id;
     });
-    await page.waitForFunction(() => ApexNative.shell.current.route === 'ride');
-    await page.evaluate(() => app.closeModal('rideSummaryModal'));
+    await page.waitForFunction(() => /^ride($|\/summary\/)/.test(ApexNative.shell.current.route)); // End opens the ride summary page
+    await page.evaluate(() => { app.closeModal('rideSummaryModal'); ApexNative.shell.go('ride'); }); // leave the full-screen summary
     await tap(page, '.av-tabbar [data-av-tab="history"]');
     await tap(page, `.av-ride-row[data-ride="${id}"]`);
     assert.equal(await route(page), `history/${id}`);
