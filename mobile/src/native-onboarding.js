@@ -98,9 +98,12 @@ export function installOnboarding({ shell, win = window, storage = win.localStor
     if (a.applyProfileChange) a.applyProfileChange();
   };
 
-  const pair = (kind) => {
-    const sel = doc.getElementById('deviceTypeSelect'), btn = doc.getElementById('btnPairDevice');
-    if (sel && btn) { sel.value = kind; sel.dispatchEvent(new win.Event('change', { bubbles: true })); btn.click(); }
+  // The same pairing as Devices > Pair device (the in-app chooser), then the row shows the device's state.
+  const pair = async (kind) => {
+    const a = app();
+    if (!a || !a.connectDevice) return;
+    try { await a.connectDevice(kind, { replace: true }); } catch (e) { /* the app shows why */ }
+    if (shell.current && shell.current.params.step === 'devices') render('devices');
   };
 
   const render = (step) => {

@@ -140,7 +140,7 @@ export function installYou({ shell, win = window, services = {} }) {
     mount: () => {
       const list = devices.querySelector('#avDeviceList');
       list.innerHTML = '';
-      const open = () => { const a = app(); if (a && a.openHardwareLab) a.openHardwareLab(); };
+      const open = clickId('btnOpenHardwareModal'); // the header's Devices button (disabled in the demo)
       for (const [k, label] of KINDS) {
         const name = ($('deviceName-' + k) || {}).textContent || label;
         const badge = doc.querySelector(`#deviceCard-${k} .hw-state`);
@@ -205,6 +205,8 @@ export function installYou({ shell, win = window, services = {} }) {
       adopt(ai.querySelector('#avAiBox'), 'aiCoachConfigCard');
       adopt(ai.querySelector('#avAiAdvanced'), 'nativeAiKeys');
       section('ai');
+      // Without a key for the chosen provider the coach cannot run, so the keys are shown rather than folded.
+      if (services.ai) services.ai.status().then((s) => { if (!s.configured) ai.querySelector('#avAiAdvanced').open = true; }).catch(() => {});
     }
   });
 

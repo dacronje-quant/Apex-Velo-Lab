@@ -58,6 +58,7 @@ async function phoneStorage(context, name) {
 async function newContext(browser) {
   const context = await browser.newContext({ viewport: { width: 412, height: 915 }, isMobile: true, hasTouch: true });
   await context.addInitScript({ path: path.join(__dirname, 'fake-native.js') });
+  await context.addInitScript(() => { window.__apexNoOnboarding = true; }); // onboarding has its own flows in phone-ux.cjs
   await context.route(`${ORIGIN}/**`, (route) => {
     const url = new URL(route.request().url());
     const file = path.resolve(www, url.pathname === '/' ? 'index.html' : decodeURIComponent(url.pathname.slice(1)));
@@ -688,7 +689,7 @@ async function brokerFlow(browser, errors) {
     // ---------------------------------------------------------------------- AI engine --
     await page.evaluate(() => app.closeModal('settingsModal'));
     await page.evaluate(() => app.openSettings('ai'));
-    assert.equal(await page.locator('#settingsNav [data-sec="ai"]').isVisible(), true, 'Settings > AI engine is offered');
+    assert.equal(await page.evaluate(() => ApexNative.shell.current.route), 'you/connections/ai', 'Settings > AI engine opens You > Connections > AI coach');
     assert.equal(await page.locator('#aiCoachConfigCard').isVisible(), true);
     assert.match(await page.locator('#aiCoachEngineDetail').innerText(), /No Claude API key/);
     assert.doesNotMatch(await page.locator('#aiCoachConfigCard').innerText(), /\.env|Launch-Apex-Velo|local server/);
@@ -760,7 +761,7 @@ async function brokerFlow(browser, errors) {
     const icuKey = 'abc123def456ghi789jkl0';
     await page.evaluate((k) => { window.__icuKey = k; }, icuKey);
     await page.evaluate(() => app.openSettings('health'));
-    assert.equal(await page.locator('#settingsNav [data-sec="health"]').innerText(), 'Health');
+    assert.equal(await page.evaluate(() => ApexNative.shell.current.route), 'you/connections/icu', 'Settings > Health opens You > Connections > intervals.icu');
     await page.locator('#nativeIcuKey').fill('wrongkey00000000');
     await page.locator('#btnNativeIcuSave').click();
     await page.waitForFunction(() => /did not accept the API key/.test(document.body.innerText));
@@ -860,7 +861,7 @@ async function brokerFlow(browser, errors) {
     step('health: intervals.icu key checked, all history backfilled into readiness with sleep stages, HRV kind switchable (never mixed), later syncs read the last week at most hourly');
 
     // ------------------------------------------------------------------ Health Connect --
-    await page.evaluate(() => app.openSettings('health'));
+    await page.evaluate(() => ApexNative.shell.go('you/connections/healthconnect'));
     await page.locator('#nativeHcStatus', { hasText: 'Available' }).waitFor();
     assert.match(await page.locator('[data-hc-type="read:HeartRateVariabilityRmssd"]').innerText(), /readiness score/, 'each type says what it is for');
     const icuToday = await page.evaluate(() => app.healthDays.at(-1));
