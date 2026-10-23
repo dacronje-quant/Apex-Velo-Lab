@@ -254,7 +254,11 @@ export function installRideTab({ shell, win = window }) {
       if (this.isWorkoutCompleted && (cur === 'ride/live' || cur === 'ride/cockpit')) {
         // The phone's own summary (mock-up h) instead of the desktop's deep-dive dialog.
         const saved = (this.completedWorkouts || []).find((x) => !before.has(x.id));
-        if (saved) { if (this.closeModal) this.closeModal('rideSummaryModal'); shell.go('ride/summary/' + encodeURIComponent(saved.id), { replace: true }); }
+        if (saved) {
+          ride._finished = { id: saved.id, natural: !!args[0] }; // isNaturalEnd: the summary says "completed & autosaved"
+          if (this.closeModal) this.closeModal('rideSummaryModal');
+          shell.go('ride/summary/' + encodeURIComponent(saved.id), { replace: true });
+        }
         else shell.go('ride', { replace: true });
       }
       return r;

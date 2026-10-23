@@ -199,3 +199,9 @@ body.av-shell[data-av-route^="ride/summary"] main { padding: 0; }
 .av-field { display: flex; flex-direction: column; gap: 6px; font-size: 12.5px; color: var(--text-2); }
 .av-field input { min-height: 48px; font-size: 16px; }
 .av-discard { color: var(--rose) !important; }
+
+.av-summary-insight:empty { display: none; }
+.av-summary-insight { display: flex; flex-direction: column; gap: 10px; }
+.av-summary-insight .btn-row { flex-wrap: wrap; }
+.av-summary-insight .btn { min-height: 44px; }
+.av-ramp-result { margin: 0; padding: 12px 14px; border-radius: 16px; border: 1px solid rgba(75, 227, 166, .45); background: rgba(75, 227, 166, .1); font-weight: 600; }

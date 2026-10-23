@@ -258,10 +258,41 @@ FLOWS.push(['ride summary: KPIs and graph, rename saves to history, Strava send,
   await tap(page, '#avSummaryAnalysis');
   assert.equal(await route(page), 'history/' + id);
   await page.evaluate((id) => { app.closeModal('rideSummaryModal'); ApexNative.shell.go('ride/summary/' + id); }, id);
+  // Cancelling Discard keeps the ride and the summary.
+  page.once('dialog', (d) => d.dismiss());
+  await tap(page, '#avSummaryDiscard');
+  await page.waitForTimeout(300);
+  assert.ok(await page.evaluate((id) => app.completedWorkouts.some((r) => r.id === id), id), 'ride kept');
+  assert.equal(await route(page), 'ride/summary/' + id);
   page.once('dialog', (d) => d.accept());
   await tap(page, '#avSummaryDiscard');
   await page.waitForFunction((id) => !app.completedWorkouts.some((r) => r.id === id), id);
   assert.equal(await route(page), 'ride');
+  await page.context().close();
+}]);
+
+FLOWS.push(['ride summary: ramp-test result, FTP suggestion (Accept updates FTP), "completed & autosaved" after a natural end', async (browser) => {
+  const page = await openPhone(browser);
+  await tap(page, '#avStartRide');
+  await page.waitForFunction(() => app.totalElapsedSeconds >= 6, null, { timeout: 20000 });
+  await page.evaluate(() => app.finishWorkout(true, { fanfare: false })); // the workout's natural end
+  await page.waitForFunction(() => /^ride\/summary\//.test(ApexNative.shell.current.route));
+  assert.match(await page.locator('#avSummaryEyebrow').textContent(), /completed & autosaved/i);
+  const ftp = await page.evaluate(() => app.activeProfile.ftp);
+  await page.evaluate((ftp) => {
+    const ride = app.completedWorkouts.find((r) => r.id === ApexNative.shell.current.params.rideId);
+    ride.rampTest = { message: 'Ramp test complete: FTP estimate 214 W.' };
+    const real = app.ftpSuggestionFor.bind(app);
+    app.ftpSuggestionFor = (r) => (r === ride && app.activeProfile.ftp < ftp + 10 ? { ftp: ftp + 10, gain: 10, method: 'Ramp test', basis: 'one ride' } : real(r));
+    ApexNative.shell.go(ApexNative.shell.current.route); // render the summary again
+  }, ftp);
+  assert.match(await page.locator('#avRampResult').textContent(), /FTP estimate 214 W/);
+  assert.ok(await page.locator('#avSummaryInsight [data-ftp="accept"]').isVisible(), 'FTP suggestion shown');
+  const sw = await sweep(page); assert.deepEqual(sw.small, [], 'small targets with the insight'); assert.ok(sw.overflowX <= 0);
+  await tap(page, '#avSummaryInsight [data-ftp="accept"]');
+  assert.equal(await page.evaluate(() => app.activeProfile.ftp), ftp + 10, 'Accept updates FTP');
+  await page.waitForTimeout(100);
+  assert.equal(await page.locator('#avSummaryInsight [data-ftp="accept"]').count(), 0, 'the suggestion is gone');
   await page.context().close();
 }]);
 
@@ -290,6 +321,7 @@ FLOWS.push(['ride polish: HR-only hero and banner without a power source; deviat
   });
   await page.waitForTimeout(400);
   assert.ok(await page.locator('#avUseTrainerPower').isVisible());
+  assert.equal((await page.locator('#avUseTrainerPower').textContent()).trim(), 'Use trainer power and resume', 'paused wording');
   await tap(page, '#avUseTrainerPower');
   assert.equal(await page.evaluate(() => app.powerSourcePreference), 'trainer');
   assert.ok(await page.evaluate(() => app.isPlaying), 'resumed');

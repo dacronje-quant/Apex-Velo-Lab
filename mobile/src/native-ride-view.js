@@ -378,14 +378,15 @@ export class RideView {
     const lost = Object.keys(names).find((k) => { const d = app.ble.getDiagnostics(k); return d && ['reconnecting', 'failed'].includes(d.state); });
     const hrOnly = !lost && this.shell.current && this.shell.current.route === 'ride/live' && this.hrOnly(app);
     banner.hidden = !lost && !hrOnly;
-    const key = lost ? `lost:${lost}:${this.text(`deviceError-${lost}`)}:${app.ble.isConnected && app.ble.isConnected('trainer')}:${app.powerSourcePreference}` : hrOnly ? 'hr-only' : '';
+    const key = lost ? `lost:${lost}:${this.text(`deviceError-${lost}`)}:${app.ble.isConnected && app.ble.isConnected('trainer')}:${app.powerSourcePreference}:${!!app.isPlaying}` : hrOnly ? 'hr-only' : '';
     if (banner.dataset.key === key) return;
     banner.dataset.key = key;
     banner.dataset.kind = lost ? 'lost' : hrOnly ? 'info' : '';
     if (lost) {
       // Pedals gone but the trainer still measures power (mock-up g): carry on with the trainer's power.
       const canSwitch = lost === 'pedals' && app.ble.isConnected && app.ble.isConnected('trainer') && app.powerSourcePreference !== 'trainer' && app.setDeviceSource;
-      banner.innerHTML = `<b>${names[lost]} lost</b><span>${esc(this.text(`deviceError-${lost}`) || 'Reconnecting…')}</span>${canSwitch ? '<button type="button" class="btn av-big" id="avUseTrainerPower">Use trainer power instead</button>' : ''}`;
+      const paused = !app.isPlaying && app.totalElapsedSeconds > 0 && !app.isWorkoutCompleted;
+      banner.innerHTML = `<b>${names[lost]} lost</b><span>${esc(this.text(`deviceError-${lost}`) || 'Reconnecting…')}</span>${canSwitch ? `<button type="button" class="btn av-big" id="avUseTrainerPower">${paused ? 'Use trainer power and resume' : 'Use trainer power instead'}</button>` : ''}`;
       const b = banner.querySelector('#avUseTrainerPower');
       if (b) b.addEventListener('click', () => {
         app.setDeviceSource('power', 'trainer');
@@ -723,6 +724,7 @@ export function drawRideGraph(canvas, { intervals = [], samples = [], ftp = 0, b
 
 /** The end-of-ride summary (mock-up h): the ride is already saved; name it, send it, review it or discard it. */
 RideView.prototype.mountSummary = function (rideId) {
+  const natural = !!(this._finished && this._finished.id === rideId && this._finished.natural);
   const app = this.app, el = this.summary;
   if (!app) { this.shell.whenApp(() => this.mountSummary(rideId)); return; }
   const ride = (app.completedWorkouts || []).find((r) => r.id === rideId);
@@ -731,10 +733,14 @@ RideView.prototype.mountSummary = function (rideId) {
   const done = planned ? Math.min(100, Math.round((ride.duration || 0) / planned * 100)) : null;
   const when = new Date(ride.date);
   const kpi = (l, v) => `<div class="av-kpi"><span>${esc(l)}</span><b class="num">${esc(v == null || v === '' ? '--' : v)}</b></div>`;
+  // Same rule as the app's own review dialog: a natural end, or a ride saved by the cockpit moments ago.
+  const autosaved = natural || (ride.source === 'APEX VELO Cockpit' && ride.completedAt && Date.now() - ride.completedAt < 25000);
   el.innerHTML = `<header class="av-summary-top"><h1 class="av-title">Nice ride!</h1></header>
     <div class="av-page-body">
+      <span class="eyebrow${autosaved ? ' eyebrow-lime' : ''}" id="avSummaryEyebrow">${autosaved ? 'Workout completed &amp; autosaved' : 'Saved to your history'}</span>
       <p class="av-note">${esc(ride.title || 'Ride')} · ${esc(when.toLocaleDateString(undefined, { weekday: 'short', day: 'numeric', month: 'short' }))} ${esc(when.toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' }))}${done != null ? ` · completed ${done} %` : ''}</p>
       <div class="av-kpis">${kpi('Time', app.fmtTime(ride.duration || 0))}${kpi('NP', ride.np ? `${ride.np} W` : '')}${kpi('TSS', ride.tss != null ? Math.round(ride.tss) : '')}${kpi('Avg HR', ride.avgHr || '')}${kpi('kJ', ride.kj != null ? Math.round(ride.kj) : '')}${kpi('IF', ride.if || '')}</div>
+      <div class="av-summary-insight" id="avSummaryInsight"></div>
       <div class="card av-summary-graph"><canvas id="avSummaryGraph" aria-label="This ride's power, heart rate and cadence"></canvas></div>
       <label class="av-field"><span>Name</span><input class="input-field" id="avSummaryName" maxlength="120"></label>
       <div class="card av-list" id="avSummarySync"></div>
@@ -742,6 +748,15 @@ RideView.prototype.mountSummary = function (rideId) {
       <button type="button" class="btn av-big" id="avSummaryAnalysis">${icon('i-activity')}Full analysis</button>
       <button type="button" class="btn btn-ghost av-big av-discard" id="avSummaryDiscard">Discard ride</button>
     </div>`;
+  // The ramp-test result and the app's ride insight (FTP suggestion with Accept / Not now, medals, Pw:HR drift).
+  const insight = el.querySelector('#avSummaryInsight');
+  const renderInsight = () => {
+    insight.innerHTML = `${ride.rampTest ? `<p class="av-ramp-result" id="avRampResult">${esc(ride.rampTest.message || 'Ramp test complete.')}</p>` : ''}${app.rideInsightHtml ? app.rideInsightHtml(ride) : ''}`;
+  };
+  renderInsight();
+  if (app.bindInsightActions) app.bindInsightActions(insight);
+  // After Accept or Not now the app updates FTP (or the dismissals); show the insight again without the suggestion.
+  insight.addEventListener('click', (e) => { if (e.target.closest('[data-ftp]')) this.win.setTimeout(renderInsight, 0); });
   const name = el.querySelector('#avSummaryName');
   name.value = ride.title || '';
   name.addEventListener('change', () => {
@@ -762,7 +777,8 @@ RideView.prototype.mountSummary = function (rideId) {
       end = this.doc.createElement('button'); end.type = 'button'; end.className = 'btn btn-sm'; end.id = 'avSendStrava'; end.textContent = 'Send';
       end.addEventListener('click', async () => { end.disabled = true; await app.sendRideToStrava(ride.id); renderSync(); });
     }
-    sync.appendChild(S.row({ icon: 'i-upload', title: 'Strava', sub: st === 'sent' || st === 'duplicate' ? 'On Strava' : st === 'queued' || st === 'sending' ? 'Sending…' : st === 'failed' ? 'Not sent - tap Send to try again' : can ? 'Not sent (auto-upload is in You › Connections)' : 'Connect Strava in Settings to send rides', end }));
+    const where = (typeof app.settingsLabel === 'function' && app.settingsLabel('strava')) || 'You › Connections';
+    sync.appendChild(S.row({ icon: 'i-upload', title: 'Strava', sub: st === 'sent' || st === 'duplicate' ? 'On Strava' : st === 'queued' || st === 'sending' ? 'Sending…' : st === 'failed' ? 'Not sent - tap Send to try again' : can ? `Not sent (auto-upload is in ${where})` : `Connect Strava in ${where} to send rides`, end }));
     if (N.healthConnect && N.uploads) {
       const row = await N.uploads.state(ride.id, 'healthconnect').catch(() => null);
       let hcEnd = null;
