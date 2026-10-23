@@ -42,15 +42,20 @@ export const TILES = {
   source: { label: 'Power source', src: 'hudPowerSourceBadge' },
   powermatch: { label: 'PowerMatch', src: 'hwPowerMatchTrimBadge' },
   readiness: { label: 'Readiness', src: 'cockpitReadinessChip', strip: /^Readiness:\s*/ },
-  zoneTime: { label: 'Zone now', src: 'currentZoneBadge' }
+  zoneTime: { label: 'Zone now', src: 'currentZoneBadge' },
+  hrDrift: { label: 'HR drift (Pw:HR)', fn: (v) => v.hrDrift() }
 };
 
-/** Panels of the simple view (built here) and of the all-metrics view (the cockpit's own parts). */
+/** Panels of the simple view (built here) and of the all-metrics view (FULL_BUILT here, FULL_PANELS the cockpit's own parts). */
 export const SIMPLE_PANELS = {
   hero: 'Power and step countdown',
   profile: 'Workout profile with progress',
   next: 'Next step',
   coach: 'Coach and pedalling tips'
+};
+export const FULL_BUILT = {
+  istrip: 'Interval strip (step, target, time left, next)',
+  rideGraph: 'Ride graph (power, HR, cadence over the workout)'
 };
 export const FULL_PANELS = {
   now: ['Current step, readiness, rider', '.ss-now'],
@@ -79,22 +84,27 @@ export const FULL_PANELS = {
 export const LINES = { power: 'Power', target: 'Target', cadence: 'Cadence', hr: 'Heart rate' };
 
 const ALL_SIMPLE = [...Object.keys(SIMPLE_PANELS).map((k) => 'panel:' + k), ...Object.keys(TILES).map((k) => 'tile:' + k)];
-const ALL_FULL = Object.keys(FULL_PANELS);
+const FULL_TILES = Object.keys(TILES).map((k) => 'ftile:' + k);
+const ALL_FULL = [...Object.keys(FULL_BUILT), ...FULL_TILES, ...Object.keys(FULL_PANELS)];
 const list = (order, on) => order.map((id) => ({ id, on: on.includes(id) }));
+/** All metrics, compact (mock-up e): the strip, the ride graph and twelve tiles; the cockpit's controls stay on below. */
+const COMPACT_TILES = ['power', 'p30s', 'target', 'avg', 'np', 'tss', 'hr', 'cadence', 'wbal', 'lr', 'if', 'wkg'].map((k) => 'ftile:' + k);
+const COMPACT = ['istrip', 'rideGraph', ...COMPACT_TILES];
+const fullOrder = (first) => [...first, ...ALL_FULL.filter((x) => !first.includes(x))];
 export const PRESETS = {
   minimal: {
     simple: list(['panel:hero', 'panel:next', 'tile:hr', 'tile:cadence', ...ALL_SIMPLE], ['panel:hero', 'panel:next', 'tile:hr', 'tile:cadence']),
-    full: list(ALL_FULL, ['now', 'hero', 'hr', 'cadence', 'profile']),
+    full: list(fullOrder(COMPACT), ['istrip', 'rideGraph', ...COMPACT_TILES.slice(0, 6)]),
     lines: { power: true, target: true, cadence: false, hr: false }
   },
   standard: {
     simple: list(['panel:hero', 'panel:profile', 'panel:next', 'tile:hr', 'tile:cadence', 'tile:wbal', ...ALL_SIMPLE], ['panel:hero', 'panel:profile', 'panel:next', 'tile:hr', 'tile:cadence', 'tile:wbal']),
-    full: list(ALL_FULL, ALL_FULL.filter((k) => !['zones', 'lr'].includes(k))),
+    full: list(fullOrder([...COMPACT, 'stepControls', 'biasControls', 'views', 'ergResponse', 'queue']), [...COMPACT, 'stepControls', 'biasControls', 'views', 'ergResponse', 'queue']),
     lines: { power: true, target: true, cadence: true, hr: true }
   },
   everything: {
     simple: list(['panel:hero', 'panel:profile', 'panel:next', 'panel:coach', ...ALL_SIMPLE], ALL_SIMPLE),
-    full: list(ALL_FULL, ALL_FULL),
+    full: list(fullOrder(COMPACT), ALL_FULL),
     lines: { power: true, target: true, cadence: true, hr: true }
   }
 };
@@ -148,6 +158,12 @@ export class RideView {
       unmount: () => this.leave(),
       onBack: () => { this.shell.go('ride/live', { replace: true }); return true; }
     });
+    this.summary = this.doc.createElement('div');
+    this.summary.className = 'av-summary';
+    shell.registerPage('ride/summary/:rideId', {
+      el: this.summary, fullscreen: true, parent: 'ride',
+      mount: (el, { rideId }) => this.mountSummary(rideId)
+    });
   }
 
   get app() { return this.shell.getApp(); }
@@ -175,13 +191,15 @@ export class RideView {
           <small class="av-ride-target" id="avRideTarget"></small>
           <b class="av-ride-power num" id="avRidePower">--</b>
           <small class="av-ride-unit"><span id="avRideUnit">W</span> <span class="av-ride-dev" id="avRideDev"></span></small>
+          <div class="av-devbar" id="avDevBar" aria-hidden="true"><i class="av-devbar-ok"></i><i class="av-devbar-mark" id="avDevMark"></i></div>
+          <div class="av-hrz" id="avHrZones" hidden aria-hidden="true"><i></i><i></i><i></i><i></i><i></i></div>
           <span class="av-ride-countdown num" id="avRideCountdown">0:00</span>
           <small class="av-ride-left">left in this step</small>
         </div>
         <div class="av-ride-profile" data-av-item="panel:profile"></div>
         <div class="av-ride-next" data-av-item="panel:next"><span class="av-ride-next-dot"></span><div><b id="avRideNext">--</b><small id="avRideNextSub"></small></div><span class="num" id="avRideNextIn"></span></div>
         <div class="av-ride-coach" data-av-item="panel:coach"><b>Coach</b> <span id="avRideCoach"></span></div>
-        ${Object.entries(TILES).map(([id, t]) => `<div class="av-tile" data-av-item="tile:${id}"><span class="av-tile-lbl">${esc(t.label)}</span><span class="av-tile-val num"></span><span class="av-tile-sub"></span></div>`).join('')}
+        ${Object.entries(TILES).map(([id, t]) => `<div class="av-tile" data-av-item="tile:${id}" data-tile="${id}"><span class="av-tile-lbl">${esc(t.label)}</span><span class="av-tile-val num"></span><span class="av-tile-sub"></span></div>`).join('')}
       </div>
       <div class="av-ride-ctrl">
         <button type="button" class="btn btn-stop" id="avRideEnd">End</button>
@@ -261,17 +279,43 @@ export class RideView {
     const done = ivs.slice(0, i).reduce((a, x) => a + (Number(x.duration) || 0), 0) + (iv ? (Number(iv.duration) || 0) - remaining : 0);
     const bar = this.$('avRideProgress');
     if (bar) bar.style.width = `${Math.max(0, Math.min(100, done / total * 100))}%`;
+    // A visual pulse when the step changes (the app plays its own audio cues).
+    if (running && this._lastStep != null && this._lastStep !== i) this.flash();
+    this._lastStep = i;
+    if (route === 'ride/cockpit') { this.updateFull(app, { ivs, i, iv, z, target, free, remaining }); this.updateBanner(app); return; }
     if (route !== 'ride/live') { this.updateBanner(app); return; }
     // Hero: power against target, deviation, step countdown (pulses in the last 3 s before a step change).
     const power = Number(this.text('valInstantPower')) || 0;
-    this.setText('avRideTarget', free ? 'Free ride · no target' : target ? `Target ${target} W${iv ? ` · ${Math.round(iv.pctFtp * (app.ergBiasMultiplier || 1))}% FTP` : ''}` : '');
-    this.setText('avRidePower', started || running ? String(power) : '--');
-    this.setText('avRideUnit', `W${z && !free ? ' · ' + z.name : ''}`);
+    const hrOnly = this.hrOnly(app);
+    this.simple.classList.toggle('av-hr-only', hrOnly);
+    const hrz = this.$('avHrZones');
+    hrz.hidden = !hrOnly;
+    if (hrOnly) {
+      // No power source (mock-up d): heart rate is the hero, with its zone.
+      const hr = Number(this.text('valHeartRate')) || 0;
+      const zh = M && M.hrZone ? M.hrZone(hr, (app.activeProfile && app.activeProfile.maxHr) || 0) : { idx: 0, label: '--', pct: 0 };
+      this.setText('avRideTarget', 'Heart rate');
+      this.setText('avRidePower', hr ? String(hr) : '--');
+      this.setText('avRideUnit', `bpm${zh.idx ? ` · ${zh.label} · ${zh.pct} % of max` : ''}`);
+      [...hrz.children].forEach((n, k) => n.classList.toggle('on', k + 1 === zh.idx));
+    } else {
+      this.setText('avRideTarget', free ? 'Free ride · no target' : target ? `Target ${target} W${iv ? ` · ${Math.round(iv.pctFtp * (app.ergBiasMultiplier || 1))}% FTP` : ''}` : '');
+      this.setText('avRidePower', started || running ? String(power) : '--');
+      this.setText('avRideUnit', `W${z && !free ? ' · ' + z.name : ''}`);
+    }
+    // Deviation from target: a chip (+12 W / on target) and a bar with the ±5 % band (TrainerRoad-style).
     const dev = this.$('avRideDev');
     const diff = power - target;
     const band = target ? Math.max(5, target * 0.05) : 0;
-    dev.textContent = !free && target && running ? (Math.abs(diff) <= band ? 'on target' : `${diff > 0 ? '+' : '−'}${Math.abs(diff)} W`) : '';
-    dev.dataset.dev = !band || !running ? '' : diff > band ? 'over' : diff < -band ? 'under' : 'on';
+    const showDev = !free && !hrOnly && target && running;
+    dev.textContent = showDev ? (Math.abs(diff) <= band ? 'on target' : `${diff > 0 ? '+' : '−'}${Math.abs(diff)} W`) : '';
+    dev.dataset.dev = !showDev ? '' : diff > band ? 'over' : diff < -band ? 'under' : 'on';
+    const devBar = this.$('avDevBar');
+    devBar.hidden = !showDev;
+    if (showDev) {
+      this.$('avDevMark').style.left = `${50 + Math.max(-1, Math.min(1, diff / (target * 0.2))) * 50}%`;
+      devBar.dataset.dev = dev.dataset.dev;
+    }
     this.setText('avRideCountdown', this.text('hudIntervalCountdown'));
     const hero = this.simple.querySelector('.av-ride-hero');
     hero.classList.toggle('av-pulse', running && remaining > 0 && remaining <= 3 && i < ivs.length - 1);
@@ -287,9 +331,38 @@ export class RideView {
     this.updateBanner(app);
   }
 
+  /** True when no power source sends watts (no fresh pedal or trainer reading, simulator off) but heart rate does. */
+  hrOnly(app) {
+    if (!(app.totalElapsedSeconds > 0) || (app.simulator && app.simulator.enabled)) return false;
+    const fresh = app.devicePowerFresh ? app.devicePowerFresh() : { pedals: true };
+    return !fresh.pedals && !fresh.trainer && (Number(this.text('valHeartRate')) || 0) > 0;
+  }
+
+  /** Live Pw:HR decoupling of this ride so far (js/velo-insight.js; it needs 20 steady minutes with HR). */
+  hrDrift() {
+    const app = this.app, I = this.win.VeloInsight;
+    if (!app || !I || !Array.isArray(app.recordedSamples)) return '--';
+    const now = Math.floor(Date.now() / 5000);
+    if (this._driftAt === now) return this._drift;
+    this._driftAt = now;
+    const d = I.decoupling(app.recordedSamples);
+    this._drift = d.status === 'ok' ? `${d.pct > 0 ? '+' : ''}${Number(d.pct).toFixed(1)}%` : d.status === 'no-hr' ? 'no HR' : d.status === 'too-short' ? 'after 20 min' : 'not steady';
+    return this._drift;
+  }
+
+  flash() {
+    for (const n of [this.simple, this.$('view-cockpit')]) {
+      if (!n) continue;
+      n.classList.remove('av-flash');
+      void n.offsetWidth; // restart the animation
+      n.classList.add('av-flash');
+    }
+  }
+
   fillTile(n) {
-    const t = TILES[n.dataset.avItem.slice(5)];
-    let v = Array.isArray(t.src) ? t.src.map((s) => this.text(s)).join(' / ') : this.text(t.src);
+    const t = TILES[n.dataset.tile];
+    if (!t) return;
+    let v = t.fn ? t.fn(this) : Array.isArray(t.src) ? t.src.map((s) => this.text(s)).join(' / ') : this.text(t.src);
     if (t.strip) v = v.replace(t.strip, '');
     n.querySelector('.av-tile-val').innerHTML = `${esc(v || '--')}${t.unit ? ` <small>${t.unit}</small>` : ''}`;
     n.querySelector('.av-tile-sub').textContent = t.sub ? this.text(t.sub) : '';
@@ -303,8 +376,28 @@ export class RideView {
     if (!banner || !app.ble || !app.ble.getDiagnostics) return;
     const names = { trainer: 'Trainer', pedals: 'Power meter', hr: 'Heart-rate strap' };
     const lost = Object.keys(names).find((k) => { const d = app.ble.getDiagnostics(k); return d && ['reconnecting', 'failed'].includes(d.state); });
-    banner.hidden = !lost;
-    if (lost) banner.innerHTML = `<b>${names[lost]} lost</b><span>${esc(this.text(`deviceError-${lost}`) || 'Reconnecting…')}</span>`;
+    const hrOnly = !lost && this.shell.current && this.shell.current.route === 'ride/live' && this.hrOnly(app);
+    banner.hidden = !lost && !hrOnly;
+    const key = lost ? `lost:${lost}:${this.text(`deviceError-${lost}`)}:${app.ble.isConnected && app.ble.isConnected('trainer')}:${app.powerSourcePreference}:${!!app.isPlaying}` : hrOnly ? 'hr-only' : '';
+    if (banner.dataset.key === key) return;
+    banner.dataset.key = key;
+    banner.dataset.kind = lost ? 'lost' : hrOnly ? 'info' : '';
+    if (lost) {
+      // Pedals gone but the trainer still measures power (mock-up g): carry on with the trainer's power.
+      const canSwitch = lost === 'pedals' && app.ble.isConnected && app.ble.isConnected('trainer') && app.powerSourcePreference !== 'trainer' && app.setDeviceSource;
+      const paused = !app.isPlaying && app.totalElapsedSeconds > 0 && !app.isWorkoutCompleted;
+      banner.innerHTML = `<b>${names[lost]} lost</b><span>${esc(this.text(`deviceError-${lost}`) || 'Reconnecting…')}</span>${canSwitch ? `<button type="button" class="btn av-big" id="avUseTrainerPower">${paused ? 'Use trainer power and resume' : 'Use trainer power instead'}</button>` : ''}`;
+      const b = banner.querySelector('#avUseTrainerPower');
+      if (b) b.addEventListener('click', () => {
+        app.setDeviceSource('power', 'trainer');
+        if (!app.isPlaying && app.totalElapsedSeconds > 0 && !app.isWorkoutCompleted) this.$('btnPlayPause')?.click();
+        banner.dataset.key = '';
+        this.update();
+      });
+    } else if (hrOnly) {
+      banner.innerHTML = '<button type="button" class="av-banner-btn" id="avNoPowerBanner"><span>No power source. Connect pedals or a trainer for watts.</span></button>';
+      banner.querySelector('button').addEventListener('click', () => this.today && this.today.openDevices());
+    } else banner.innerHTML = '';
   }
 
   /** End stays away from Pause and asks first, so a stray tap never ends a ride. */
@@ -314,7 +407,7 @@ export class RideView {
     if (!(app.totalElapsedSeconds > 0)) { this.shell.go('ride'); return; }
     const box = this.doc.createElement('div');
     box.className = 'av-confirm';
-    box.innerHTML = `<p>Your ride is saved to History. You can review it there.</p>
+    box.innerHTML = `<p>Your ride is saved to History, with a summary next.</p>
       <button type="button" class="btn btn-stop av-big" id="avEndConfirm">End and save ride</button>
       <button type="button" class="btn av-big" id="avEndCancel">Keep riding</button>`;
     box.querySelector('#avEndConfirm').addEventListener('click', () => { this.shell.closeSheet(); this.$('btnEndWorkout')?.click(); });
@@ -347,6 +440,27 @@ export class RideView {
       top.innerHTML = `<button type="button" class="btn btn-ghost" id="avSimpleView">${icon('i-left')}Simple view</button><span class="av-ride-clock num" id="avFullClock"></span>`;
       top.querySelector('#avSimpleView').addEventListener('click', () => this.shell.go('ride/live', { replace: true }));
       view.insertBefore(top, view.firstChild);
+      // Compact all metrics (mock-up e): interval strip, ride graph and tiles, built here, ordered with the cockpit's parts.
+      const strip = this.doc.createElement('div');
+      strip.className = 'av-istrip';
+      strip.dataset.avFull = 'istrip';
+      strip.innerHTML = `<div class="av-istrip-now"><span class="av-zdot"></span><b id="avIstripName"></b><span id="avIstripTarget"></span></div><b class="num av-istrip-left" id="avIstripLeft"></b><div class="av-istrip-next" id="avIstripNext"></div>`;
+      const graph = this.doc.createElement('div');
+      graph.className = 'av-gcard';
+      graph.dataset.avFull = 'rideGraph';
+      graph.innerHTML = `<canvas id="avRideGraph" aria-label="Power, heart rate and cadence over the workout profile"></canvas>
+        <div class="av-legend"><span data-legend="power"><i class="lg-power"></i>Power</span><span data-legend="hr"><i class="lg-hr"></i>HR</span><span data-legend="cadence"><i class="lg-cad"></i>Cadence</span><span><i class="lg-ftp"></i>FTP</span><span class="num av-legend-time" id="avGraphTime"></span></div>`;
+      const after = top.nextSibling;
+      view.insertBefore(strip, after);
+      view.insertBefore(graph, after);
+      for (const k of Object.keys(TILES)) {
+        const t = this.doc.createElement('div');
+        t.className = 'av-tile av-ftile';
+        t.dataset.avFull = 'ftile:' + k;
+        t.dataset.tile = k;
+        t.innerHTML = `<span class="av-tile-lbl">${esc(TILES[k].label)}</span><span class="av-tile-val num"></span><span class="av-tile-sub"></span>`;
+        view.insertBefore(t, after);
+      }
       const bar = this.doc.createElement('div');
       bar.className = 'av-full-ctrl';
       bar.innerHTML = `<button type="button" class="btn btn-stop" id="avFullEnd">End</button>
@@ -364,6 +478,27 @@ export class RideView {
     this.start();
   }
 
+  /** The compact all-metrics parts: strip, tiles and (once a second) the ride graph. */
+  updateFull(app, { ivs, i, iv, z, target, free, remaining }) {
+    this.setText('avIstripName', !iv ? 'Finished' : free ? 'Free ride' : `${iv.name} ${i + 1} / ${ivs.length}`);
+    this.setText('avIstripTarget', free || !target ? '' : ` · target ${target} W`);
+    this.setText('avIstripLeft', this.text('hudIntervalCountdown'));
+    const nx = ivs[i + 1], F = (app.activeProfile && app.activeProfile.ftp) || 0;
+    this.setText('avIstripNext', nx ? `Next ${nx.name} ${app.fmtTime(nx.duration)} · ${Math.round(F * nx.pctFtp / 100 * (app.ergBiasMultiplier || 1))} W` : 'Last step');
+    const dot = this.doc.querySelector('.av-istrip .av-zdot');
+    if (dot && z) dot.style.background = z.color;
+    const view = this.$('view-cockpit');
+    for (const n of view.querySelectorAll('.av-ftile:not(.av-off)')) this.fillTile(n);
+    const g = this.$('avRideGraph');
+    const n = (app.recordedSamples || []).length;
+    if (g && !g.closest('.av-off') && (this._graphN !== n || this._graphW !== g.clientWidth)) {
+      this._graphN = n; this._graphW = g.clientWidth;
+      drawRideGraph(g, { intervals: ivs, samples: app.recordedSamples || [], ftp: F, bias: app.ergBiasMultiplier || 1, maxHr: (app.activeProfile && app.activeProfile.maxHr) || 190, lines: this.layout().lines, zoneFor: this.win.VeloMetrics && ((p) => this.win.VeloMetrics.zoneForPct(p)) });
+      const total = ivs.reduce((a, x) => a + (Number(x.duration) || 0), 0);
+      this.setText('avGraphTime', `${this.text('hudTotalElapsed')} / ${app.fmtTime(total)}`);
+    }
+  }
+
   applyFullLayout() {
     const view = this.$('view-cockpit');
     const l = this.layout();
@@ -372,6 +507,8 @@ export class RideView {
       if (n) { n.classList.toggle('av-off', !it.on); n.style.order = String(i + 1); }
     });
     this.applyLines(l.lines);
+    this._graphN = -1;
+    for (const n of this.doc.querySelectorAll('.av-legend [data-legend]')) n.hidden = !l.lines[n.dataset.legend];
     const app = this.app;
     if (app && app.telemetryChart) this.win.requestAnimationFrame(() => app.telemetryChart.resize());
   }
@@ -474,7 +611,8 @@ export class RideView {
     const render = () => {
       const l = this.layout();
       const items = which === 'simple' ? l.simple : l.full;
-      const name = (id) => which === 'simple' ? (id.startsWith('panel:') ? SIMPLE_PANELS[id.slice(6)] : `Tile · ${TILES[id.slice(5)].label}`) : FULL_PANELS[id][0];
+      const name = (id) => which === 'simple' ? (id.startsWith('panel:') ? SIMPLE_PANELS[id.slice(6)] : `Tile · ${TILES[id.slice(5)].label}`)
+        : id.startsWith('ftile:') ? `Tile · ${TILES[id.slice(6)].label}` : FULL_BUILT[id] || FULL_PANELS[id][0];
       box.innerHTML = `<div class="av-seg" role="group" aria-label="Screen">
           <button type="button" data-which="simple" class="${which === 'simple' ? 'on' : ''}">Simple view</button>
           <button type="button" data-which="full" class="${which === 'full' ? 'on' : ''}">All metrics</button></div>
@@ -526,3 +664,141 @@ export class RideView {
     this.shell.openSheet(box, { title: 'Customise ride screen' });
   }
 }
+
+/**
+ * Draws a ride on a canvas (mock-up e): the workout profile as zone-coloured blocks, the FTP line, then power,
+ * heart rate and cadence from the recorded samples, and the current position. Pure drawing, no ride logic.
+ */
+export function drawRideGraph(canvas, { intervals = [], samples = [], ftp = 0, bias = 1, maxHr = 190, lines = {}, zoneFor = null }) {
+  const w = canvas.clientWidth, h = canvas.clientHeight;
+  if (!w || !h) return;
+  const dpr = (typeof devicePixelRatio === 'number' && devicePixelRatio) || 1;
+  canvas.width = Math.round(w * dpr); canvas.height = Math.round(h * dpr);
+  const g = canvas.getContext('2d');
+  g.scale(dpr, dpr);
+  g.clearRect(0, 0, w, h);
+  const planned = intervals.reduce((a, iv) => a + (Number(iv.duration) || 0), 0);
+  const last = samples.length ? Number(samples[samples.length - 1].time) || samples.length : 0;
+  const total = Math.max(planned, last, 60);
+  const peakTarget = Math.max(0, ...intervals.map((iv) => (ftp * iv.pctFtp / 100) * bias));
+  const peakPower = Math.max(0, ...samples.map((s) => Number(s.power) || 0));
+  const top = Math.max(ftp * 1.5, peakTarget * 1.15, peakPower * 1.05, 100);
+  const X = (t) => (t / total) * w, Y = (p) => h - (Math.max(0, p) / top) * h;
+  let t0 = 0;
+  for (const iv of intervals) {
+    const d = Number(iv.duration) || 0, p = ftp * iv.pctFtp / 100 * bias;
+    const z = zoneFor ? zoneFor(iv.pctFtp * bias) : null;
+    g.globalAlpha = 0.24; g.fillStyle = (z && z.color) || '#7cc8ff';
+    g.fillRect(X(t0), Y(p), Math.max(1, X(d) - 0.5), h - Y(p));
+    t0 += d;
+  }
+  g.globalAlpha = 1;
+  if (ftp) { g.setLineDash([3, 4]); g.strokeStyle = 'rgba(255,255,255,.35)'; g.lineWidth = 1; g.beginPath(); g.moveTo(0, Y(ftp)); g.lineTo(w, Y(ftp)); g.stroke(); g.setLineDash([]); }
+  // Downsample to about one point per pixel.
+  const step = Math.max(1, Math.floor(samples.length / w));
+  const pts = [];
+  for (let k = 0; k < samples.length; k += step) {
+    const chunk = samples.slice(k, k + step), n = chunk.length;
+    const avg = (f) => chunk.reduce((a, s) => a + (Number(s[f]) || 0), 0) / n;
+    pts.push({ t: Number(chunk[n - 1].time) || k, power: avg('power'), hr: avg('hr'), cad: avg('cadence') });
+  }
+  const zoneA = getComputedStyle(canvas).getPropertyValue('--zone-a').trim() || '#7cc8ff';
+  if (lines.power !== false && pts.length > 1) {
+    g.beginPath(); g.moveTo(X(pts[0].t), h);
+    for (const p of pts) g.lineTo(X(p.t), Y(p.power));
+    g.lineTo(X(pts[pts.length - 1].t), h); g.closePath();
+    g.globalAlpha = 0.35; g.fillStyle = zoneA; g.fill(); g.globalAlpha = 1;
+    g.beginPath(); pts.forEach((p, k) => (k ? g.lineTo : g.moveTo).call(g, X(p.t), Y(p.power)));
+    g.strokeStyle = zoneA; g.lineWidth = 1.6; g.stroke();
+  }
+  const line = (key, max, color) => {
+    const good = pts.filter((p) => p[key] > 0);
+    if (good.length < 2) return;
+    g.beginPath(); good.forEach((p, k) => (k ? g.lineTo : g.moveTo).call(g, X(p.t), h - (p[key] / max) * h * 0.9));
+    g.strokeStyle = color; g.lineWidth = 1.5; g.stroke();
+  };
+  if (lines.hr !== false) line('hr', Math.max(maxHr, 100), '#ff6b8a');
+  if (lines.cadence !== false) line('cad', 160, '#7cc8ff');
+  if (last) { g.strokeStyle = '#fff'; g.lineWidth = 2; g.beginPath(); g.moveTo(X(last), 0); g.lineTo(X(last), h); g.stroke(); }
+}
+
+/** The end-of-ride summary (mock-up h): the ride is already saved; name it, send it, review it or discard it. */
+RideView.prototype.mountSummary = function (rideId) {
+  const natural = !!(this._finished && this._finished.id === rideId && this._finished.natural);
+  const app = this.app, el = this.summary;
+  if (!app) { this.shell.whenApp(() => this.mountSummary(rideId)); return; }
+  const ride = (app.completedWorkouts || []).find((r) => r.id === rideId);
+  if (!ride) { el.innerHTML = '<div class="av-page-body"><p class="av-note">This ride is no longer in your history.</p><button type="button" class="btn av-big" id="avSummaryDone">Done</button></div>'; el.querySelector('#avSummaryDone').addEventListener('click', () => this.shell.go('ride')); return; }
+  const planned = (app.currentWorkout && app.currentWorkout.title === ride.title ? app.currentWorkout.intervals : []).reduce((a, iv) => a + (Number(iv.duration) || 0), 0);
+  const done = planned ? Math.min(100, Math.round((ride.duration || 0) / planned * 100)) : null;
+  const when = new Date(ride.date);
+  const kpi = (l, v) => `<div class="av-kpi"><span>${esc(l)}</span><b class="num">${esc(v == null || v === '' ? '--' : v)}</b></div>`;
+  // Same rule as the app's own review dialog: a natural end, or a ride saved by the cockpit moments ago.
+  const autosaved = natural || (ride.source === 'APEX VELO Cockpit' && ride.completedAt && Date.now() - ride.completedAt < 25000);
+  el.innerHTML = `<header class="av-summary-top"><h1 class="av-title">Nice ride!</h1></header>
+    <div class="av-page-body">
+      <span class="eyebrow${autosaved ? ' eyebrow-lime' : ''}" id="avSummaryEyebrow">${autosaved ? 'Workout completed &amp; autosaved' : 'Saved to your history'}</span>
+      <p class="av-note">${esc(ride.title || 'Ride')} · ${esc(when.toLocaleDateString(undefined, { weekday: 'short', day: 'numeric', month: 'short' }))} ${esc(when.toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' }))}${done != null ? ` · completed ${done} %` : ''}</p>
+      <div class="av-kpis">${kpi('Time', app.fmtTime(ride.duration || 0))}${kpi('NP', ride.np ? `${ride.np} W` : '')}${kpi('TSS', ride.tss != null ? Math.round(ride.tss) : '')}${kpi('Avg HR', ride.avgHr || '')}${kpi('kJ', ride.kj != null ? Math.round(ride.kj) : '')}${kpi('IF', ride.if || '')}</div>
+      <div class="av-summary-insight" id="avSummaryInsight"></div>
+      <div class="card av-summary-graph"><canvas id="avSummaryGraph" aria-label="This ride's power, heart rate and cadence"></canvas></div>
+      <label class="av-field"><span>Name</span><input class="input-field" id="avSummaryName" maxlength="120"></label>
+      <div class="card av-list" id="avSummarySync"></div>
+      <button type="button" class="btn btn-start av-big" id="avSummaryDone">${icon('i-check')}Done</button>
+      <button type="button" class="btn av-big" id="avSummaryAnalysis">${icon('i-activity')}Full analysis</button>
+      <button type="button" class="btn btn-ghost av-big av-discard" id="avSummaryDiscard">Discard ride</button>
+    </div>`;
+  // The ramp-test result and the app's ride insight (FTP suggestion with Accept / Not now, medals, Pw:HR drift).
+  const insight = el.querySelector('#avSummaryInsight');
+  const renderInsight = () => {
+    insight.innerHTML = `${ride.rampTest ? `<p class="av-ramp-result" id="avRampResult">${esc(ride.rampTest.message || 'Ramp test complete.')}</p>` : ''}${app.rideInsightHtml ? app.rideInsightHtml(ride) : ''}`;
+  };
+  renderInsight();
+  if (app.bindInsightActions) app.bindInsightActions(insight);
+  // After Accept or Not now the app updates FTP (or the dismissals); show the insight again without the suggestion.
+  insight.addEventListener('click', (e) => { if (e.target.closest('[data-ftp]')) this.win.setTimeout(renderInsight, 0); });
+  const name = el.querySelector('#avSummaryName');
+  name.value = ride.title || '';
+  name.addEventListener('change', () => {
+    const v = name.value.trim();
+    if (!v || v === ride.title) return;
+    ride.title = v;
+    if (app.saveHistory) app.saveHistory();
+    if (app.renderHistoryTable) app.renderHistoryTable();
+  });
+  const sync = el.querySelector('#avSummarySync');
+  const S = this.shell, N = this.win.ApexNative || {};
+  const renderSync = async () => {
+    sync.innerHTML = '';
+    const st = ride.strava && ride.strava.state;
+    const can = app.canSendToStrava ? app.canSendToStrava(ride) : false;
+    let end = null;
+    if (can && !['sent', 'duplicate', 'sending', 'queued'].includes(st)) {
+      end = this.doc.createElement('button'); end.type = 'button'; end.className = 'btn btn-sm'; end.id = 'avSendStrava'; end.textContent = 'Send';
+      end.addEventListener('click', async () => { end.disabled = true; await app.sendRideToStrava(ride.id); renderSync(); });
+    }
+    const where = app.settingsLabel('strava', 'You > Connections');
+    sync.appendChild(S.row({ icon: 'i-upload', title: 'Strava', sub: st === 'sent' || st === 'duplicate' ? 'On Strava' : st === 'queued' || st === 'sending' ? 'Sending…' : st === 'failed' ? 'Not sent - tap Send to try again' : can ? `Not sent (auto-upload is in ${where})` : `Connect Strava in ${where} to send rides`, end }));
+    if (N.healthConnect && N.uploads) {
+      const row = await N.uploads.state(ride.id, 'healthconnect').catch(() => null);
+      let hcEnd = null;
+      if (!row || !['sent', 'queued'].includes(row.status)) {
+        hcEnd = this.doc.createElement('button'); hcEnd.type = 'button'; hcEnd.className = 'btn btn-sm'; hcEnd.id = 'avSaveHc'; hcEnd.textContent = 'Save';
+        hcEnd.addEventListener('click', async () => { hcEnd.disabled = true; await N.uploads.enqueue(ride, 'healthconnect').then(() => N.uploads.run()).catch(() => {}); renderSync(); });
+      }
+      sync.appendChild(S.row({ icon: 'i-heart', title: 'Health Connect', sub: row && row.status === 'sent' ? 'Saved as a cycling session' : row && row.status === 'queued' ? 'Saving…' : 'Not saved', end: hcEnd }));
+    }
+  };
+  renderSync();
+  el.querySelector('#avSummaryDone').addEventListener('click', () => this.shell.go('ride'));
+  el.querySelector('#avSummaryAnalysis').addEventListener('click', () => this.shell.go('history/' + encodeURIComponent(ride.id)));
+  el.querySelector('#avSummaryDiscard').addEventListener('click', async () => {
+    const before = app.completedWorkouts.length;
+    await app.deleteCompletedRide(ride.id); // asks first
+    if (app.completedWorkouts.length < before) this.shell.go('ride');
+  });
+  this.win.requestAnimationFrame(() => drawRideGraph(el.querySelector('#avSummaryGraph'), {
+    intervals: [], samples: Array.isArray(ride.samples) ? ride.samples : [], ftp: (app.activeProfile && app.activeProfile.ftp) || 0,
+    maxHr: (app.activeProfile && app.activeProfile.maxHr) || 190, lines: this.layout().lines
+  }));
+};
