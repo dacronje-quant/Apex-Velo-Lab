@@ -23,7 +23,11 @@ import { NativeAi } from './native-ai.js';
 import { NativeIcu } from './native-icu.js';
 import { bootNativeApp } from './native-app.js';
 import { installShell } from './native-shell.js';
+import { installHistory } from './native-history.js';
 import { installRideTab } from './native-today.js';
+import { installTrainTab } from './native-train.js';
+import { installYou } from './native-you.js';
+import { installOnboarding } from './native-onboarding.js';
 import { installProgressTab } from './native-progress.js';
 import { NativeRide } from './native-ride.js';
 import { NativeStore, openingLedger } from './native-store.js';
@@ -70,6 +74,10 @@ if (fake || Capacitor.isNativePlatform()) {
     async summaries(ids) { return (await store).summaries(ids); },
     /** The JSON backup with every ride's samples, as UTF-8 pieces. */
     async exportChunks(head, tail) { return (await store).exportChunks(head, tail); },
+    /** Automatic snapshots: one a minute after the last change, the pending one now, or one if it is due. */
+    async scheduleBackup() { (await store).scheduleBackup(); },
+    async flushBackup() { return (await store).flushBackup(); },
+    async checkBackup() { return (await store).checkBackup(); },
     /** Moves earlier WebView data in (once); onProgress(done, total). */
     async migrate(onProgress) {
       return new WebViewMigration({ store: await store, source: webViewSource(window), onProgress }).run();
@@ -113,8 +121,13 @@ if (fake || Capacitor.isNativePlatform()) {
   // Phone navigation (docs/ANDROID-UX.md): bottom tabs, pages, sheets, routes; the screens register their pages on it.
   const shell = installShell({ exit: () => plugins.App.minimizeApp().catch(() => {}) });
   window.ApexNative.shell = shell;
+  window.ApexNative.history = installHistory(shell); // History tab and ride detail (U3)
   window.ApexNative.rideTab = installRideTab({ shell });
+  window.ApexNative.trainTab = installTrainTab({ shell, rideTab: window.ApexNative.rideTab });
   window.ApexNative.progressTab = installProgressTab({ shell });
   bootNativeApp({ bluetooth, storage, strava, ai, icu, uploads, plugins, ride, healthConnect, wellness, shell });
   installNativeImportUi({ nativeImport, jobs: importJobs, App: plugins.App });
+  // You (Settings, profile, devices, connections, data) and the first-run onboarding (workstream U5).
+  installYou({ shell, services: { strava, icu, healthConnect, ai } });
+  installOnboarding({ shell });
 }

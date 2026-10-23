@@ -91,20 +91,19 @@ body.av-shell[data-av-route="ride/live"] main { padding: 0; }
 /* --- All metrics: the cockpit view, flattened into one ordered grid --- */
 body.av-full-ride main { padding: 0 12px calc(96px + env(safe-area-inset-bottom, 0px)); }
 body.av-full-ride #view-cockpit { display: grid !important; grid-template-columns: repeat(6, minmax(0, 1fr)); gap: 8px; padding-top: env(safe-area-inset-top, 0px); }
-body.av-full-ride #view-cockpit :is(.ss-stage, .ss-right, .ss-timeline, .ss-stats, .cockpit-grid, .col-span-6, .col-span-3, .stack) { display: contents; }
+body.av-full-ride #view-cockpit :is(.ss-stage, .ss-right, .ss-timeline, .ss-stats, .cockpit-grid, .col-span-6, .col-span-3, .stack, .timeline-controls) { display: contents; }
+body.av-full-ride.focus-mode #view-cockpit :is(.ss-right, .ss-details, .ss-stats, .upcoming-intervals-strip, .control-views) { display: none; }
 body.av-full-ride #view-cockpit > *, body.av-full-ride #view-cockpit [data-av-full] { grid-column: span 6; min-width: 0; margin: 0; }
 body.av-full-ride #view-cockpit .ss-stats > .metric-cell,
 body.av-full-ride #view-cockpit .ss-right > .metric-cell { grid-column: span 2; }
 body.av-full-ride #view-cockpit [data-av-full].av-off { display: none !important; }
-body.av-full-ride #view-cockpit :is(.ss-tl-head, #intervalTrackWrap, #upcomingIntervalsStrip, .timeline-controls, .erg-response-control) {
+body.av-full-ride #view-cockpit :is(.ss-tl-head, #intervalTrackWrap, #upcomingIntervalsStrip, .control-btn-group, .erg-response-control) {
   padding: 12px; border-radius: 18px; border: 1px solid var(--line); background: rgba(255, 255, 255, .04); }
-body.av-full-ride #view-cockpit .timeline-controls { order: 900; }
-body.av-full-ride #view-cockpit .erg-response-control { order: 901; }
-body.av-full-ride #view-cockpit .timeline-controls .control-views,
+body.av-full-ride #view-cockpit .control-btn-group { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
 body.av-full-ride #view-cockpit .ss-dock > :is(#btnPlayPause, #btnSkipInterval, #btnEndWorkout) { display: none; }
 body.av-full-ride #view-cockpit .welcome-card { display: none; }
 body.av-full-ride #view-cockpit :is(.btn, .segmented > button, select) { min-height: 44px; }
-body.av-full-ride #view-cockpit .segmented > button { min-width: 44px; }
+body.av-full-ride #view-cockpit :is(.btn, .segmented > button) { min-width: 44px; }
 .av-full-top { order: -1; display: flex; align-items: center; justify-content: space-between; padding: 8px 0; grid-column: 1 / -1; }
 .av-full-top .btn { min-height: 44px; }
 .av-full-ctrl { position: fixed; left: 0; right: 0; bottom: 0; z-index: 70; grid-template-columns: 1fr 1.3fr 1fr 1.2fr; padding: 10px 12px calc(10px + env(safe-area-inset-bottom, 0px));
@@ -124,3 +123,85 @@ body:not(.av-full-ride) .av-full-ctrl, body:not(.av-full-ride) .av-full-top { di
 .av-cust-end .icon-btn[disabled] { opacity: .3; }
 .av-confirm { display: flex; flex-direction: column; gap: 10px; }
 .av-confirm p { margin: 0; color: var(--text-2); }
+
+/* --- Zen cockpit on the phone (Controls › Zen cockpit): above the shell, safe areas, 44 px controls, scrolls if needed --- */
+.apex-native .zen-cockpit-overlay { z-index: 300; overflow-y: auto; padding: calc(10px + env(safe-area-inset-top, 0px)) 16px calc(14px + env(safe-area-inset-bottom, 0px)); }
+.apex-native .zen-cockpit-overlay :is(.btn, .segmented > button, .smooth-pill) { min-height: 44px; min-width: 44px; }
+.apex-native .zen-top-strip, .apex-native .zen-top-right, .apex-native .zen-bottom-bar { flex-wrap: wrap; gap: 8px; }
+.apex-native .zen-cockpit-overlay .zen-mini-canvas-wrap { display: block; width: 100%; height: 44px; }
+
+/* ===== Phase 2: polish (mock-ups d, e, g, h) ===== */
+
+/* Readable at arm's length: bigger numbers, tabular figures, stronger contrast. */
+.av-ride-power { font-size: clamp(110px, 36vw, 170px); font-variant-numeric: tabular-nums; }
+.av-ride-countdown { font-size: clamp(52px, 16vw, 76px); font-variant-numeric: tabular-nums; }
+.av-ride-target { font-size: 15px; color: var(--text-1); opacity: .8; }
+.av-tile-val { font-size: 26px; font-variant-numeric: tabular-nums; }
+.av-tile-lbl { font-size: 11px; color: var(--text-2); }
+.av-tile[data-tile="hr"] .av-tile-val { color: color-mix(in srgb, var(--rose) 70%, #fff); }
+.av-tile[data-tile="cadence"] .av-tile-val { color: color-mix(in srgb, var(--cyan) 70%, #fff); }
+.av-tile[data-tile="power"] .av-tile-val, .av-tile[data-tile="p30s"] .av-tile-val { color: color-mix(in srgb, var(--zone-b) 60%, #fff); }
+
+/* Deviation from target: the ±5 % band in the middle, a marker for where power is (±20 % at the ends). */
+.av-devbar { position: relative; width: min(260px, 70%); height: 8px; margin: 10px auto 0; border-radius: 8px; background: rgba(255, 255, 255, .1); }
+.av-devbar[hidden] { display: none; }
+.av-devbar-ok { position: absolute; left: 37.5%; width: 25%; top: 0; bottom: 0; border-radius: 8px; background: rgba(75, 227, 166, .35); }
+.av-devbar-mark { position: absolute; top: -4px; width: 4px; height: 16px; margin-left: -2px; border-radius: 3px; background: #fff; transition: left .25s ease; left: 50%; }
+.av-devbar[data-dev="over"] .av-devbar-mark { background: var(--rose); }
+.av-devbar[data-dev="under"] .av-devbar-mark { background: var(--cyan); }
+
+/* Heart rate only (no power source): HR is the hero, with a five-zone strip. */
+.av-hrz { display: grid; grid-template-columns: repeat(5, 1fr); gap: 4px; width: min(260px, 70%); margin: 12px auto 0; }
+.av-hrz[hidden] { display: none; }
+.av-hrz i { height: 8px; border-radius: 6px; opacity: .3; }
+.av-hrz i:nth-child(1) { background: var(--z1); } .av-hrz i:nth-child(2) { background: var(--z2); } .av-hrz i:nth-child(3) { background: var(--z3); }
+.av-hrz i:nth-child(4) { background: var(--z5); } .av-hrz i:nth-child(5) { background: var(--z6); }
+.av-hrz i.on { opacity: 1; height: 12px; margin-top: -2px; box-shadow: 0 0 12px currentColor; }
+.av-hr-only { background: radial-gradient(120% 60% at 50% 38%, rgba(255, 107, 138, .18), transparent 70%), var(--bg-1); }
+.av-hr-only .av-ride-countdown, .av-hr-only .av-ride-left { display: none; }
+
+/* Banners: a device lost (amber, with "Use trainer power instead") or no power source (info). */
+.av-ride-banner .btn { margin-top: 8px; }
+.av-ride-banner[data-kind="info"] { border-color: var(--line-glow, rgba(124, 200, 255, .35)); background: rgba(124, 200, 255, .08); padding: 0; }
+.av-banner-btn { width: 100%; min-height: 48px; padding: 12px 14px; border: 0; background: none; color: inherit; font: inherit; text-align: left; cursor: pointer; }
+
+/* Step change: a short flash of the new zone's colour around the screen (the app plays its audio cue). */
+.av-flash { animation: av-flash .7s ease-out; }
+@keyframes av-flash { 0% { box-shadow: inset 0 0 0 0 transparent; } 25% { box-shadow: inset 0 0 0 10px var(--zone-a), inset 0 0 80px var(--zone-a); } 100% { box-shadow: inset 0 0 0 0 transparent; } }
+@media (prefers-reduced-motion: reduce) { .av-flash { animation: none; outline: 4px solid var(--zone-a); } }
+
+/* All metrics, compact (mock-up e). */
+.av-istrip { display: grid; grid-template-columns: 1fr auto; align-items: center; gap: 2px 12px; padding: 12px 14px; border-radius: 18px;
+  border: 1px solid color-mix(in srgb, var(--zone-a) 55%, transparent); background: color-mix(in srgb, var(--zone-a) 14%, rgba(255, 255, 255, .03)); }
+.av-istrip-now { display: flex; align-items: center; gap: 6px; min-width: 0; font-size: 14px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.av-istrip-left { grid-row: span 2; font: 500 40px/1 var(--font-display); color: color-mix(in srgb, var(--zone-b) 70%, #fff); font-variant-numeric: tabular-nums; }
+.av-istrip-next { font-size: 12.5px; color: var(--text-2); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.av-zdot { width: 10px; height: 10px; border-radius: 50%; flex: none; background: var(--zone-a); }
+.av-gcard { padding: 10px; border-radius: 18px; border: 1px solid var(--line); background: rgba(255, 255, 255, .04); }
+.av-gcard canvas, .av-summary-graph canvas { display: block; width: 100%; height: 170px; }
+.av-legend { display: flex; flex-wrap: wrap; gap: 4px 12px; margin-top: 6px; font-size: 11.5px; color: var(--text-2); }
+.av-legend i { display: inline-block; width: 10px; height: 3px; border-radius: 2px; margin-right: 4px; vertical-align: middle; }
+.av-legend .lg-power { background: var(--zone-a); } .av-legend .lg-hr { background: #ff6b8a; } .av-legend .lg-cad { background: #7cc8ff; } .av-legend .lg-ftp { background: rgba(255, 255, 255, .5); }
+.av-legend-time { margin-left: auto; }
+body.av-full-ride #view-cockpit .av-ftile { grid-column: span 2; min-height: 64px; padding: 8px 10px; }
+body.av-full-ride #view-cockpit .av-ftile .av-tile-val { font-size: 22px; }
+body.av-full-ride #view-cockpit .av-ftile[data-tile="power"] { border-color: color-mix(in srgb, var(--zone-a) 55%, transparent); background: color-mix(in srgb, var(--zone-a) 14%, rgba(255, 255, 255, .03)); }
+
+/* End-of-ride summary (mock-up h). */
+.av-summary { min-height: 100vh; padding: calc(10px + env(safe-area-inset-top, 0px)) 16px calc(24px + env(safe-area-inset-bottom, 0px)); }
+body.av-shell[data-av-route^="ride/summary"] main { padding: 0; }
+.av-summary-top { min-height: 56px; display: flex; align-items: center; }
+.av-kpis { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; }
+.av-kpi { display: flex; flex-direction: column; padding: 10px 12px; border-radius: 16px; border: 1px solid var(--line); background: rgba(255, 255, 255, .05); }
+.av-kpi span { font-size: 11px; font-weight: 700; letter-spacing: .1em; text-transform: uppercase; color: var(--text-3); }
+.av-kpi b { font: 500 22px var(--font-display); }
+.av-summary-graph { padding: 10px !important; }
+.av-field { display: flex; flex-direction: column; gap: 6px; font-size: 12.5px; color: var(--text-2); }
+.av-field input { min-height: 48px; font-size: 16px; }
+.av-discard { color: var(--rose) !important; }
+
+.av-summary-insight:empty { display: none; }
+.av-summary-insight { display: flex; flex-direction: column; gap: 10px; }
+.av-summary-insight .btn-row { flex-wrap: wrap; }
+.av-summary-insight .btn { min-height: 44px; }
+.av-ramp-result { margin: 0; padding: 12px 14px; border-radius: 16px; border: 1px solid rgba(75, 227, 166, .45); background: rgba(75, 227, 166, .1); font-weight: 600; }

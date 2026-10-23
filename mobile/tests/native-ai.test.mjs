@@ -78,7 +78,7 @@ test('coach: calls Claude with the key and returns the server reply shape', asyn
   const ai = new NativeAi({ http, prefs: memPrefs() });
   const none = await ai.route('/api/coach', 'POST', new URLSearchParams(), JSON.stringify({ prompt: 'Build me a session' }));
   assert.equal(none.status, 503);
-  assert.match(none.body.error, /Settings > AI engine/);
+  assert.match(none.body.error, /You > Connections > AI coach/);
   assert.equal(http.log.length, 0);
 
   await ai.setKey('claude', KEY);
