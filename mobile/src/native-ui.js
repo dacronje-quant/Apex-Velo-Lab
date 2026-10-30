@@ -29,31 +29,8 @@ export function labelIntervalFields(doc) {
 export function installUiPolish({ shell, win = window }) {
   const doc = win.document;
   const text = (id, value) => { const n = doc.getElementById(id); if (n) n.textContent = value; };
-  const foldHelp = (paragraph, short) => {
-    if (!paragraph) return;
-    const details = doc.createElement('details');
-    details.className = 'av-more';
-    const summary = doc.createElement('summary'); summary.textContent = 'How it works';
-    const lead = doc.createElement('p'); lead.className = paragraph.className; lead.textContent = short;
-    paragraph.before(lead, details);
-    details.append(summary, paragraph); // Preserve ids and live data updates on the existing paragraph.
-  };
   shell.whenApp(() => {
     const app = shell.getApp();
-    if (app.renderAnaStory) {
-      const renderStory = app.renderAnaStory.bind(app);
-      app.renderAnaStory = (...args) => {
-        const result = renderStory(...args);
-        const box = doc.getElementById('anaStoryText');
-        const paragraphs = box ? [...box.querySelectorAll(':scope > p')] : [];
-        if (paragraphs.length > 1) {
-          const details = doc.createElement('details'); details.className = 'av-more'; details.innerHTML = '<summary>Recovery and next steps</summary>';
-          for (const p of paragraphs.slice(1)) details.appendChild(p);
-          box.appendChild(details);
-        }
-        return result;
-      };
-    }
     // Native profile editing reports invalid values instead of silently clamping them.
     const saveProfile = app.saveProfileFromInputs.bind(app);
     app.saveProfileFromInputs = (...args) => {
@@ -77,12 +54,6 @@ export function installUiPolish({ shell, win = window }) {
     for (const [id, min, max, step] of [['profInputFtp',50,700,1], ['profInputWeight',30,200,.1], ['profInputMaxHr',100,230,1]]) {
       const n = doc.getElementById(id);
       if (n) { n.min = min; n.max = max; n.step = step; n.required = true; }
-    }
-    const grid = doc.querySelector('#profileManagerModal .form-grid');
-    if (grid) {
-      const more = doc.createElement('details'); more.className = 'av-more av-profile-more'; more.innerHTML = '<summary>More profile settings</summary>';
-      for (const id of ['profInputCrank', 'profInputLthr']) { const field = doc.getElementById(id)?.closest('.form-group'); if (field) more.appendChild(field); }
-      grid.appendChild(more);
     }
     // Let the original table create and bind every input, then apply phone labels to the live nodes.
     if (app.populateCustomIntervalTable) {
@@ -109,8 +80,8 @@ export function installUiPolish({ shell, win = window }) {
       importRows.prepend(bulkRow);
       const dropzone = doc.getElementById('historyDropzone');
       if (dropzone) {
-        const details = doc.createElement('details'); details.className = 'av-more av-backup-import'; details.innerHTML = '<summary>Restore a backup</summary>';
-        dropzone.before(details); details.appendChild(dropzone);
+        const section = doc.createElement('div'); section.className = 'av-backup-import';
+        dropzone.before(section); section.appendChild(dropzone);
         const title = dropzone.querySelector('h4'); if (title) title.textContent = 'JSON backup';
         const explanation = dropzone.querySelector('p'); if (explanation) explanation.textContent = 'Restore rides and settings from a JSON backup.';
         text('btnChooseImportFiles', 'Choose backup');
@@ -119,10 +90,11 @@ export function installUiPolish({ shell, win = window }) {
       const title = bulkRow.querySelector('h4'); if (title) title.textContent = 'Import rides';
       text('btnImportHistory', 'Choose files');
     }
+    const shortHelp = (selector, value) => { const n = doc.querySelector(selector); if (n) n.textContent = value; };
+    shortHelp('#nativeImportSettings > .field-help', 'Pick a folder where ride files arrive, such as Dropbox, Google Drive or a Garmin, Wahoo or Karoo export folder. New rides there are imported automatically; each file only once.');
+    shortHelp('#nativeFileSettings > .field-help', 'Ride files are saved to Documents/ApexVelo on this phone, where Garmin Connect, TrainingPeaks, intervals.icu and file managers can open them.');
     const bulk = doc.querySelector('.bulk-import-row .dim');
     if (bulk) bulk.textContent = 'Choose ride files or a Garmin or Strava export ZIP. Duplicates are skipped.';
-    foldHelp(doc.querySelector('#nativeImportSettings > .field-help'), 'Import new ride files automatically when the app opens.');
-    foldHelp(doc.querySelector('#nativeFileSettings > .field-help'), 'Ride files are saved to Documents/ApexVelo on this phone.');
     for (const id of ['coachReadinessChip', 'cockpitReadinessChip', 'anaReadinessChip']) {
       const n = doc.getElementById(id);
       if (!n) continue;
@@ -146,10 +118,8 @@ export function installUiPolish({ shell, win = window }) {
       const el = doc.querySelector(`#aiCoachGoalPills [data-goal="${key}"] small`); if (el) el.textContent = description;
     }
     const focus = doc.querySelector('#selectAiCoachFocus option[value=auto]'); if (focus) focus.textContent = 'Auto · based on your training';
-    // Reading details belong behind an explicit disclosure, rather than below every chart.
-    for (const paragraph of doc.querySelectorAll('#view-analytics .footnote')) {
-      if (paragraph.textContent.length > 150 && !paragraph.closest('details')) foldHelp(paragraph, 'Open the explanation for definitions and calculation details.');
-    }
+    // Few hidden menus on the phone: short option groups are shown open, without their disclosure row.
+    for (const details of doc.querySelectorAll('#view-ai-coach details.coach-more')) { details.open = true; details.classList.add('av-open'); }
     const hcIntro = doc.querySelector('#nativeHc > .field-help');
     if (hcIntro) hcIntro.textContent = 'Choose which recovery data and rides Apex Velo can read or save.';
     const groupLabels = { recovery: 'Allow recovery data', rides: 'Allow ride imports', write: 'Allow saving rides' };

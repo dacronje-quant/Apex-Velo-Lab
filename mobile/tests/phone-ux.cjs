@@ -162,7 +162,7 @@ const FLOWS = [
     assert.equal(c.taps, 2);
     const b = await page.locator('.av-sheet #btnImportHistory').boundingBox();
     assert.ok(b && b.y + b.height <= 852, 'Import history above the fold');
-    await tap(page, '.av-backup-import > summary');
+    await page.locator('.av-sheet #btnChooseImportFiles').scrollIntoViewIfNeeded(); // restoring a backup is shown in the sheet, not folded
     assert.ok(await page.locator('.av-sheet #btnChooseImportFiles').isVisible());
     const s = await sweep(page);
     assert.deepEqual(s.small, []); assert.ok(s.overflowX <= 0);
@@ -742,7 +742,7 @@ const TRAIN_PARITY = [
   ['coach: focus, time available', 'train/coach', '#selectAiCoachFocus'],
   ['coach: notes, look-back', 'train/coach', '#inputAiCoachNotes'],
   ['coach: form, fitness, fatigue, readiness', 'train/coach', '#coachReadinessChip'],
-  ['coach: insights', 'train/coach', '#aiCoachInsights', async (page) => { if (!await page.locator('.av-coach-context').evaluate((n) => n.open)) await tap(page, '.av-coach-context > summary'); if (!await page.locator('.av-coach-insights').evaluate((n) => n.open)) await tap(page, '.av-coach-insights > summary'); }],
+  ['coach: insights', 'train/coach', '#aiCoachInsights'], // shown open below the builder
   ['coach: prescribe / build (top bar too)', 'train/coach', '#btnGenerateAiCoachRecommendation'],
   ['coach: training terms explained', 'train/coach', '#view-ai-coach [data-training-guide]'],
   ['plan: weeks, days, long day, start, hours', 'train/coach', '#blockDays [data-dow="5"]', async (page) => { await page.evaluate(() => ApexNative.trainTab.openCoach('plan')); }],
@@ -764,7 +764,6 @@ FLOWS.push(['train parity: every Workouts, Coach, Calendar and Ask feature is re
   for (const [feature, r, sel, setup] of TRAIN_PARITY) {
     await page.evaluate((r) => { while (ApexNative.shell.sheets.length) ApexNative.shell.closeSheet(); ApexNative.shell.go(r); }, r);
     if (setup) await setup(page);
-    if (r === 'train/coach' && !setup) await page.evaluate(() => { const d = document.querySelector('.av-coach-context'); if (d) d.open = true; });
     const loc = page.locator(sel).first();
     if (!((await loc.count()) > 0 && (await loc.isVisible()))) missing.push(`${feature} (${r}: ${sel})`);
   }

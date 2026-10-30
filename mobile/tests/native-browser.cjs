@@ -916,7 +916,7 @@ async function brokerFlow(browser, errors) {
     assert.match(await page.locator('#anaReadyRing').getAttribute('data-level'), /green|amber|red/);
     assert.equal(await page.locator('#anaReadyParts .ready-part').count(), 3, 'HRV, resting HR and sleep');
     await page.evaluate(() => ApexNative.shell.go('progress/fitness'));
-    assert.match(await page.locator('#anaStoryText').textContent(), /Next:/, 'the week from the numbers, without AI');
+    assert.match(await page.locator('#anaStoryText').innerText(), /Next:/, 'the week from the numbers, without AI');
     await page.locator('#btnAnaStory').click();
     await page.locator('#anaStoryText', { hasText: 'test breakdown' }).waitFor({ timeout: 10000 });
     assert.match(await page.locator('#anaStoryNote').innerText(), /Written by Claude Opus 5\.5/);

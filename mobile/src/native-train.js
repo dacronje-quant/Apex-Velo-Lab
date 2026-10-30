@@ -241,22 +241,11 @@ export class TrainTab {
     el.querySelector('#avPlanSuggestions')?.addEventListener('click', () => this.openCoach('plan', 'blockSuggestions'));
   }
 
-  /** The coach's insight chips (volume, intensity mix, power profile) fold under "More" so the builder shows first. */
+  /** The coach's form and readiness header stay visible; the insight chips (volume, intensity mix, power profile) follow the builder. */
   foldCoachInsights() {
-    const header = this.doc.querySelector('#view-ai-coach .ai-coach-header');
-    if (header && !header.closest('.av-coach-context')) {
-      const details = this.doc.createElement('details');
-      details.className = 'av-more card av-coach-context';
-      details.innerHTML = '<summary>Training context</summary>';
-      header.before(details); details.appendChild(header);
-    }
     const strip = this.doc.getElementById('aiCoachInsights');
-    if (!strip || strip.closest('.av-coach-insights')) return;
-    const more = this.doc.createElement('details');
-    more.className = 'av-more av-coach-insights';
-    more.innerHTML = '<summary>More about your training</summary>';
-    strip.parentNode.insertBefore(more, strip);
-    more.appendChild(strip);
+    const build = this.doc.getElementById('coachBuilder');
+    if (strip && build && !strip.dataset.avMoved) { strip.dataset.avMoved = '1'; build.after(strip); }
   }
 
   /** The coach's main button (Prescribe today's workout / Build plan), from the top bar; then shows the result. */

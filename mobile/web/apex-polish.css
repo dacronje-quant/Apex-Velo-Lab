@@ -18,8 +18,6 @@ html.apex-native {
 .apex-native .av-title { font-size: 25px; }
 .apex-native .av-actions { flex: none; }
 .apex-native .av-labelled-action { display: inline-flex; align-items: center; gap: 6px; width: auto; padding: 8px 12px; border-radius: 12px; font: 600 14px var(--font-sans); color: var(--cyan); }
-.apex-native .av-coach-context > .card { background: none; border: 0; padding: 8px 0; }
-.apex-native .av-coach-context { padding: 8px 16px !important; }
 .apex-native .av-workout-grid { display: grid; grid-template-columns: minmax(0,1fr); gap: 14px; }
 .apex-native .av-workout-card {
   display: flex; flex-direction: column; align-items: stretch; gap: 12px; width: 100%; min-width: 0;
@@ -127,8 +125,6 @@ html.apex-native {
 .apex-native .av-split > .btn { margin-right: 8px; }
 .apex-native .av-split > .btn { background: transparent; color: var(--cyan); border-color: var(--line-strong); }
 .apex-native .av-profile-editing .active-profile [data-act=edit] { display: none; }
-.apex-native .av-profile-more { grid-column: 1/-1; }
-.apex-native .av-profile-more > summary { font-weight: 650; color: var(--text-2); }
 .apex-native .av-train-builder .interval-table td { background: transparent !important; }
 .apex-native .link-btn { color: var(--cyan); text-decoration: underline; text-underline-offset: 3px; }
 .apex-native .native-hc-prefs { grid-template-columns: 1fr; gap: 8px; }
@@ -212,8 +208,38 @@ html.apex-native {
   .apex-native .av-ride-hero { min-height: 0; }
   body.av-full-ride #view-cockpit .av-ftile { grid-column: span 2; }
 }
+/* Open by default: short option groups show their content without a disclosure row. */
+.apex-native details.av-open > summary { display: none; }
+.apex-native details.av-open { border: 0; padding: 0; }
+/* The coach header: the page title already says Coach, so keep the live numbers and one line of context. */
+.apex-native .ai-coach-header :is(.eyebrow, .section-title) { display: none; }
+.apex-native #coachBuilderChip { display: none; }
+.apex-native #aiCoachInsights { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; margin-top: 0; }
+.apex-native #aiCoachInsights .insight { display: flex; flex-direction: column; align-items: flex-start; gap: 2px; height: auto; min-width: 0; padding: 10px 12px; border-radius: 14px; line-height: 1.3; }
+.apex-native #aiCoachInsights .insight small { font-size: 11px; letter-spacing: .04em; }
+.apex-native #aiCoachInsights .insight b { font-size: 15px; font-weight: 650; overflow-wrap: anywhere; }
+.apex-native #aiCoachInsights .insight:last-child:nth-child(odd) { grid-column: 1/-1; }
+/* Editing the active rider: the back arrow already leaves the page, so Cancel only shows for a new rider. */
+.apex-native #avProfileForm.av-profile-editing #btnCancelEditProfile { display: none !important; }
+/* One modern typeface across the phone app. */
+html.apex-native { --font-display: var(--font-sans); }
+/* Motion: pages ease in, sheets slide up, controls respond to touch. */
+@keyframes av-in { from { opacity: 0; transform: translateY(8px); } }
+@keyframes av-fade { from { opacity: 0; } }
+@keyframes av-up { from { transform: translateY(40%); opacity: .4; } }
+.apex-native body:not(.av-fullscreen) .av-page:not([hidden]) { animation: av-in .26s cubic-bezier(.2, .8, .2, 1) backwards; }
+.apex-native .av-sheet-bg { animation: av-fade .2s ease-out backwards; }
+.apex-native .av-sheet { animation: av-up .3s cubic-bezier(.2, .8, .2, 1) backwards; }
+.apex-native details[open]:not(.av-open) > :not(summary) { animation: av-in .2s ease-out backwards; }
+.apex-native :is(.btn, button.av-row, .av-workout-card, button.chip, .av-seg > button, .av-tab, .av-day, .goal-pill) {
+  transition: transform .14s ease, background-color .18s ease, border-color .18s ease, color .18s ease;
+}
+.apex-native :is(.btn, .av-workout-card, button.chip, .av-day, .goal-pill):active { transform: scale(.97); }
+.apex-native :is(button.av-row, .av-seg > button, .av-tab):active { transform: scale(.985); }
+.apex-native .av-tab-pill { transition: background-color .22s ease, transform .22s cubic-bezier(.2, .8, .2, 1); }
+.apex-native .av-tab.on .av-tab-pill { transform: scale(1.04); }
 @media (prefers-reduced-motion: reduce) {
-  .apex-native *, .apex-native *::before, .apex-native *::after { scroll-behavior: auto !important; transition: none !important; }
+  .apex-native *, .apex-native *::before, .apex-native *::after { scroll-behavior: auto !important; transition: none !important; animation: none !important; }
 }
 .apex-native #profileListContainer + .btn, .apex-native #avProfileForm .profile-item-row + .btn { margin-top: 12px; }
 .apex-native .av-workout-card { gap: 8px; }
