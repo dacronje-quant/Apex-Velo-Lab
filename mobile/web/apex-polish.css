@@ -20,7 +20,6 @@ html.apex-native {
 .apex-native .av-labelled-action { display: inline-flex; align-items: center; gap: 6px; width: auto; padding: 8px 12px; border-radius: 12px; font: 600 14px var(--font-sans); color: var(--cyan); }
 .apex-native .av-coach-context > .card { background: none; border: 0; padding: 8px 0; }
 .apex-native .av-coach-context { padding: 8px 16px !important; }
-.apex-native .av-wk-duration .input-field { width: 100%; }
 .apex-native .av-workout-grid { display: grid; grid-template-columns: minmax(0,1fr); gap: 14px; }
 .apex-native .av-workout-card {
   display: flex; flex-direction: column; align-items: stretch; gap: 12px; width: 100%; min-width: 0;
@@ -88,7 +87,7 @@ html.apex-native {
 .apex-native .native-key-row { flex-wrap: wrap; }
 .apex-native .native-key-row .input-field { flex-basis: 200px; }
 /* A link is navigation; an action is a button. Ordinary descriptions do not borrow link styling. */
-.apex-native a[href] { color: var(--cyan); text-decoration: underline; text-underline-offset: 3px; }
+.apex-native a[href]:not(.btn) { color: var(--cyan); text-decoration: underline; text-underline-offset: 3px; }
 .apex-native button.av-text-action { color: var(--cyan); border: 0; background: none; text-decoration: underline; text-underline-offset: 3px; font: inherit; padding: 8px 0; min-height: 48px; cursor: pointer; }
 .apex-native .av-link-note { color: var(--text-2); }
 .apex-native :is(.chip, .av-row-end):not(button):not(a) { cursor: default; }
@@ -190,6 +189,16 @@ html.apex-native {
 .apex-native .av-train-builder .interval-table td::before { content: attr(data-av-label); display: block; color: var(--text-2); font-size: 12px; margin-bottom: 5px; }
 .apex-native .av-train-builder .interval-table td:first-child { grid-column: 1/-1; font-weight: 700; }
 .apex-native .av-train-builder .interval-table input { width: 100%; }
+/* Review pass: one typeface, fewer repeats, filters on one line, action rows that fill their width. */
+.apex-native .num { font-family: var(--font-sans); font-variant-numeric: tabular-nums; letter-spacing: 0; }
+.apex-native a.btn { text-decoration: none; }
+.apex-native .welcome-card .btn-row > .btn { flex: 1 1 140px; justify-content: center; }
+.apex-native .welcome-card .btn-row > .btn-primary { flex-basis: 100%; }
+.apex-native .av-wk-filters { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 8px; }
+.apex-native .av-wk-duration .input-field { width: auto; min-width: 128px; }
+/* The profile card and form already show every value; the separate read-only summary only repeated them. */
+.apex-native #avProfileSummary { display: none; }
+.apex-native .profile-item-row { flex-wrap: wrap; }
 @media (max-width: 380px) {
   .apex-native .av-title { font-size: 22px; }
   .apex-native .av-topbar { padding-left: 12px; padding-right: 12px; }
@@ -206,3 +215,6 @@ html.apex-native {
 @media (prefers-reduced-motion: reduce) {
   .apex-native *, .apex-native *::before, .apex-native *::after { scroll-behavior: auto !important; transition: none !important; }
 }
+.apex-native #profileListContainer + .btn, .apex-native #avProfileForm .profile-item-row + .btn { margin-top: 12px; }
+.apex-native .av-workout-card { gap: 8px; }
+.apex-native .av-workout-card .av-row-text { margin: 0; }

@@ -289,8 +289,8 @@ export class TrainTab {
     const el = this.workoutsEl;
     if (!app) { el.innerHTML = '<p class="av-note">Loading…</p>'; this.shell.whenApp(() => this.renderWorkouts()); return; }
     if (!el.querySelector('.av-wk-chips')) {
-      el.innerHTML = `<label class="av-wk-search"><span class="sr-only">Search workouts</span><input type="search" id="avWorkoutSearch" class="input-field" placeholder="Search workouts" autocomplete="off"></label>
-        <label class="av-wk-duration"><span class="sr-only">Maximum duration</span><select class="input-field" id="avWorkoutDuration"><option value="0">Any duration</option><option value="30">Up to 30 min</option><option value="45">Up to 45 min</option><option value="60">Up to 1 hour</option></select></label>
+      el.innerHTML = `<div class="av-wk-filters"><label class="av-wk-search"><span class="sr-only">Search workouts</span><input type="search" id="avWorkoutSearch" class="input-field" placeholder="Search workouts" autocomplete="off"></label>
+        <label class="av-wk-duration"><span class="sr-only">Maximum duration</span><select class="input-field" id="avWorkoutDuration"><option value="0">Any length</option><option value="30">≤ 30 min</option><option value="45">≤ 45 min</option><option value="60">≤ 1 hour</option></select></label></div>
         <div class="av-wk-chips" role="group" aria-label="Workout type">${FILTERS.map((f) => `<button type="button" class="chip" data-av-cat="${f.cat}">${esc(f.label)}</button>`).join('')}</div>
         <div class="av-workout-grid av-wk-list" id="avWorkoutList"></div>
         <button type="button" class="btn btn-ai av-big" id="avDescribe">${icon('i-sparkles')}Describe a workout</button>
