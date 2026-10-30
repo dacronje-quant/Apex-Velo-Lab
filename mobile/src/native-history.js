@@ -11,6 +11,7 @@
 const esc = (s) => String(s == null ? '' : s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 const icon = (id, cls = 'ic') => `<svg class="${cls}" aria-hidden="true"><use href="#${esc(id)}"/></svg>`;
 const pos = (v) => Number(v) > 0;
+import { durationText } from './native-ui.js';
 const PAGE_ROWS = 60;
 const ON_STRAVA = new Set(['sent', 'duplicate', 'found', 'imported']);
 
@@ -82,7 +83,7 @@ const CSS = `
 export function installHistory(shell, { win = window } = {}) {
   const doc = shell.doc;
   const app = () => shell.getApp();
-  const state = { query: '', filter: 'all', limit: PAGE_ROWS, tools: false };
+  const state = { query: '', filter: 'all', limit: PAGE_ROWS, tools: true };
   let showSummary = null; // the app's showRideSummary (with the lazy sample loader), before ours
   let detailFor = null; // the ride id the detail page shows while it is open
   let statusTimer = null;
@@ -99,9 +100,10 @@ export function installHistory(shell, { win = window } = {}) {
   const list = doc.createElement('div');
   list.className = 'av-page-body av-history';
   list.innerHTML = `
-    <div class="av-hist-tools" hidden>
+    <div class="av-hist-tools">
       <input type="search" class="input-field av-hist-search" id="avHistSearch" placeholder="Search rides, notes, source" aria-label="Search rides">
       <div class="av-hist-chips" role="group" aria-label="Filter">${FILTERS.map(([k, l]) => `<button type="button" class="chip" data-filter="${k}" aria-pressed="false">${esc(l)}</button>`).join('')}</div>
+      <button type="button" class="av-text-action" id="avHistClear" hidden>Clear filters</button>
     </div>
     <div class="av-hist-import" hidden></div>
     <div class="av-hist-head"><span class="av-label" id="avHistCount"></span></div>
@@ -112,12 +114,12 @@ export function installHistory(shell, { win = window } = {}) {
     const d = new Date(r.date);
     const when = isNaN(d) ? '' : d.toLocaleDateString('en-GB', { weekday: 'short', day: 'numeric', month: 'short' });
     const np = r.np || r.avgWatts || 0;
-    const bits = [when, a.fmtTime ? a.fmtTime(r.duration || 0) : '', np > 0 ? `${np} W` : '', pos(r.tss) ? `${Math.round(r.tss)} TSS` : ''].filter(Boolean);
+    const bits = [when, durationText(r.duration || 0), np > 0 ? `${r.np ? 'NP' : 'Avg'} ${np} W` : ''].filter(Boolean);
     const z = pos(r.if) && win.VeloProgress ? win.VeloProgress.ifBand(parseFloat(r.if)) : null;
     const st = r.strava && r.strava.state;
     const end = ON_STRAVA.has(st) ? `<span class="av-row-end" title="On Strava">${icon('i-check', 'ic ic-ok')}</span>`
       : st === 'failed' ? '<span class="av-row-end warn">Strava failed</span>'
-        : st === 'queued' || st === 'sending' || st === 'processing' ? '<span class="av-row-end">Sending...</span>' : '';
+        : st === 'queued' ? '<span class="av-row-end">Queued</span>' : st === 'sending' || st === 'processing' ? '<span class="av-row-end">Sending...</span>' : '';
     return `<button type="button" class="av-row av-ride-row" data-ride="${esc(r.id)}">${z ? `<i class="zone-dot" style="--zc:${z.color}" title="${esc(z.label)}"></i>` : ''}<div class="av-row-text"><b>${esc(r.title || 'Ride')}</b><small>${esc(bits.join(' · '))}</small></div>${end || icon('i-right', 'ic av-row-chevron')}</button>`;
   };
 
@@ -129,6 +131,7 @@ export function installHistory(shell, { win = window } = {}) {
     const rides = filterRides(all, state, win);
     for (const b of list.querySelectorAll('[data-filter]')) { const on = b.dataset.filter === state.filter; b.classList.toggle('on', on); b.setAttribute('aria-pressed', String(on)); }
     $('#avHistCount').textContent = rides.length === all.length ? `${all.length} ride${all.length === 1 ? '' : 's'}` : `${rides.length} of ${all.length}`;
+    $('#avHistClear').hidden = !state.query && state.filter === 'all';
     if (!all.length) {
       box.innerHTML = `<div class="card av-hist-empty"><p>No rides yet. Import your ride files or history, or record a ride.</p>
         <button type="button" class="btn btn-primary av-big" data-hist="import">${icon('i-download')}Import rides</button></div>`;
@@ -153,6 +156,7 @@ export function installHistory(shell, { win = window } = {}) {
     else if (h && h.dataset.hist === 'import') openImport();
   });
   $('#avHistSearch').addEventListener('input', (e) => { state.query = e.target.value; state.limit = PAGE_ROWS; renderList(); });
+  $('#avHistClear').addEventListener('click', () => { state.query = ''; state.filter = 'all'; state.limit = PAGE_ROWS; $('#avHistSearch').value = ''; renderList(); });
 
   /** The running import (History > Import history) while its card is not on screen; tap opens the import sheet. */
   function renderImportStatus() {
@@ -188,7 +192,7 @@ export function installHistory(shell, { win = window } = {}) {
     rows.className = 'card av-list';
     const a = app();
     if (doc.querySelector('#settingsNav [data-sec="importfolder"]')) {
-      rows.appendChild(shell.row({ icon: 'i-folder', title: 'Watch a folder', sub: 'Import new ride files from a Dropbox, Drive or device folder', id: 'avHistWatchFolder', onClick: () => { shell.closeSheet(); if (a) a.openSettings('importfolder'); } }));
+      rows.appendChild(shell.row({ icon: 'i-folder', title: 'Auto-import from a folder', sub: 'Import new ride files automatically', id: 'avHistWatchFolder', onClick: () => { shell.closeSheet(); if (a) a.openSettings('importfolder'); } }));
     }
     rows.appendChild(shell.row({ icon: 'i-gear', title: 'Ride files and import settings', sub: 'Where exports are saved, sport filter', onClick: () => { shell.closeSheet(); if (a) a.openSettings('files'); } }));
     box.appendChild(rows);
@@ -202,33 +206,27 @@ export function installHistory(shell, { win = window } = {}) {
   const click = (id) => () => { const b = doc.getElementById(id); if (b) b.click(); };
   const listMore = () => {
     const items = [
-      { icon: 'i-refresh', title: 'Check Strava', sub: 'Mark rides that are already on Strava', onClick: click('btnStravaCheckAll') },
-      { icon: 'i-download', title: 'Full backup · JSON', sub: 'Every ride with its samples', onClick: click('btnExportJsonHistory') },
-      { icon: 'i-download', title: 'Current session · FIT', onClick: click('btnExportFitActive') },
-      { icon: 'i-download', title: 'Current session · TCX', onClick: click('btnExportTcxActive') },
-      { icon: 'i-download', title: 'Current session · CSV', onClick: click('btnExportCsvRide') },
+      { icon: 'i-download', title: 'Export backup', sub: 'Rides and settings; sign in again after restoring', onClick: click('btnExportJsonHistory') },
+      ...(app()?.totalElapsedSeconds > 0 ? [
+        { icon: 'i-download', title: 'Current session · FIT', onClick: click('btnExportFitActive') },
+        { icon: 'i-download', title: 'Current session · TCX', onClick: click('btnExportTcxActive') },
+        { icon: 'i-download', title: 'Current session · CSV', onClick: click('btnExportCsvRide') }
+      ] : []),
       { icon: 'i-activity', title: 'Training-load options', sub: 'Strength sessions in fatigue and fitness', onClick: openLoadOptions },
-      { icon: 'i-folder', title: 'Replace history from HealthFit folder...', onClick: click('btnWipeAndSyncHealthFitFolder') },
       { icon: 'i-trash', title: 'Clear all history...', onClick: click('btnClearAllWorkoutsTable') }
     ];
     return items;
   };
   const moreBtn = shell.more(listMore, { title: 'History', label: 'History options' });
   moreBtn.id = 'avHistMore';
-  $('.av-hist-head').appendChild(moreBtn);
 
   shell.registerPage('history', {
     title: 'History',
     el: list,
     parent: null,
     actions: () => [
-      shell.button({ icon: 'i-search', label: 'Search and filter', id: 'avHistSearchBtn', onClick: () => {
-        state.tools = !state.tools;
-        $('.av-hist-tools').hidden = !state.tools;
-        if (state.tools) $('#avHistSearch').focus();
-        else if (state.query || state.filter !== 'all') { state.query = ''; state.filter = 'all'; $('#avHistSearch').value = ''; renderList(); }
-      } }),
-      shell.button({ icon: 'i-plus', label: 'Add rides', id: 'avHistAdd', onClick: openImport })
+      moreBtn,
+      (() => { const b = shell.button({ icon: 'i-plus', label: 'Import rides', id: 'avHistAdd', onClick: openImport }); b.classList.add('av-labelled-action'); b.insertAdjacentHTML('beforeend', '<span>Import</span>'); return b; })()
     ],
     mount: () => {
       renderList();
@@ -299,7 +297,7 @@ export function installHistory(shell, { win = window } = {}) {
     tab: 'history',
     parent: 'history',
     el: detail,
-    title: ({ rideId }) => { const r = findRide(rideId); return r ? r.title || 'Ride' : 'Ride'; },
+    title: () => 'Ride details',
     actions: ({ rideId }) => { const r = findRide(rideId); return r ? rideMore(r) : null; },
     mount: (el, { rideId }) => {
       const a = app();

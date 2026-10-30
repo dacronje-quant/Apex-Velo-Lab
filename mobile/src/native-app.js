@@ -293,7 +293,7 @@ function addSettingsUi(doc, icu, healthConnect) {
 const BACKUPS_TEXT = 'Your rides, profiles, settings and plans are saved in the app on this phone. Verified copies are kept here too: '
   + 'a minute after each change, when the app goes to the background, and at least once a day, with daily, weekly and monthly copies '
   + 'kept for a year and the newest three always kept (about 500 MB in all, or more if the newest copies need it). They are in the app\'s private storage, so '
-  + 'uninstalling the app removes them: use Back up everything in You > Your data to keep a copy elsewhere.';
+  + 'uninstalling the app removes them: use Export backup in You > Your data to keep a copy elsewhere.';
 
 const blobToBase64 = (blob) => new Promise((resolve, reject) => {
   const r = new FileReader();
@@ -509,15 +509,15 @@ export function bootNativeApp({ bluetooth, storage, strava, ai, icu, uploads, pl
       V.render = () => {
         const el = doc.getElementById('localStorageStatus');
         if (!el) return;
-        el.textContent = V.error ? `Not saved on this phone: ${V.error}${V.recoveryUnavailable ? ' The browser recovery copy is also unavailable; export important rides with Back up everything in You > Your data.' : ''}`
+        el.textContent = V.error ? `Not saved on this phone: ${V.error}${V.recoveryUnavailable ? ' The browser recovery copy is also unavailable; export important rides with Export backup in You > Your data.' : ''}`
           : !V.enabled ? 'Saved in the app\'s browser storage on this phone.'
-            : V.pending.length ? 'Saving on this phone...' : 'Saved on this phone. Use Back up everything in You > Your data to keep a copy elsewhere.';
+            : V.pending.length ? 'Saving on this phone...' : 'Saved on this phone. Use Export backup in You > Your data to keep a copy elsewhere.';
         el.classList.toggle('backup-warn', !!V.error);
       };
     } else if (V) {
       // No phone database: the app's own IndexedDB/localStorage (persistent in the WebView) is the store.
       V.boot = async () => {};
-      V.render = () => { const el = doc.getElementById('localStorageStatus'); if (el) { el.textContent = 'Saved on this phone. Use Back up everything in You > Your data to keep a copy elsewhere.'; el.classList.remove('backup-warn'); } };
+      V.render = () => { const el = doc.getElementById('localStorageStatus'); if (el) { el.textContent = 'Saved on this phone. Use Export backup in You > Your data to keep a copy elsewhere.'; el.classList.remove('backup-warn'); } };
     }
     if (!P) return;
     // Riding with the screen off (src/native-ride.js). VeloDB is still the WebView's IndexedDB here.
@@ -536,7 +536,7 @@ export function bootNativeApp({ bluetooth, storage, strava, ai, icu, uploads, pl
     const runAutoBackup = P.runAutoBackup;
     P.runAutoBackup = async function (...args) {
       if (win.VeloStorage && win.VeloStorage.enabled) return runAutoBackup.apply(this, args);
-      return { ok: false, error: 'Backups need the phone database, which did not open. Use Back up everything in You > Your data.' };
+      return { ok: false, error: 'Backups need the phone database, which did not open. Use Export backup in You > Your data.' };
     };
     // Changes to the history: the phone database's automatic snapshot (a minute after the last change).
     P.scheduleAutoBackup = function () { if (storage) storage.scheduleBackup().catch(() => {}); };
@@ -736,6 +736,11 @@ export function bootNativeApp({ bluetooth, storage, strava, ai, icu, uploads, pl
       if (!el || !ride || ride.source === 'Strava') return;
       const st = this.stravaStateOf(ride);
       const stateEl = el.querySelector('.strava-state'), detailEl = el.querySelector('.strava-detail');
+      if (st.state === 'none' && !this.canSendToStrava(ride)) {
+        el.classList.add('av-sync-unavailable');
+        if (stateEl) stateEl.textContent = 'Upload unavailable';
+        return; // Account setup cannot make a summary-only or imported Strava ride uploadable.
+      }
       if (st.state === 'queued' && stateEl && detailEl) {
         el.className = 'strava-panel strava-busy';
         stateEl.textContent = 'Waiting to send to Strava';

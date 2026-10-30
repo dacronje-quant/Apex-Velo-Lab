@@ -98,7 +98,7 @@ export const PRESETS = {
     lines: { power: true, target: true, cadence: false, hr: false }
   },
   standard: {
-    simple: list(['panel:hero', 'panel:profile', 'panel:next', 'tile:hr', 'tile:cadence', 'tile:wbal', ...ALL_SIMPLE], ['panel:hero', 'panel:profile', 'panel:next', 'tile:hr', 'tile:cadence', 'tile:wbal']),
+    simple: list(['panel:hero', 'panel:profile', 'panel:next', 'tile:hr', 'tile:cadence', ...ALL_SIMPLE], ['panel:hero', 'panel:profile', 'panel:next', 'tile:hr', 'tile:cadence']),
     full: list(fullOrder([...COMPACT, 'stepControls', 'biasControls', 'views', 'ergResponse', 'queue']), [...COMPACT, 'stepControls', 'biasControls', 'views', 'ergResponse', 'queue']),
     lines: { power: true, target: true, cadence: true, hr: true }
   },
@@ -181,9 +181,10 @@ export class RideView {
     el.innerHTML = `
       <div class="av-ride-top">
         <span class="chip av-ride-step" id="avRideStep">Ready</span>
-        <span class="av-ride-clock num" id="avRideClock">00:00</span>
-        <button type="button" class="icon-btn av-icon-btn" id="avRideControls" aria-label="Controls and settings">${icon('i-gear')}</button>
+        <span class="av-ride-clock num"><small>Elapsed</small><span id="avRideClock">00:00</span></span>
+        <button type="button" class="icon-btn av-icon-btn av-labelled-action" id="avRideControls" aria-label="Controls and settings">${icon('i-gear')}<span>Controls</span></button>
       </div>
+      <span class="av-simulation" id="avRideSimulation" hidden>Simulation · no measured power</span>
       <div class="av-ride-progress" aria-hidden="true"><i id="avRideProgress"></i></div>
       <div class="av-ride-banner" id="avRideBanner" hidden role="status"></div>
       <div class="av-ride-grid" id="avRideGrid">
@@ -194,7 +195,7 @@ export class RideView {
           <div class="av-devbar" id="avDevBar" aria-hidden="true"><i class="av-devbar-ok"></i><i class="av-devbar-mark" id="avDevMark"></i></div>
           <div class="av-hrz" id="avHrZones" hidden aria-hidden="true"><i></i><i></i><i></i><i></i><i></i></div>
           <span class="av-ride-countdown num" id="avRideCountdown">0:00</span>
-          <small class="av-ride-left">left in this step</small>
+          <small class="av-ride-left">Interval left</small>
         </div>
         <div class="av-ride-profile" data-av-item="panel:profile"></div>
         <div class="av-ride-next" data-av-item="panel:next"><span class="av-ride-next-dot"></span><div><b id="avRideNext">--</b><small id="avRideNextSub"></small></div><span class="num" id="avRideNextIn"></span></div>
@@ -202,9 +203,9 @@ export class RideView {
         ${Object.entries(TILES).map(([id, t]) => `<div class="av-tile" data-av-item="tile:${id}" data-tile="${id}"><span class="av-tile-lbl">${esc(t.label)}</span><span class="av-tile-val num"></span><span class="av-tile-sub"></span></div>`).join('')}
       </div>
       <div class="av-ride-ctrl">
-        <button type="button" class="btn btn-stop" id="avRideEnd">End</button>
+        <button type="button" class="btn btn-stop" id="avRideEnd">End ride</button>
         <button type="button" class="btn btn-pause" id="avRidePause">${icon('i-pause')}<span>Pause</span></button>
-        <button type="button" class="btn" id="avRideSkip">${icon('i-skip')}<span>Skip</span></button>
+        <button type="button" class="btn" id="avRideSkip">${icon('i-skip')}<span>Next interval</span></button>
       </div>`;
     el.querySelector('#avRideControls').addEventListener('click', () => this.openControls());
     el.querySelector('#avRideEnd').addEventListener('click', () => this.confirmEnd());
@@ -260,6 +261,9 @@ export class RideView {
     const target = app.getCurrentTargetWatts ? app.getCurrentTargetWatts() : 0;
     const free = app.currentWorkout.id === 'free_ride';
     const running = !!app.isPlaying, started = app.totalElapsedSeconds > 0;
+    const fresh = app.devicePowerFresh ? app.devicePowerFresh() : {};
+    const simulation = this.$('avRideSimulation');
+    if (simulation) simulation.hidden = !app.simulator?.enabled || !!fresh.pedals || !!fresh.trainer;
     const finished = app.isWorkoutCompleted || i >= ivs.length;
     const remaining = Number(app.intervalSecondsRemaining) || 0;
     // Pause / Resume / Start, as the app's own button says.
@@ -325,7 +329,7 @@ export class RideView {
     const F = (app.activeProfile && app.activeProfile.ftp) || 0;
     this.setText('avRideNext', nx ? `Next · ${nx.name} ${app.fmtTime(nx.duration)}` : ramp ? 'Next · another ramp step' : 'Last step · bring it home');
     this.setText('avRideNextSub', nx ? `${Math.round(F * nx.pctFtp / 100 * (app.ergBiasMultiplier || 1))} W · ${nx.pctFtp}% FTP` : '');
-    this.setText('avRideNextIn', nx ? `in ${app.fmtTime(remaining)}` : '');
+    this.setText('avRideNextIn', '');
     this.setText('avRideCoach', this.text('valBiomechFeedback'));
     for (const n of this.simple.querySelectorAll('.av-tile:not([hidden])')) this.fillTile(n);
     this.updateBanner(app);
@@ -407,7 +411,7 @@ export class RideView {
     if (!(app.totalElapsedSeconds > 0)) { this.shell.go('ride'); return; }
     const box = this.doc.createElement('div');
     box.className = 'av-confirm';
-    box.innerHTML = `<p>Your ride is saved to History, with a summary next.</p>
+    box.innerHTML = `<p>End this ride and save it to History?</p>
       <button type="button" class="btn btn-stop av-big" id="avEndConfirm">End and save ride</button>
       <button type="button" class="btn av-big" id="avEndCancel">Keep riding</button>`;
     box.querySelector('#avEndConfirm').addEventListener('click', () => { this.shell.closeSheet(); this.$('btnEndWorkout')?.click(); });
@@ -463,9 +467,9 @@ export class RideView {
       }
       const bar = this.doc.createElement('div');
       bar.className = 'av-full-ctrl';
-      bar.innerHTML = `<button type="button" class="btn btn-stop" id="avFullEnd">End</button>
+      bar.innerHTML = `<button type="button" class="btn btn-stop" id="avFullEnd">End ride</button>
         <button type="button" class="btn btn-pause" id="avFullPause">${icon('i-pause')}<span>Pause</span></button>
-        <button type="button" class="btn" id="avFullSkip">Skip</button>
+        <button type="button" class="btn" id="avFullSkip">Next interval</button>
         <button type="button" class="btn" id="avFullControls">${icon('i-gear')}Controls</button>`;
       bar.querySelector('#avFullEnd').addEventListener('click', () => this.confirmEnd());
       bar.querySelector('#avFullPause').addEventListener('click', () => { this.$('btnPlayPause')?.click(); this.update(); });
@@ -537,6 +541,7 @@ export class RideView {
       const b = this.doc.createElement('button');
       b.type = 'button'; b.className = 'av-switch'; b.id = id;
       b.setAttribute('role', 'switch'); b.setAttribute('aria-checked', String(!!on));
+      b.setAttribute('aria-label', ({ avErgSwitch: 'ERG mode', avFocusSwitch: 'Focus mode', avAudioSwitch: 'Audio cues', avSimSwitch: 'Simulator' })[id] || id);
       b.addEventListener('click', (e) => { e.stopPropagation(); onToggle(); b.setAttribute('aria-checked', String(b.getAttribute('aria-checked') !== 'true')); });
       return b;
     };
@@ -545,14 +550,14 @@ export class RideView {
     const steps = (ids) => { const d = this.doc.createElement('span'); d.className = 'av-steps'; for (const [id, t] of ids) { const b = this.doc.createElement('button'); b.type = 'button'; b.className = 'btn'; b.dataset.avPress = id; b.textContent = t; b.addEventListener('click', (e) => { e.stopPropagation(); press(id)(); }); d.appendChild(b); } return d; };
 
     const ride = group('');
-    const intensityRow = S.row({ icon: 'i-target', title: 'Intensity', sub: `Workout at ${this.text('biasValueDisplay')}`, end: steps([['btnBiasMinus5', '−5'], ['btnBiasMinus1', '−1'], ['btnBiasPlus1', '+1'], ['btnBiasPlus5', '+5']]) });
+    const intensityRow = S.row({ icon: 'i-target', title: 'Workout intensity', sub: `Workout at ${this.text('biasValueDisplay')}`, end: steps([['btnBiasMinus5', '−5%'], ['btnBiasMinus1', '−1%'], ['btnBiasPlus1', '+1%'], ['btnBiasPlus5', '+5%']]) });
     intensityRow.id = 'avIntensityRow';
     ride.appendChild(intensityRow);
     ride.appendChild(S.row({ icon: 'i-reset', title: 'Reset intensity to 100%', onClick: press('btnBiasReset'), id: 'avBiasReset' }));
-    ride.appendChild(S.row({ icon: 'i-bolt', title: 'ERG mode', sub: 'On: the trainer holds the target. Off: free resistance, targets as guidance.', end: sw('avErgSwitch', app.ergModeEnabled, () => app.toggleErgMode()) }));
-    ride.appendChild(S.row({ icon: 'i-skip', title: 'This step', sub: 'Shorten or extend by 30 s', end: steps([['btnShortenInterval', '−30 s'], ['btnExtendInterval', '+30 s']]) }));
+    ride.appendChild(S.row({ icon: 'i-bolt', title: 'ERG mode', sub: 'Trainer adjusts resistance to hold your target.', end: sw('avErgSwitch', app.ergModeEnabled, () => app.toggleErgMode()) }));
+    ride.appendChild(S.row({ icon: 'i-skip', title: 'Interval length', sub: 'Shorten or extend this interval', end: steps([['btnShortenInterval', '−30 s'], ['btnExtendInterval', '+30 s']]) }));
     ride.appendChild(S.row({ icon: 'i-footsteps', title: this.text('btnStandText') || 'Stand 30s', sub: 'Eases ERG 5% for 30 s out of the saddle; tap again to end early', onClick: press('btnStand'), id: 'avStand' }));
-    ride.appendChild(S.row({ icon: 'i-reset', title: 'Restart the workout from step 1', onClick: press('btnResetWorkout'), id: 'avResetWorkout' }));
+    ride.appendChild(S.row({ icon: 'i-reset', title: 'Restart workout', sub: 'Return to the first interval', onClick: () => { if (this.win.confirm('Restart this workout from the first interval?')) press('btnResetWorkout')(); }, id: 'avResetWorkout' }));
 
     const show = group('Display');
     const smooth = this.$('powerSmoothingPills');
@@ -563,13 +568,13 @@ export class RideView {
     const erg = this.doc.querySelector('.erg-response-control');
     if (erg) { const holder = this.doc.createElement('div'); holder.className = 'av-row av-row-sub'; show.appendChild(holder); this._ergHome = this._ergHome || erg.parentNode; this._ergNext = this._ergNext || erg.nextSibling; holder.appendChild(erg); }
     const full = this.shell.current && this.shell.current.route === 'ride/cockpit';
-    show.appendChild(S.row({ icon: 'i-grid', title: full ? 'Simple view' : 'Show all metrics', sub: full ? 'Power, countdown and your tiles' : 'Live graph, L/R, W′ balance, every number', id: 'avToggleFull', onClick: () => { S.closeSheet(); S.go(full ? 'ride/live' : 'ride/cockpit', { replace: true }); } }));
+    show.appendChild(S.row({ icon: 'i-grid', title: full ? 'Simple view' : 'Detailed view', sub: full ? 'Power, countdown and your tiles' : 'More metrics and live charts', id: 'avToggleFull', onClick: () => { S.closeSheet(); S.go(full ? 'ride/live' : 'ride/cockpit', { replace: true }); } }));
     show.appendChild(S.row({ icon: 'i-zen', title: 'Zen cockpit', sub: 'The full-screen Zen view; Exit or back returns here', id: 'avZen', onClick: () => { S.closeSheet(); this.$('btnToggleZenMode')?.click(); } }));
     show.appendChild(S.row({ icon: 'i-focus', title: 'Focus mode', sub: 'All metrics with only the essentials', end: sw('avFocusSwitch', this.doc.body.classList.contains('focus-mode'), () => {
       this.$('btnToggleFocusMode')?.click();
       if (this.doc.body.classList.contains('focus-mode') && !full) { S.closeSheet(); S.go('ride/cockpit', { replace: true }); }
     }) }));
-    show.appendChild(S.row({ icon: 'i-edit', title: 'Customise this screen', sub: 'Tiles, panels and graph lines; presets', id: 'avCustomise', onClick: () => { S.closeSheet(); this.openCustomise(full ? 'full' : 'simple'); } }));
+    show.appendChild(S.row({ icon: 'i-edit', title: 'Edit ride screen', sub: 'Choose and arrange your metrics', id: 'avCustomise', onClick: () => { S.closeSheet(); this.openCustomise(full ? 'full' : 'simple'); } }));
     const pip = this.$('btnTogglePip');
     if (pip && this.doc.pictureInPictureEnabled) show.appendChild(S.row({ icon: 'i-pip', title: 'Mini-HUD (picture in picture)', onClick: press('btnTogglePip'), id: 'avPip' }));
 
@@ -611,13 +616,13 @@ export class RideView {
     const render = () => {
       const l = this.layout();
       const items = which === 'simple' ? l.simple : l.full;
-      const name = (id) => which === 'simple' ? (id.startsWith('panel:') ? SIMPLE_PANELS[id.slice(6)] : `Tile · ${TILES[id.slice(5)].label}`)
-        : id.startsWith('ftile:') ? `Tile · ${TILES[id.slice(6)].label}` : FULL_BUILT[id] || FULL_PANELS[id][0];
+      const name = (id) => which === 'simple' ? (id.startsWith('panel:') ? SIMPLE_PANELS[id.slice(6)] : TILES[id.slice(5)].label)
+        : id.startsWith('ftile:') ? TILES[id.slice(6)].label : FULL_BUILT[id] || FULL_PANELS[id][0];
       box.innerHTML = `<div class="av-seg" role="group" aria-label="Screen">
           <button type="button" data-which="simple" class="${which === 'simple' ? 'on' : ''}">Simple view</button>
-          <button type="button" data-which="full" class="${which === 'full' ? 'on' : ''}">All metrics</button></div>
-        <div class="av-presets"><button type="button" class="btn" data-preset="minimal">Minimal</button><button type="button" class="btn" data-preset="standard">Standard</button><button type="button" class="btn" data-preset="everything">Everything</button><button type="button" class="btn btn-ghost" data-preset="reset">Reset</button></div>
-        <p class="av-note">Saved for ${esc(this.text('hudRiderProfileName') || 'this rider')}. Switch items on or off and move them up or down.</p>
+          <button type="button" data-which="full" class="${which === 'full' ? 'on' : ''}">Detailed view</button></div>
+        <div class="av-presets"><button type="button" class="btn" data-preset="minimal">Minimal</button><button type="button" class="btn" data-preset="standard">Standard</button><button type="button" class="btn" data-preset="everything">All metrics</button><button type="button" class="btn btn-ghost" data-preset="reset">Restore defaults</button></div>
+        <p class="av-note">Saves automatically for ${esc(this.text('hudRiderProfileName') || 'this rider')}. Presets and defaults apply to both views.</p>
         <div class="card av-list av-cust-list"></div>
         ${which === 'full' ? `<div class="av-label">Live graph lines</div><div class="card av-list av-cust-lines"></div>` : ''}`;
       const listEl = box.querySelector('.av-cust-list');
@@ -645,7 +650,7 @@ export class RideView {
       const l = this.layout();
       const items = which === 'simple' ? l.simple : l.full;
       if (t.dataset.which) { which = t.dataset.which; render(); return; }
-      if (t.dataset.preset) { if (t.dataset.preset === 'reset') this.layouts.reset(pid()); else this.layouts.preset(pid(), t.dataset.preset); }
+      if (t.dataset.preset) { if (t.dataset.preset === 'reset') { if (!this.win.confirm('Restore the default layouts for both ride views?')) return; this.layouts.reset(pid()); } else this.layouts.preset(pid(), t.dataset.preset); }
       else if (t.dataset.line) l.lines[t.dataset.line] = !l.lines[t.dataset.line];
       else {
         const row = t.closest('[data-av-cust]');
@@ -737,7 +742,7 @@ RideView.prototype.mountSummary = function (rideId) {
   const autosaved = natural || (ride.source === 'APEX VELO Cockpit' && ride.completedAt && Date.now() - ride.completedAt < 25000);
   el.innerHTML = `<header class="av-summary-top"><h1 class="av-title">Nice ride!</h1></header>
     <div class="av-page-body">
-      <span class="eyebrow${autosaved ? ' eyebrow-lime' : ''}" id="avSummaryEyebrow">${autosaved ? 'Workout completed &amp; autosaved' : 'Saved to your history'}</span>
+      <span class="eyebrow eyebrow-lime" id="avSummaryEyebrow">${natural ? 'Workout completed &amp; autosaved' : 'Ride saved to History'}</span>
       <p class="av-note">${esc(ride.title || 'Ride')} · ${esc(when.toLocaleDateString(undefined, { weekday: 'short', day: 'numeric', month: 'short' }))} ${esc(when.toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' }))}${done != null ? ` · completed ${done} %` : ''}</p>
       <div class="av-kpis">${kpi('Time', app.fmtTime(ride.duration || 0))}${kpi('NP', ride.np ? `${ride.np} W` : '')}${kpi('TSS', ride.tss != null ? Math.round(ride.tss) : '')}${kpi('Avg HR', ride.avgHr || '')}${kpi('kJ', ride.kj != null ? Math.round(ride.kj) : '')}${kpi('IF', ride.if || '')}</div>
       <div class="av-summary-insight" id="avSummaryInsight"></div>

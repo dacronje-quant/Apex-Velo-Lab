@@ -198,12 +198,29 @@ export class Shell {
     const wasHidden = el.hidden;
     el.hidden = false;
     bg.querySelector('.av-sheet-body').appendChild(el);
-    const entry = { bg, el, marker, wasHidden, onClose };
+    const opener = doc.activeElement;
+    const entry = { bg, el, marker, wasHidden, onClose, opener, background: [] };
     bg.addEventListener('click', (e) => { if (e.target === bg) this.closeSheet(entry); });
     bg.querySelector('.av-sheet-close').addEventListener('click', () => this.closeSheet(entry));
     this.sheets.push(entry);
     doc.body.appendChild(bg);
+    for (const node of doc.body.children) {
+      if (node === bg || ['SCRIPT', 'STYLE'].includes(node.tagName)) continue;
+      entry.background.push([node, node.inert]);
+      node.inert = true;
+    }
+    bg.addEventListener('keydown', (e) => {
+      if (e.key === 'Escape') { e.preventDefault(); this.closeSheet(entry); return; }
+      if (e.key !== 'Tab' || this.sheets.at(-1) !== entry) return;
+      const focusable = [...bg.querySelectorAll('button:not(:disabled), input:not(:disabled):not([type=hidden]), select:not(:disabled), textarea:not(:disabled), a[href], summary, [tabindex="0"]')]
+        .filter((n) => n.getClientRects().length && !n.closest('[hidden], [inert]'));
+      if (!focusable.length) return;
+      const first = focusable[0], last = focusable.at(-1);
+      if (e.shiftKey && doc.activeElement === first) { e.preventDefault(); last.focus(); }
+      else if (!e.shiftKey && doc.activeElement === last) { e.preventDefault(); first.focus(); }
+    });
     doc.body.classList.add('av-sheet-open');
+    this.win.requestAnimationFrame(() => bg.querySelector('.av-sheet-close')?.focus({ preventScroll: true }));
     return bg.querySelector('.av-sheet');
   }
 
@@ -214,8 +231,10 @@ export class Shell {
     this.sheets.splice(i, 1);
     if (entry.marker) { entry.marker.parentNode.insertBefore(entry.el, entry.marker); entry.marker.remove(); entry.el.hidden = entry.wasHidden; }
     entry.bg.remove();
+    for (const [node, wasInert] of entry.background) node.inert = !!wasInert;
     if (!this.sheets.length) this.doc.body.classList.remove('av-sheet-open');
     if (entry.onClose) { try { entry.onClose(); } catch (e) { console.error(e); } }
+    if (entry.opener && entry.opener.isConnected && entry.opener.getClientRects().length && !entry.opener.closest('[inert]')) entry.opener.focus({ preventScroll: true });
   }
 
   // ------------------------------------------------------------------ building blocks --
@@ -238,6 +257,16 @@ export class Shell {
    * `onClick` it is a button with a chevron; `end` replaces the chevron.
    */
   row({ icon: ic = '', title, sub = '', end = null, onClick = null, id = '' }) {
+    // Keep an action such as Connect beside the navigation button, never nested inside it.
+    if (onClick && end instanceof this.win.Node && (end.matches('button, input, select') || end.querySelector('button, input, select'))) {
+      const wrap = this.doc.createElement('div');
+      wrap.className = 'av-row av-action-row';
+      if (id) wrap.id = id;
+      const main = this.row({ icon: ic, title, sub, onClick });
+      main.classList.add('av-row-main');
+      wrap.append(main, end);
+      return wrap;
+    }
     const r = this.doc.createElement(onClick ? 'button' : 'div');
     if (onClick) { r.type = 'button'; r.addEventListener('click', onClick); }
     r.className = 'av-row';
@@ -254,7 +283,7 @@ export class Shell {
    * For less-used content inside a page, use <details class="av-more"><summary>More</summary>…</details>.
    */
   more(items, { title = 'More', label = 'More options' } = {}) {
-    return this.button({ icon: 'i-chevron', label, className: 'av-more-btn', onClick: () => {
+    const button = this.button({ icon: 'i-chevron', label, className: 'av-more-btn', onClick: () => {
       const list = this.doc.createElement('div');
       list.className = 'av-list';
       for (const it of (typeof items === 'function' ? items() : items)) {
@@ -262,6 +291,8 @@ export class Shell {
       }
       this.openSheet(list, { title });
     } });
+    button.innerHTML = '<svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><circle cx="5" cy="12" r="1.5" fill="currentColor"/><circle cx="12" cy="12" r="1.5" fill="currentColor"/><circle cx="19" cy="12" r="1.5" fill="currentColor"/></svg>';
+    return button;
   }
 
   // ------------------------------------------------------------------ chrome --

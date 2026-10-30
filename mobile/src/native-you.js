@@ -118,7 +118,11 @@ export function installYou({ shell, win = window, services = {} }) {
   const profile = page('<div class="card" id="avProfileForm"></div><div class="card" id="avProfileSummary"></div>');
   const fillProfile = () => {
     const a = app();
-    if (a && a.populateEditProfile && a.activeProfileId) a.populateEditProfile(a.activeProfileId);
+    if (a && a.populateEditProfile && a.activeProfileId) {
+      a.populateEditProfile(a.activeProfileId);
+      // Opening settings should not summon the phone keyboard before a field is tapped.
+      if (doc.activeElement === $('profInputName')) doc.activeElement.blur();
+    }
   };
   shell.registerPage('you/profile', {
     title: 'Profile', el: profile,
@@ -127,6 +131,17 @@ export function installYou({ shell, win = window, services = {} }) {
       const form = profile.querySelector('#avProfileForm');
       const modal = doc.querySelector('#profileManagerModal .modal-content');
       if (modal) for (const n of [...modal.children]) if (!n.classList.contains('modal-header')) form.appendChild(n);
+      form.classList.add('av-profile-editing');
+      if (!form.querySelector('#avAddRider')) {
+        const add = doc.createElement('button'); add.id = 'avAddRider'; add.type = 'button'; add.className = 'btn btn-ghost'; add.textContent = 'Add rider';
+        add.addEventListener('click', () => {
+          const a = app(); if (a?.cancelEditProfile) a.cancelEditProfile();
+          form.classList.remove('av-profile-editing');
+          $('profileFormHeaderTitle').textContent = 'New rider'; $('btnSaveNewProfile').textContent = 'Create rider';
+          $('profInputName')?.focus();
+        });
+        form.querySelector('#profileListContainer')?.after(add);
+      }
       section('rider');
       fillProfile();
     }
@@ -154,13 +169,13 @@ export function installYou({ shell, win = window, services = {} }) {
   const conns = page();
   const status = { strava: '', hc: '', icu: '', ai: '' };
   const renderConns = async () => {
-    conns.innerHTML = '<p class="av-label">Send my rides to</p><div class="card av-list" id="avConnOut"></div><p class="av-label">Recovery data from</p><div class="card av-list" id="avConnIn"></div><p class="av-label">AI coach</p><div class="card av-list" id="avConnAi"></div>';
+    conns.innerHTML = '<p class="av-note">Choose what to connect.</p><div class="card av-list" id="avConnOut"></div><p class="av-note">Your data stays on this phone unless you choose to share it.</p>';
     const out = conns.querySelector('#avConnOut');
     let st = null;
     try { st = services.strava ? await services.strava.status() : null; } catch (e) { /* shown as unknown */ }
     status.strava = !st ? '' : st.connected ? `Connected${st.athlete ? ' as ' + st.athlete : ''} · uploads new rides` : 'Not connected';
     out.appendChild(splitRow(shell, { icon: 'i-upload', title: 'Strava', sub: status.strava, onClick: () => shell.go('you/connections/strava'), id: 'avConnStrava' },
-      { label: 'Connect', id: 'avConnStravaConnect', hidden: !!(st && st.connected), onClick: () => { const a = app(); if (a && a.connectStrava) a.connectStrava(); } }));
+      { label: 'Connect', id: 'avConnStravaConnect', hidden: !!(st && st.connected), onClick: () => { const a = app(); if (st?.brokerAvailable && a?.connectStrava) a.connectStrava(); else shell.go('you/connections/strava'); } }));
     const hasHc = !!$('nativeHc');
     let hcOn = false;
     if (hasHc && services.healthConnect) {
@@ -171,16 +186,18 @@ export function installYou({ shell, win = window, services = {} }) {
       } catch (e) { status.hc = ''; }
     }
     if (hasHc) {
-      out.appendChild(splitRow(shell, { icon: 'i-heart', title: 'Health Connect', sub: status.hc, onClick: () => shell.go('you/connections/healthconnect'), id: 'avConnHc' },
-        { label: 'Connect', id: 'avConnHcConnect', hidden: hcOn, onClick: () => { const b = doc.querySelector('[data-hc-request="recovery"]'); if (b) b.click(); } }));
+      out.appendChild(splitRow(shell, { icon: 'i-heart', title: 'Health Connect', sub: `${status.hc || 'Check connection'} · recovery data and rides`, onClick: () => shell.go('you/connections/healthconnect'), id: 'avConnHc' },
+        { label: hcOn ? 'Manage' : 'Set up', id: 'avConnHcConnect', onClick: () => shell.go('you/connections/healthconnect') }));
     }
-    const inn = conns.querySelector('#avConnIn');
     let icu = null;
     try { icu = services.icu ? await services.icu.status() : null; } catch (e) { /* unknown */ }
-    inn.appendChild(shell.row({ icon: 'i-activity', title: 'intervals.icu', sub: icu ? (icu.configured ? 'Connected · resting HR, HRV, sleep' : 'Not connected') : 'Resting HR, HRV, sleep', onClick: () => shell.go('you/connections/icu'), id: 'avConnIcu' }));
-    if (hasHc) inn.appendChild(shell.row({ icon: 'i-heart', title: 'Health Connect', sub: 'Recovery data and which source comes first', onClick: () => shell.go('you/connections/healthconnect'), id: 'avConnHcIn' }));
-    const engine = ($('aiCoachEngineDetail') || {}).textContent || '';
-    conns.querySelector('#avConnAi').appendChild(shell.row({ icon: 'i-sparkles', title: 'AI coach', sub: engine.trim().slice(0, 80) || 'Provider, model, API keys', onClick: () => shell.go('you/connections/ai'), id: 'avConnAiRow' }));
+    out.appendChild(splitRow(shell, { icon: 'i-activity', title: 'intervals.icu', sub: icu?.configured ? 'Connected · recovery data' : 'Not connected · recovery data', onClick: () => shell.go('you/connections/icu'), id: 'avConnIcu' },
+      { label: icu?.configured ? 'Manage' : 'Connect', onClick: () => shell.go('you/connections/icu') }));
+    let aiStatus = null;
+    try { aiStatus = await services.ai?.status(); } catch (e) { /* setup remains available */ }
+    status.ai = aiStatus?.configured ? 'Ready' : 'Optional · API key needed';
+    out.appendChild(splitRow(shell, { icon: 'i-sparkles', title: 'AI coach', sub: status.ai, onClick: () => shell.go('you/connections/ai'), id: 'avConnAiRow' },
+      { label: aiStatus?.configured ? 'Manage' : 'Set up', onClick: () => shell.go('you/connections/ai') }));
   };
   shell.registerPage('you/connections', { title: 'Connections', el: conns, mount: () => { renderConns().catch((e) => console.error(e)); } });
 
@@ -198,7 +215,7 @@ export function installYou({ shell, win = window, services = {} }) {
     mount: () => { adopt(hcPage.firstChild, 'nativeHc'); adopt(icuPage.firstChild, 'healthSettings'); section('health'); }
   });
 
-  const ai = page('<div class="card" id="avAiBox"></div><details class="av-more card" id="avAiAdvanced"><summary>Advanced · API keys</summary></details>');
+  const ai = page('<details class="av-more card" id="avAiAdvanced"><summary>Connect AI coach</summary></details><details class="av-more card" id="avAiBox"><summary>Model options</summary></details>');
   shell.registerPage('you/connections/ai', {
     title: 'AI coach', el: ai, parent: 'you/connections',
     mount: () => {
@@ -212,14 +229,14 @@ export function installYou({ shell, win = window, services = {} }) {
 
   // ------------------------------------------------------------------ Your data --
   const data = page(`<div class="card av-list" id="avDataActions"></div>
-    <p class="av-label">Watch a folder</p><div class="card" id="avDataFolder"></div>
+    <p class="av-label">Auto-import from a folder</p><div class="card" id="avDataFolder"></div>
     <p class="av-label">Ride files</p><div class="card" id="avDataFiles"></div>
     <details class="av-more card" id="avDataAdvanced"><summary>Advanced · training load, clear history</summary><div class="av-list" id="avDataDanger"></div></details>`);
   const dataActions = data.querySelector('#avDataActions');
   for (const r of [
-    { icon: 'i-download', title: 'Import ride files', sub: '.fit .tcx .gpx .csv .json', onClick: clickId('btnChooseImportFiles'), id: 'avDataImportFiles' },
-    { icon: 'i-history', title: 'Import my history', sub: 'A Strava, Garmin or other export (.zip)', onClick: clickId('btnImportHistory'), id: 'avDataImportHistory' },
-    { icon: 'i-save', title: 'Back up everything', sub: 'Full JSON backup to Documents/ApexVelo', onClick: clickId('btnExportJsonHistory'), id: 'avDataBackup' }
+    { icon: 'i-download', title: 'Import rides', sub: 'Ride files or a Garmin / Strava ZIP', onClick: clickId('btnImportHistory'), id: 'avDataImportFiles' },
+    { icon: 'i-history', title: 'Restore a backup', sub: 'Choose a JSON backup file', onClick: clickId('btnChooseImportFiles'), id: 'avDataImportHistory' },
+    { icon: 'i-save', title: 'Export backup', sub: 'Rides and settings; sign in again after restoring', onClick: clickId('btnExportJsonHistory'), id: 'avDataBackup' }
   ]) dataActions.appendChild(shell.row(r));
   // Backups on this phone (the phone database's snapshots): only with the phone database.
   const backupsRow = shell.row({ icon: 'i-refresh', title: 'Backups', sub: 'Copies kept on this phone: back up now, restore', onClick: () => shell.go('you/data/backups'), id: 'avDataBackups' });
@@ -280,6 +297,7 @@ export function installYou({ shell, win = window, services = {} }) {
 
   // ------------------------------------------------------------------ Help & about --
   const help = page('<div class="card av-list" id="avHelpList"></div><p class="av-label">About</p><div class="card" id="avHelpAbout"></div>');
+  help.querySelector('#avHelpList').appendChild(shell.row({ icon: 'i-bluetooth', title: 'Pairing help', sub: 'Connect your trainer and sensors', onClick: () => shell.go('you/devices'), id: 'avHelpPairing' }));
   help.querySelector('#avHelpList').appendChild(shell.row({ icon: 'i-book', title: 'Training guide', sub: 'Training terms explained in plain words', onClick: () => shell.go('you/help/guide'), id: 'avHelpGuide' }));
   shell.registerPage('you/help', { title: 'Help & about', el: help, mount: () => adopt(help.querySelector('#avHelpAbout'), 'nativeAboutSettings') });
   const guide = page('<div class="card" id="avGuideBox"></div>');

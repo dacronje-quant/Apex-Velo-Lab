@@ -29,9 +29,9 @@ export function fitnessVerdict(pmc, weeks = 6) {
   const now = Number(ctl[ctl.length - 1]) || 0;
   const then = Number(ctl[Math.max(0, ctl.length - 1 - weeks * 7)]) || 0;
   const delta = Math.round((now - then) * 10) / 10;
-  if (delta >= 2) return { key: 'up', text: `Yes. Fitness is up ${delta.toFixed(1)} in ${weeks} weeks`, delta };
-  if (delta <= -2) return { key: 'down', text: `Not right now. Fitness is down ${Math.abs(delta).toFixed(1)} in ${weeks} weeks`, delta };
-  return { key: 'flat', text: `Holding steady over ${weeks} weeks`, delta };
+  if (delta >= 2) return { key: 'up', text: 'Training load is increasing', delta };
+  if (delta <= -2) return { key: 'down', text: 'Training load is easing', delta };
+  return { key: 'flat', text: 'Holding steady', delta };
 }
 
 /** A small fitness line (SVG polyline) over the last days of the CTL series. */
@@ -52,7 +52,7 @@ export class ProgressTab {
       <div class="card av-list" id="avProgTopics"></div>`;
     const list = this.el.querySelector('#avProgTopics');
     for (const t of TOPICS) {
-      const row = shell.row({ icon: t.icon, title: t.title, sub: t.sub, onClick: () => shell.go('progress/' + t.id), id: 'avProgRow-' + t.id });
+      const row = shell.row({ icon: t.icon, title: t.title, onClick: () => shell.go('progress/' + t.id), id: 'avProgRow-' + t.id });
       row.dataset.topic = t.id;
       list.appendChild(row);
     }
@@ -62,11 +62,11 @@ export class ProgressTab {
 
   register() {
     const shell = this.shell;
-    shell.registerPage('progress', { title: 'Progress', el: this.el, actions: () => this.rangeChip(), mount: () => this.renderAnswer(), unmount: () => this.leave() });
+    shell.registerPage('progress', { title: 'Progress', el: this.el, actions: () => { const n = this.doc.createElement('span'); n.className = 'av-period'; n.textContent = '6 weeks'; return n; }, mount: () => this.renderAnswer(), unmount: () => this.leave() });
     for (const t of TOPICS) {
       shell.registerPage('progress/' + t.id, {
         title: t.title, view: 'analytics', parent: 'progress',
-        actions: () => this.rangeChip(),
+        actions: () => t.id === 'records' ? null : this.rangeChip(),
         mount: () => this.showTopic(t),
         unmount: () => this.leave(),
         onBack: () => this.closeOverlay()
@@ -129,7 +129,14 @@ export class ProgressTab {
     });
     if (app) app.anaPanel = t.panels[0];
     if (t.id === 'power') this.renderFtpSuggestion();
-    if (t.id === 'health' && app && app.renderHealthAnalytics) { try { app.renderHealthAnalytics(); } catch (e) { console.error(e); } }
+    if (t.id === 'health' && app && app.renderHealthAnalytics) {
+      try {
+        app.renderHealthAnalytics();
+        const readiness = app.healthReadiness?.();
+        const note = this.doc.getElementById('anaReadinessNote');
+        if (note && readiness) note.textContent = (readiness.reasons || []).join(' · ') || readiness.advice || note.textContent;
+      } catch (e) { console.error(e); }
+    }
     this.win.requestAnimationFrame(() => this.win.requestAnimationFrame(() => {
       const stage = this.doc.getElementById('anaStage');
       if (app && app.anaChartsIn && stage) app.anaChartsIn(stage).forEach((c) => { try { c.resize(); } catch (e) { /* not drawn yet */ } });
@@ -188,7 +195,7 @@ export class ProgressTab {
     /* global VeloMetrics */
     let pmc = null;
     try { pmc = app.analytics.calculatePmcHistory(app.completedWorkouts, 90, app.pmcOpts ? app.pmcOpts() : {}); } catch (e) { pmc = null; }
-    const has = !!(pmc && pmc.ctlData && pmc.ctlData.length);
+    const has = !!(app.completedWorkouts?.length && pmc && pmc.ctlData && pmc.ctlData.length);
     const v = fitnessVerdict(pmc);
     const tsb = has ? pmc.currentTsb : 0;
     const zone = has && typeof VeloMetrics !== 'undefined' ? VeloMetrics.formZone(tsb) : null;
@@ -196,15 +203,17 @@ export class ProgressTab {
     const wkg = p.ftp && p.weightKg ? (p.ftp / p.weightKg).toFixed(2) : null;
     const signed = (n) => `${n > 0 ? '+' : ''}${Number(n).toFixed(1)}`;
     box.dataset.trend = v.key;
-    box.innerHTML = `<span class="eyebrow">Am I getting fitter?</span>
-      <h2 class="av-prog-verdict" id="avProgVerdict">${esc(v.text)}</h2>
-      ${has ? sparkline(pmc.ctlData.slice(-90)) : ''}
+    box.innerHTML = `<span class="eyebrow">Training load trend</span>
+      <h2 class="av-prog-verdict" id="avProgVerdict">${has ? esc(v.text) : 'Your progress starts here'}</h2>
+      <p class="av-note">${has ? 'Estimated from your training load.' : 'Record or import rides to see your training trend.'}</p>
+      ${has ? sparkline(pmc.ctlData.slice(-43)) : '<button type="button" class="btn btn-primary av-big" id="avProgImport">Import rides</button>'}
       <div class="av-prog-kpis">
         <div><span>Fitness</span><b class="num" id="avProgCtl">${has ? esc(pmc.currentCtl.toFixed(1)) : '--'}</b><small>${v.delta != null ? esc(signed(v.delta)) + ' in 6 wk' : 'CTL'}</small></div>
         <div><span>Fatigue</span><b class="num" id="avProgAtl">${has ? esc(pmc.currentAtl.toFixed(1)) : '--'}</b><small>last 7 days</small></div>
         <div><span>Form</span><b class="num" id="avProgTsb">${has ? esc(signed(tsb)) : '--'}</b><small class="form-badge ${zone ? 'form-' + esc(zone.key) : ''}">${zone ? esc(zone.label) : '--'}</small></div>
         <div><span>FTP</span><b class="num" id="avProgFtpVal">${p.ftp ? esc(p.ftp) + ' W' : '--'}</b><small>${wkg ? esc(wkg) + ' W/kg' : 'set in You'}</small></div>
-      </div>`;
+      </div><details class="av-more"><summary>About these numbers</summary><p class="av-note">Fitness and fatigue estimate longer-term and recent training load. Form is the difference between them. These estimates do not measure performance or recovery on their own.</p></details>`;
+    box.querySelector('#avProgImport')?.addEventListener('click', () => { this.shell.go('history'); this.doc.getElementById('avHistAdd')?.click(); });
   }
 }
 

@@ -73,7 +73,7 @@ export function installOnboarding({ shell, win = window, storage: getStorage = (
 
   const frame = (step, title, intro, body, primary) => {
     const i = STEPS.indexOf(step);
-    return `<div class="av-onb-top"><div class="av-onb-bar" aria-label="Step ${i + 1} of ${STEPS.length}">${STEPS.map((s, j) => `<i class="${j <= i ? 'on' : ''}"></i>`).join('')}</div>
+    return `<div class="av-onb-step">Step ${i + 1} of ${STEPS.length}</div><div class="av-onb-top"><div class="av-onb-bar" aria-label="Step ${i + 1} of ${STEPS.length}">${STEPS.map((s, j) => `<i class="${j <= i ? 'on' : ''}"></i>`).join('')}</div>
         <button type="button" class="btn btn-ghost" data-onb="skipall">Skip setup</button></div>
       <h2>${esc(title)}</h2><p class="av-note">${intro}</p>${body}
       <div class="av-onb-foot"><button type="button" class="btn btn-primary av-big" data-onb="next">${esc(primary)}</button>
@@ -89,7 +89,14 @@ export function installOnboarding({ shell, win = window, storage: getStorage = (
     const act = b.dataset.onb;
     if (act === 'skipall') finish();
     else if (act === 'skip') next(step);
-    else if (act === 'next') { if (step === 'profile') saveProfile(); next(step); }
+    else if (act === 'next') { if (step === 'profile' && !saveProfile()) return; next(step); }
+    else if (act === 'unknownftp') {
+      const input = el.querySelector('#onbFtp');
+      input.disabled = !input.disabled;
+      b.setAttribute('aria-pressed', String(input.disabled));
+      b.textContent = input.disabled ? 'Enter my FTP' : "I don’t know my FTP";
+      el.querySelector('#onbFtpHelp').hidden = !input.disabled;
+    }
     else if (act === 'pair') pair(b.dataset.kind);
     else if (act === 'strava') { const a = app(); if (a && a.connectStrava) a.connectStrava(); }
     else if (act === 'hc') { const h = doc.querySelector('[data-hc-request="recovery"]'); if (h) h.click(); }
@@ -99,7 +106,18 @@ export function installOnboarding({ shell, win = window, storage: getStorage = (
   const saveProfile = () => {
     const a = app();
     const p = a && a.activeProfile;
-    if (!p) return;
+    if (!p) return false;
+    let invalid = null;
+    for (const [id, message] of [['onbWeight', 'Enter a weight from 30 to 200 kg.'], ['onbFtp', 'Enter an FTP from 50 to 700 W.'], ['onbMaxHr', 'Enter a heart rate from 100 to 230 bpm, or leave it blank.']]) {
+      const input = el.querySelector('#' + id);
+      const error = el.querySelector('#' + id + 'Error');
+      const valid = input.disabled || input.checkValidity();
+      input.setAttribute('aria-invalid', String(!valid));
+      error.hidden = valid;
+      error.textContent = valid ? '' : message;
+      if (!valid && !invalid) invalid = input;
+    }
+    if (invalid) { invalid.focus(); return false; }
     const v = (id) => (el.querySelector('#' + id) || {}).value;
     const name = String(v('onbName') || '').trim();
     const ftp = parseInt(v('onbFtp'), 10), kg = parseFloat(v('onbWeight')), hr = parseInt(v('onbMaxHr'), 10);
@@ -110,6 +128,7 @@ export function installOnboarding({ shell, win = window, storage: getStorage = (
     delete p.needsSetup;
     a.saveProfiles();
     if (a.applyProfileChange) a.applyProfileChange();
+    return true;
   };
 
   // The same pairing as Devices > Pair device (the in-app chooser), then the row shows the device's state.
@@ -124,33 +143,36 @@ export function installOnboarding({ shell, win = window, storage: getStorage = (
     const a = app();
     const p = (a && a.activeProfile) || {};
     if (step === 'profile') {
-      el.innerHTML = frame(step, 'About you', 'Your FTP and weight set every zone, target and W/kg. A ramp test can set FTP later.', `
+      el.innerHTML = frame(step, 'About you', 'FTP sets your workout targets. You can update these details later.', `
         <div class="card">
           <div class="form-group"><label for="onbName">Name</label><input id="onbName" class="input-field" autocomplete="name" value="${esc(p.needsSetup ? '' : p.name)}" placeholder="Rider"></div>
-          <div class="form-group"><label for="onbWeight">Weight (kg)</label><input id="onbWeight" class="input-field" type="number" inputmode="decimal" step="0.5" min="30" max="200" value="${esc(p.weightKg || 75)}"></div>
-          <div class="form-group"><label for="onbFtp">FTP (W)</label><input id="onbFtp" class="input-field" type="number" inputmode="numeric" min="50" max="700" value="${esc(p.ftp || 200)}"></div>
-          <div class="form-group"><label for="onbMaxHr">Max heart rate (bpm, optional)</label><input id="onbMaxHr" class="input-field" type="number" inputmode="numeric" min="100" max="230" value="${esc(p.maxHr || '')}"></div>
+          <div class="form-group"><label for="onbWeight">Weight (kg)</label><input id="onbWeight" class="input-field" type="number" inputmode="decimal" step="0.1" min="30" max="200" required aria-describedby="onbWeightError" value="${esc(p.weightKg || 75)}"><p class="av-field-error" id="onbWeightError" hidden></p></div>
+          <div class="form-group"><label for="onbFtp">FTP (W)</label><input id="onbFtp" class="input-field" type="number" inputmode="numeric" min="50" max="700" required aria-describedby="onbFtpError" value="${esc(p.ftp || 200)}"><p class="av-field-error" id="onbFtpError" hidden></p>
+            <button type="button" class="av-text-action" data-onb="unknownftp" aria-pressed="false">I don’t know my FTP</button><p class="av-note" id="onbFtpHelp" hidden>Workouts will use ${esc(p.ftp || 200)} W until you update FTP in Profile or take a ramp test in Train.</p></div>
+          <div class="form-group"><label for="onbMaxHr">Max heart rate (bpm, optional)</label><input id="onbMaxHr" class="input-field" type="number" inputmode="numeric" min="100" max="230" aria-describedby="onbMaxHrError" value="${esc(p.maxHr || '')}"><p class="av-field-error" id="onbMaxHrError" hidden></p></div>
         </div>
-        <a class="av-onb-link" id="onbDemo" href="?apexDemo=1">Explore a demo first</a>`, 'Next');
+        <a class="av-onb-link" id="onbDemo" href="?apexDemo=1">Explore a demo</a>`, 'Continue');
     } else if (step === 'devices') {
-      el.innerHTML = frame(step, 'Pair your devices', 'Wake each device (pedal, spin the cranks or wet the strap) and keep it near the phone. Without a trainer the simulator stands in.', `
+      el.innerHTML = frame(step, 'Pair your devices', 'Wake your trainer or sensor, then tap Pair.', `
         <div class="card av-list">
-          <button type="button" class="av-row" data-onb="pair" data-kind="trainer" id="onbPairTrainer"><div class="av-row-text"><b>Trainer or smart bike</b><small id="onbState-trainer"></small></div></button>
-          <button type="button" class="av-row" data-onb="pair" data-kind="pedals" id="onbPairPedals"><div class="av-row-text"><b>Power meter</b><small id="onbState-pedals"></small></div></button>
-          <button type="button" class="av-row" data-onb="pair" data-kind="hr" id="onbPairHr"><div class="av-row-text"><b>Heart-rate strap</b><small id="onbState-hr"></small></div></button>
-        </div>`, 'Next');
+          <button type="button" class="av-row" data-onb="pair" data-kind="trainer" id="onbPairTrainer"><div class="av-row-text"><b>Trainer or smart bike</b><small id="onbState-trainer"></small></div><span class="av-pair-label">Pair</span></button>
+          <button type="button" class="av-row" data-onb="pair" data-kind="pedals" id="onbPairPedals"><div class="av-row-text"><b>Power meter</b><small id="onbState-pedals"></small></div><span class="av-pair-label">Pair</span></button>
+          <button type="button" class="av-row" data-onb="pair" data-kind="hr" id="onbPairHr"><div class="av-row-text"><b>Heart-rate strap</b><small id="onbState-hr"></small></div><span class="av-pair-label">Pair</span></button>
+        </div><details class="av-more"><summary>Pairing help</summary><p class="av-note">Pedal to wake a trainer, spin a power meter or wet your heart-rate strap. Keep it near your phone and close other apps using it.</p></details>`, 'Continue');
       for (const k of ['trainer', 'pedals', 'hr']) {
         const s = doc.querySelector(`#deviceCard-${k} .hw-state`), out = el.querySelector('#onbState-' + k);
         if (out) out.textContent = s ? s.textContent.trim() : '';
+        const action = el.querySelector(`[data-kind="${k}"] .av-pair-label`);
+        if (action) action.textContent = s?.dataset.state === 'connected' ? 'Replace' : 'Pair';
       }
     } else {
       const hasHc = !!doc.querySelector('[data-hc-request="recovery"]');
       el.innerHTML = frame(step, 'Connect (optional)', 'Everything stays on this phone unless you connect it.', `
         <div class="card av-list">
-          <button type="button" class="av-row" data-onb="strava" id="onbStrava"><div class="av-row-text"><b>Strava</b><small>Upload new rides (it never reads your Strava)</small></div></button>
-          ${hasHc ? '<button type="button" class="av-row" data-onb="hc" id="onbHc"><div class="av-row-text"><b>Health Connect</b><small>Resting heart rate, HRV and sleep for readiness</small></div></button>' : ''}
-          <button type="button" class="av-row" data-onb="import" id="onbImport"><div class="av-row-text"><b>Import my history</b><small>A Strava, Garmin or other export; it runs in the background</small></div></button>
-        </div>`, 'Done');
+          <button type="button" class="av-row" data-onb="strava" id="onbStrava"><div class="av-row-text"><b>Strava</b><small>Send recorded rides</small></div><span class="av-pair-label">Connect</span></button>
+          ${hasHc ? '<button type="button" class="av-row" data-onb="hc" id="onbHc"><div class="av-row-text"><b>Health Connect</b><small>Read recovery data</small></div><span class="av-pair-label">Connect</span></button>' : ''}
+          <button type="button" class="av-row" data-onb="import" id="onbImport"><div class="av-row-text"><b>Import my history</b><small>A Garmin or Strava export</small></div><span class="av-pair-label">Import</span></button>
+        </div>`, 'Finish setup');
     }
   };
 

@@ -489,7 +489,7 @@ async function migrationFlow(browser, errors) {
   await page.reload();
   await page.waitForFunction(() => window.app && window.ApexNative);
   assert.equal(await page.evaluate(() => VeloStorage.enabled), true);
-  assert.equal(await page.locator('#localStorageStatus').textContent(), 'Saved on this phone. Use Back up everything in You > Your data to keep a copy elsewhere.');
+  assert.equal(await page.locator('#localStorageStatus').textContent(), 'Saved on this phone. Use Export backup in You > Your data to keep a copy elsewhere.');
   const row = phone.db.prepare("SELECT json, samples_gz, sample_count FROM rides WHERE id='ride_before_update'").get();
   assert.equal(row.sample_count, 600);
   assert.doesNotMatch(row.json, /"hr"/, 'samples are stored compressed');
@@ -768,6 +768,7 @@ async function brokerFlow(browser, errors) {
     await page.evaluate(() => app.closeModal('settingsModal'));
     await page.evaluate(() => app.openSettings('ai'));
     assert.equal(await page.evaluate(() => ApexNative.shell.current.route), 'you/connections/ai', 'Settings > AI engine opens You > Connections > AI coach');
+    await page.locator('#avAiBox > summary').click();
     assert.equal(await page.locator('#aiCoachConfigCard').isVisible(), true);
     assert.match(await page.locator('#aiCoachEngineDetail').innerText(), /No Claude API key/);
     assert.doesNotMatch(await page.locator('#aiCoachConfigCard').innerText(), /\.env|Launch-Apex-Velo|local server/);
@@ -915,7 +916,7 @@ async function brokerFlow(browser, errors) {
     assert.match(await page.locator('#anaReadyRing').getAttribute('data-level'), /green|amber|red/);
     assert.equal(await page.locator('#anaReadyParts .ready-part').count(), 3, 'HRV, resting HR and sleep');
     await page.evaluate(() => ApexNative.shell.go('progress/fitness'));
-    assert.match(await page.locator('#anaStoryText').innerText(), /Next:/, 'the week from the numbers, without AI');
+    assert.match(await page.locator('#anaStoryText').textContent(), /Next:/, 'the week from the numbers, without AI');
     await page.locator('#btnAnaStory').click();
     await page.locator('#anaStoryText', { hasText: 'test breakdown' }).waitFor({ timeout: 10000 });
     assert.match(await page.locator('#anaStoryNote').innerText(), /Written by Claude Opus 5\.5/);

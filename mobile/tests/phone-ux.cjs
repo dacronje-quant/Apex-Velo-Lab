@@ -162,6 +162,7 @@ const FLOWS = [
     assert.equal(c.taps, 2);
     const b = await page.locator('.av-sheet #btnImportHistory').boundingBox();
     assert.ok(b && b.y + b.height <= 852, 'Import history above the fold');
+    await tap(page, '.av-backup-import > summary');
     assert.ok(await page.locator('.av-sheet #btnChooseImportFiles').isVisible());
     const s = await sweep(page);
     assert.deepEqual(s.small, []); assert.ok(s.overflowX <= 0);
@@ -169,18 +170,18 @@ const FLOWS = [
     await back(page);
     assert.equal(await page.locator('#view-history #importSyncCard').count(), 1, 'import card restored');
     // Search and filters
-    await tap(page, '#avHistSearchBtn');
     await page.fill('#avHistSearch', 'tempo');
     const titles = await page.locator('.av-ride-row b').allTextContents();
     assert.ok(titles.length && titles.every((t) => /tempo/i.test(t)), 'search filters by title');
     await tap(page, '.av-hist-chips [data-filter="other"]');
     assert.match(await page.locator('#avHistCount').textContent(), / of /);
-    await tap(page, '#avHistSearchBtn');
-    assert.equal(await page.locator('#avHistCount').textContent(), `${await page.evaluate(() => app.completedWorkouts.length)} rides`, 'closing search clears it');
+    await tap(page, '#avHistClear');
+    assert.equal(await page.locator('#avHistCount').textContent(), `${await page.evaluate(() => app.completedWorkouts.length)} rides`, 'Clear filters restores every ride');
     // History options: Check Strava, exports, training-load options, clear
     await tap(page, '#avHistMore');
     const rows = (await page.locator('.av-sheet .av-row b').allTextContents()).join('|');
-    for (const t of ['Check Strava', 'Full backup · JSON', 'Current session · FIT', 'Training-load options', 'Clear all history...']) assert.ok(rows.includes(t), t);
+    for (const t of ['Export backup', 'Training-load options', 'Clear all history...']) assert.ok(rows.includes(t), t);
+    for (const t of ['Check Strava', 'HealthFit', 'Current session']) assert.ok(!rows.includes(t), `unsupported/inactive action is absent: ${t}`);
     await tap(page, '.av-sheet .av-row:has-text("Training-load options")');
     assert.match(await route(page), /^you/, 'training-load options open You > Your data');
     assert.equal(page.errors.length, 0, page.errors.join('\n'));
@@ -307,7 +308,7 @@ const FLOWS = [
     await page.locator('#avConnStravaConnect').waitFor();
     await tap(page, '#avConnStravaConnect', c);
     assert.equal(c.taps, 3);
-    assert.equal(await page.evaluate(() => window.__stravaConnects), 1);
+    assert.equal(await route(page), 'you/connections/strava', 'without a broker, Connect opens explicit account setup');
     c = { taps: 0 };
     await tap(page, '.av-tabbar [data-av-tab="ride"]');
     await tap(page, '.av-tabbar [data-av-tab="you"]', c);
@@ -315,6 +316,9 @@ const FLOWS = [
     await page.locator('#avConnHcConnect').waitFor();
     await tap(page, '#avConnHcConnect', c);
     assert.equal(c.taps, 3);
+    assert.equal(await route(page), 'you/connections/healthconnect');
+    assert.equal(await page.evaluate(() => __nativeLog.hc.requests.length), 0, 'opening setup does not request the wrong permission');
+    await tap(page, '[data-hc-request="recovery"]');
     await page.waitForFunction(() => __nativeLog.hc.requests.length === 1);
     for (const [sec, r] of [['rider', 'you/profile'], ['strava', 'you/connections/strava'], ['health', 'you/connections/icu'], ['ai', 'you/connections/ai'],
       ['files', 'you/data'], ['importfolder', 'you/data'], ['guide', 'you/help/guide'], ['about', 'you/help'], [undefined, 'you']]) {
@@ -323,6 +327,7 @@ const FLOWS = [
       assert.equal(await page.evaluate(() => document.getElementById('settingsModal').classList.contains('open')), false);
     }
     await page.evaluate(() => app.openSettings('ai'));
+    await tap(page, '#avAiBox > summary');
     assert.ok(await page.locator('#avAiBox #selectCoachProvider').isVisible());
     assert.ok(await page.locator('#avAiAdvanced #nativeAiKey-claude').isVisible(), 'keys open when none is saved');
     if (await page.evaluate(() => typeof app.settingsLabel === 'function')) {
@@ -344,10 +349,10 @@ const FLOWS = [
     assert.equal(await page.locator('#avDataAdvanced #chkStrengthInFatigue').isVisible(), false, 'folded under Advanced');
     await tap(page, '#avDataAdvanced > summary');
     assert.ok(await page.locator('#avDataAdvanced #chkStrengthInFatigue').isVisible());
-    await page.evaluate(() => { window.__clicked = []; for (const id of ['btnExportJsonHistory', 'btnChooseImportFiles']) document.getElementById(id).addEventListener('click', (e) => { e.stopImmediatePropagation(); window.__clicked.push(id); }, true); });
+    await page.evaluate(() => { window.__clicked = []; for (const id of ['btnExportJsonHistory', 'btnImportHistory']) document.getElementById(id).addEventListener('click', (e) => { e.stopImmediatePropagation(); window.__clicked.push(id); }, true); });
     await tap(page, '#avDataBackup');
     await tap(page, '#avDataImportFiles');
-    assert.deepEqual(await page.evaluate(() => window.__clicked), ['btnExportJsonHistory', 'btnChooseImportFiles']);
+    assert.deepEqual(await page.evaluate(() => window.__clicked), ['btnExportJsonHistory', 'btnImportHistory']);
     await page.evaluate(() => ApexNative.shell.go('you/app'));
     const muted = await page.evaluate(() => app.audio.muted);
     await tap(page, '#avAudioCues');
@@ -702,6 +707,7 @@ FLOWS.push(['ride: customise tiles, panels and graph lines per rider, presets an
   assert.equal(await page.locator('#avRide [data-av-item="panel:profile"]').isHidden(), true, 'Minimal hides the profile');
   await tap(page, '[data-preset="everything"]');
   assert.equal(await page.locator('#avRide [data-av-item="tile:np"]').isHidden(), false, 'Everything shows NP');
+  page.once('dialog', (d) => d.accept());
   await tap(page, '[data-preset="reset"]');
   assert.equal(await page.locator('#avRide [data-av-item="tile:np"]').isHidden(), true, 'Reset is Standard');
   assert.equal(await page.locator('#avRide [data-av-item="tile:hr"]').isHidden(), false);
@@ -715,12 +721,12 @@ FLOWS.push(['ride: customise tiles, panels and graph lines per rider, presets an
 const sheetOf = (id) => async (page) => { await page.evaluate((id) => ApexNative.trainTab.openWorkout(id), id); };
 const TRAIN_PARITY = [
   ['week strip with planned and ridden days', 'train/plan', '.av-week-strip [data-av-day]'],
-  ['the day\'s session: ride it / swap', 'train/plan', '#avPlanSwap'],
+  ['the day\'s session: find a workout', 'train/plan', '#avPlanAskCoach'],
   ['training block: build, re-plan, open', 'train/plan', '#avPlanBuild'],
   ['coach and calendar', 'train/plan', '#avOpenCalendar'],
   ['library list (name, duration, TSS)', 'train/workouts', '#avWorkoutList [data-av-workout]'],
   ...['all', 'endurance', 'sweetspot', 'threshold', 'vo2', 'hardstart', 'custom', 'assessment'].map((c) => [`filter: ${c}`, 'train/workouts', `[data-av-cat="${c}"]`]),
-  ['search', 'train/workouts', '#avWorkoutSearch', async (page) => { await tap(page, '#avWorkoutSearchBtn'); }],
+  ['search', 'train/workouts', '#avWorkoutSearch'],
   ['show the whole library', 'train/workouts', '#avWorkoutsAll'],
   ['workout sheet: profile, ride it', 'train/workouts', '#avWorkoutSheet #avWorkoutRide', sheetOf('carson')],
   ['workout sheet: fine-tune', 'train/workouts', '#avWorkoutSheet #avWorkoutEdit', sheetOf('carson')],
@@ -736,7 +742,7 @@ const TRAIN_PARITY = [
   ['coach: focus, time available', 'train/coach', '#selectAiCoachFocus'],
   ['coach: notes, look-back', 'train/coach', '#inputAiCoachNotes'],
   ['coach: form, fitness, fatigue, readiness', 'train/coach', '#coachReadinessChip'],
-  ['coach: insights', 'train/coach', '#aiCoachInsights', async (page) => { await tap(page, '.av-coach-insights > summary'); }],
+  ['coach: insights', 'train/coach', '#aiCoachInsights', async (page) => { if (!await page.locator('.av-coach-context').evaluate((n) => n.open)) await tap(page, '.av-coach-context > summary'); if (!await page.locator('.av-coach-insights').evaluate((n) => n.open)) await tap(page, '.av-coach-insights > summary'); }],
   ['coach: prescribe / build (top bar too)', 'train/coach', '#btnGenerateAiCoachRecommendation'],
   ['coach: training terms explained', 'train/coach', '#view-ai-coach [data-training-guide]'],
   ['plan: weeks, days, long day, start, hours', 'train/coach', '#blockDays [data-dow="5"]', async (page) => { await page.evaluate(() => ApexNative.trainTab.openCoach('plan')); }],
@@ -758,6 +764,7 @@ FLOWS.push(['train parity: every Workouts, Coach, Calendar and Ask feature is re
   for (const [feature, r, sel, setup] of TRAIN_PARITY) {
     await page.evaluate((r) => { while (ApexNative.shell.sheets.length) ApexNative.shell.closeSheet(); ApexNative.shell.go(r); }, r);
     if (setup) await setup(page);
+    if (r === 'train/coach' && !setup) await page.evaluate(() => { const d = document.querySelector('.av-coach-context'); if (d) d.open = true; });
     const loc = page.locator(sel).first();
     if (!((await loc.count()) > 0 && (await loc.isVisible()))) missing.push(`${feature} (${r}: ${sel})`);
   }
@@ -797,7 +804,8 @@ FLOWS.push(['train: taps from launch (library workout 4 → ride screen, ask 2),
     const sw = await sweep(page, { ignore: '.sr-only' });
     assert.deepEqual(sw.small, [], `small targets on ${r}`); assert.ok(sw.overflowX <= 0, `${r} scrolls sideways (${sw.overflowX})`);
     assert.ok(await page.locator('.av-tabbar').isVisible(), `bottom bar on ${r}`);
-    if (['train/plan', 'train/workouts', 'train/ask'].includes(r)) assert.ok((await page.evaluate(() => document.documentElement.scrollHeight)) <= 852 * 1.5 + 80, `${r} fits 1.5 screens`);
+    if (['train/plan', 'train/ask'].includes(r)) assert.ok((await page.evaluate(() => document.documentElement.scrollHeight)) <= 852 * 1.5 + 80, `${r} fits 1.5 screens`);
+    if (r === 'train/workouts') assert.ok(await page.locator('.av-workout-card svg.av-workout-profile').first().isVisible(), 'workout browsing uses visual cards');
     await screenshot(page, r.replace('/', '-'));
   }
   // Detail pages keep their main action above the fold.
@@ -866,7 +874,7 @@ FLOWS.push(['train: back follows the stack; the app\'s own switches land on Trai
   const riding = await page.evaluate(() => app.currentWorkout.id);
   await page.evaluate(() => ApexNative.shell.go('train/plan'));
   await tap(page, `[data-av-day="${day}"]`);
-  assert.match(await page.locator('#avPlanRide').textContent(), /Back to ride/);
+  assert.match(await page.locator('#avPlanRide').textContent(), /Return to ride/);
   await tap(page, '#avPlanRide');
   assert.equal(await route(page), 'ride/live');
   assert.equal(await page.evaluate(() => app.currentWorkout.id), riding, 'the ride kept its workout');
@@ -948,8 +956,9 @@ FLOWS.push(['progress: taps from launch (FTP 1, HRV trend 2, no scroll), sweep o
   await tap(page, '#avProgRow-health', c);
   assert.equal(c.taps, 2); assert.equal(await route(page), 'progress/health');
   await page.waitForTimeout(400);
-  const hrv = await page.locator('#anaCardHealthHrv canvas').boundingBox();
-  assert.ok(hrv && hrv.y + hrv.height / 2 < 852 - 76, 'HRV trend on screen without scrolling');
+  assert.ok(await page.locator('#anaCardReady').isVisible(), 'today’s recovery is shown before historical charts');
+  await page.locator('#anaCardHealthHrv').scrollIntoViewIfNeeded();
+  assert.ok(await page.locator('#anaCardHealthHrv canvas').isVisible(), 'HRV trend remains accessible');
   for (const r of ['progress', 'progress/fitness', 'progress/power', 'progress/intensity', 'progress/health', 'progress/records']) {
     await page.evaluate((r) => ApexNative.shell.go(r), r);
     await page.waitForTimeout(500);
@@ -1024,6 +1033,76 @@ FLOWS.push(['progress: range chip changes the page range; tiles drill down to th
 }]);
 
 module.exports.PROGRESS_PARITY = PROGRESS_PARITY;
+
+FLOWS.push(['UI polish: visual workouts, explicit actions, form validation and responsive text fields', async (browser) => {
+  const page = await openPhone(browser, { route: 'train/workouts' });
+  const card = page.locator('.av-workout-card').first();
+  assert.ok(await card.locator('.av-workout-profile rect').count() > 0, 'the preview uses real interval steps');
+  assert.match(await card.innerText(), /View workout/);
+  await page.selectOption('#avWorkoutDuration', '30');
+  assert.ok(await page.locator('.av-workout-card').count() > 0);
+  assert.ok(await page.evaluate(() => [...document.querySelectorAll('[data-av-workout]')].every((el) => {
+    const w = app.workoutLibrary.find((w) => w.id === el.dataset.avWorkout);
+    return Number(w.durationMin) <= 30;
+  })), 'duration filtering changes the visible workouts');
+  await page.locator('.av-workout-card').first().click();
+  assert.equal(await page.locator('#avWorkoutRide').innerText(), 'Start ride');
+  assert.ok(await page.locator('.av-sheet').evaluate((el) => el.contains(document.activeElement)), 'focus moves into a sheet');
+  await page.keyboard.press('Escape');
+  assert.equal(await page.locator('.av-sheet').count(), 0);
+  assert.ok(await page.locator('.av-workout-card').first().evaluate((el) => el === document.activeElement), 'focus returns to the opener');
+
+  await page.evaluate(() => ApexNative.shell.go('you/connections'));
+  await page.locator('#avConnAiRow').waitFor();
+  assert.equal(await page.locator('#avConnOut b').filter({hasText:/^Health Connect$/}).count(), 1);
+  await page.locator('#avConnHcConnect').click();
+  assert.equal(await route(page), 'you/connections/healthconnect');
+  assert.equal(await page.evaluate(() => __nativeLog.hc.requests.length), 0);
+  assert.equal(await page.locator('button button').count(), 0, 'no nested action buttons');
+
+  await page.evaluate(() => ApexNative.shell.go('you/profile'));
+  const original = await page.evaluate(() => app.activeProfile.ftp);
+  await page.fill('#profInputFtp', '999');
+  await page.locator('#btnSaveNewProfile').click();
+  assert.equal(await page.evaluate(() => app.activeProfile.ftp), original);
+  assert.equal(await page.locator('#profInputFtp').getAttribute('aria-invalid'), 'true');
+  assert.ok(await page.locator('#profInputFtpError').isVisible());
+  await page.fill('#profInputFtp', '240');
+  await page.locator('#btnSaveNewProfile').click();
+  assert.equal(await page.evaluate(() => app.activeProfile.ftp), 240);
+
+  for (const width of [360, 393, 412]) {
+    await page.setViewportSize({width, height:852});
+    for (const r of ['ride','train/workouts','train/builder','progress','you/connections','you/profile','you/connections/ai']) {
+      await page.evaluate((r) => ApexNative.shell.go(r), r);
+      const overflow = await page.evaluate(() => document.documentElement.scrollWidth-innerWidth);
+      assert.ok(overflow <= 0, `${r} at ${width}px: no sideways scroll`);
+      const clipped = await page.locator('input:not([type=hidden]),textarea,select').evaluateAll((nodes) => nodes.filter((n) => n.getClientRects().length && !n.closest('[hidden],details:not([open])')).filter((n) => n.getBoundingClientRect().right>innerWidth+1).map((n) => n.id));
+      assert.deepEqual(clipped, [], `${r} at ${width}px: inputs stay in the viewport`);
+    }
+  }
+  await page.setViewportSize({width:393, height:500});
+  await page.evaluate(() => ApexNative.shell.go('history'));
+  await page.fill('#avHistSearch', 'Tempo');
+  assert.ok(await page.locator('.av-ride-row').count()>0, 'search works in a keyboard-sized viewport');
+  assert.deepEqual(page.errors, []);
+  await page.context().close();
+
+  const setup = await openPhone(browser, {demo:false, onboarding:true});
+  await setup.waitForFunction(() => ApexNative.shell.current.route === 'onboarding/profile');
+  await setup.fill('#onbWeight','10');
+  await tap(setup,'[data-onb="next"]');
+  assert.equal(await route(setup),'onboarding/profile','invalid values cannot silently advance');
+  assert.ok(await setup.locator('#onbWeightError').isVisible());
+  await setup.fill('#onbWeight','72.3');
+  await setup.locator('[data-onb="unknownftp"]').click();
+  assert.ok(await setup.locator('#onbFtp').isDisabled());
+  assert.ok(await setup.locator('#onbFtpHelp').isVisible());
+  await tap(setup,'[data-onb="next"]');
+  assert.equal(await route(setup),'onboarding/devices');
+  assert.match(await setup.locator('#onbPairTrainer').innerText(),/Pair/);
+  await setup.context().close();
+}]);
 
 if (require.main === module) {
   (async () => {

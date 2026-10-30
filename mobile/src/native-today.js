@@ -5,6 +5,7 @@
  */
 
 import { RideView } from './native-ride-view.js';
+import { workoutName, durationText } from './native-ui.js';
 
 const esc = (s) => String(s == null ? '' : s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 const icon = (id) => `<svg class="ic" aria-hidden="true"><use href="#${id}"/></svg>`;
@@ -43,7 +44,7 @@ export class TodayScreen {
     this.el.innerHTML = `<div class="av-today-notices"></div>
       <div class="card av-ready" hidden></div>
       <div class="card av-plan"></div>
-      <div class="av-label">This week</div>
+      <div class="av-label">Recent activity</div>
       <div class="card av-list av-week"></div>`;
     this.chip = this.doc.createElement('button');
     this.chip.type = 'button';
@@ -77,9 +78,10 @@ export class TodayScreen {
 
   renderChip() {
     const s = deviceSummary(this.doc);
-    const text = s.connected ? `${s.connected} device${s.connected === 1 ? '' : 's'}` : s.saved ? 'Connect' : 'Devices';
+    const trainer = this.doc.getElementById('hwTrainerStatusBadge');
+    const text = s.attention ? 'Devices · needs attention' : s.connected ? `Devices · ${s.connected} connected` : 'Devices · connect';
     this.chip.innerHTML = `<span class="av-dot" data-on="${s.connected ? (s.attention ? 'warn' : 'on') : 'off'}"></span>${esc(text)}`;
-    this.chip.setAttribute('aria-label', `Devices: ${s.connected} connected`);
+    this.chip.setAttribute('aria-label', `Devices: ${s.connected} connected. Trainer ${trainer?.dataset.state === 'connected' ? 'connected' : 'not connected'}`);
   }
 
   renderReadiness(app) {
@@ -110,7 +112,7 @@ export class TodayScreen {
     const title = planned && !loadedIsPlanned && !riding ? planned.title : w.title;
     const eyebrow = riding ? 'Ride in progress' : planned ? 'Planned today' : 'Ready to ride';
     const meta = planned && !loadedIsPlanned && !riding ? `${planned.durationMin} min · from your plan`
-      : `${this.text('hudWorkoutDuration')} · ${this.text('hudWorkoutAvgPower')} expected avg${loadedIsPlanned ? ' · from your plan' : ''}`;
+      : `${this.text('hudWorkoutDuration')}${loadedIsPlanned ? ' · from your plan' : title?.includes(' - ') ? ' · ' + title.split(' - ')[0] : ''}`;
     const total = w.intervals.reduce((a, iv) => a + (Number(iv.duration) || 0), 0) || 1;
     const M = this.win.VeloMetrics;
     const bars = (planned && !loadedIsPlanned && !riding) ? '' : w.intervals.slice(0, 80).map((iv) => {
@@ -118,10 +120,10 @@ export class TodayScreen {
       return `<i style="flex:${(Number(iv.duration) || 0) / total};height:${Math.max(12, Math.min(100, iv.pctFtp / 1.3))}%;background:${z ? z.color : 'var(--cyan)'}"></i>`;
     }).join('');
     el.innerHTML = `<span class="eyebrow">${esc(eyebrow)}</span>
-      <h3 class="av-plan-title">${esc(title || 'Workout')}</h3>
+      <h3 class="av-plan-title" title="${esc(title)}">${esc(workoutName(title))}</h3>
       <p class="av-note">${esc(meta)}</p>
       ${bars ? `<div class="av-profile" aria-hidden="true">${bars}</div>` : ''}
-      <button type="button" class="btn btn-start av-big" id="avStartRide">${icon('i-play')}${riding ? 'Back to ride' : 'Start ride'}</button>
+      <button type="button" class="btn btn-start av-big" id="avStartRide">${icon('i-play')}${riding ? 'Return to ride' : 'Start ride'}</button>
       <div class="btn-row av-plan-more">
         <button type="button" class="btn btn-ghost btn-grow" id="avChangeWorkout">Change workout</button>
         <button type="button" class="btn btn-ghost btn-grow" id="avFreeRide">Free ride</button>
@@ -160,14 +162,14 @@ export class TodayScreen {
     if (last) {
       const when = new Date(last.date).toLocaleDateString(undefined, { weekday: 'short', day: 'numeric', month: 'short' });
       const mins = Math.round((last.duration || 0) / 60) || last.durationMin || 0;
-      const bits = [when, mins ? `${Math.floor(mins / 60)} h ${String(mins % 60).padStart(2, '0')}` : '', last.np ? `${last.np} W NP` : '', last.tss ? `TSS ${Math.round(last.tss)}` : ''].filter(Boolean);
-      el.appendChild(this.shell.row({ icon: 'i-history', id: 'avLastRide', title: `Last ride · ${last.title || 'Ride'}`, sub: bits.join(' · '), onClick: () => this.shell.go('history/' + encodeURIComponent(last.id)) }));
+      const bits = [workoutName(last.title || 'Ride'), durationText(mins * 60), when];
+      el.appendChild(this.shell.row({ icon: 'i-history', id: 'avLastRide', title: 'Last ride', sub: bits.join(' · '), onClick: () => this.shell.go('history/' + encodeURIComponent(last.id)) }));
     }
     const monday = new Date(); monday.setHours(0, 0, 0, 0); monday.setDate(monday.getDate() - ((monday.getDay() + 6) % 7));
     const week = rides.filter((r) => new Date(r.date) >= monday);
     const tss = Math.round(week.reduce((a, r) => a + (Number(r.tss) || 0), 0));
     const secs = week.reduce((a, r) => a + (Number(r.duration) || 0), 0);
-    el.appendChild(this.shell.row({ icon: 'i-calendar', id: 'avWeek', title: `${week.length} ride${week.length === 1 ? '' : 's'} this week`, sub: `${Math.floor(secs / 3600)} h ${String(Math.round(secs / 60) % 60).padStart(2, '0')} · TSS ${tss} · see your plan`, onClick: () => this.shell.go('train/plan') }));
+    el.appendChild(this.shell.row({ icon: 'i-calendar', id: 'avWeek', title: 'This week', sub: `${week.length} ride${week.length === 1 ? '' : 's'} · ${durationText(secs)} · view plan`, onClick: () => this.shell.go('train/plan') }));
   }
 
   // ------------------------------------------------------------------------------------------- devices --
@@ -212,7 +214,7 @@ export class TodayScreen {
       actions.className = 'av-device-actions';
       actions.innerHTML = `${all && !all.disabled ? '<button type="button" class="btn btn-grow" id="avConnectAll">Connect saved devices</button>' : ''}
         <button type="button" class="btn btn-primary av-big" id="avPairDevice">${icon('i-plus')}Pair a new device</button>
-        <p class="av-note">Calibration, PowerMatch, power and cadence sources, the fan and renaming are in each device's details.</p>`;
+        <p class="av-note">Open a device to calibrate it or change its settings.</p>`;
       list.appendChild(actions);
       const ca = actions.querySelector('#avConnectAll');
       if (ca) ca.addEventListener('click', () => { all.click(); setTimeout(render, 300); });

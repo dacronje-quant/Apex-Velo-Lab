@@ -16,6 +16,7 @@
 
 const esc = (s) => String(s == null ? '' : s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 const icon = (id) => `<svg class="ic" aria-hidden="true"><use href="#${id}"/></svg>`;
+import { workoutName, durationText, labelIntervalFields } from './native-ui.js';
 
 export const SEG = [{ route: 'train/plan', label: 'Plan' }, { route: 'train/workouts', label: 'Workouts' }, { route: 'train/ask', label: 'Ask coach' }];
 
@@ -27,8 +28,26 @@ export const FILTERS = [
 ];
 /** The zone colour of a category's dot (a typical % FTP of its work). */
 const CAT_PCT = { recovery: 50, endurance: 68, sweetspot: 90, threshold: 100, vo2: 115, assessment: 125 };
+const CATEGORY_NAMES = { recovery: 'Recovery', endurance: 'Endurance', sweetspot: 'Sweet spot', threshold: 'Threshold', vo2: 'VO₂ max', hardstart: 'Hard-start', assessment: 'FTP test', custom: 'Saved workout', free: 'Free ride' };
+
+/** A small, responsive profile built from the workout itself; does not need a canvas or hover. */
+export function workoutProfile(intervals = [], zoneFor) {
+  const steps = intervals.filter((iv) => Number(iv.duration) > 0);
+  const total = steps.reduce((sum, iv) => sum + Number(iv.duration), 0) || 1;
+  const ceiling = Math.max(130, ...steps.map((iv) => Number(iv.pctFtp) || 0));
+  let x = 0;
+  const blocks = steps.map((iv) => {
+    const width = Number(iv.duration) / total * 320;
+    const height = Math.max(5, Math.min(52, (Number(iv.pctFtp) || 0) / ceiling * 52));
+    const color = zoneFor ? zoneFor(Number(iv.pctFtp) || 0)?.color : '#78caff';
+    const rect = `<rect x="${x.toFixed(2)}" y="${(60-height).toFixed(2)}" width="${Math.max(.5,width-1.5).toFixed(2)}" height="${height.toFixed(2)}" rx="2" fill="${esc(color || '#78caff')}"/>`;
+    x += width;
+    return rect;
+  }).join('');
+  return `<svg class="av-workout-profile" viewBox="0 0 320 64" preserveAspectRatio="none" aria-hidden="true"><path d="M0 20H320M0 40H320M0 61H320" stroke="currentColor" stroke-width=".5" opacity=".3"/>${blocks}</svg>`;
+}
 /** Rows shown before "Show all", so the Workouts root fits on the screen. */
-export const LIST_CAP = 8;
+export const LIST_CAP = 4;
 
 /** The app's own library filter (js/app.js renderWorkoutCatalog). */
 export function filterWorkouts(library, cat = 'all', query = '', App_ = null) {
@@ -67,7 +86,7 @@ function borrow(node, into) {
 export class TrainTab {
   constructor({ shell, rideTab = null, win = window }) {
     this.shell = shell; this.rideTab = rideTab; this.win = win; this.doc = win.document;
-    this.cat = 'all'; this.query = ''; this.showAll = false; this.day = null;
+    this.cat = 'all'; this.query = ''; this.showAll = false; this.day = null; this.searching = true; this.maxMinutes = 0;
     this.planEl = this.page('av-train-plan');
     this.workoutsEl = this.page('av-train-workouts');
     this.builderEl = this.page('av-train-builder');
@@ -76,12 +95,11 @@ export class TrainTab {
     shell.registerPage('train/plan', { title: 'Train', el: this.planEl, seg, parent: null, mount: () => this.renderPlan() });
     shell.registerPage('train/workouts', {
       title: 'Train', el: this.workoutsEl, seg, parent: null,
-      actions: () => shell.button({ icon: 'i-search', label: 'Search workouts', id: 'avWorkoutSearchBtn', onClick: () => this.toggleSearch() }),
       mount: () => this.renderWorkouts()
     });
     shell.registerPage('train/ask', { title: 'Train', view: 'ask', seg, parent: null });
     shell.registerPage('train/coach', { title: 'Coach', view: 'ai-coach', parent: 'train/plan', mount: () => this.foldCoachInsights(),
-      actions: () => shell.button({ icon: 'i-sparkles', label: 'Build it', id: 'avCoachGo', onClick: () => this.coachGo() }) });
+      actions: () => { const b = shell.button({ icon: 'i-sparkles', label: 'Create workout or plan', id: 'avCoachGo', onClick: () => this.coachGo() }); b.classList.add('av-labelled-action'); b.insertAdjacentHTML('beforeend', '<span>Create</span>'); return b; } });
     shell.registerPage('train/calendar', { title: 'Calendar', view: 'calendar', parent: 'train/plan' });
     shell.registerPage('train/builder', {
       title: 'Custom workout', el: this.builderEl, parent: 'train/workouts',
@@ -151,7 +169,7 @@ export class TrainTab {
       const colour = s ? (FOCUS[s.focus] || {}).color || 'var(--cyan)' : done ? 'var(--lime)' : '';
       const name = dateOf(k).toLocaleDateString(undefined, { weekday: 'short' });
       return `<button type="button" class="av-day${k === this.day ? ' on' : ''}${k === today ? ' today' : ''}" data-av-day="${k}" aria-pressed="${k === this.day}">
-        <span>${esc(name)}</span>${colour ? `<i style="background:${esc(colour)}"${s && s.status === 'done' ? ' class="done"' : ''}></i>` : '<i class="none"></i>'}</button>`;
+        <span>${esc(name)}</span><b>${dateOf(k).getDate()}</b>${colour ? `<i style="color:${esc(colour)}" aria-label="${done || s?.status === 'done' ? 'Completed' : 'Planned'}">${done || s?.status === 'done' ? '✓' : '○'}</i>` : '<i class="none"></i>'}</button>`;
     }).join('');
     el.innerHTML = `<div class="av-week-strip" role="group" aria-label="This week">${days}</div>
       <div class="card av-day-card" id="avPlanDay"></div>
@@ -161,8 +179,8 @@ export class TrainTab {
     this.renderDay(app, planned.get(this.day) || [], rides.get(this.day) || [], this.day === today);
     this.renderBlock(app, bp);
     const rows = el.querySelector('.av-train-rows');
-    rows.appendChild(this.shell.row({ icon: 'i-sparkles', id: 'avOpenCoach', title: 'Coach', sub: 'One workout for today, or a 4-12 week plan', onClick: () => this.openCoach('session') }));
-    rows.appendChild(this.shell.row({ icon: 'i-calendar', id: 'avOpenCalendar', title: 'Calendar', sub: 'Week, month, year · load and recovery', onClick: () => this.shell.go('train/calendar') }));
+    rows.appendChild(this.shell.row({ icon: 'i-sparkles', id: 'avOpenCoach', title: 'Suggest a workout', sub: 'Create a session for today', onClick: () => this.openCoach('session') }));
+    rows.appendChild(this.shell.row({ icon: 'i-calendar', id: 'avOpenCalendar', title: 'Calendar', sub: 'Planned and completed rides', onClick: () => this.shell.go('train/calendar') }));
   }
 
   renderDay(app, sessions, rides, isToday) {
@@ -175,30 +193,30 @@ export class TrainTab {
       body = `<h3 class="av-plan-title">${esc(s.title)}</h3><p class="av-note">${esc(fmtMin(s.durationMin))} · TSS ${esc(s.tss)} · from your plan${status}</p>`;
     } else if (rides.length) {
       body = `<h3 class="av-plan-title">${esc(rides[0].title || 'Ride')}</h3><p class="av-note">Ridden${rides.length > 1 ? ` (+${rides.length - 1} more)` : ''} · ${esc(fmtMin((rides[0].duration || 0) / 60))}${rides[0].tss ? ` · TSS ${Math.round(rides[0].tss)}` : ''}</p>`;
-    } else body = `<h3 class="av-plan-title">${this.plan() ? 'Rest day' : 'Nothing planned'}</h3><p class="av-note">${this.plan() ? 'No session in your plan for this day.' : 'Ask the coach for today\'s workout or a training plan, or pick one from Workouts.'}</p>`;
+    } else body = `<h3 class="av-plan-title">${this.plan() ? 'Rest day' : 'No workout planned'}</h3><p class="av-note">${this.plan() ? 'No session planned for this day.' : 'Choose a session for today.'}</p>`;
     const canRide = s && s.status === 'planned';
     const riding = this.riding();
     el.innerHTML = `<span class="eyebrow">${esc(when)}</span>${body}
       <div class="btn-row av-plan-more">
-        ${canRide ? `<button type="button" class="btn btn-start btn-grow" id="avPlanRide">${icon('i-play')}${riding ? 'Back to ride' : isToday ? 'Ride it today' : 'Ride it now'}</button>`
+        ${canRide ? `<button type="button" class="btn btn-start btn-grow" id="avPlanRide">${icon('i-play')}${riding ? 'Return to ride' : 'Start ride'}</button>`
           : rides.length && !s ? `<button type="button" class="btn btn-grow" id="avPlanSeeRide">See ride</button>`
-            : `<button type="button" class="btn btn-ai btn-grow" id="avPlanAskCoach">${icon('i-sparkles')}Today's workout</button>`}
-        <button type="button" class="btn btn-ghost btn-grow" id="avPlanSwap">${canRide ? 'Swap' : 'Workouts'}</button>
+            : `<button type="button" class="btn btn-primary btn-grow" id="avPlanAskCoach">${icon('i-search')}Find a workout</button>`}
+        ${canRide || rides.length ? `<button type="button" class="btn btn-ghost btn-grow" id="avPlanSwap">${canRide ? 'Change workout' : 'Workouts'}</button>` : ''}
       </div>`;
     const on = (id, fn) => { const b = el.querySelector(id); if (b) b.addEventListener('click', fn); };
     // During a ride this only goes back to it; the planned session is loaded once the ride has ended.
     on('#avPlanRide', () => (this.riding() ? this.shell.go('ride/live') : this.ride((a) => { a.loadBlockSession(s.id); })));
     on('#avPlanSeeRide', () => this.shell.go('history/' + encodeURIComponent(rides[0].id)));
-    on('#avPlanAskCoach', () => this.openCoach('session'));
+    on('#avPlanAskCoach', () => this.shell.go('train/workouts'));
     on('#avPlanSwap', () => this.shell.go('train/workouts'));
   }
 
   renderBlock(app, bp) {
     const el = this.planEl.querySelector('#avPlanBlock');
     if (!bp) {
-      el.innerHTML = `<span class="eyebrow">Your plan</span><h3 class="av-plan-title">No training plan yet</h3>
-        <p class="av-note">A 4-12 week plan from your history: mostly easy rides, progressing hard days, easier weeks and a test at the end.</p>
-        <button type="button" class="btn btn-ai av-big" id="avPlanBuild">${icon('i-calendar')}Build a plan</button>`;
+      el.innerHTML = `<span class="eyebrow">Your training plan</span><h3 class="av-plan-title">Train towards your goals</h3>
+        <p class="av-note">Build a plan around your riding time.</p>
+        <button type="button" class="btn btn-ghost av-big" id="avPlanBuild">${icon('i-calendar')}Create a plan</button>`;
       el.querySelector('#avPlanBuild').addEventListener('click', () => this.openCoach('plan'));
       return;
     }
@@ -215,8 +233,8 @@ export class TrainTab {
       <p class="av-note">${esc(where)}${b.options && b.options.hoursPerWeek && !b.options.aiChoosesHours ? ` · up to ${esc(b.options.hoursPerWeek)} h / week` : ''}</p>
       ${pending ? `<button type="button" class="btn btn-grow av-plan-suggest" id="avPlanSuggestions">${pending} suggested change${pending === 1 ? '' : 's'} · review</button>` : ''}
       <div class="btn-row av-plan-more">
-        <button type="button" class="btn btn-ai btn-grow" id="avPlanReplan">${icon('i-sparkles')}Re-plan</button>
-        <button type="button" class="btn btn-ghost btn-grow" id="avPlanOpen">Open plan</button>
+        <button type="button" class="btn btn-ghost btn-grow" id="avPlanReplan">${icon('i-sparkles')}Adjust plan</button>
+        <button type="button" class="btn btn-primary btn-grow" id="avPlanOpen">View plan</button>
       </div>`;
     el.querySelector('#avPlanReplan').addEventListener('click', () => { this.openCoach('plan'); this.doc.getElementById('btnReplanBlock')?.click(); });
     el.querySelector('#avPlanOpen').addEventListener('click', () => this.openCoach('plan'));
@@ -225,6 +243,13 @@ export class TrainTab {
 
   /** The coach's insight chips (volume, intensity mix, power profile) fold under "More" so the builder shows first. */
   foldCoachInsights() {
+    const header = this.doc.querySelector('#view-ai-coach .ai-coach-header');
+    if (header && !header.closest('.av-coach-context')) {
+      const details = this.doc.createElement('details');
+      details.className = 'av-more card av-coach-context';
+      details.innerHTML = '<summary>Training context</summary>';
+      header.before(details); details.appendChild(header);
+    }
     const strip = this.doc.getElementById('aiCoachInsights');
     if (!strip || strip.closest('.av-coach-insights')) return;
     const more = this.doc.createElement('details');
@@ -254,8 +279,7 @@ export class TrainTab {
   // -------------------------------------------------------------------------------------------- Workouts --
 
   toggleSearch() {
-    this.searching = !this.searching;
-    if (!this.searching) this.query = '';
+    this.searching = true;
     this.renderWorkouts();
     if (this.searching) this.workoutsEl.querySelector('#avWorkoutSearch')?.focus();
   }
@@ -265,13 +289,15 @@ export class TrainTab {
     const el = this.workoutsEl;
     if (!app) { el.innerHTML = '<p class="av-note">Loading…</p>'; this.shell.whenApp(() => this.renderWorkouts()); return; }
     if (!el.querySelector('.av-wk-chips')) {
-      el.innerHTML = `<label class="av-wk-search" hidden><span class="sr-only">Search workouts</span><input type="search" id="avWorkoutSearch" class="input-field" placeholder="Search workouts" autocomplete="off"></label>
+      el.innerHTML = `<label class="av-wk-search"><span class="sr-only">Search workouts</span><input type="search" id="avWorkoutSearch" class="input-field" placeholder="Search workouts" autocomplete="off"></label>
+        <label class="av-wk-duration"><span class="sr-only">Maximum duration</span><select class="input-field" id="avWorkoutDuration"><option value="0">Any duration</option><option value="30">Up to 30 min</option><option value="45">Up to 45 min</option><option value="60">Up to 1 hour</option></select></label>
         <div class="av-wk-chips" role="group" aria-label="Workout type">${FILTERS.map((f) => `<button type="button" class="chip" data-av-cat="${f.cat}">${esc(f.label)}</button>`).join('')}</div>
-        <div class="card av-list av-wk-list" id="avWorkoutList"></div>
+        <div class="av-workout-grid av-wk-list" id="avWorkoutList"></div>
         <button type="button" class="btn btn-ai av-big" id="avDescribe">${icon('i-sparkles')}Describe a workout</button>
         <div class="card av-list av-wk-tools"></div>`;
       el.querySelectorAll('[data-av-cat]').forEach((b) => b.addEventListener('click', () => { this.cat = b.dataset.avCat; this.showAll = false; this.renderWorkouts(); }));
       const input = el.querySelector('#avWorkoutSearch');
+      el.querySelector('#avWorkoutDuration').addEventListener('change', (e) => { this.maxMinutes = Number(e.target.value); this.showAll = false; this.renderList(); });
       input.addEventListener('input', () => { this.query = input.value; this.showAll = false; this.renderList(); });
       el.querySelector('#avDescribe').addEventListener('click', () => this.openDescribe());
       const tools = el.querySelector('.av-wk-tools');
@@ -289,7 +315,7 @@ export class TrainTab {
   renderList() {
     const app = this.app;
     const box = this.workoutsEl.querySelector('#avWorkoutList');
-    const list = filterWorkouts(app.workoutLibrary, this.cat, this.query, this.App);
+    const list = filterWorkouts(app.workoutLibrary, this.cat, this.query, this.App).filter((w) => !this.maxMinutes || (Number(w.durationMin) || (w.intervals || []).reduce((s, v) => s + Number(v.duration || 0), 0) / 60) <= this.maxMinutes);
     box.innerHTML = '';
     if (!list.length) {
       box.innerHTML = `<p class="av-note av-empty">${this.cat === 'custom' && !this.query ? 'No saved workouts yet. Save one from the coach, Describe a workout or Build your own.' : 'No workouts match. Try another type, or describe one.'}</p>`;
@@ -301,14 +327,20 @@ export class TrainTab {
     for (const w of shown) {
       const maxPct = Math.max(0, ...(w.intervals || []).map((iv) => iv.pctFtp || 0));
       const test = app.rampTestConfig && app.rampTestConfig(w);
-      const sub = test ? `${fmtMin(w.durationMin)} max · until your limit · sets your FTP` : `${fmtMin(w.durationMin)} · TSS ${w.tss}${maxPct ? ` · peak ${Math.round(ftp * maxPct / 100)} W` : ''}`;
-      const dot = this.doc.createElement('span');
-      dot.className = 'av-wk-dot';
-      dot.style.background = M ? M.zoneForPct(CAT_PCT[w.category] || maxPct).color : 'var(--cyan)';
-      const row = this.shell.row({ title: w.title, sub, onClick: () => this.openWorkout(w.id) });
+      const seconds = (w.intervals || []).reduce((sum, iv) => sum + Number(iv.duration || 0), 0);
+      const category = CATEGORY_NAMES[w.category] || 'Workout';
+      const sub = test ? `${fmtMin(w.durationMin || seconds / 60)} max · sets your FTP` : `${durationText(seconds || Number(w.durationMin) * 60)} · ${(w.intervals || []).length} steps`;
+      const row = this.shell.row({ title: workoutName(w.title), sub, onClick: () => this.openWorkout(w.id) });
+      row.classList.add('av-workout-card');
+      row.title = w.title;
       row.dataset.avWorkout = w.id;
-      if (app.currentWorkout && app.currentWorkout.id === w.id) row.classList.add('av-wk-loaded');
-      row.insertBefore(dot, row.firstChild);
+      const loaded = app.currentWorkout && app.currentWorkout.id === w.id;
+      if (loaded) row.classList.add('av-wk-loaded');
+      const accent = M ? M.zoneForPct(CAT_PCT[w.category] || maxPct).color : '#78caff';
+      row.style.setProperty('--workout-accent', accent);
+      row.querySelector('.av-row-chevron')?.remove();
+      row.insertAdjacentHTML('afterbegin', `<span class="av-workout-card-head"><span class="av-workout-type">${icon(test ? 'i-target' : 'i-bolt')}${esc(category)}</span>${loaded ? '<span class="av-workout-selected">Selected</span>' : ''}</span>`);
+      row.insertAdjacentHTML('beforeend', `${workoutProfile(w.intervals, M ? (pct) => M.zoneForPct(pct) : null)}<span class="av-workout-open">View workout ${icon('i-right')}</span>`);
       box.appendChild(row);
     }
     if (list.length > shown.length) {
@@ -335,12 +367,12 @@ export class TrainTab {
       <canvas class="av-wk-profile" aria-hidden="true"></canvas>
       <p class="av-note av-wk-meta num">${test ? `Until your limit · auto finish and save · sets your FTP` : `${esc(fmtMin(w.durationMin))} · TSS ${esc(w.tss)} · IF ${esc(w.if)}`}</p>
       <p class="av-wk-desc">${esc(w.desc || '')}</p>
-      <button type="button" class="btn btn-start av-big" id="avWorkoutRide">${icon('i-play')}Ride it</button>
+      <button type="button" class="btn btn-start av-big" id="avWorkoutRide">${icon('i-play')}Start ride</button>
       <div class="btn-row av-plan-more">
-        <button type="button" class="btn btn-ghost btn-grow" id="avWorkoutEdit"${this.riding() ? ' disabled' : ''}>Fine-tune</button>
+        <button type="button" class="btn btn-ghost btn-grow" id="avWorkoutEdit"${this.riding() ? ' disabled' : ''}>Edit workout</button>
         ${custom ? `<button type="button" class="btn btn-danger btn-grow" id="avWorkoutDelete">${icon('i-trash')}Delete</button>` : ''}
       </div>${this.riding() ? '<p class="av-note">A ride is under way: finish it to fine-tune another workout.</p>' : ''}`;
-    this.shell.openSheet(box, { title: w.title });
+    this.shell.openSheet(box, { title: workoutName(w.title) });
     const canvas = box.querySelector('canvas');
     if (app.drawMiniProfile) this.win.requestAnimationFrame(() => app.drawMiniProfile(canvas, w.intervals, { height: 64 }));
     box.querySelector('#avWorkoutRide').addEventListener('click', () => this.ride((a) => { a.loadWorkoutIntoCockpit(w.id); }));
@@ -383,18 +415,20 @@ export class TrainTab {
     const el = this.builderEl;
     if (!app) { this.shell.whenApp(() => { if (this.shell.current && this.shell.current.route === 'train/builder') this.mountBuilder(); }); return; }
     if (!el.querySelector('.av-builder-head')) {
-      el.innerHTML = `<div class="card av-builder-head"><span class="eyebrow">Loaded workout</span><h3 class="av-plan-title" id="avBuilderTitle"></h3><p class="av-note" id="avBuilderMeta"></p>
-        <button type="button" class="btn btn-start av-big" id="avBuilderRide">${icon('i-play')}Ride it</button></div>
+      el.innerHTML = `<div class="card av-builder-head"><span class="eyebrow">Your workout</span><h3 class="av-plan-title" id="avBuilderTitle"></h3><p class="av-note" id="avBuilderMeta"></p><div id="avBuilderProfile"></div>
+        <button type="button" class="btn btn-start av-big" id="avBuilderRide">${icon('i-play')}Start ride</button></div>
         <div class="av-builder-table"></div>
-        <p class="av-note">Change a step's name, % FTP or length, add or remove steps, then Save as preset to keep it under Saved.</p>`;
+        <p class="av-note">Edit each step, then Save workout to keep your changes.</p>`;
       el.querySelector('#avBuilderRide').addEventListener('click', () => this.ride());
     }
     const w = app.currentWorkout || { title: '', intervals: [] };
-    el.querySelector('#avBuilderTitle').textContent = w.title || 'Workout';
+    el.querySelector('#avBuilderTitle').textContent = workoutName(w.title);
+    el.querySelector('#avBuilderProfile').innerHTML = workoutProfile(w.intervals, this.win.VeloMetrics ? (pct) => this.win.VeloMetrics.zoneForPct(pct) : null);
     const secs = (w.intervals || []).reduce((a, iv) => a + (Number(iv.duration) || 0), 0);
     el.querySelector('#avBuilderMeta').textContent = `${w.intervals.length} steps · ${fmtMin(secs / 60)}`;
     if (!this._restoreBuilder) this._restoreBuilder = borrow(this.doc.getElementById('customWorkoutTableSection'), el.querySelector('.av-builder-table'));
     if (app.populateCustomIntervalTable) app.populateCustomIntervalTable();
+    labelIntervalFields(this.doc);
   }
 }
 

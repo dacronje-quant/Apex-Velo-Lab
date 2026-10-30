@@ -29,6 +29,7 @@ import { installTrainTab } from './native-train.js';
 import { installYou } from './native-you.js';
 import { installOnboarding } from './native-onboarding.js';
 import { installProgressTab } from './native-progress.js';
+import { installUiPolish } from './native-ui.js';
 import { NativeRide } from './native-ride.js';
 import { NativeStore, openingLedger } from './native-store.js';
 import { openCapacitorDatabase, filesystemFiles } from './native-sqlite.js';
@@ -130,4 +131,5 @@ if (fake || Capacitor.isNativePlatform()) {
   // You (Settings, profile, devices, connections, data) and the first-run onboarding (workstream U5).
   installYou({ shell, services: { strava, icu, healthConnect, ai } });
   installOnboarding({ shell });
+  installUiPolish({ shell });
 }

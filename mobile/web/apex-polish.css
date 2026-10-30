@@ -1,0 +1,208 @@
+/* Android UI polish. Kept in the native layer so the desktop app retains its layout. */
+html.apex-native {
+  --bg-0: #080d17; --bg-1: #0b1020; --bg-2: #111a2b; --bg-3: #151e30;
+  --text-1: #f5f8ff; --text-2: #c4cedf; --text-3: #adbcd0;
+  --cyan: #78caff; --line: #344157; --line-strong: #536780;
+  --surface: #151e30; --surface-2: #1b263b;
+}
+.apex-native body:not(.av-fullscreen)::before { background: none; }
+.apex-native body[data-av-route^="onboarding/"]::before { background: none; }
+.apex-native button.chip { min-height: 48px; }
+.apex-native :is(#coachReadinessChip, #cockpitReadinessChip, #anaReadinessChip) { display: inline-flex; align-items: center; min-height: 48px; min-width: 48px; cursor: pointer; }
+.apex-native button.chip[aria-pressed=true] { background: #56b9ff; color: #071525; border-color: #56b9ff; }
+.apex-native body { font-size: 16px; line-height: 1.5; }
+.apex-native .card { background: var(--bg-3); box-shadow: none; border-color: var(--line); }
+.apex-native :is(.av-title, .av-plan-title, .av-prog-verdict, .av-onb h2, .av-sheet-head h3) {
+  font-family: var(--font-sans); font-weight: 700; letter-spacing: -.025em;
+}
+.apex-native .av-title { font-size: 25px; }
+.apex-native .av-actions { flex: none; }
+.apex-native .av-labelled-action { display: inline-flex; align-items: center; gap: 6px; width: auto; padding: 8px 12px; border-radius: 12px; font: 600 14px var(--font-sans); color: var(--cyan); }
+.apex-native .av-coach-context > .card { background: none; border: 0; padding: 8px 0; }
+.apex-native .av-coach-context { padding: 8px 16px !important; }
+.apex-native .av-wk-duration .input-field { width: 100%; }
+.apex-native .av-workout-grid { display: grid; grid-template-columns: minmax(0,1fr); gap: 14px; }
+.apex-native .av-workout-card {
+  display: flex; flex-direction: column; align-items: stretch; gap: 12px; width: 100%; min-width: 0;
+  padding: 16px; border: 1px solid var(--line); border-radius: 18px; background: var(--bg-3);
+  text-align: left; transition: border-color .16s ease, background-color .16s ease;
+}
+.apex-native .av-workout-card:last-child { border-bottom: 1px solid var(--line); }
+.apex-native .av-workout-card:hover { border-color: var(--line-strong); }
+.apex-native .av-workout-card:active { background: #1d2c43; }
+.apex-native .av-workout-card .av-row-text b { font-size: 20px; line-height: 1.3; }
+.apex-native .av-workout-card .av-row-text b::after { content: none; }
+.apex-native .av-workout-card-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+.apex-native .av-workout-type { display: inline-flex; align-items: center; gap: 6px; color: color-mix(in srgb, var(--workout-accent) 75%, white); font-size: 13px; font-weight: 650; }
+.apex-native .av-workout-type .ic { width: 16px; height: 16px; }
+.apex-native .av-workout-selected { color: var(--text-1); font-size: 12px; border: 1px solid var(--line-strong); border-radius: 6px; padding: 2px 7px; }
+.apex-native .av-workout-profile { display: block; width: 100%; height: 64px; color: var(--text-2); }
+.apex-native .av-workout-open { display: flex; align-items: center; justify-content: flex-end; gap: 6px; color: var(--text-2); font-size: 13px; }
+.apex-native .av-workout-open .ic { width: 16px; height: 16px; }
+.apex-native .av-workout-card.av-wk-loaded { border-color: #78caff; }
+.apex-native .av-workout-grid .av-wk-all { grid-column: 1/-1; }
+@media (min-width: 650px) { .apex-native .av-workout-grid { grid-template-columns: repeat(2, minmax(0,1fr)); } }
+.apex-native :is(.av-note, .av-row-text small, .av-row-end, .field-help, .form-hint, .input-hint) {
+  font-size: 14px; line-height: 1.5; color: var(--text-2);
+}
+.apex-native :is(.av-label, .eyebrow, .form-group > label, .field > span, .av-field > span) {
+  font-size: 12px; font-weight: 650; letter-spacing: .05em; color: var(--text-2);
+}
+.apex-native .av-page { gap: 16px; }
+.apex-native .av-page .card { border-radius: 18px; }
+.apex-native .av-row { min-height: 64px; padding: 12px 4px; }
+.apex-native .av-row-text b { line-height: 1.35; }
+.apex-native .av-row-text small { margin-top: 3px; }
+.apex-native .av-action-row { padding: 0; }
+.apex-native .av-action-row > .av-row-main { flex: 1; min-width: 0; border: 0; padding: 12px 4px; }
+.apex-native .av-action-row > :last-child { flex: none; }
+.apex-native .av-tab { color: var(--text-2); font-size: 12px; }
+.apex-native .av-tab.on, .apex-native .av-tab.on .ic { color: var(--cyan); }
+.apex-native .av-tab.on .av-tab-pill { background: #16364c; }
+.apex-native :is(.btn, .av-seg > button, .av-icon-btn, .icon-btn, summary) { min-height: 48px; }
+.apex-native :is(.av-icon-btn, .icon-btn) { min-width: 48px; }
+.apex-native .btn { border-radius: 14px; font-weight: 650; white-space: normal; text-align: center; }
+.apex-native :is(.btn-primary, .btn-ai, .btn-start) {
+  background: #56b9ff; color: #071525; border: 1px solid #56b9ff; box-shadow: none;
+}
+.apex-native .btn-ai .ic, .apex-native .btn-start .ic { color: inherit; }
+.apex-native .btn-ghost { background: transparent; color: var(--text-1); border-color: var(--line-strong); }
+.apex-native :is(button, a, summary, input, textarea, select):focus-visible {
+  outline: 3px solid var(--cyan); outline-offset: 3px;
+}
+.apex-native :is(button, .btn):disabled { opacity: .5; cursor: default; box-shadow: none; }
+.apex-native :is(input:not([type=checkbox]):not([type=radio]):not([type=range]):not([type=hidden]):not([type=file]), textarea, select, .input-field) {
+  box-sizing: border-box; min-height: 48px; max-width: 100%; min-width: 0;
+  padding: 12px 14px; border: 1px solid var(--line-strong); border-radius: 12px;
+  background: #0e1728; color: var(--text-1); font: 400 16px/1.45 var(--font-sans);
+  box-shadow: none; text-overflow: clip;
+}
+.apex-native :is(input, textarea)::placeholder { color: #a8b7cb; opacity: 1; }
+.apex-native :is(input, textarea, select):focus { border-color: var(--cyan); }
+.apex-native textarea { width: 100%; min-height: 112px; resize: vertical; }
+.apex-native select { appearance: auto; padding-right: 32px; }
+.apex-native :is(input, textarea, select)[aria-invalid=true] { border-color: var(--rose); }
+.apex-native .av-field-error { color: #ff9db2; font-size: 14px; margin-top: 6px; }
+.apex-native :is(.form-group, .field, .av-field) { min-width: 0; }
+.apex-native .form-group > label { display: block; margin-bottom: 6px; text-transform: none; }
+.apex-native .native-key-row { flex-wrap: wrap; }
+.apex-native .native-key-row .input-field { flex-basis: 200px; }
+/* A link is navigation; an action is a button. Ordinary descriptions do not borrow link styling. */
+.apex-native a[href] { color: var(--cyan); text-decoration: underline; text-underline-offset: 3px; }
+.apex-native button.av-text-action { color: var(--cyan); border: 0; background: none; text-decoration: underline; text-underline-offset: 3px; font: inherit; padding: 8px 0; min-height: 48px; cursor: pointer; }
+.apex-native .av-link-note { color: var(--text-2); }
+.apex-native :is(.chip, .av-row-end):not(button):not(a) { cursor: default; }
+.apex-native button.av-row:active, .apex-native .btn:active { background-color: #23334b; }
+.apex-native :is(.btn-primary, .btn-start, .btn-ai):active { background: #87ceff; color: #071525; }
+.apex-native .btn-pause:active { background: #ffcc74; color: #071525; }
+.apex-native :is(span, label)[data-term] { text-decoration: none; border-bottom: 0; cursor: inherit; }
+.apex-native details.av-more > summary { justify-content: space-between; gap: 12px; }
+.apex-native details.av-more > summary::after { content: '+'; flex: none; font-size: 22px; }
+.apex-native details.av-more[open] > summary::after { content: '−'; }
+.apex-native .av-sheet { border-radius: 22px 22px 0 0; background: #111a2b; }
+.apex-native .av-sheet-head { position: sticky; top: -10px; background: #111a2b; z-index: 2; padding: 8px 0; }
+.apex-native .av-sheet-head h3 { font-size: 21px; }
+.apex-native .av-seg { border-radius: 16px; }
+.apex-native .av-seg > button { border-radius: 12px; }
+.apex-native .av-seg > button.on { background: #56b9ff; color: #071525; }
+.apex-native .av-plan-more { display: flex; flex-wrap: wrap; gap: 8px; }
+.apex-native .av-plan-more .btn { flex: 1 1 132px; }
+.apex-native .av-devices-chip { max-width: 200px; height: auto; min-height: 48px; white-space: normal; line-height: 1.25; text-align: left; }
+.apex-native .av-dot[data-on=on] { box-shadow: none; }
+.apex-native .av-plan-title { font-size: 25px; line-height: 1.25; }
+.apex-native .av-plan .av-note { margin-top: 6px; }
+.apex-native .av-week-strip { gap: 4px; }
+.apex-native .av-day { min-height: 80px; border-radius: 12px; }
+.apex-native .av-day b { font-size: 16px; }
+.apex-native .av-day i { font-style: normal; font-size: 12px; line-height: 1; height: 12px; width: 12px; }
+.apex-native .av-day.on { border: 2px solid var(--cyan); background: #16364c; }
+.apex-native .av-wk-search input { width: 100%; }
+.apex-native .av-hist-power { display: block; font-size: 13px; color: var(--text-2); margin-top: 2px; }
+.apex-native .av-prog-kpis { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; }
+.apex-native .av-prog-kpis b { font-family: var(--font-sans); font-size: 26px; }
+.apex-native .av-prog-kpis small { white-space: normal; overflow: visible; font-size: 13px; }
+.apex-native .av-prog-range { flex: none; }
+.apex-native .av-period { color: var(--text-2); font-size: 14px; white-space: nowrap; }
+.apex-native body[data-av-prog=health] #anaHero { order: -3; }
+.apex-native .av-prog-answer .eyebrow { margin-bottom: 4px; }
+.apex-native .av-split > .btn { margin-right: 8px; }
+.apex-native .av-split > .btn { background: transparent; color: var(--cyan); border-color: var(--line-strong); }
+.apex-native .av-profile-editing .active-profile [data-act=edit] { display: none; }
+.apex-native .av-profile-more { grid-column: 1/-1; }
+.apex-native .av-profile-more > summary { font-weight: 650; color: var(--text-2); }
+.apex-native .av-train-builder .interval-table td { background: transparent !important; }
+.apex-native .link-btn { color: var(--cyan); text-decoration: underline; text-underline-offset: 3px; }
+.apex-native .native-hc-prefs { grid-template-columns: 1fr; gap: 8px; }
+.apex-native .native-hc-group { padding: 14px 0; border-bottom: 1px solid var(--line); }
+.apex-native .av-onb-step { font-size: 13px; color: var(--text-2); }
+.apex-native .av-onb .av-onb-top { flex-wrap: wrap; }
+.apex-native .av-onb .av-onb-bar { min-width: 120px; }
+.apex-native .av-onb .av-row { justify-content: space-between; }
+.apex-native .av-onb .av-pair-label { color: var(--cyan); font-weight: 650; padding-left: 12px; }
+.apex-native #avDataFolder details, .apex-native #avDataFiles details { margin-top: 8px; }
+.apex-native .toast-container, .apex-native #toastContainer { bottom: calc(86px + env(safe-area-inset-bottom, 0px)); }
+.apex-native .av-ride { background: var(--bg-1); gap: 12px; }
+.apex-native .av-ride-grid { align-content: center; gap: 10px; }
+.apex-native .av-ride-grid > .av-tile { grid-column: span 3; }
+.apex-native .av-ride-power { text-shadow: none; font-size: clamp(94px, 30vw, 140px); }
+.apex-native .av-ride-hero { min-height: 260px; }
+.apex-native .av-ride-clock { display: flex; flex-direction: column; text-align: right; font-size: 23px; }
+.apex-native .av-ride-clock small { font: 400 12px var(--font-sans); color: var(--text-2); }
+.apex-native .av-ride-step { max-width: 52%; height: auto; min-height: 48px; white-space: normal; }
+.apex-native .av-ride-unit, .apex-native .av-ride-left, .apex-native .av-ride-next small { color: var(--text-2); font-size: 14px; }
+.apex-native .av-simulation { font-size: 13px; color: var(--amber); }
+.apex-native .av-simulation[hidden] { display: none; }
+.apex-native .av-hr-only .av-tile[data-tile=hr] { display: none; }
+.apex-native .av-tile-lbl { white-space: normal; font-size: 12px; letter-spacing: .02em; }
+.apex-native .av-tile-val { font-family: var(--font-sans); font-size: 28px; white-space: normal; overflow: visible; text-overflow: clip; overflow-wrap: anywhere; line-height: 1.2; }
+.apex-native .av-tile-val small { font-size: 13px; }
+.apex-native .av-tile-sub { white-space: normal; font-size: 12px; overflow: visible; text-overflow: clip; }
+.apex-native .av-tile { background: var(--bg-3); backdrop-filter: none; padding: 12px; }
+.apex-native .av-ride-ctrl { grid-template-columns: 1fr 1.15fr 1.3fr; gap: 8px; }
+.apex-native :is(.av-ride-ctrl, .av-full-ctrl) .btn { padding: 10px 8px; font-size: 14px; }
+.apex-native .av-ride-ctrl .ic { display: none; }
+.apex-native .av-istrip { grid-template-columns: 1fr; }
+.apex-native .av-istrip-now { flex-wrap: wrap; white-space: normal; overflow: visible; }
+.apex-native .av-istrip-left { grid-row: auto; font-size: 36px; }
+.apex-native .av-istrip-next { white-space: normal; overflow: visible; }
+.apex-native.av-full-ride #view-cockpit .av-ftile, body.av-full-ride #view-cockpit .av-ftile { grid-column: span 3; }
+.apex-native .av-full-ctrl { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+.apex-native .av-full-ctrl .ic { display: none; }
+.apex-native .av-steps { flex-wrap: wrap; justify-content: flex-end; }
+.apex-native .av-steps .btn { min-width: 48px; }
+.apex-native .av-controls .av-row { flex-wrap: wrap; }
+.apex-native .av-cust-end { gap: 4px; }
+.apex-native .av-cust-end .av-icon-btn { min-width: 44px; width: 44px; }
+.apex-native .av-presets { grid-template-columns: repeat(2, 1fr); }
+.apex-native .av-kpis { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+.apex-native .av-kpi b { font-family: var(--font-sans); overflow-wrap: anywhere; }
+.apex-native .av-import-sheet .drop-zone { padding: 16px; }
+.apex-native .av-import-sheet .btn-row { flex-wrap: wrap; }
+.apex-native .av-sync-unavailable { background: transparent; border-color: var(--line); }
+.apex-native .inspector-header-stats .delta.negative { color: var(--text-2); }
+/* Native interval editing keeps the existing inputs and handlers, with one step per card. */
+.apex-native .av-train-builder .table-scroll { overflow: visible; }
+.apex-native .av-train-builder .interval-table { display: block; min-width: 0; width: 100%; }
+.apex-native .av-train-builder .interval-table thead { display: none; }
+.apex-native .av-train-builder .interval-table tbody { display: flex; flex-direction: column; gap: 12px; }
+.apex-native .av-train-builder .interval-table tr { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; padding: 14px; background: #0e1728; border: 1px solid var(--line); border-radius: 14px; }
+.apex-native .av-train-builder .interval-table td { min-width: 0; padding: 0; border: 0; }
+.apex-native .av-train-builder .interval-table td::before { content: attr(data-av-label); display: block; color: var(--text-2); font-size: 12px; margin-bottom: 5px; }
+.apex-native .av-train-builder .interval-table td:first-child { grid-column: 1/-1; font-weight: 700; }
+.apex-native .av-train-builder .interval-table input { width: 100%; }
+@media (max-width: 380px) {
+  .apex-native .av-title { font-size: 22px; }
+  .apex-native .av-topbar { padding-left: 12px; padding-right: 12px; }
+  .apex-native .av-devices-chip { max-width: 172px; font-size: 12px; padding: 8px; }
+  .apex-native .av-cust-list .av-row { flex-wrap: wrap; }
+  .apex-native .av-cust-end { margin-left: auto; }
+}
+@media (orientation: landscape) and (max-height: 520px) {
+  .apex-native .av-ride-grid > .av-tile { grid-column: span 3; }
+  .apex-native .av-ride-power { font-size: 24vh; }
+  .apex-native .av-ride-hero { min-height: 0; }
+  body.av-full-ride #view-cockpit .av-ftile { grid-column: span 2; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .apex-native *, .apex-native *::before, .apex-native *::after { scroll-behavior: auto !important; transition: none !important; }
+}
