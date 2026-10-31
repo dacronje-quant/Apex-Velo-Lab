@@ -238,6 +238,25 @@ html.apex-native { --font-display: var(--font-sans); }
 .apex-native :is(button.av-row, .av-seg > button, .av-tab):active { transform: scale(.985); }
 .apex-native .av-tab-pill { transition: background-color .22s ease, transform .22s cubic-bezier(.2, .8, .2, 1); }
 .apex-native .av-tab.on .av-tab-pill { transform: scale(1.04); }
+/* Chart series toggles as compact pills: the whole pill is the tap target, colour dot shows the line. */
+.apex-native :is(.ftp-metrics-tools, .ftp-metrics-controls) { display: flex; flex-wrap: wrap; gap: 8px; margin: 12px 0; }
+.apex-native :is(.ftp-metrics-tools .ftp-band-toggle, .ftp-metrics-controls label) {
+  position: relative; display: inline-flex; align-items: center; gap: 8px; min-height: 44px; padding: 0 14px;
+  border: 1px solid var(--line); border-radius: 999px; background: transparent; color: var(--text-2); font-size: 13px; font-weight: 550;
+  transition: background-color .18s ease, border-color .18s ease, color .18s ease;
+}
+.apex-native .ftp-metrics-controls input { position: absolute; inset: 0; width: 100%; height: 100%; margin: 0; opacity: 0; cursor: pointer; }
+.apex-native .ftp-metrics-controls i { width: 10px; height: 10px; border-radius: 50%; flex: none; }
+.apex-native .ftp-band-check, body[data-av-prog] .ftp-metrics-controls label::before { display: none; }
+body[data-av-prog] .ftp-metrics-controls label { padding: 0 14px; border-radius: 999px; }
+.apex-native :is(.ftp-band-toggle, .ftp-metrics-controls label):has(input:checked) { border-color: var(--cyan); background: #16364c; color: var(--text-1); }
+.apex-native :is(.ftp-band-toggle, .ftp-metrics-controls label):has(input:focus-visible) { outline: 3px solid var(--cyan); outline-offset: 2px; }
+/* A row with its own action button (Connect, Set up) needs no second arrow. */
+.apex-native :is(.av-action-row, .av-split) .av-row-chevron { display: none; }
+/* Depth: frosted bars and a faint top highlight on cards. */
+.apex-native .av-tabbar { background: color-mix(in srgb, var(--bg-0) 72%, transparent); backdrop-filter: blur(20px) saturate(1.4); -webkit-backdrop-filter: blur(20px) saturate(1.4); border-top-color: color-mix(in srgb, var(--line) 70%, transparent); }
+.apex-native .av-topbar { background: color-mix(in srgb, var(--bg-1) 78%, transparent); backdrop-filter: blur(20px) saturate(1.4); -webkit-backdrop-filter: blur(20px) saturate(1.4); }
+.apex-native .av-page .card, .apex-native .av-workout-card { box-shadow: inset 0 1px 0 rgba(255, 255, 255, .045); }
 @media (prefers-reduced-motion: reduce) {
   .apex-native *, .apex-native *::before, .apex-native *::after { scroll-behavior: auto !important; transition: none !important; animation: none !important; }
 }
