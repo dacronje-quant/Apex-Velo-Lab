@@ -448,7 +448,8 @@
           const ftpProg = app.getFtpProgressionData();
           const expectedPeak = Math.max(...app.completedWorkouts.map(r => Number(r.np) || 0));
           const hasAugPeak = ftpProg.data.includes(expectedPeak);
-          const isFtpProgReal = ftpProg.labels.length >= 8 && hasAugPeak;
+          // The fixture spans 207 days back from yesterday: at least 7 calendar months, 8 only early in a month.
+          const isFtpProgReal = ftpProg.labels.length >= 7 && hasAugPeak;
           log('FTP Progression Aggregates Monthly Peak NP from Synthetic Fixture Rides', isFtpProgReal,
             `Months: ${ftpProg.labels.join(', ')} | Max: ${Math.max(...ftpProg.data)}W`);
 
