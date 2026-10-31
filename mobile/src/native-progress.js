@@ -128,7 +128,7 @@ export class ProgressTab {
       p.style.order = String(t.panels.indexOf(p.dataset.panel));
     });
     if (app) app.anaPanel = t.panels[0];
-    if (t.id === 'power') this.renderFtpSuggestion();
+    if (t.id === 'power') { this.renderFtpSuggestion(); this.renderPowerSummary(); }
     if (t.id === 'health' && app && app.renderHealthAnalytics) {
       try {
         app.renderHealthAnalytics();
@@ -185,6 +185,55 @@ export class ProgressTab {
         <small>${esc(sug.method)} - ${esc(sug.basis)}. Now ${esc(sug.from)} W.</small></div>
       <div class="btn-row"><button type="button" class="btn btn-start av-big" data-av-ftp="accept" data-value="${esc(sug.ftp)}" id="avProgFtpAccept">Update FTP to ${esc(sug.ftp)} W</button>
         <button type="button" class="btn btn-ghost" data-av-ftp="dismiss" data-value="${esc(sug.ftp)}">Not now</button></div>`;
+  }
+
+  /**
+   * Power & FTP leads with the numbers a rider asks about (FTP, W/kg, recent bests, critical power), then the
+   * familiar charts, then the expert models under their own heading. The app's cards are only reordered
+   * (apex-progress.css flattens the two panels on this page), so every chart keeps its ids and bindings.
+   */
+  renderPowerSummary() {
+    const app = this.app();
+    const stage = this.doc.getElementById('anaStage');
+    if (!stage) return;
+    for (const [id, title, sub] of [
+      ['avPowSecBests', 'Best efforts', ''],
+      ['avPowSecFtp', 'FTP history', ''],
+      ['avPowSecExpert', 'Expert analysis', 'Models and estimates for a closer look.']
+    ]) {
+      if (this.doc.getElementById(id)) continue;
+      const h = this.doc.createElement('div');
+      h.id = id; h.className = 'av-pow-section';
+      h.innerHTML = `<h3>${esc(title)}</h3>${sub ? `<p>${esc(sub)}</p>` : ''}`;
+      stage.appendChild(h);
+    }
+    let box = this.doc.getElementById('avPowerSummary');
+    if (!box) {
+      box = this.doc.createElement('div');
+      box.id = 'avPowerSummary'; box.className = 'card av-pow-summary';
+      stage.appendChild(box);
+    }
+    const p = (app && app.activeProfile) || {};
+    const kg = Number(p.weightKg) || 0;
+    const wkg = (w) => (w && kg ? (w / kg).toFixed(2) + ' W/kg' : '');
+    let best = {}, model = null, allTime = false;
+    try {
+      const now = Date.now();
+      // The same rows as the Power profile card: last 90 days, else all-time bests (rides and the imported archive).
+      /* global VeloTrends */
+      const rows = app && typeof VeloTrends !== 'undefined' ? VeloTrends.powerProfile(app.cyclingRides ? app.cyclingRides() : [], (r) => (app.ridePeaks ? app.ridePeaks(r) : null), now, app.medalArchive ? app.medalArchive() : null, kg) : [];
+      const secs = [5, 60, 300, 1200];
+      rows.forEach((r, k) => { best[secs[k]] = r.last; });
+      if (!Object.values(best).some(Boolean)) { rows.forEach((r, k) => { best[secs[k]] = r.allTime; }); allTime = Object.values(best).some(Boolean); }
+      model = app && app.powerModelAt ? app.powerModelAt(now) : null;
+    } catch (e) { best = {}; model = null; }
+    const tile = (sec, label, name) => `<div class="av-pow-tile"><span>${label}<small>${name}</small></span><b class="num">${best[sec] ? esc(best[sec]) + '<small> W</small>' : '--'}</b><small>${best[sec] ? esc(wkg(best[sec])) : 'no power rides yet'}</small></div>`;
+    box.innerHTML = `<span class="eyebrow">Your power</span>
+      <div class="av-pow-ftp"><div><b class="num">${p.ftp ? esc(p.ftp) : '--'}<small> W</small></b><span>FTP${p.ftp && kg ? ' · ' + esc(wkg(p.ftp)) : ''}</span></div>
+        <button type="button" class="btn btn-ghost" id="avPowEditFtp">Edit FTP</button></div>
+      <div class="av-pow-tiles">${tile(5, '5 s', 'Sprint')}${tile(60, '1 min', 'Anaerobic')}${tile(300, '5 min', 'VO₂ max')}${tile(1200, '20 min', 'Threshold')}</div>
+      <p class="av-note">${model && model.ok ? `Critical power <b class="num">${esc(Math.round(model.cp))} W</b> · W′ <b class="num">${esc((model.w / 1000).toFixed(1))} kJ</b>` : 'Critical power appears after hard 3–20 minute efforts.'} · ${allTime ? 'all-time bests (no power rides in the last 90 days)' : 'bests from the last 90 days'}</p>`;
+    box.querySelector('#avPowEditFtp').addEventListener('click', () => this.shell.go('you/profile'));
   }
 
   /** The one-card answer: fitness trend, fatigue, form and FTP, from the same load model as the charts. */

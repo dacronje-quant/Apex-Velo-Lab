@@ -75,3 +75,40 @@ body[data-av-prog] .ftp-metrics-controls label::before { content: ''; position: 
 body[data-av-prog] .ftp-metrics-controls label:has(input:checked) { border-color: var(--cyan); }
 body[data-av-prog] .ftp-metrics-controls label:has(input:checked)::before { background: var(--cyan); border-color: var(--cyan); }
 body[data-av-prog] .ftp-metrics-controls label:has(input:focus-visible) { outline: 2px solid var(--cyan); outline-offset: 2px; }
+
+/* Power & FTP: the two Analytics panels are flattened so their cards can be ordered as one page:
+   summary, best efforts, FTP history, then the expert models. */
+#avPowerSummary, .av-pow-section { display: none; }
+body[data-av-prog="power"] #anaStage { display: flex; flex-direction: column; gap: 12px; }
+body[data-av-prog="power"] #anaStage > .ana-panel:not([hidden]),
+body[data-av-prog="power"] #ana-panel-power .ana-grid { display: contents; }
+body[data-av-prog="power"] #anaStage .ana-panel-head { display: none; }
+body[data-av-prog="power"] #avPowerSummary { display: block; }
+body[data-av-prog="power"] .av-pow-section { display: block; padding: 18px 4px 0; }
+body[data-av-prog="power"] #avProgFtp { order: 0; }
+body[data-av-prog="power"] #avPowerSummary { order: 1; }
+body[data-av-prog="power"] #avPowSecBests { order: 2; }
+body[data-av-prog="power"] #anaCardPdc { order: 3; }
+body[data-av-prog="power"] #anaCardProfile { order: 4; }
+body[data-av-prog="power"] #avPowSecFtp { order: 5; }
+body[data-av-prog="power"] #anaCardFtpHistory { order: 6; }
+body[data-av-prog="power"] #avPowSecExpert { order: 7; }
+body[data-av-prog="power"] #cpModelCard { order: 8; }
+body[data-av-prog="power"] #anaCardCpHistory { order: 9; }
+body[data-av-prog="power"] #ftpMetricsHistoryCard { order: 10; }
+body[data-av-prog="power"] #anaCardBalance { order: 11; }
+body[data-av-prog="power"] #anaStage > * { min-width: 0; }
+.av-pow-section h3 { margin: 0; font-size: 19px; font-weight: 700; letter-spacing: -.01em; }
+.av-pow-section p { margin: 2px 0 0; font-size: 14px; color: var(--text-2); }
+.av-pow-summary .eyebrow { display: block; margin-bottom: 6px; }
+.av-pow-ftp { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.av-pow-ftp b { display: block; font-size: 44px; line-height: 1.05; font-weight: 700; color: var(--amber); }
+.av-pow-ftp b small { font-size: 18px; font-weight: 600; color: var(--text-2); }
+.av-pow-ftp span { font-size: 14px; color: var(--text-2); }
+.av-pow-tiles { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; margin: 16px 0 10px; }
+.av-pow-tile { padding: 12px; border: 1px solid var(--line); border-radius: 14px; background: color-mix(in srgb, var(--bg-0) 45%, transparent); min-width: 0; }
+.av-pow-tile > span { display: flex; align-items: baseline; gap: 6px; font-size: 13px; font-weight: 650; color: var(--text-1); }
+.av-pow-tile > span small { font-weight: 500; color: var(--text-2); font-size: 12px; }
+.av-pow-tile b { display: block; margin-top: 4px; font-size: 24px; font-weight: 700; }
+.av-pow-tile b small { font-size: 13px; font-weight: 500; color: var(--text-2); }
+.av-pow-tile > small { font-size: 12px; color: var(--text-2); }
