@@ -4,6 +4,7 @@
  *  - Wahoo KICKR SHIFT  : Fitness Machine Service (0x1826) - ERG control point + Indoor Bike Data
  *  - Favero Assioma DUO : Cycling Power Service   (0x1818) - power, L/R balance, crank revs, calibration
  *  - Heart-rate strap   : Heart Rate Service      (0x180D)
+ *  - Ride controller    : OpenBikeControl service (d273f680-...) - button presses
  *
  * Every device runs a small connection state machine:
  *     disconnected -> connecting -> connected -> (link lost) -> reconnecting -> connected | failed
@@ -22,6 +23,7 @@
  *   { type: 'battery', device, level }
  *   { type: 'calibration_response', success, offset, code }
  *   { type: 'ftms_response', ok, requestOpCode, result }
+ *   { type: 'controller', action, ids }
  */
 class VeloBle {
   static UUID = {
@@ -37,13 +39,27 @@ class VeloBle {
     BATTERY: '0000180f-0000-1000-8000-00805f9b34fb',
     BATTERY_LEVEL: '00002a19-0000-1000-8000-00805f9b34fb',
     HEADWIND: 'a026ee0c-0a7d-4ab3-97fa-f1500f9feb8b',
-    HEADWIND_CONTROL: 'a026e038-0a7d-4ab3-97fa-f1500f9feb8b'
+    HEADWIND_CONTROL: 'a026e038-0a7d-4ab3-97fa-f1500f9feb8b',
+    OBC: 'd273f680-d548-419d-b9d1-fa0472345229',
+    OBC_BUTTONS: 'd273f681-d548-419d-b9d1-fa0472345229',
+    OBC_APP_INFO: 'd273f683-d548-419d-b9d1-fa0472345229'
   };
 
   /** CPS Control Point op codes (Bluetooth SIG Cycling Power Service spec). */
   static CPS_OP = { START_OFFSET_COMPENSATION: 0x0C, START_ENHANCED_OFFSET_COMPENSATION: 0x10, RESPONSE: 0x20 };
   /** FTMS Control Point op codes. */
   static FTMS_OP = { REQUEST_CONTROL: 0x00, SET_TARGET_POWER: 0x05, START_RESUME: 0x07, STOP_PAUSE: 0x08, RESPONSE: 0x80 };
+  /**
+   * OpenBikeControl button IDs Apex acts on, in priority order. Apex rides in ERG only, so Shift
+   * Up / Down nudge the ERG target too, and Increase / Decrease Difficulty wins when a controller
+   * sends both for one press (github.com/OpenBikeControl/openbikecontrol-protocol, PROTOCOL.md).
+   */
+  static OBC_ACTIONS = new Map([
+    [0x30, 'harder'], [0x31, 'easier'], [0x01, 'harder'], [0x02, 'easier'],
+    [0x32, 'skip'], [0x36, 'previous'], [0x33, 'pause'], [0x34, 'resume']
+  ]);
+  /** Sent to controllers in the App Information message; matches package.json. */
+  static APP_VERSION = '3.0.0';
   /** While another app holds the trainer, ask for control again at most this often. */
   static CONTROL_RETRY_MS = 3000;
 
@@ -91,7 +107,8 @@ class VeloBle {
       trainer: this._newSlot('Smart trainer'),
       pedals: this._newSlot('Power meter'),
       hr: this._newSlot('Heart-rate sensor'),
-      fan: this._newSlot('KICKR HEADWIND')
+      fan: this._newSlot('KICKR HEADWIND'),
+      controller: this._newSlot('Ride controller')
     };
     // FTMS ERG write throttling & keepalive state
     this.lastTargetPowerSent = null;
@@ -112,7 +129,7 @@ class VeloBle {
       battery: null, rssi: null, lastPacket: 0, connectedSince: 0,
       pktWindowStart: 0, pktCount: 0, packetRate: 0, writeChain: Promise.resolve(), onGattDisconnected: null,
       connecting: false, lastError: null, stopScan: null, generation: 0, capabilities: {},
-      controlGranted: null, fanSpeed: null, requestedSpeed: null
+      controlGranted: null, fanSpeed: null, requestedSpeed: null, held: new Set()
     };
   }
 
@@ -168,6 +185,7 @@ class VeloBle {
       this.lastCadence = null;
     }
     if (kind === 'trainer') this.lastTargetPowerSent = null;
+    if (kind === 'controller') slot.held = new Set(); // a release lost with the link must not block the next press
   }
 
   /** Serialises GATT writes for one device. */
@@ -200,8 +218,10 @@ class VeloBle {
 
   isFanConnected() { const s = this.slots.fan; return !!(s.device?.gatt?.connected && s.chars.control); }
 
+  isControllerConnected() { const s = this.slots.controller; return !!(s.device?.gatt?.connected && s.chars.buttons); }
+
   isConnected(kind) {
-    return kind === 'trainer' ? this.isTrainerConnected() : kind === 'pedals' ? this.isPedalsConnected() : kind === 'hr' ? this.isHrConnected() : kind === 'fan' ? this.isFanConnected() : false;
+    return kind === 'trainer' ? this.isTrainerConnected() : kind === 'pedals' ? this.isPedalsConnected() : kind === 'hr' ? this.isHrConnected() : kind === 'fan' ? this.isFanConnected() : kind === 'controller' ? this.isControllerConnected() : false;
   }
 
   canCalibrate() { return !!(this.isPedalsConnected() && this.slots.pedals.chars.control); }
@@ -601,6 +621,7 @@ class VeloBle {
     if (kind === 'trainer') return (server) => this._setupTrainer(server);
     if (kind === 'pedals') return (server) => this._setupPedals(server);
     if (kind === 'fan') return (server) => this._setupFan(server);
+    if (kind === 'controller') return (server) => this._setupController(server);
     return (server) => this._setupHr(server);
   }
 
@@ -1068,6 +1089,76 @@ class VeloBle {
   }
 
   disconnectFan() { this._disconnect('fan'); }
+
+  // ------------------------------------------------------------ controller --
+  // OpenBikeControl: an open protocol for ride controllers and remotes (BikeControl and others).
+  // The device is chosen and verified by its OpenBikeControl service, never by name.
+  async connectController(options = {}) {
+    await this._request('controller', [{ services: [VeloBle.UUID.OBC] }],
+      [VeloBle.UUID.OBC, 'battery_service', 'device_information'], !!options.acceptAll);
+    return this._connect('controller', (server) => this._setupController(server));
+  }
+
+  async _setupController(server) {
+    const s = this.slots.controller;
+    const service = await VeloBle.getServiceWithRetry(server, VeloBle.UUID.OBC);
+    await VeloBle.delay(150);
+    const buttons = await service.getCharacteristic(VeloBle.UUID.OBC_BUTTONS);
+    await VeloBle.delay(100);
+    await buttons.startNotifications();
+    this._listen('controller', buttons, 'characteristicvaluechanged', (e) => this._onControllerButtons(e.target.value));
+    s.chars.buttons = buttons;
+    s.capabilities.buttons = true;
+    await VeloBle.delay(150);
+    try {
+      // App Information is optional on both sides: a controller without it still sends every button.
+      const info = await service.getCharacteristic(VeloBle.UUID.OBC_APP_INFO);
+      await this._write('controller', info, VeloBle.encodeObcAppInfo('apex-velo-lab', VeloBle.APP_VERSION, [...VeloBle.OBC_ACTIONS.keys()]));
+    } catch (e) {
+      console.warn('OpenBikeControl App Information not sent:', e);
+    }
+  }
+
+  /**
+   * A notification carries only the buttons that changed. IDs newly pressed in one message are one
+   * physical press (a controller may send Shift Up + Increase Difficulty + Select for one button),
+   * so it triggers exactly one action; held IDs act again only after they are released.
+   */
+  _onControllerButtons(dv) {
+    const s = this.slots.controller;
+    const changes = VeloBle.parseObcButtons(dv);
+    if (!changes) return;
+    this._markPacket('controller');
+    const fresh = [];
+    changes.forEach(([id, state]) => {
+      if (state === 0) s.held.delete(id);
+      else if (!s.held.has(id)) { s.held.add(id); fresh.push(id); }
+    });
+    const action = VeloBle.pickObcAction(fresh);
+    if (action) this._emit({ type: 'controller', action, ids: fresh });
+  }
+
+  /** Parses an OpenBikeControl button state message (0x01, then ID / state pairs). Null for other messages. */
+  static parseObcButtons(dv) {
+    if (!dv || dv.byteLength < 1 || dv.getUint8(0) !== 0x01) return null;
+    const changes = [];
+    for (let o = 1; o + 1 < dv.byteLength; o += 2) changes.push([dv.getUint8(o), dv.getUint8(o + 1)]); // a trailing ID without a state is ignored
+    return changes;
+  }
+
+  /** The action for one press: the highest-priority supported ID among those pressed, or null. */
+  static pickObcAction(ids) {
+    for (const [id, action] of VeloBle.OBC_ACTIONS) if (ids.includes(id)) return action;
+    return null;
+  }
+
+  /** OpenBikeControl App Information (0x04, format 1): app id, version and the button IDs acted on. */
+  static encodeObcAppInfo(appId, version, ids) {
+    const text = (v) => { const b = [...new TextEncoder().encode(v)].slice(0, 32); return [b.length, ...b]; };
+    return Uint8Array.from([0x04, 0x01, ...text(appId), ...text(version), ids.length, ...ids]);
+  }
+
+  disconnectController() { this._disconnect('controller'); }
 
   destroy() {
     Object.keys(this.slots).forEach(kind => {
