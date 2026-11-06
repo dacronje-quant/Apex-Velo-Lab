@@ -1304,6 +1304,9 @@ class VeloApp {
       case 'calibration_response':
         this.onCalibrationResponse(data);
         break;
+      case 'controller':
+        this.onControllerAction(data.action);
+        return;
       case 'state':
         this.updateDeviceBadge(data.device, data.state);
         if (data.state === 'failed') this.showToast(`${this.deviceLabel(data.device)}: could not reconnect. Reconnect it manually.`, 'error');
@@ -1337,7 +1340,7 @@ class VeloApp {
   deviceLabel(kind) {
     const slot = this.ble?.slots?.[kind];
     const alias = this.ble?._knownIds?.()[kind]?.alias;
-    return alias || slot?.device?.name || { trainer: 'Smart trainer', pedals: 'Power meter', hr: 'Heart-rate sensor', fan: 'HEADWIND fan' }[kind] || kind;
+    return alias || slot?.device?.name || { trainer: 'Smart trainer', pedals: 'Power meter', hr: 'Heart-rate sensor', fan: 'HEADWIND fan', controller: 'Ride controller' }[kind] || kind;
   }
 
   onDeviceDisconnected(kind, willReconnect) {
@@ -1371,7 +1374,7 @@ class VeloApp {
       this.showToast('Web Bluetooth needs Chrome, Edge or Brave on https:// or localhost.', 'error');
       return;
     }
-    const connected = kind === 'fan' ? this.ble.isFanConnected() : kind === 'trainer' ? this.ble.isTrainerConnected() : kind === 'pedals' ? this.ble.isPedalsConnected() : this.ble.isHrConnected();
+    const connected = kind === 'controller' ? this.ble.isControllerConnected() : kind === 'fan' ? this.ble.isFanConnected() : kind === 'trainer' ? this.ble.isTrainerConnected() : kind === 'pedals' ? this.ble.isPedalsConnected() : this.ble.isHrConnected();
     const state = this.ble.getState(kind);
     if (state === 'connecting') {
       this.showToast(`${this.deviceLabel(kind)} is already connecting...`, 'info');
@@ -1388,7 +1391,7 @@ class VeloApp {
     this.updateDeviceBadge(kind, 'connecting');
     this.bleBattery[kind] = null;
     try {
-      const ok = kind === 'fan' ? await this.ble.connectFan(options) : kind === 'trainer' ? await this.ble.connectTrainer(options) : kind === 'pedals' ? await this.ble.connectPedals(options) : await this.ble.connectHr(options);
+      const ok = kind === 'controller' ? await this.ble.connectController(options) : kind === 'fan' ? await this.ble.connectFan(options) : kind === 'trainer' ? await this.ble.connectTrainer(options) : kind === 'pedals' ? await this.ble.connectPedals(options) : await this.ble.connectHr(options);
       this.onConnectResult(kind, ok);
     } catch (err) {
       this.updateDeviceBadge(kind, this.ble.getState(kind));
@@ -1432,6 +1435,7 @@ class VeloApp {
     if (kind === 'trainer') this.ble.disconnectTrainer();
     else if (kind === 'pedals') this.ble.disconnectPedals();
     else if (kind === 'fan') this.ble.disconnectFan();
+    else if (kind === 'controller') this.ble.disconnectController();
     else this.ble.disconnectHr();
     this.updateDeviceBadge(kind, 'disconnected');
     if (!silent) this.updatePowerSourceBadge();
@@ -1443,6 +1447,7 @@ class VeloApp {
       trainer: 'Power on the trainer and close other apps that may hold its Bluetooth connection.',
       pedals: 'Turn the cranks to wake the power meter and close other apps using it.',
       fan: 'Plug in HEADWIND, keep it nearby, and close the Wahoo app if it holds the connection.',
+      controller: 'Wake the controller (press a button) and close other apps connected to it.',
       hr: 'Put on the sensor, wet strap electrodes if needed, and close other apps using its connection.'
     }[kind] || '';
   }
@@ -1453,6 +1458,7 @@ class VeloApp {
       this.fanStatus = 'Connected. Choose an airflow level; connecting has not changed it.';
       return; // a fan is not a telemetry source
     }
+    if (kind === 'controller') return; // buttons only: the simulator stays as it is
     if (this.simulator && this.simulator.enabled) {
       this.simulator.enabled = false;
       this.simulator.reset();

@@ -9,7 +9,7 @@ function fixture() {
     window: { addEventListener() {} }, navigator: { bluetooth: {} },
     localStorage: { getItem: k => storage.get(k) || null, setItem: (k,v) => storage.set(k,v) },
     performance: { now: () => 10000 }, console: { warn() {}, error() {} },
-    setTimeout, clearTimeout, setInterval, clearInterval, AbortController,
+    setTimeout, clearTimeout, setInterval, clearInterval, AbortController, TextEncoder,
   });
   for (const file of ['velo-metrics', 'velo-ble', 'app', 'app-devices', 'app-remote']) vm.runInContext(fs.readFileSync(`js/${file}.js`, 'utf8'), ctx);
   const Ble = vm.runInContext('VeloBle', ctx), App = vm.runInContext('VeloApp', ctx);
@@ -285,4 +285,69 @@ test('a grant that arrives while a control retry is waiting resumes ERG at once'
   assert.equal(f.ble.slots.trainer.controlRetry, null);
   await f.ble.setTrainerErgPower(210, true);
   assert.deepEqual(writes.map(w => w[0]), [0x05]);
+});
+
+// OpenBikeControl payloads below were produced by examples/python/protocol_parser.py (encode_button_state).
+function controller(f) {
+  const writes = [], buttons = device('buttons'), info = device('info');
+  buttons.startNotifications = async () => buttons;
+  info.properties = { write: true }; info.writeValueWithResponse = async bytes => writes.push([...bytes]);
+  const service = { getCharacteristic: async id => id === f.Ble.UUID.OBC_BUTTONS ? buttons : id === f.Ble.UUID.OBC_APP_INFO ? info : Promise.reject(new Error('missing')) };
+  const press = bytes => buttons.listeners.get('characteristicvaluechanged')({ target: { value: view(bytes) } });
+  return { writes, service, press, server: { getPrimaryService: async id => { assert.equal(id, f.Ble.UUID.OBC); return service; } } };
+}
+test('ride controller is chosen and verified by the OpenBikeControl service, then gets App Information', async () => {
+  const f = fixture(), c = controller(f); let opts;
+  const d = device('BikeControl', c.server);
+  f.ctx.navigator.bluetooth.requestDevice = async o => { opts = o; return d; };
+  assert.equal(await f.ble.connectController(), true);
+  assert.deepEqual(JSON.parse(JSON.stringify(opts.filters)), [{ services: ['d273f680-d548-419d-b9d1-fa0472345229'] }]);
+  assert.equal(f.ble.isControllerConnected(), true);
+  // 0x04, format 1, "apex-velo-lab", "3.0.0", the eight IDs Apex acts on (matches protocol_parser.encode_app_info)
+  assert.equal(Buffer.from(c.writes[0]).toString('hex'), '04010d617065782d76656c6f2d6c616205332e302e30083031010232363334');
+  assert.equal(f.Ble.APP_VERSION, JSON.parse(fs.readFileSync('package.json', 'utf8')).version);
+  const other = device('Other', { getPrimaryService: async () => { throw new Error('No Services matching UUID'); } });
+  f.ctx.navigator.bluetooth.requestDevice = async () => other;
+  assert.equal(await f.ble.connectController({ acceptAll: true }), false, 'a device without the service is rejected');
+});
+test('one OpenBikeControl press sending several IDs triggers exactly one action', async () => {
+  const f = fixture(), c = controller(f);
+  await f.ble._setupController(c.server);
+  const actions = () => f.events.filter(e => e.type === 'controller').map(e => e.action);
+  c.press([0x01, 0x01, 0x01, 0x30, 0x01, 0x14, 0x01]); // Shift Up + Increase Difficulty + Select
+  assert.deepEqual(actions(), ['harder']);
+  c.press([0x01, 0x14, 0x00]); // a partial release is not a new press
+  c.press([0x01, 0x01, 0x00, 0x30, 0x00]);
+  assert.deepEqual(actions(), ['harder']);
+  c.press([0x01, 0x02, 0x01, 0x31, 0x01]); // Shift Down + Decrease Difficulty
+  c.press([0x01, 0x02, 0x00, 0x31, 0x00]);
+  c.press([0x01, 0x01, 0x01, 0x31, 0x01]); // conflicting IDs: difficulty wins over shift
+  c.press([0x01, 0x01, 0x00, 0x31, 0x00]);
+  c.press([0x01, 0x32, 0x01, 0x14, 0x01]); c.press([0x01, 0x32, 0x00, 0x14, 0x00]); // Skip + Select
+  c.press([0x01, 0x36, 0x01]); c.press([0x01, 0x36, 0x00]);
+  c.press([0x01, 0x33, 0x01]); c.press([0x01, 0x33, 0x00]);
+  c.press([0x01, 0x34, 0x01]); c.press([0x01, 0x34, 0x00]);
+  c.press([0x01, 0x02, 0x01]); c.press([0x01, 0x02, 0x00]); // Shift Down alone
+  assert.deepEqual(actions(), ['harder', 'easier', 'easier', 'skip', 'previous', 'pause', 'resume', 'easier']);
+  c.press([0x01, 0x14, 0x01, 0x10, 0x01]); c.press([0x01, 0x14, 0x00, 0x10, 0x00]); // only unsupported IDs
+  c.press([0x02, 0x30, 0x01]); c.press([0x01, 0x30]); // other message type; trailing ID without state
+  assert.equal(actions().length, 8);
+  c.press([0x01, 0x30, 0x01]); c.press([0x01, 0x30, 0x01]); // held: a repeated state is not a second press
+  assert.equal(actions().length, 9);
+  f.ble._teardown('controller'); // a release lost with the link does not block the next press
+  await f.ble._setupController(c.server);
+  c.press([0x01, 0x30, 0x01]);
+  assert.equal(actions().length, 10);
+});
+test('controller actions follow the phone remote rules and leave the simulator alone', () => {
+  const f = fixture(), app = appFixture(f), calls = [];
+  Object.assign(app, { currentWorkout: { intervals: [{}, {}, {}] }, intervalIndex: 1, isWorkoutCompleted: false,
+    setErgBias: d => calls.push(['bias', d]), skipInterval: () => calls.push(['skip']), jumpToInterval: i => calls.push(['jump', i]),
+    togglePlayPause: () => { calls.push(['toggle']); app.isPlaying = !app.isPlaying; } });
+  for (const a of ['harder', 'easier', 'skip', 'previous', 'resume', 'pause', 'pause', 'skip', 'previous', 'harder']) app.onControllerAction(a);
+  assert.deepEqual(calls, [['bias', 0.01], ['bias', -0.01], ['skip'], ['jump', 0], ['toggle'], ['bias', 0.01]]);
+  app.isWorkoutCompleted = true; app.onControllerAction('resume');
+  assert.equal(calls.length, 6, 'resume never restarts a finished ride');
+  app.onHardwareConnected('controller');
+  assert.equal(app.simulator.enabled, true);
 });
