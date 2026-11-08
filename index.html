@@ -486,7 +486,7 @@
           <button type="button" class="chip" data-example="2x20 at 250 W with 5 min rest">2x20 at 250 W</button>
           <button type="button" class="chip" data-example="Hilly group ride, 1 hour, with a few short punchy climbs">Hilly group ride, 1 h</button>
         </div>
-        <div class="btn-row"><button type="button" class="btn btn-primary" id="btnDescribeCreate"><svg class="ic"><use href="#i-sparkles"/></svg>Create workout</button></div>
+        <div class="btn-row"><button type="button" class="btn btn-primary" id="btnDescribeCreate"><svg class="ic"><use href="#i-sparkles"/></svg>Create workout</button><label class="ai-pick" title="AI engine for the coach, Ask, Describe and ride breakdowns"><svg class="ic ic-xs" aria-hidden="true"><use href="#i-sparkles"/></svg><span class="sr-only">AI engine</span><select class="ai-pick-select" data-ai-pick="describe"></select></label></div>
         <p class="field-help describe-engine" id="describeEngine"></p>
         <div id="describeResult" aria-live="polite"></div>
       </div>
@@ -636,6 +636,7 @@
               </label>
               <p class="field-help">How far back the coach reviews your rides, volume and intensity mix (the 30 most recent rides at most). Fitness, fatigue and form always use your full history.</p>
             </details>
+            <div class="ai-pick-row"><span class="ctrl-label">AI engine</span><label class="ai-pick" title="AI engine for the coach, Ask, Describe and ride breakdowns"><svg class="ic ic-xs" aria-hidden="true"><use href="#i-sparkles"/></svg><span class="sr-only">AI engine</span><select class="ai-pick-select" data-ai-pick="coach"></select></label></div>
             <button type="button" class="btn btn-ai btn-block" id="btnGenerateAiCoachRecommendation"><svg class="ic"><use href="#i-sparkles"/></svg><span id="coachGoLabel">Prescribe today's workout</span></button>
             <p class="coach-go-hint" id="coachGoHint"></p>
             <div class="think-timer num" id="aiCoachThinkTimer" hidden></div>
@@ -765,7 +766,7 @@
             <p class="section-sub">Plain answers with the numbers behind them, from your own rides, power, heart rate and recovery. To build a workout or a plan, use the Coach.</p>
           </div>
           <div class="ask-head-tools">
-            <button type="button" class="engine-chip" id="btnAskEngine" title="Change the AI engine (Settings &rsaquo; AI engine)"><svg class="ic ic-xs"><use href="#i-sparkles"/></svg><span id="askEngineLabel">AI engine</span></button>
+            <label class="ai-pick engine-chip" id="btnAskEngine" title="AI engine for the coach, Ask, Describe and ride breakdowns"><svg class="ic ic-xs" aria-hidden="true"><use href="#i-sparkles"/></svg><span class="sr-only">AI engine</span><select class="ai-pick-select" data-ai-pick="ask"></select></label>
             <button type="button" class="btn btn-sm" id="btnAskNew" hidden><svg class="ic"><use href="#i-plus"/></svg>New chat</button>
           </div>
         </div>

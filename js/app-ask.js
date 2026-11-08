@@ -50,7 +50,6 @@
       this.on(document.getElementById('btnAskClear'), 'click', () => {
         if (this.askMessages.length && confirm('Clear this chat? The questions and answers are removed from this device.')) this.newAskChat();
       });
-      this.on(document.getElementById('btnAskEngine'), 'click', () => this.openSettings && this.openSettings('ai'));
       this.on(document.getElementById('btnAskEngineWarn'), 'click', () => this.openSettings && this.openSettings('ai'));
       const thread = document.getElementById('askThread');
       if (thread) this.on(thread, 'click', (e) => {
@@ -142,8 +141,7 @@
     updateAskEngine() {
       const c = this.aiCoach;
       if (!c) return;
-      const m = c.model;
-      this.setText('askEngineLabel', `${VeloAiCoach.labelFor(m)}${VeloAiCoach.supportsEffort(m) ? ` · ${c.effort} effort` : ''}`);
+      // The engine switcher (#btnAskEngine) is kept in step by refreshAiPickers().
       const warn = document.getElementById('askEngineWarn');
       if (warn) {
         warn.hidden = c.isLive;

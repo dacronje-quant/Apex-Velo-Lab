@@ -46,6 +46,9 @@ export function workoutProfile(intervals = [], zoneFor) {
   }).join('');
   return `<svg class="av-workout-profile" viewBox="0 0 320 64" preserveAspectRatio="none" aria-hidden="true"><path d="M0 20H320M0 40H320M0 61H320" stroke="currentColor" stroke-width=".5" opacity=".3"/>${blocks}</svg>`;
 }
+/** The quick AI workout's lengths (minutes, or the coach's own choice). */
+export const QUICK_DURATIONS = [{ value: '30', label: '30 min' }, { value: '45', label: '45 min' }, { value: '60', label: '60 min' }, { value: '90', label: '90 min' }, { value: 'auto', label: 'Auto' }];
+const QUICK_DURATION_KEY = 'apex_quick_ai_duration';
 /** Rows shown before "Show all", so the Workouts root fits on the screen. */
 export const LIST_CAP = 4;
 
@@ -173,13 +176,15 @@ export class TrainTab {
     }).join('');
     el.innerHTML = `<div class="av-week-strip" role="group" aria-label="This week">${days}</div>
       <div class="card av-day-card" id="avPlanDay"></div>
+      <div class="card av-quick-card" id="avQuickAi"></div>
       <div class="card av-block-card" id="avPlanBlock"></div>
       <div class="card av-list av-train-rows"></div>`;
     el.querySelectorAll('[data-av-day]').forEach((b) => b.addEventListener('click', () => { this.day = b.dataset.avDay; this.renderPlan(); }));
     this.renderDay(app, planned.get(this.day) || [], rides.get(this.day) || [], this.day === today);
+    this.renderQuick();
     this.renderBlock(app, bp);
     const rows = el.querySelector('.av-train-rows');
-    rows.appendChild(this.shell.row({ icon: 'i-sparkles', id: 'avOpenCoach', title: 'Suggest a workout', sub: 'Create a session for today', onClick: () => this.openCoach('session') }));
+    rows.appendChild(this.shell.row({ icon: 'i-sparkles', id: 'avOpenCoach', title: 'More coach options', sub: 'Goal, focus, reasoning and the 7-day outlook', onClick: () => this.openCoach('session') }));
     rows.appendChild(this.shell.row({ icon: 'i-calendar', id: 'avOpenCalendar', title: 'Calendar', sub: 'Planned and completed rides', onClick: () => this.shell.go('train/calendar') }));
   }
 
@@ -209,6 +214,113 @@ export class TrainTab {
     on('#avPlanSeeRide', () => this.shell.go('history/' + encodeURIComponent(rides[0].id)));
     on('#avPlanAskCoach', () => this.shell.go('train/workouts'));
     on('#avPlanSwap', () => this.shell.go('train/workouts'));
+  }
+
+  // ------------------------------------------------------------------------------------ Quick AI workout --
+  // One tap from Train: pick a length (and optionally say what you want), Generate, then Start ride. It is the
+  // coach's own "One workout" (same goal, history and engine), so the full result also shows on the Coach page.
+
+  /** Today's coach result, if there is one (made here or on the Coach page). */
+  quickResult() {
+    const rec = this.app && this.app.aiCoach && this.app.aiCoach.currentRecommendation;
+    if (!rec || !rec.workout || !rec.generatedAt) return null;
+    return dayKeyOf(rec.generatedAt) === dayKeyOf(new Date()) ? rec : null;
+  }
+
+  renderQuick() {
+    const app = this.app;
+    const el = this.planEl.querySelector('#avQuickAi');
+    if (!el || !app || !app.aiCoach) return;
+    const C = this.win.VeloAiCoach;
+    const goal = (C && C.GOALS && (C.GOALS[app.coachGoal] || C.GOALS.ftp)) || { label: 'Raise FTP' };
+    const dur = this.quickDuration();
+    const chips = QUICK_DURATIONS.map((d) => `<button type="button" class="chip${d.value === dur ? ' chip-accent' : ''}" data-av-quick-dur="${d.value}" aria-pressed="${d.value === dur}">${esc(d.label)}</button>`).join('');
+    const rec = this.quickResult();
+    let result = '';
+    if (rec) {
+      const w = rec.workout;
+      const M = this.win.VeloMetrics;
+      const who = rec.source && rec.source !== 'offline_heuristic' ? (rec.modelLabel || (C ? C.labelFor(rec.model) : rec.model)) : 'Built-in coach';
+      const saved = (app.loadSavedWorkouts ? app.loadSavedWorkouts() : []).some((x) => x.title === w.title && JSON.stringify(x.intervals) === JSON.stringify(w.intervals));
+      result = `<div class="av-quick-result" id="avQuickResult">
+          <h3 class="av-plan-title">${esc(workoutName(w.title))}</h3>
+          <p class="av-note num">${esc(fmtMin(w.durationMin))} · TSS ${esc(w.tss)} · ${esc(who)}</p>
+          ${workoutProfile(w.intervals, M ? (pct) => M.zoneForPct(pct) : null)}
+          ${w.desc ? `<p class="av-quick-desc">${esc(w.desc)}</p>` : ''}
+          <button type="button" class="btn btn-start av-big" id="avQuickRide">${icon('i-play')}Start ride</button>
+          <div class="btn-row av-plan-more">
+            <button type="button" class="btn btn-ghost btn-grow" id="avQuickSave"${saved ? ' disabled' : ''}>${saved ? 'Saved' : 'Save'}</button>
+            <button type="button" class="btn btn-ghost btn-grow" id="avQuickDetails">Why this workout</button>
+          </div>
+        </div>`;
+    }
+    el.innerHTML = `<span class="eyebrow">Quick AI workout</span>
+      <p class="av-note">Built for today from your form and history · goal: ${esc(goal.label)}</p>
+      <div class="av-wk-chips av-quick-durs" role="group" aria-label="Workout length">${chips}</div>
+      <label class="av-quick-notes"><span class="sr-only">Anything specific? (optional)</span><input type="text" class="input-field" id="avQuickNotes" maxlength="300" autocomplete="off" placeholder="Anything specific? e.g. legs tired, short VO2"></label>
+      <div class="av-quick-go">
+        ${app.aiPickerHtml ? app.aiPickerHtml('quick') : ''}
+        <button type="button" class="btn btn-ai btn-grow" id="avQuickGo"${this._quickBusy ? ' disabled' : ''}>${icon('i-sparkles')}${rec ? 'New workout' : 'Generate'}</button>
+      </div>
+      <p class="av-note av-quick-status" id="avQuickStatus" aria-live="polite"${this._quickBusy ? '' : ' hidden'}></p>
+      ${result}`;
+    const notes = el.querySelector('#avQuickNotes');
+    notes.value = this.quickNotes || '';
+    notes.addEventListener('input', () => { this.quickNotes = notes.value; });
+    notes.addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); this.quickGenerate(); } });
+    el.querySelectorAll('[data-av-quick-dur]').forEach((b) => b.addEventListener('click', () => {
+      try { this.win.localStorage.setItem(QUICK_DURATION_KEY, b.dataset.avQuickDur); } catch (e) { /* storage unavailable */ }
+      this.renderQuick();
+    }));
+    el.querySelector('#avQuickGo').addEventListener('click', () => this.quickGenerate());
+    if (rec) {
+      el.querySelector('#avQuickRide').addEventListener('click', () => this.ride((a) => { a.loadWorkoutObjectIntoCockpit(rec.workout); }));
+      el.querySelector('#avQuickSave').addEventListener('click', (e) => { app.saveWorkoutPermanently(rec.workout); e.currentTarget.disabled = true; e.currentTarget.textContent = 'Saved'; });
+      el.querySelector('#avQuickDetails').addEventListener('click', () => {
+        this.openCoach('session');
+        this.win.requestAnimationFrame(() => this.doc.getElementById('aiCoachResultPanel')?.scrollIntoView({ block: 'start' }));
+      });
+    }
+    if (this._quickBusy) this.quickTick();
+  }
+
+  /** The chosen length ('30'...'90' or 'auto'); remembered between visits. */
+  quickDuration() {
+    let v = null;
+    try { v = this.win.localStorage.getItem(QUICK_DURATION_KEY); } catch (e) { /* storage unavailable */ }
+    return QUICK_DURATIONS.some((d) => d.value === v) ? v : '45';
+  }
+
+  quickTick() {
+    const s = this.planEl.querySelector('#avQuickStatus');
+    if (!s || !this._quickBusy) return;
+    s.hidden = false;
+    s.innerHTML = `<span class="spinner"></span> ${esc(this._quickLabel)}... ${((Date.now() - this._quickStart) / 1000).toFixed(0)} s`;
+  }
+
+  async quickGenerate() {
+    const app = this.app;
+    if (!app || !app.aiCoach || this._quickBusy) return;
+    const c = app.aiCoach;
+    const C = this.win.VeloAiCoach;
+    const dur = this.quickDuration();
+    this._quickBusy = true;
+    this._quickStart = Date.now();
+    this._quickLabel = c.isLive && C ? `Thinking with ${C.labelFor(c.model)}` : 'Building your workout';
+    this.renderQuick();
+    const timer = this.win.setInterval(() => this.quickTick(), 500);
+    try {
+      const rec = await c.generateRecommendation('auto', dur === 'auto' ? 'auto' : Number(dur), app.coachGoal || 'ftp', (this.quickNotes || '').trim());
+      // The Coach page shows the same result (reasoning, outlook, evidence) under "Why this workout".
+      if (app.renderAiCoachRecommendation) app.renderAiCoachRecommendation(rec);
+      if (rec.apiError) app.showToast(rec.apiError, 'warning');
+    } catch (e) {
+      app.showToast('AI Coach error: ' + e.message, 'error');
+    } finally {
+      this.win.clearInterval(timer);
+      this._quickBusy = false;
+      this.renderQuick();
+    }
   }
 
   renderBlock(app, bp) {

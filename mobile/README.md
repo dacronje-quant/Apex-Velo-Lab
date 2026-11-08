@@ -20,7 +20,7 @@ It is the same web app as the desktop version, wrapped with [Capacitor](https://
 | **Health Connect rides** | Cycling sessions other apps write to Health Connect (Zwift, Samsung Health, Garmin...) join your history with their power, heart rate, cadence, speed and distance; duplicates of rides you already have are skipped (the copy with power is kept). Rides recorded in Apex Velo can be saved to Health Connect |
 | **Analytics** | History, calendar, PMC (fitness/fatigue/form), power curve, CP, FTP history, and **Health**: every intervals.icu wellness value over time (resting and sleeping HR, HRV rMSSD and SDNN with your normal range, sleep stages, sleep and readiness scores, Baevsky stress index, breathing, SpO2, weight, blood pressure, glucose) and how your next-morning HRV, resting HR and sleep answer the previous day's training |
 | **History tab** | Rides grouped by month (title, date, duration, NP, TSS, a tick when on Strava), with search (title, notes, source) and filters (rides, other activities, with power, not on Strava). Tap a ride for its page: the full ride summary (Strava send and status, AI breakdown, power analysis, zones, intervals, previous/next) with its samples loaded on demand, and ⋯ for Edit title and notes, Export FIT/TCX/CSV and Delete. **+** opens Add rides (files, Import history with its progress, Watch a folder). The ⋯ next to the ride count has Check Strava, the full JSON backup, current-session exports, training-load options (opens You › Your data) and Clear all history (`src/native-history.js`) |
-| **AI** | **Ask** (questions about your own training), the **AI coach** (sessions and multi-week plans) and ride **interval breakdowns**, with Claude, Gemini or ChatGPT and your own API key. Without a key the built-in offline coach is used |
+| **AI** | **Ask** (questions about your own training), the **AI coach** (sessions and multi-week plans) and ride **interval breakdowns**, with Claude, Gemini or ChatGPT and your own API key. Switch the model on the spot with the ✦ engine switcher on the quick workout, the Coach, Ask, Describe and ride breakdowns (it changes it everywhere, the same as You > Connections > AI coach). Without a key the built-in offline coach is used |
 
 ## Not in this first version
 
@@ -234,7 +234,9 @@ Android back closes a sheet, then goes back a page, then to the tab's first scre
   goes back to Standard.
 - **Train** has three parts at the top: **Plan**, **Workouts** and **Ask coach**.
   - *Plan* shows this week day by day (planned and ridden days are marked), the selected day's session with
-    **Ride it today** and *Swap*, and your training block with **Re-plan** and *Open plan*. From here, *Coach* builds
+    **Ride it today** and *Swap*, a **Quick AI workout** (pick 30-90 min or Auto, optionally say what you want,
+    **Generate**, then **Start ride**, *Save* or *Why this workout*), and your training block with **Re-plan** and
+    *Open plan*. From here, *Coach* builds
     one workout for today or a 4-12 week plan, and *Calendar* shows the week, month, year or all time, with load and
     recovery.
   - *Workouts* is the library as a short list with type chips (Endurance, Sweet spot, Threshold, VO2, Hard-start,

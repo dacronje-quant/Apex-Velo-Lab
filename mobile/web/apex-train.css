@@ -13,6 +13,28 @@
 .av-day.on { background: rgba(255, 255, 255, .12); color: var(--text-1); border-color: var(--cyan); }
 .av-plan-suggest { width: 100%; margin-top: 10px; min-height: 44px; justify-content: center; }
 
+/* --- Plan: quick AI workout (length, optional request, engine, Generate; then Start ride) --- */
+.av-quick-card { display: flex; flex-direction: column; gap: 10px; }
+.av-quick-card > .av-note { margin: -6px 0 0; }
+.av-quick-durs { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 6px; margin: 0; padding: 0; overflow: visible; }
+.av-quick-card .av-quick-durs .chip { min-width: 0; min-height: 44px; padding: 0 4px; justify-content: center; }
+.av-quick-notes input { width: 100%; min-height: 48px; }
+.av-quick-go { display: flex; align-items: center; gap: 8px; }
+.av-quick-go .btn { min-height: 48px; justify-content: center; font-weight: 700; }
+.av-quick-go .ai-pick { flex: 1 1 0; min-width: 0; }
+.av-quick-go .btn { flex: 1 1 0; white-space: nowrap; }
+.av-quick-status { margin: 0; display: flex; align-items: center; gap: 8px; }
+.av-quick-result { display: flex; flex-direction: column; gap: 8px; padding-top: 12px; border-top: 1px solid var(--line); }
+.av-quick-result .av-plan-title, .av-quick-result .av-note { margin: 0; }
+.av-quick-desc { margin: 0; color: var(--text-2); font-size: 14px; line-height: 1.45; display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; }
+
+/* The AI engine switcher (js/app-coach.js) at phone size: a 44 px target that never pushes the layout wide. */
+.apex-native .ai-pick { height: auto; min-height: 46px; font-size: 13px; max-width: 100%; }
+/* The chip is the control and the select inside it is bare. apex-polish.css styles every input and select through
+   :is(input:not(...)..., select), whose specificity (0,6,1) no plain selector here can beat, hence !important. */
+.apex-native .ai-pick select.ai-pick-select { appearance: none !important; -webkit-appearance: none !important; min-height: 44px !important; width: 100%; padding: 0 !important; border: 0 !important; border-radius: 0 !important; background: transparent !important; color: inherit !important; font: 600 14px/1.2 var(--font-sans) !important; }
+.apex-native .ai-breakdown-area .ai-pick { margin: 8px 0 0; }
+
 /* --- Workouts: chips, short list, sheet --- */
 .av-wk-chips { display: flex; gap: 8px; overflow-x: auto; scrollbar-width: none; margin: 0 -16px; padding: 0 16px; }
 .av-wk-chips::-webkit-scrollbar { display: none; }

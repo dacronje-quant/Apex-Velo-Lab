@@ -296,10 +296,10 @@
       const live = !!(coach && coach.isLive);
       const md = (t) => (window.VeloMarkdown ? window.VeloMarkdown.render(t) : `<p>${esc(t)}</p>`);
       const aiHtml = ai && ai.text
-        ? `<div class="ai-breakdown md-body">${md(ai.text)}</div><div class="hint">AI coach: ${esc(ai.label || ai.model)}${ai.effort ? `, ${esc(ai.effort)} effort` : ''} &middot; ${esc(new Date(ai.at).toLocaleString('en-GB', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' }))} <button type="button" class="link-btn" data-ai-breakdown="${esc(record.id)}">Ask again</button></div>`
+        ? `<div class="ai-breakdown md-body">${md(ai.text)}</div><div class="hint">AI coach: ${esc(ai.label || ai.model)}${ai.effort ? `, ${esc(ai.effort)} effort` : ''} &middot; ${esc(new Date(ai.at).toLocaleString('en-GB', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' }))} <button type="button" class="link-btn" data-ai-breakdown="${esc(record.id)}">Ask again</button> ${this.aiPickerHtml ? this.aiPickerHtml('breakdown') : ''}</div>`
         : live
-          ? `<button type="button" class="btn btn-sm" data-ai-breakdown="${esc(record.id)}"><svg class="ic"><use href="#i-sparkles"/></svg>Ask the AI coach (${esc(VeloAiCoach.labelFor(coach.model))}, low effort)</button>`
-          : '<span class="hint">Add an Anthropic, Gemini or OpenAI key to .env for an AI coach breakdown - the summary above is computed offline.</span>';
+          ? `<button type="button" class="btn btn-sm" data-ai-breakdown="${esc(record.id)}"><svg class="ic"><use href="#i-sparkles"/></svg>Ask the AI coach (low effort)</button>` + (this.aiPickerHtml ? ` ${this.aiPickerHtml('breakdown')}` : '')
+          : '<span class="hint">Add an Anthropic, Gemini or OpenAI key to .env for an AI coach breakdown - the summary above is computed offline.</span>' + (this.aiPickerHtml ? ` ${this.aiPickerHtml('breakdown')}` : '');
       return `
         <div class="review-block interval-diagnosis" id="intervalDiagnosis">
           <div class="sub-title"><span>Interval diagnosis</span><span class="hint">hard steps (88% FTP+): target, cadence fade, heart-rate drift</span></div>

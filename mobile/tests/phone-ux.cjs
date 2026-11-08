@@ -755,6 +755,10 @@ const TRAIN_PARITY = [
   ['ask: period', 'train/ask', '#askPeriodPills .ask-period'],
   ['ask: what the AI sees', 'train/ask', '#askDataPeek > summary'],
   ['ask: AI engine', 'train/ask', '#btnAskEngine'],
+  ['plan: quick AI workout (length, note, generate)', 'train/plan', '#avQuickGo'],
+  ['plan: quick AI workout engine switcher', 'train/plan', '#avQuickAi .ai-pick'],
+  ['coach: AI engine switcher', 'train/coach', '#view-ai-coach .ai-pick-row .ai-pick'],
+  ['describe: AI engine switcher', 'train/workouts', '.av-sheet #describeBox .ai-pick', async (page) => { await tap(page, '#avDescribe'); }],
   ['ask: thread (suggestions, history)', 'train/ask', '#askThread']
 ];
 

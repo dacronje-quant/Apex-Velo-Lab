@@ -816,6 +816,46 @@ async function brokerFlow(browser, errors) {
     assert.deepEqual(coachCall.data.output_config, { effort: 'low' });
     step('AI coach: the ride breakdown goes through /api/coach on the phone');
 
+    // Quick AI workout on Train > Plan, with the engine switched on the spot (no trip to Settings).
+    await page.evaluate(() => ApexNative.shell.go('train/plan'));
+    await page.locator('#avQuickAi').waitFor();
+    const quickPick = page.locator('#avQuickAi select[data-ai-pick]');
+    assert.equal(await quickPick.inputValue(), 'claude-opus-5-5');
+    assert.ok(await quickPick.evaluate((s) => [...s.options].some((o) => o.value === 'claude-haiku-5-5')), 'the switcher lists the live models');
+    await quickPick.selectOption('claude-haiku-5-5');
+    assert.equal(await page.evaluate(() => app.aiCoach.model), 'claude-haiku-5-5', 'a live-only model is kept, not reset to the default');
+    assert.equal(await page.evaluate(() => localStorage.getItem('apex_coach_model')), 'claude-haiku-5-5');
+    assert.deepEqual(await page.evaluate(() => [...document.querySelectorAll('select[data-ai-pick]')].map((s) => s.value).filter((v) => v !== 'claude-haiku-5-5')), [], 'every switcher (Ask, Describe, Coach) follows');
+    assert.equal(await page.locator('#selectCoachModel').inputValue(), 'claude-haiku-5-5', 'Settings > AI engine follows');
+    await page.locator('#avQuickAi [data-av-quick-dur="30"]').click();
+    await page.locator('#avQuickNotes').fill('legs a bit tired');
+    await page.locator('#avQuickGo').click();
+    await page.locator('#avQuickResult', { hasText: 'Quick Tempo Thirty' }).waitFor({ timeout: 15000 });
+    const quickCall = await page.evaluate(() => __nativeLog.http.filter((r) => r.url === 'https://api.anthropic.com/v1/messages').at(-1));
+    assert.equal(quickCall.data.model, 'claude-haiku-5-5');
+    assert.match(quickCall.data.messages[0].content, /Time available: 30 minutes/);
+    assert.match(quickCall.data.messages[0].content, /RIDER NOTES: legs a bit tired/);
+    assert.match(await page.locator('#avQuickResult').innerText(), /35 min · TSS \d+ · Claude Haiku 5\.5/);
+    assert.equal(await page.locator('#aiCoachResultPanel').evaluate((p) => p.style.display), 'block', 'the Coach page shows the same result');
+    await page.screenshot({ path: path.join(__dirname, '..', 'test-output', 'native-quick-ai.png') }).catch(() => {});
+    await page.locator('#avQuickSave').click();
+    assert.ok(await page.evaluate(() => app.loadSavedWorkouts().some((w) => w.title === 'Quick Tempo Thirty')), 'saved to the library');
+    assert.equal(await page.locator('#avQuickSave').isDisabled(), true);
+    await page.evaluate(() => ApexNative.shell.go('train/workouts'));
+    await page.evaluate(() => ApexNative.shell.go('train/plan'));
+    assert.match(await page.locator('#avQuickResult').innerText(), /Quick Tempo Thirty/, "today's result stays on the card");
+    assert.equal(await page.locator('#avQuickAi [data-av-quick-dur="30"]').getAttribute('aria-pressed'), 'true', 'the length is remembered');
+    await page.locator('#avQuickRide').click();
+    await page.waitForFunction(() => app.currentWorkout.title === 'Quick Tempo Thirty' && ApexNative.shell.current.route === 'ride/live' && app.isPlaying);
+    await page.evaluate(() => app.resetWorkout(false)); // discard it: the Describe check below starts its own ride
+    step('Quick AI workout: one tap from Train > Plan with a length and a note, the engine switched in place (all switchers and Settings follow), saved, started');
+
+    await page.evaluate(() => ApexNative.shell.go('train/ask'));
+    await page.locator('#btnAskEngine select').selectOption('claude-opus-5-5');
+    assert.equal(await page.evaluate(() => app.aiCoach.model), 'claude-opus-5-5', 'switched back from Ask');
+    assert.equal(await quickPick.inputValue(), 'claude-opus-5-5');
+    step('Ask: the engine switcher in the Ask header changes the engine everywhere');
+
     await page.evaluate(() => ApexNative.shell.go('train/workouts'));
     await page.locator('#avDescribe').click(); // Train > Workouts > Describe a workout (a sheet)
     assert.match(await page.locator('#describeEngine').innerText(), /Claude Opus 5\.5 · only your request and FTP/);
