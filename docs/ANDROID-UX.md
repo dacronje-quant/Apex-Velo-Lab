@@ -392,7 +392,7 @@ Owners register their own routes; U1 registers interim pages so everything stays
 
 | Route | Owner | Interim page in U1 |
 |---|---|---|
-| `ride`, `ride/live`, `ride/cockpit` | U1 | built: Today (`native-today.js`), the simple ride screen and all metrics (`native-ride-view.js`) |
+| `ride`, `ride/live` | U1 | built: Today (`native-today.js`) and the ride screen (`native-ride-view.js`; one screen since 5.8) |
 | `train/plan`, `train/workouts`, `train/ask` (+ `train/calendar`) | U2 | the Coach, Workouts, Ask and Calendar views under one segmented control |
 | `history`, `history/:rideId` | U3 | the History view; `history/<id>` opens the existing ride summary |
 | `progress`, `progress/<topic>` | U4 | the Analytics view |
@@ -424,6 +424,9 @@ Under `.apex-native`, `.btn-sm`, `.btn-xs`, `.icon-btn`, `.icon-btn-sm`, `.chip`
 
 ### 5.6 Ride tab (U1)
 
+> The two ride views, Customise and the Zen / Focus entries described in 5.6 and 5.7 were replaced by the one ride
+> screen in **5.8**. Today, the devices sheet, the banners and the ride summary are unchanged.
+
 - `ride`: Today (`mobile/src/native-today.js`). The app's recovery and first-run cards move here (ids kept). The
   devices chip opens the devices sheet, `ApexNative.rideTab.today.openDevices()`.
 - `ride/live`: the simple ride screen (`mobile/src/native-ride-view.js`). It reads the outputs `js/app.js` keeps up to date
@@ -453,3 +456,40 @@ Under `.apex-native`, `.btn-sm`, `.btn-xs`, `.icon-btn`, `.icon-btn-sm`, `.chip`
 - Live HR drift is a tile. It uses `VeloInsight.decoupling`, which needs 20 steady minutes with heart rate.
 - On step changes the screen flashes the zone colour, and the countdown pulses in the last 3 s. The app's own audio cues play.
   A deviation bar shows the ±5 % band and where power is.
+
+### 5.8 One ride screen (replaces the two views)
+
+The owner's brief after riding with it: too many ride screens. One focused screen, switches for the extra metrics,
+live telemetry that zooms, and a graph that can never rewind or fast-forward the workout when touched.
+
+- **One route, `ride/live`.** `ride/cockpit` (all metrics), the Zen cockpit, Focus mode, the Mini-HUD and the
+  Customise sheet are no longer offered on the phone (the PC keeps them). A link to `ride/cockpit` opens Today.
+- **Always on the screen:** the step chip, **Metrics** and **Controls**; elapsed, the workout's progress and time
+  left on one line; the hero (target, power, deviation, step countdown); End / Pause / Next interval, fixed to the
+  bottom so they stay in reach when the screen scrolls.
+- **Live graph** (`drawRideGraph`): power, heart rate and cadence over the power targets. Ridden targets come from
+  the samples (each records its second's target) and coming targets from the plan as it stands now
+  (`pastSegments`, `futureSegments`), so the picture stays right after a skip, a restart or a changed step length.
+  Zoom is **All / 10 min / 3 min / 1 min** (`ZOOMS`); a zoomed window follows the ride with three quarters behind
+  and a quarter ahead (`graphWindow`) and has a time grid.
+- **No accidental seeking.** The graph's view has `pointer-events: none` and no handlers; the cockpit's
+  tap-to-jump workout profile (`#intervalCanvas`) and interval queue are not on the phone's ride screen. The
+  workout moves only with **Next interval** and, in Controls, the step length and **Restart workout** (which asks).
+- **Metrics sheet** (`openMetrics`): a grid of `role="switch"` buttons (56 px), each with its live value, for the
+  panels (`PANELS`: graph, next step, coach tips), the graph's lines (`LINES`) and the tiles (`TILES`, grouped by
+  `TILE_GROUPS`). A tap applies and saves at once; the sheet stays open. Values the hero already shows (power,
+  target, step countdown, elapsed) are not tiles.
+- **Fit.** Items show in catalog order (no reordering). `#avRide` carries `data-cols` (2, or 3 with three or more
+  than four tiles) and `data-density` (`roomy`, `dense` from 4 tiles, `packed` from 7): the hero, graph and tiles
+  tighten so the default screen and up to six tiles fit 393×852 without scrolling.
+- **Saved per rider** in `apex_ride_layout_v1`: `{ items: [{id,on}], lines, zoom }`. A layout saved by the two-view
+  screen (`simple`, `full`) keeps its tiles; its workout profile panel becomes the live graph.
+- **Tests:** `mobile/tests/native-ride-view.test.mjs` (layouts, window, targets) and the ride flows in
+  `mobile/tests/phone-ux.cjs` (parity, one screen only, graph zoom and touches, Metrics switches).
+
+| | |
+|---|---|
+| The ride screen | ![](ux/after/ride-one-screen.png) |
+| Zoomed to 3 minutes | ![](ux/after/ride-graph-zoom.png) |
+| Metrics | ![](ux/after/ride-metrics-sheet.png) |
+| Six tiles on | ![](ux/after/ride-more-metrics.png) |

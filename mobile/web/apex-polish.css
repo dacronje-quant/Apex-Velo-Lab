@@ -139,11 +139,27 @@ html.apex-native {
 .apex-native .av-ride { background: var(--bg-1); gap: 12px; }
 .apex-native .av-ride-grid { align-content: center; gap: 10px; }
 .apex-native .av-ride-grid > .av-tile { grid-column: span 3; }
-.apex-native .av-ride-power { text-shadow: none; font-size: clamp(94px, 30vw, 140px); }
-.apex-native .av-ride-hero { min-height: 260px; }
-.apex-native .av-ride-clock { display: flex; flex-direction: column; text-align: right; font-size: 23px; }
-.apex-native .av-ride-clock small { font: 400 12px var(--font-sans); color: var(--text-2); }
-.apex-native .av-ride-step { max-width: 52%; height: auto; min-height: 48px; white-space: normal; }
+.apex-native .av-ride[data-cols="3"] .av-ride-grid > .av-tile { grid-column: span 2; }
+.apex-native .av-ride-power { text-shadow: none; font-size: clamp(72px, min(30vw, 12.5vh), 140px); }
+.apex-native .av-ride-countdown { margin-top: 8px; font-size: clamp(40px, min(16vw, 6.5vh), 76px); }
+.apex-native .av-ride-hero { min-height: 0; }
+/* More tiles on: the hero and the tiles tighten up so the screen still fits without scrolling. */
+.apex-native .av-ride:is([data-density="dense"], [data-density="packed"]) .av-ride-power { font-size: clamp(64px, min(23vw, 10vh), 108px); }
+.apex-native .av-ride:is([data-density="dense"], [data-density="packed"]) .av-ride-countdown { margin-top: 4px; font-size: clamp(36px, min(12vw, 5.5vh), 56px); }
+.apex-native .av-ride:is([data-density="dense"], [data-density="packed"]) .av-ride-grid { gap: 8px; }
+.apex-native .av-ride:is([data-density="dense"], [data-density="packed"]) .av-tile { padding: 8px 10px; min-height: 0; }
+.apex-native .av-ride:is([data-density="dense"], [data-density="packed"]) .av-tile-val { font-size: 22px; }
+.apex-native .av-ride:is([data-density="dense"], [data-density="packed"]) .av-tile-val small { font-size: 11px; }
+.apex-native .av-ride:is([data-density="dense"], [data-density="packed"]) :is(.av-tile-lbl, .av-tile-sub) { font-size: 11px; }
+/* Short phones: the same screen, a little tighter. */
+@media (orientation: portrait) and (max-height: 780px) {
+  .apex-native .av-ride { gap: 8px; }
+  .apex-native .av-ride-grid { gap: 8px; }
+  .apex-native .av-graph-view canvas { height: 88px; }
+  .apex-native .av-ride-next { min-height: 0; padding: 8px 12px; }
+  .apex-native .av-ride .av-tile { padding: 8px 10px; min-height: 0; }
+  .apex-native .av-ride .av-tile-val { font-size: 22px; }
+}
 .apex-native .av-ride-unit, .apex-native .av-ride-left, .apex-native .av-ride-next small { color: var(--text-2); font-size: 14px; }
 .apex-native .av-simulation { font-size: 13px; color: var(--amber); }
 .apex-native .av-simulation[hidden] { display: none; }
@@ -154,21 +170,11 @@ html.apex-native {
 .apex-native .av-tile-sub { white-space: normal; font-size: 12px; overflow: visible; text-overflow: clip; }
 .apex-native .av-tile { background: var(--bg-3); backdrop-filter: none; padding: 12px; }
 .apex-native .av-ride-ctrl { grid-template-columns: 1fr 1.15fr 1.3fr; gap: 8px; }
-.apex-native :is(.av-ride-ctrl, .av-full-ctrl) .btn { padding: 10px 8px; font-size: 14px; }
+.apex-native .av-ride-ctrl .btn { padding: 10px 8px; font-size: 14px; }
 .apex-native .av-ride-ctrl .ic { display: none; }
-.apex-native .av-istrip { grid-template-columns: 1fr; }
-.apex-native .av-istrip-now { flex-wrap: wrap; white-space: normal; overflow: visible; }
-.apex-native .av-istrip-left { grid-row: auto; font-size: 36px; }
-.apex-native .av-istrip-next { white-space: normal; overflow: visible; }
-.apex-native.av-full-ride #view-cockpit .av-ftile, body.av-full-ride #view-cockpit .av-ftile { grid-column: span 3; }
-.apex-native .av-full-ctrl { grid-template-columns: repeat(4, minmax(0, 1fr)); }
-.apex-native .av-full-ctrl .ic { display: none; }
 .apex-native .av-steps { flex-wrap: wrap; justify-content: flex-end; }
 .apex-native .av-steps .btn { min-width: 48px; }
 .apex-native .av-controls .av-row { flex-wrap: wrap; }
-.apex-native .av-cust-end { gap: 4px; }
-.apex-native .av-cust-end .av-icon-btn { min-width: 44px; width: 44px; }
-.apex-native .av-presets { grid-template-columns: repeat(2, 1fr); }
 .apex-native .av-kpis { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 .apex-native .av-kpi b { font-family: var(--font-sans); overflow-wrap: anywhere; }
 .apex-native .av-import-sheet .drop-zone { padding: 16px; }
@@ -199,14 +205,15 @@ html.apex-native {
   .apex-native .av-title { font-size: 22px; }
   .apex-native .av-topbar { padding-left: 12px; padding-right: 12px; }
   .apex-native .av-devices-chip { max-width: 172px; font-size: 12px; padding: 8px; }
-  .apex-native .av-cust-list .av-row { flex-wrap: wrap; }
-  .apex-native .av-cust-end { margin-left: auto; }
 }
 @media (orientation: landscape) and (max-height: 520px) {
   .apex-native .av-ride-grid > .av-tile { grid-column: span 3; }
-  .apex-native .av-ride-power { font-size: 24vh; }
-  .apex-native .av-ride-hero { min-height: 0; }
-  body.av-full-ride #view-cockpit .av-ftile { grid-column: span 2; }
+  .apex-native .av-ride[data-density] .av-ride-power { font-size: 20vh; }
+  .apex-native .av-ride[data-density] .av-ride-countdown { margin-top: 0; font-size: 12vh; }
+  .apex-native .av-ride :is(.av-ride-left, .av-devbar) { display: none; }
+  .apex-native .av-ride { padding-bottom: calc(76px + env(safe-area-inset-bottom, 0px)); }
+  .apex-native .av-ride-ctrl { padding-top: 8px; padding-bottom: calc(10px + env(safe-area-inset-bottom, 0px)); }
+  .apex-native .av-ride-ctrl .btn { min-height: 48px; }
 }
 /* Open by default: short option groups show their content without a disclosure row. */
 .apex-native details.av-open > summary { display: none; }
