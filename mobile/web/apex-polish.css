@@ -155,7 +155,7 @@ html.apex-native {
 @media (orientation: portrait) and (max-height: 780px) {
   .apex-native .av-ride { gap: 8px; }
   .apex-native .av-ride-grid { gap: 8px; }
-  .apex-native .av-graph-view canvas { height: 88px; }
+  .apex-native .av-graph-view canvas { height: 136px; }
   .apex-native .av-ride-next { min-height: 0; padding: 8px 12px; }
   .apex-native .av-ride .av-tile { padding: 8px 10px; min-height: 0; }
   .apex-native .av-ride .av-tile-val { font-size: 22px; }

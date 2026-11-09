@@ -470,11 +470,13 @@ live telemetry that zooms, and a graph that can never rewind or fast-forward the
 - **Live graph** (`drawRideGraph`): power, heart rate and cadence over the power targets. Ridden targets come from
   the samples (each records its second's target) and coming targets from the plan as it stands now
   (`pastSegments`, `futureSegments`), so the picture stays right after a skip, a restart or a changed step length.
-  Zoom is **All / 10 min / 3 min / 1 min** (`ZOOMS`); a zoomed window follows the ride with three quarters behind
-  and a quarter ahead (`graphWindow`) and has a time grid.
-- **No accidental seeking.** The graph's view has `pointer-events: none` and no handlers; the cockpit's
-  tap-to-jump workout profile (`#intervalCanvas`) and interval queue are not on the phone's ride screen. The
-  workout moves only with **Next interval** and, in Controls, the step length and **Restart workout** (which asks).
+  The graph is one button (`#avGraphZoom`): a tap steps the zoom, whole ride > 10 min > 3 min > 1 min > whole ride
+  (`ZOOMS`), shown in its corner. There is no separate zoom bar. A zoomed window follows the ride with three
+  quarters behind and a quarter ahead (`graphWindow`) and has a time grid.
+- **No accidental seeking.** A tap on the graph only changes the zoom; the cockpit's tap-to-jump workout profile
+  (`#intervalCanvas`) and interval queue are not on the phone's ride screen. **Next interval** takes two taps
+  (the first arms it for 3 s, "Tap again to skip"). Otherwise the workout moves only from Controls: the step
+  length and **Restart workout** (which asks). There is no jump to an earlier or chosen interval.
 - **Metrics sheet** (`openMetrics`): a grid of `role="switch"` buttons (56 px), each with its live value, for the
   panels (`PANELS`: graph, next step, coach tips), the graph's lines (`LINES`) and the tiles (`TILES`, grouped by
   `TILE_GROUPS`). A tap applies and saves at once; the sheet stays open. Values the hero already shows (power,
@@ -490,6 +492,6 @@ live telemetry that zooms, and a graph that can never rewind or fast-forward the
 | | |
 |---|---|
 | The ride screen | ![](ux/after/ride-one-screen.png) |
-| Zoomed to 3 minutes | ![](ux/after/ride-graph-zoom.png) |
+| Tapped to 3 minutes | ![](ux/after/ride-graph-zoom.png) |
 | Metrics | ![](ux/after/ride-metrics-sheet.png) |
 | Six tiles on | ![](ux/after/ride-more-metrics.png) |

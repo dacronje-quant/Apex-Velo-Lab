@@ -428,7 +428,7 @@ const PARITY = [
   ['current power (smoothed)', 'screen', '#avRidePower'], ['target power and % FTP', 'screen', '#avRideTarget'],
   ['power vs target deviation', 'screen', '#avRideDev'], ['step countdown (pulses before a change)', 'screen', '#avRideCountdown'],
   ['step name and number', 'screen', '#avRideStep'], ['total elapsed', 'screen', '#avRideClock'], ['workout time left', 'screen', '#avRideRemain'], ['workout progress', 'screen', '#avRideProgress'],
-  ['live graph (power, HR, cadence over the targets)', 'screen', '#avRideGraph'], ['graph zoom', 'screen', '#avGraphZoom [data-zoom="1m"]'], ['up next', 'screen', '#avRideNext'],
+  ['live graph (power, HR, cadence over the targets)', 'screen', '#avRideGraph'], ['graph zoom (tap the graph)', 'screen', '#avGraphZoomLabel'], ['up next', 'screen', '#avRideNext'],
   ['coach / pedalling insight', 'screen', '#avRideCoach'], ['End (stop & save)', 'screen', '#avRideEnd'], ['Start / Pause / Resume', 'screen', '#avRidePause'], ['Skip step', 'screen', '#avRideSkip'],
   ...RIDE_TILES.map((t) => [`tile: ${t}`, 'screen', `[data-av-item="tile:${t}"]`]),
   ['panel switches', 'metrics', '#avMetricsSheet [data-item="panel:graph"]'], ['graph line switches', 'metrics', '#avMetricsSheet [data-line="cadence"]'],
@@ -638,7 +638,7 @@ FLOWS.push(['ride: one screen only - Controls offers no other view (Detailed, Ze
   await page.context().close();
 }]);
 
-FLOWS.push(['ride graph: drawn from the ride; All / 10 min / 3 min / 1 min zoom, saved for the rider; a touch on the graph never moves the workout', async (browser) => {
+FLOWS.push(['ride graph: drawn from the ride; a tap steps the zoom (whole ride, 10 min, 3 min, 1 min), saved for the rider, and never moves the workout; Next interval takes two taps', async (browser) => {
   let page = await openPhone(browser, { demo: false }); // the demo keeps its storage in memory
   await tap(page, '#avStartRide');
   await page.waitForFunction(() => app.totalElapsedSeconds >= 2, null, { timeout: 15000 });
@@ -651,23 +651,36 @@ FLOWS.push(['ride graph: drawn from the ride; All / 10 min / 3 min / 1 min zoom,
   const state = () => page.evaluate(() => ({ step: app.intervalIndex, left: app.intervalSecondsRemaining, elapsed: app.totalElapsedSeconds, playing: app.isPlaying }));
   const before = await state();
   assert.ok(before.step >= 1, 'riding the second step');
-  // Touches all over the graph, and a click sent straight to its canvas: the workout stays where it is.
-  const box = await page.locator('#avRideGraph').boundingBox();
-  for (const fx of [0.04, 0.3, 0.6, 0.95]) for (const fy of [0.2, 0.8]) await page.touchscreen.tap(box.x + box.width * fx, box.y + box.height * fy);
-  await page.evaluate(() => { const c = document.getElementById('avRideGraph'); for (const type of ['pointerdown', 'pointerup', 'click', 'dblclick']) c.dispatchEvent(new MouseEvent(type, { bubbles: true, clientX: 30, clientY: c.getBoundingClientRect().y + 10 })); });
-  assert.deepEqual(await state(), before, 'a touch on the graph does not seek, skip, pause or resume');
-  assert.equal(await page.locator('#avRideGraph').evaluate((c) => getComputedStyle(c.parentNode).pointerEvents), 'none', 'the graph takes no touches');
   assert.equal(await page.locator('#avRide #intervalCanvas').count(), 0, 'the tap-to-jump workout profile is not on the ride screen');
-  // Zoom: the picture changes, the workout does not, and the choice is kept.
-  assert.equal(await page.locator('#avGraphZoom [data-zoom="all"]').getAttribute('aria-pressed'), 'true');
-  await tap(page, '#avGraphZoom [data-zoom="1m"]');
+  assert.equal(await page.locator('.av-zoom, #avGraphZoom [data-zoom]').count(), 0, 'no separate zoom bar');
+  // Taps anywhere on the graph step the zoom, whole ride > 10 min > 3 min > 1 min > whole ride, and nothing else.
+  const zoom = () => page.evaluate(() => ApexNative.rideTab.ride.layout().zoom);
+  assert.equal(await zoom(), 'all');
+  assert.match(await page.locator('#avGraphZoomLabel').textContent(), /Whole ride/);
+  const box = await page.locator('#avRideGraph').boundingBox();
+  const seen = [];
+  for (const [fx, fy] of [[0.04, 0.2], [0.5, 0.8], [0.95, 0.5], [0.3, 0.5], [0.7, 0.3]]) {
+    await page.touchscreen.tap(box.x + box.width * fx, box.y + box.height * fy);
+    seen.push(await zoom());
+    assert.deepEqual(await state(), before, 'a tap on the graph does not seek, skip, pause or resume');
+  }
+  assert.deepEqual(seen, ['10m', '3m', '1m', 'all', '10m']);
+  await tap(page, '#avGraphZoom'); await tap(page, '#avGraphZoom'); // 3 min, 1 min
   await page.waitForTimeout(400);
-  assert.equal(await page.locator('#avGraphZoom [data-zoom="1m"]').getAttribute('aria-pressed'), 'true');
+  assert.match(await page.locator('#avGraphZoomLabel').textContent(), /^1 min/);
   const zoomed = await picture();
   assert.ok(zoomed.ink > 2000 && zoomed.sum !== all.sum, 'zooming in redraws the graph');
-  assert.deepEqual(await state(), before, 'zooming does not move the workout');
-  await tap(page, '#avGraphZoom [data-zoom="3m"]');
-  assert.equal(await page.evaluate(() => ApexNative.rideTab.ride.layout().zoom), '3m');
+  await tap(page, '#avGraphZoom'); await tap(page, '#avGraphZoom'); await tap(page, '#avGraphZoom'); // whole ride, 10 min, 3 min
+  assert.equal(await zoom(), '3m');
+  // Next interval: one tap only arms it, a second one skips; left alone it disarms.
+  await tap(page, '#avRideSkip');
+  assert.match(await page.locator('#avRideSkip').textContent(), /Tap again to skip/);
+  assert.deepEqual(await state(), before, 'one tap does not skip');
+  await page.waitForTimeout(3300);
+  assert.match(await page.locator('#avRideSkip').textContent(), /Next interval/, 'disarmed after 3 s');
+  await tap(page, '#avRideSkip'); await tap(page, '#avRideSkip');
+  assert.equal((await state()).step, before.step + 1, 'two taps skip one step');
+  assert.match(await page.locator('#avRideSkip').textContent(), /Next interval/);
   const sw = await sweep(page); assert.deepEqual(sw.small, [], 'small targets with the zoom buttons'); assert.ok(sw.overflowX <= 0);
   await screenshot(page, 'ride-graph-zoom');
   await page.reload();

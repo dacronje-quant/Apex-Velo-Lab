@@ -1,8 +1,9 @@
 /**
  * The phone ride screen (docs/ANDROID-UX.md 5.6): one screen, ride/live.
  *  - Always there: power against target, the step countdown, elapsed and time left, End / Pause / Next interval.
- *  - Live graph: power, heart rate and cadence over the targets ridden and the ones to come. It zooms (All, 10 min,
- *    3 min, 1 min, following the ride) and has no tap handlers, so a touch on it can never move the workout.
+ *  - Live graph: power, heart rate and cadence over the targets ridden and the ones to come. A tap on it steps the
+ *    zoom (whole ride, 10 min, 3 min, 1 min, following the ride) and does nothing else: it never moves the workout.
+ *  - Next interval takes two taps, so a stray touch does not skip a step.
  *  - Metrics: a sheet of switches for the panels, the graph's lines and every tile; a tap shows or hides it at once.
  *  - Controls: a sheet with the ride controls (intensity, ERG, step length, smoothing, audio, devices, ...).
  * The choices are saved per rider. Nothing here computes ride data or drives the trainer: values are read from the
@@ -177,11 +178,11 @@ export class RideView {
           <small class="av-ride-left">Interval left</small>
         </div>
         <div class="av-ride-graph" data-av-item="panel:graph">
-          <div class="av-graph-view">
-            <canvas id="avRideGraph" role="img" aria-label="Power, heart rate and cadence over the workout's targets"></canvas>
-            <div class="av-legend" aria-hidden="true"><span data-legend="power"><i class="lg-power"></i>Power</span><span data-legend="hr"><i class="lg-hr"></i>HR</span><span data-legend="cadence"><i class="lg-cad"></i>Cadence</span></div>
-          </div>
-          <div class="av-seg av-zoom" id="avGraphZoom" role="group" aria-label="Graph zoom">${ZOOMS.map((z) => `<button type="button" data-zoom="${z.id}">${z.label}</button>`).join('')}</div>
+          <button type="button" class="av-graph-view" id="avGraphZoom">
+            <canvas id="avRideGraph" aria-hidden="true"></canvas>
+            <span class="av-legend" aria-hidden="true"><span data-legend="power"><i class="lg-power"></i>Power</span><span data-legend="hr"><i class="lg-hr"></i>HR</span><span data-legend="cadence"><i class="lg-cad"></i>Cadence</span></span>
+            <span class="av-zoom-lbl" id="avGraphZoomLabel" aria-hidden="true"></span>
+          </button>
         </div>
         <div class="av-ride-next" data-av-item="panel:next"><span class="av-ride-next-dot"></span><div><b id="avRideNext">--</b><small id="avRideNextSub"></small></div></div>
         <div class="av-ride-coach" data-av-item="panel:coach"><b>Coach</b> <span id="avRideCoach"></span></div>
@@ -196,16 +197,32 @@ export class RideView {
     el.querySelector('#avRideControls').addEventListener('click', () => this.openControls());
     el.querySelector('#avRideEnd').addEventListener('click', () => this.confirmEnd());
     el.querySelector('#avRidePause').addEventListener('click', () => { this.$('btnPlayPause')?.click(); this.update(); });
-    el.querySelector('#avRideSkip').addEventListener('click', () => { this.$('btnSkipInterval')?.click(); this.update(); });
-    // The only thing a touch on the graph card can do is change the zoom, with these buttons.
-    el.querySelector('#avGraphZoom').addEventListener('click', (e) => {
-      const b = e.target.closest('[data-zoom]');
-      if (!b) return;
+    el.querySelector('#avRideSkip').addEventListener('click', () => this.skip());
+    // A tap on the graph only steps its zoom (All > 10 min > 3 min > 1 min > All); it never moves the workout.
+    el.querySelector('#avGraphZoom').addEventListener('click', () => {
       const l = this.layout();
-      l.zoom = b.dataset.zoom;
+      l.zoom = ZOOMS[(ZOOMS.findIndex((z) => z.id === l.zoom) + 1) % ZOOMS.length].id;
       this.saveLayout(l);
       this.applyLayout();
     });
+  }
+
+  /** Next interval takes two taps: the first arms the button for 3 s ("Tap again to skip"), the second skips. */
+  skip() {
+    if (this._skipArmed) { this.disarmSkip(); this.$('btnSkipInterval')?.click(); this.update(); return; }
+    const b = this.$('avRideSkip');
+    b.classList.add('av-armed');
+    b.querySelector('span').textContent = 'Tap again to skip';
+    this._skipArmed = this.win.setTimeout(() => this.disarmSkip(), 3000);
+  }
+
+  disarmSkip() {
+    if (!this._skipArmed) return;
+    this.win.clearTimeout(this._skipArmed);
+    this._skipArmed = null;
+    const b = this.$('avRideSkip');
+    b.classList.remove('av-armed');
+    b.querySelector('span').textContent = 'Next interval';
   }
 
   mount() { this.applyLayout(); this.start(); }
@@ -221,7 +238,13 @@ export class RideView {
     this.simple.dataset.tiles = String(tiles);
     this.simple.dataset.cols = tiles === 3 || tiles > 4 ? '3' : '2';
     this.simple.dataset.density = tiles > 6 ? 'packed' : tiles > 3 ? 'dense' : 'roomy';
-    for (const b of this.simple.querySelectorAll('#avGraphZoom [data-zoom]')) { const on = b.dataset.zoom === l.zoom; b.classList.toggle('on', on); b.setAttribute('aria-pressed', String(on)); }
+    const zoom = ZOOMS.find((z) => z.id === l.zoom) || ZOOMS[0];
+    const zb = this.$('avGraphZoom');
+    if (zb) {
+      zb.dataset.zoom = zoom.id;
+      zb.setAttribute('aria-label', `Live graph of power, heart rate and cadence over the workout's targets, showing ${zoom.secs ? 'the last ' + zoom.label : 'the whole ride'}. Tap to change the zoom.`);
+      this.setText('avGraphZoomLabel', `${zoom.secs ? zoom.label : 'Whole ride'} · tap to zoom`);
+    }
     for (const n of this.simple.querySelectorAll('.av-legend [data-legend]')) n.hidden = !l.lines[n.dataset.legend];
     this._layout = l;
     this._graphKey = '';
@@ -266,6 +289,7 @@ export class RideView {
     const bar = this.$('avRideProgress');
     if (bar) bar.style.width = `${free || ramp ? 0 : Math.max(0, Math.min(100, elapsed / Math.max(1, elapsed + left) * 100))}%`;
     // A visual pulse when the step changes (the app plays its own audio cues).
+    if (this._lastStep != null && this._lastStep !== i) this.disarmSkip();
     if (running && this._lastStep != null && this._lastStep !== i) this.flash();
     this._lastStep = i;
     if (route !== 'ride/live') { this.updateBanner(app); return; }

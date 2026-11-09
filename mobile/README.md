@@ -228,8 +228,9 @@ Android back closes a sheet, then goes back a page, then to the tab's first scre
   target, the step countdown (it pulses before a step change), elapsed time and time left, and **End**, **Pause**
   and **Next interval** fixed at the bottom. End asks before it saves, and so does back.
 - **Live graph**: your power, heart rate and cadence over the targets you have ridden and the ones still to come.
-  **All**, **10 min**, **3 min** and **1 min** zoom in; a zoomed graph follows the ride, with the next target in
-  view. Touching the graph does nothing else: it can never move the workout back or forward.
+  Tap the graph to step its zoom: whole ride, 10 min, 3 min, 1 min, then back (the corner shows which). A zoomed
+  graph follows the ride, with the next target in view. A tap does nothing else: it can never move the workout
+  back or forward. **Next interval** takes two taps (*Tap again to skip*), so a stray touch does not skip a step.
 - **Metrics** (top of the ride screen) is a sheet of switches, each with its live value: the graph, the next step
   and coach tips, the graph's lines, and every tile (heart rate, cadence, 1 / 3 / 30 s power, average, NP, W/kg,
   W′ balance, L/R balance, HR drift, IF, TSS, distance, speed, intensity, ERG, power source, PowerMatch). A tap
@@ -267,7 +268,7 @@ Android back closes a sheet, then goes back a page, then to the tab's first scre
 ```bash
 npm test               # unit tests: ride handoff, merging and recovery (screen off), Bluetooth shim, Strava upload client and token exchangers (own application, broker, switching), upload queue and ledger, AI engine vs server.js, intervals.icu wellness (Node, no browser)
 npm run test:browser   # the built app in Chromium with a simulated FTMS trainer, HR strap, Strava, Claude and intervals.icu
-npm run test:phone     # phone layout at 393x852 with touch: tabs, back, deep links, taps to reach, no sideways scroll, 44 px targets, ride parity, the one ride screen (graph zoom, touches on the graph, Metrics switches); History (U3); Train parity (workouts, coach, calendar, ask)
+npm run test:phone     # phone layout at 393x852 with touch: tabs, back, deep links, taps to reach, no sideways scroll, 44 px targets, ride parity, the one ride screen (tap-to-zoom graph, two-tap skip, Metrics switches); History (U3); Train parity (workouts, coach, calendar, ask)
 ```
 
 The browser test pairs the trainer through the in-app chooser and rides an ERG workout. It checks the trainer gets its targets, drops and reconnects the link, saves the ride, signs in to Strava, uploads the FIT file and records it in the ledger, checks that no Strava activity is ever read, signs in through a token broker in a second app (no secret on the phone, own application under Advanced), queues an auto-upload while offline and sends it on resume, saves an AI key, asks a question in Ask, gets an AI interval breakdown, backfills health data from intervals.icu and reloads the app. The **Android app** GitHub workflow runs both, then builds the APK. For riding with the screen off it halts the page mid-ride while a fake native recorder in the test runner keeps recording and moves ERG to the next step, checks every second is merged back once on resume, then reloads the page mid-ride (the live ride is taken back), then kills the app in the background and recovers the ride from the journal. `cd android && ./gradlew testDebugUnitTest` runs the JVM tests of the native recorder (parsers, takeover, ramp test, journal).
