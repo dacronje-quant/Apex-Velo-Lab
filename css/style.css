@@ -794,6 +794,7 @@ button.cal-ytd-card:hover { border-color: rgba(124, 200, 255, 0.45); transform: 
 .input-field, .form-input { width: 100%; height: 38px; padding: 0 12px; border-radius: var(--radius-sm); background: var(--surface-sunk); border: 1px solid var(--line-strong); color: var(--text-1); font-size: 13px; letter-spacing: 0; text-transform: none; font-weight: 500; }
 select.input-field { appearance: none; -webkit-appearance: none; padding-right: 30px; background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%239aa7bd' stroke-width='2.5'%3E%3Cpath d='m6 9 6 6 6-6'/%3E%3C/svg%3E"); background-repeat: no-repeat; background-position: right 10px center; }
 select.input-field option { background: var(--bg-2); }
+textarea.input-field { height: auto; min-height: 76px; padding: 9px 12px; line-height: 1.45; resize: vertical; font-family: inherit; }
 .input-field:focus, .form-input:focus { outline: none; border-color: rgba(124, 200, 255, 0.55); box-shadow: 0 0 0 3px rgba(124, 200, 255, 0.12); }
 .input-row { display: flex; gap: 6px; }
 #aiCoachConfigCard .input-row { margin-bottom: 12px; }
@@ -843,17 +844,6 @@ select.input-field option { background: var(--bg-2); }
 .phase-meta { font-size: 11.5px; color: var(--text-3); margin: 3px 0 6px; }
 .phase-zones { display: flex; flex-wrap: wrap; gap: 4px; }
 .ai-coach-card .btn-row { margin-bottom: 14px; }
-.week-plan { display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); gap: 8px; }
-.plan-day { display: flex; flex-direction: column; gap: 6px; padding: 10px; border-radius: var(--radius-md); background: var(--surface-sunk); border: 1px solid var(--line); text-align: left; min-width: 0; transition: border-color .15s, transform .15s; }
-.plan-day:hover:not(.off) { border-color: rgba(177, 153, 255, 0.5); transform: translateY(-2px); }
-.plan-day.today { border-color: rgba(124, 200, 255, 0.55); }
-.plan-day.off { opacity: 0.6; cursor: default; }
-.plan-dow { font-size: 11px; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase; color: var(--text-3); }
-.plan-day.today .plan-dow { color: var(--cyan); }
-.plan-bar { height: 56px; display: flex; align-items: flex-end; border-radius: 4px; background: rgba(148, 163, 184, 0.05); overflow: hidden; }
-.plan-bar span { width: 100%; border-radius: 4px 4px 0 0; transition: height .4s var(--ease); }
-.plan-title { font-size: 12px; color: var(--text-1); line-height: 1.3; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; min-height: 31px; }
-.plan-meta { font-size: 10.5px; color: var(--text-3); }
 
 /* ------------------------------------------------------------------ modals */
 .modal-overlay { position: fixed; inset: 0; z-index: 400; display: flex; align-items: flex-start; justify-content: center; padding: 6vh 16px 16px; background: rgba(2, 5, 12, 0.66); backdrop-filter: blur(6px); -webkit-backdrop-filter: blur(6px); opacity: 0; pointer-events: none; transition: opacity .2s var(--ease); overflow-y: auto; }
@@ -1104,7 +1094,6 @@ body.focus-mode #valInstantPower { font-size: clamp(120px, 14vw, 220px); }
   .prog-grid { grid-template-columns: 1fr; }
   .ai-coach-grid { grid-template-columns: 1fr; }
   .ai-coach-telemetry-banner { grid-template-columns: repeat(3, minmax(0, 1fr)); }
-  .week-plan { grid-template-columns: repeat(4, minmax(0, 1fr)); }
   .calendar-grid { grid-template-columns: repeat(4, minmax(0, 1fr)); }
 }
 @media (max-width: 860px) {
@@ -1125,7 +1114,6 @@ body.focus-mode #valInstantPower { font-size: clamp(120px, 14vw, 220px); }
   .calendar-ride-card.list > :nth-child(3), .calendar-ride-card.list > :nth-child(4) { display: none; }
   .zen-secondary-strip { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .zen-top-center { display: none; }
-  .week-plan { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .assess-grid, .form-grid { grid-template-columns: 1fr; }
   .search-wrap { min-width: 0; width: 100%; }
 }
@@ -2069,7 +2057,7 @@ body::before {
 
 /* Glass tiles inside glass panels */
 .kpi, .tile, .pp-cell, .cp-stat, .cp-pace-cell, .scrub-cell, .hf-stat-box, .alltime-tile, .cal-ytd-card, .insight,
-.phase-card, .plan-day, .goal-pill, .hw-card, .sync-method-item, .record-row, .leg-stat-box, .profile-item-row,
+.phase-card, .goal-pill, .hw-card, .sync-method-item, .record-row, .leg-stat-box, .profile-item-row,
 .calendar-stat-group, .import-row, .prog-card, .qa-quad, .analysis-item, .strava-panel, .zen-up-next-banner {
   background: rgba(255, 255, 255, 0.045); border: 1px solid rgba(255, 255, 255, 0.08); border-radius: 18px;
 }
@@ -2123,7 +2111,6 @@ select.input-field option, .header-profile-dropdown option { background: #10142a
 .goal-pill { transition: transform .35s var(--spring), border-color .2s, background .2s; }
 .goal-pill:hover { transform: translateY(-2px); }
 .goal-pill.active { border-color: color-mix(in srgb, var(--zone-a) 65%, transparent); background: linear-gradient(160deg, color-mix(in srgb, var(--zone-a) 20%, transparent), rgba(255, 255, 255, 0.03)); }
-.plan-day.today { border-color: color-mix(in srgb, var(--zone-a) 60%, transparent); }
 .ai-coach-advice-box, .thinking-trace { border-radius: 18px; background: rgba(255, 255, 255, 0.045); border-color: rgba(255, 255, 255, 0.09); }
 .md pre.code { border-radius: 14px; background: rgba(3, 5, 14, 0.6); }
 

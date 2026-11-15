@@ -261,7 +261,7 @@ class VeloSportScience {
 GOAL MODEL: limited by ${m.determinants}. Intensity distribution: ${m.distribution}. Key-session menu: ${m.menu}. Progression: ${m.progression}. Avoid: ${m.avoid}.
 EVIDENCE:
 ${lines.join('\n')}
-EVIDENCE PROTOCOL: base each decision on this brief, giving grade A/B findings more weight than grade C. Where the brief is silent, use established physiology and treat it as practice-based. The rider's own data outranks population averages when they disagree. Cite only the references listed above, written exactly as shown (e.g. "${E.tid.refs[0]}"); never cite any other study.`;
+EVIDENCE PROTOCOL: this brief is your reference, not a script. Give grade A/B findings more weight than grade C; the key-session menu lists proven examples, not the only sessions allowed. Where the brief is silent, use established physiology and coaching practice. The rider's own data and stated wishes outrank population averages when they disagree. Cite only the references listed above, written exactly as shown (e.g. "${E.tid.refs[0]}"); never cite any other study.`;
   }
 
   /** Short JSON schema line the prompts add so the answer carries its evidence. */

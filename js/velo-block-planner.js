@@ -462,16 +462,16 @@ CURRENT STATE: CTL ${ctx.ctl.toFixed(1)}, ATL ${ctx.atl.toFixed(1)}, TSB ${ctx.t
 NON-CYCLING ACTIVITIES (from Strava, last ${ctx.lookbackDays} days, newest first):
 ${ctx.otherActivities && ctx.otherActivities.line ? ctx.otherActivities.line : '- None recorded.'}
 LAST ${ctx.lookbackDays} DAYS: ${h.ridesWin} rides, ${h.hoursPerWeekWin} h/week, intensity mix easy ${h.lowIntensityPct ?? 'n/a'}% / tempo-SweetSpot ${h.midIntensityPct ?? 'n/a'}% / threshold+ ${h.highIntensityPct ?? 'n/a'}%; days since last hard ride ${h.daysSinceHard ?? 'n/a'}; power profile ${h.profileType || 'n/a'}.
-${ctx.notes ? `RIDER NOTES: ${ctx.notes}\n` : ''}DEFAULT STRUCTURE (adjust if the physiology says so): ${skel.map((s, i) => `W${i + 1} ${s.type}`).join(', ')}.
+${ctx.notes ? `RIDER'S OWN WORDS (events, constraints and wishes - these outrank the defaults below; shape the block around them and say in summary how you did):\n"""\n${ctx.notes}\n"""\n` : ''}DEFAULT STRUCTURE (adjust it freely for this rider): ${skel.map((s, i) => `W${i + 1} ${s.type}`).join(', ')}.
 
-${evidence}PRINCIPLES TO APPLY: progressive overload with CTL ramp 2-6 per load week (lower if fatigued or low training age); 3:1 or 2:1 load:recovery; recovery weeks ~40-50% less load but keep brief intensity; phase progression toward the goal (general -> specific); 1-3 key sessions per week depending on hours; most time easy (polarised or pyramidal); final week lighter with an FTP ramp test.
+${evidence}PRINCIPLES (strong defaults, not fixed rules - depart from one when this rider's data or wishes call for it, and say why in summary): progressive overload with CTL ramp 2-6 per load week (lower if fatigued or low training age); 3:1 or 2:1 load:recovery; recovery weeks ~40-50% less load but keep brief intensity; phase progression toward the goal (general -> specific); 1-3 key sessions per week depending on hours; most time easy (polarised or pyramidal); final week lighter with an FTP ramp test.
 
-WRITING STYLE: Use plain language for a beginner in summary, phase and notes. Explain the plan's purpose, how it builds gradually and when to rest. Do not quote CTL, ATL, TSB, TSS, predicted fitness scores or percentages in prose. Use numbers only when they help the rider act. Explain any essential technical term immediately. Keep numeric planning fields and enum values exact.
+WRITING: talk to the rider directly, like a good coach to a committed amateur - specific and honest, no filler. In summary explain what limits this rider now, how the block addresses it, how the load builds and where the rest falls, with the numbers from their data that back it. Use the app's words fitness (CTL), fatigue (ATL) and form (TSB), and give a few plain words the first time you use a less common term. Keep numeric planning fields and enum values exact.
 
 Return ONLY JSON:
 {
-  "summary": "3-5 sentences: the logic of this block for this rider",
-  "weeks": [ { "week": 1, "type": "build" | "recovery" | "test", "phase": "short phase name", "targetTss": 350, ${opts.aiChoosesHours ? '"recommendedHours": 3, ' : ''}"keySessions": ["sweetspot" | "threshold" | "vo2max", ...], "notes": "one sentence: the week's intent and how its hard sessions progress" } ]${evidence ? `,
+  "summary": "4-8 sentences: the logic of this block for this rider",
+  "weeks": [ { "week": 1, "type": "build" | "recovery" | "test", "phase": "short phase name", "targetTss": 350, ${opts.aiChoosesHours ? '"recommendedHours": 3, ' : ''}"keySessions": ["sweetspot" | "threshold" | "vo2max", ...], "notes": "one or two sentences: the week's intent and how its hard sessions progress" } ]${evidence ? `,
   ${VeloSportScience.OUTPUT_FIELD}` : ''}
 }${evidence ? '\nevidence: 3-5 items explaining the main choices of this block, in plain language.' : ''}
 Exactly ${opts.weeks} weeks; the last week has type "test". targetTss is the week's total TSS. keySessions lists the hard sessions in order of priority (the app places them on days, spaces them 48 h apart and adds the easy rides and long ride).`;

@@ -164,22 +164,6 @@
         const wk = this.aiCoach.currentRecommendation?.workout;
         if (wk) this.saveWorkoutPermanently(wk);
       });
-      this.on(document.getElementById('aiCoachWeekPlan'), 'click', (e) => {
-        const b = e.target.closest('[data-plan-focus]');
-        if (!b) return;
-        const sel = document.getElementById('selectAiCoachFocus');
-        const dur = document.getElementById('selectAiCoachDuration');
-        if (sel) sel.value = b.dataset.planFocus === 'endurance-long' ? 'endurance' : b.dataset.planFocus;
-        if (dur && b.dataset.planMin) {
-          const want = parseInt(b.dataset.planMin, 10);
-          const opts = Array.from(dur.options).map(o => parseInt(o.value, 10)).filter(Number.isFinite);
-          dur.value = String(opts.reduce((a, c) => (Math.abs(c - want) < Math.abs(a - want) ? c : a), opts[0]));
-          dur.dispatchEvent(new Event('change', { bubbles: true }));
-        }
-        this.setCoachMode('session');
-        window.scrollTo({ top: 0, behavior: 'smooth' });
-        this.showToast("Request updated from the outlook - press Prescribe today's workout.");
-      });
 
       this.updateCoachEngineStatus();
       if (this.initTrainingBlockUi) this.initTrainingBlockUi();
@@ -255,7 +239,7 @@
       });
       this.setText('coachBuilderChip', this.coachMode === 'plan' ? 'Training plan' : 'One workout');
       const notes = document.getElementById('inputAiCoachNotes');
-      if (notes) notes.placeholder = this.coachMode === 'plan' ? 'e.g. gran fondo in 10 weeks, no rides on Friday' : 'e.g. legs heavy after yesterday, want low cadence work';
+      if (notes) notes.placeholder = this.coachMode === 'plan' ? 'e.g. gran fondo in 10 weeks, no rides on Friday, keep Tuesdays short' : 'e.g. legs heavy after yesterday, want low cadence work - or describe the exact session you want';
       if (persist) try { localStorage.setItem('apex_coach_mode', this.coachMode); } catch (e) { /* ignore */ }
       this.updateCoachGoButton();
       this.renderCoachPlanToday();
@@ -333,7 +317,7 @@
       const welcome = document.getElementById('aiCoachWelcomeCard');
       if (panel) panel.style.display = 'none';
       if (welcome) welcome.style.display = 'block';
-      ['aiCoachIntervalTableBody', 'aiCoachPhaseCards', 'aiCoachWeekPlan'].forEach(id => { const el = document.getElementById(id); if (el) el.innerHTML = ''; });
+      ['aiCoachIntervalTableBody', 'aiCoachPhaseCards'].forEach(id => { const el = document.getElementById(id); if (el) el.innerHTML = ''; });
       const canvas = document.getElementById('aiCoachIntervalCanvas');
       if (canvas) canvas.getContext('2d').clearRect(0, 0, canvas.width, canvas.height);
       const wrap = document.getElementById('aiCoachThinkingWrap');
@@ -458,7 +442,6 @@
           return `<tr><td class="num">${i + 1}</td><td><b>${esc(iv.name)}</b></td><td><span class="zone-dot" style="--zc:${z.color}"></span><span class="num">${iv.pctFtp}% FTP</span> <small>${z.short}</small></td><td class="num strong">${Math.round(ftp * iv.pctFtp / 100)}W</td><td class="num">${iv.cadence || this.getCurrentTargetCadence(iv)} RPM</td><td class="num">${this.fmtTime(iv.duration)}</td></tr>`;
         }).join('');
       }
-      this.renderWeekPlan(rec.weekPlan);
     },
 
     /** Groups the prescription into warm-up / main set / recovery / cool-down cards with zone time. */
@@ -487,25 +470,6 @@
         const zones = Object.entries(g.zoneSec).sort((a, b) => b[1] - a[1]).map(([z, s]) => `<span class="zone-chip zone-${z.toLowerCase()}">${z} ${this.fmtTime(s)}</span>`).join('');
         return `<div class="phase-card"><div class="phase-head"><b>${p}</b><span class="num">${this.fmtTime(g.sec)} - ${Math.round((g.sec / total) * 100)}%</span></div>
           <div class="phase-meta num">${g.steps} step${g.steps === 1 ? '' : 's'} - peak ${g.maxPct}% (${Math.round(this.activeProfile.ftp * g.maxPct / 100)} W)</div><div class="phase-zones">${zones}</div></div>`;
-      }).join('');
-    },
-
-    renderWeekPlan(plan) {
-      const el = document.getElementById('aiCoachWeekPlan');
-      if (!el) return;
-      if (!plan || !Array.isArray(plan.days) || !plan.days.length) { el.innerHTML = '<div class="mix-note">No weekly outlook.</div>'; this.setText('aiCoachWeekTss', '--'); return; }
-      const total = plan.days.reduce((a, d) => a + (Number(d.tss) || 0), 0);
-      this.setText('aiCoachWeekTss', `${Math.round(total)} TSS${plan.ramp !== undefined ? ` - CTL ramp +${plan.ramp}/wk` : ''}`);
-      const maxT = Math.max(1, ...plan.days.map(d => Number(d.tss) || 0));
-      const colorFor = { recovery: '#7c8aa5', endurance: '#3b82f6', 'endurance-long': '#3b82f6', sweetspot: '#eab308', threshold: '#f97316', vo2max: '#ef4444', vo2: '#ef4444', off: '#334155' };
-      el.innerHTML = plan.days.slice(0, 7).map((d, i) => {
-        const off = d.focus === 'off' || !d.durationMin;
-        return `<button type="button" class="plan-day ${i === 0 ? 'today' : ''} ${off ? 'off' : ''}" ${off ? '' : `data-plan-focus="${esc(d.focus)}" data-plan-min="${Number(d.durationMin) || 45}"`} title="${off ? 'Rest day' : 'Use this as the next request'}">
-          <span class="plan-dow">${esc(d.dayLabel || '')}</span>
-          <span class="plan-bar"><span style="height:${Math.max(4, ((Number(d.tss) || 0) / maxT) * 100)}%;background:${colorFor[d.focus] || '#64748b'}"></span></span>
-          <b class="plan-title">${esc(d.title || d.focus)}</b>
-          <span class="plan-meta num">${off ? 'Rest' : `${Math.round(Number(d.durationMin)) || 0} min - ${Math.round(Number(d.tss) || 0)} TSS`}</span>
-        </button>`;
       }).join('');
     },
 
