@@ -2224,3 +2224,5 @@ select.input-field option, .header-profile-dropdown option { background: #10142a
 }
 .power-view-btn:hover { color: var(--text-1); border-color: rgba(255, 255, 255, 0.24); }
 .zen-smoothing-bar .power-view-btn { letter-spacing: .02em; font-size: 13px; }
+.ss-dock-bias[data-ctl="length"] .bias-val-display { min-width: 0; padding: 0 2px; color: var(--text-3); }
+#rideControlSettings .toggle { display: flex; margin: 12px 0; }

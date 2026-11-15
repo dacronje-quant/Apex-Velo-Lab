@@ -235,13 +235,18 @@
             <span class="hero-stat-badge" data-term-tip="wkg"><small>W/kg</small><strong class="num" id="valWkg">0.00</strong></span>
           </div>
           <div class="ss-dock">
-            <div class="bias-stepper segmented ss-dock-bias">
+            <div class="bias-stepper segmented ss-dock-bias" data-ctl="intensity">
               <button type="button" id="btnBiasMinus5" title="ERG bias -5%">&minus;5%</button>
               <div class="bias-val-display num" id="biasValueDisplay">100%</div>
               <button type="button" id="btnBiasPlus5" title="ERG bias +5%">+5%</button>
             </div>
             <button type="button" class="btn btn-start" id="btnPlayPause"><svg class="ic"><use id="btnPlayPauseIcon" href="#i-play"/></svg><span id="btnPlayPauseText">START WORKOUT</span></button>
-            <button type="button" class="btn btn-step" id="btnSkipInterval" title="Skip to the next step (&rarr;)"><svg class="ic"><use href="#i-skip"/></svg><span>Next step</span></button>
+            <div class="bias-stepper segmented ss-dock-bias" data-ctl="length" role="group" aria-label="Current step length">
+              <button type="button" data-step-len="-30" title="Shorten the current step by 30 s">&minus;30s</button>
+              <div class="bias-val-display">Step</div>
+              <button type="button" data-step-len="30" title="Extend the current step by 30 s">+30s</button>
+            </div>
+            <button type="button" class="btn btn-step" id="btnSkipInterval" data-ctl="skip" title="Skip to the next step (&rarr;)"><svg class="ic"><use href="#i-skip"/></svg><span>Next step</span></button>
             <button type="button" class="btn btn-stop" id="btnEndWorkout" title="Finish and save this session"><svg class="ic"><use href="#i-stop"/></svg><span>STOP &amp; SAVE</span></button>
           </div>
         </div>
@@ -1202,7 +1207,8 @@
         <div class="strava-sync-strength">
           <label class="toggle"><input type="checkbox" id="chkStrengthInFatigue" checked><span class="toggle-ui"></span><span>Count strength sessions in fatigue (ATL)</span></label>
           <label class="toggle"><input type="checkbox" id="chkStrengthInFitness"><span class="toggle-ui"></span><span>Also count them in cycling fitness (CTL)</span></label>
-          <label class="toggle"><input type="checkbox" id="chkStravaAutoCheck" checked><span class="toggle-ui"></span><span>Check Strava for changes when the app opens (read-only)</span></label>
+          <label class="toggle"><input type="checkbox" id="chkStravaAutoCheck" checked><span class="toggle-ui"></span><span>Check Strava for changes when the app opens</span></label>
+          <label class="toggle"><input type="checkbox" id="chkStravaAutoSync" checked><span class="toggle-ui"></span><span>Import new activities automatically (anything deleted on Strava or needing a decision still waits for you)</span></label>
         </div>
       </div>
 
@@ -1309,6 +1315,7 @@
       </div>
       <nav class="settings-nav segmented" id="settingsNav">
         <button type="button" class="cat-pill active" data-sec="rider">Rider</button>
+        <button type="button" class="cat-pill" data-sec="ride">Ride screen</button>
         <button type="button" class="cat-pill" data-sec="ai">AI engine</button>
         <button type="button" class="cat-pill" data-sec="health">Apple Health</button>
         <button type="button" class="cat-pill" data-sec="backups">Backups</button>
@@ -1390,6 +1397,13 @@
         <div class="settings-kv" id="settingsRiderSummary"></div>
         <div class="btn-row"><button type="button" class="btn btn-primary" id="btnSettingsEditRider"><svg class="ic"><use href="#i-user"/></svg>Edit rider profiles</button></div>
         <p class="field-help">New installations start with placeholder values and no rides. <a href="?apexDemo=1" target="_blank" rel="noopener">Explore the synthetic demo</a> in isolated storage, or import your own rides in History. <a href="docs/LOCAL-SETUP.md" target="_blank" rel="noopener">Local setup guide</a>.</p>
+      </section>
+
+      <section class="settings-section" data-sec="ride" id="rideControlSettings">
+        <p class="field-help">Choose which controls sit on the ride screen (cockpit, Zen and the phone view). Hidden controls still work from the keyboard.</p>
+        <label class="toggle"><input type="checkbox" id="chkCtlIntensity" data-ride-ctl="intensity" checked><span class="toggle-ui"></span><span>Intensity &middot; make the targets easier or harder (&minus; / +)</span></label>
+        <label class="toggle"><input type="checkbox" id="chkCtlLength" data-ride-ctl="length" checked><span class="toggle-ui"></span><span>Interval length &middot; shorten or extend the current step (&minus;30 s / +30 s)</span></label>
+        <label class="toggle"><input type="checkbox" id="chkCtlSkip" data-ride-ctl="skip" checked><span class="toggle-ui"></span><span>Next step &middot; skip to the next interval</span></label>
       </section>
 
       <section class="settings-section" data-sec="ai" id="aiCoachConfigCard">
@@ -1558,10 +1572,17 @@
     <div class="zen-bottom-bar">
       <div class="btn-row btn-row-tight">
         <button type="button" class="btn btn-start" id="btnZenPlayPause">START</button>
-        <button type="button" class="btn btn-ghost" id="btnZenSkipStep"><svg class="ic"><use href="#i-skip"/></svg>Skip step</button>
+        <button type="button" class="btn btn-ghost" id="btnZenSkipStep" data-ctl="skip"><svg class="ic"><use href="#i-skip"/></svg>Skip step</button>
       </div>
-      <div class="zen-bias-group">
-        <span class="ctrl-label">ERG bias</span>
+      <div class="zen-bias-group" data-ctl="length">
+        <span class="ctrl-label">Step length</span>
+        <div class="bias-stepper segmented">
+          <button type="button" data-step-len="-30">&minus;30s</button>
+          <button type="button" data-step-len="30">+30s</button>
+        </div>
+      </div>
+      <div class="zen-bias-group" data-ctl="intensity">
+        <span class="ctrl-label">Intensity</span>
         <div class="bias-stepper segmented">
           <button type="button" id="btnZenBiasMinus5">&minus;5%</button>
           <button type="button" id="btnZenBiasMinus1">&minus;1%</button>

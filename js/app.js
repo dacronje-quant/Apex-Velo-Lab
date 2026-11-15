@@ -903,6 +903,25 @@ class VeloApp {
     this.renderIntervalTrack();
   }
 
+  /** Which ride controls are on display: { intensity, length, skip } (all on unless switched off in Settings). */
+  rideControls() {
+    let saved = {};
+    try { saved = JSON.parse(localStorage.getItem('apex_ride_controls') || '{}') || {}; } catch (e) { saved = {}; }
+    return { intensity: saved.intensity !== false, length: saved.length !== false, skip: saved.skip !== false };
+  }
+
+  setRideControl(key, on) {
+    const next = { ...this.rideControls(), [key]: !!on };
+    try { localStorage.setItem('apex_ride_controls', JSON.stringify(next)); } catch (e) { /* kept for this session only */ }
+    this.applyRideControls(next);
+    if (this.publishSoon) this.publishSoon(); // the phone view follows
+  }
+
+  applyRideControls(c = this.rideControls()) {
+    this._rideControls = c;
+    document.querySelectorAll('[data-ctl]').forEach(el => { el.hidden = !c[el.dataset.ctl]; });
+  }
+
   // ----------------------------------------------------------- 1 Hz engine --
   rampTestConfig(workout = this.currentWorkout) {
     return workout?.autoRamp || (workout?.id === 'ramp' ? { stepPctFtp: 7, stepSeconds: 60 } : null);
@@ -2480,6 +2499,13 @@ class VeloApp {
     this.on(window, 'beforeunload', (e) => { if (this.hasUnsavedRide()) { e.preventDefault(); e.returnValue = ''; } });
     this.on(this.$('btnSkipInterval'), 'click', () => this.skipInterval());
     this.on(this.$('btnExtendInterval'), 'click', () => this.adjustIntervalDuration(30));
+    document.querySelectorAll('[data-step-len]').forEach(b => this.on(b, 'click', () => this.adjustIntervalDuration(Number(b.dataset.stepLen))));
+    // Settings > Ride screen: which controls are on display (cockpit, Zen and the phone view).
+    this.applyRideControls();
+    document.querySelectorAll('[data-ride-ctl]').forEach(chk => {
+      chk.checked = this.rideControls()[chk.dataset.rideCtl];
+      this.on(chk, 'change', () => this.setRideControl(chk.dataset.rideCtl, chk.checked));
+    });
     this.on(this.$('btnShortenInterval'), 'click', () => this.adjustIntervalDuration(-30));
     this.on(this.$('upcomingCardsContainer'), 'click', (e) => {
       const card = e.target.closest('.upcoming-card');

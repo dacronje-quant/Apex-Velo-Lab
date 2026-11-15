@@ -204,6 +204,7 @@
         targetPct: iv ? Math.round(iv.pctFtp * this.ergBiasMultiplier) : null,
         zone: { name: zone.name, short: zone.short, color: zone.color },
         power5,
+        controls: this._rideControls || (this.rideControls ? this.rideControls() : null),
         powerAverages: Object.fromEntries([3, 5, 7, 10].map(seconds => [seconds,
           this.isPlaying && this.powerBuffer && this.powerBuffer.length ? this.getSmoothedPower(seconds) : power])),
         powerAvgSec: PHONE_POWER_SEC,
@@ -478,6 +479,8 @@
           this.skipInterval();
           this.showToast('Skipped step from phone', 'info');
           break;
+        case 'interval-plus': if (this.isPlaying) this.adjustIntervalDuration(30); break;
+        case 'interval-minus': if (this.isPlaying) this.adjustIntervalDuration(-30); break;
         case 'bias-up': this.setErgBias(0.01); break;
         case 'bias-down': this.setErgBias(-0.01); break;
         case 'watts-up': this.setErgBiasWatts(5); break;
