@@ -1,15 +1,18 @@
 /**
  * APEX VELO // LAB - Analytics studio (mixin on VeloApp).
  *
- * Turns the Analytics page into modules: a dock of tabs that each carry a live headline value,
- * one panel at a time (keyboard 1-7, [ and ]), drill-down from the overview tiles, an insight feed
- * built only from numbers the page already computed, legend chips that show / hide a series,
- * drag-to-zoom on the time charts and an expanded (full-window) view of any chart card.
+ * Four tabs (Summary, Fitness, Power, Health), one on screen at a time (keyboard 1-4, [ and ]). Each tab
+ * shows its two or three main cards; the rest sits in a "More detail" fold that remembers whether it is open.
+ * Also: drill-down from the Summary numbers, an "Also worth knowing" feed built only from numbers the page
+ * already computed, legend chips that show / hide a series, drag-to-zoom and an expanded view of any chart card.
  */
 (function () {
   const esc = (v) => String(v ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
   const reducedMotion = () => typeof matchMedia === 'function' && matchMedia('(prefers-reduced-motion: reduce)').matches;
   const PANEL_KEY = 'apex_ana_panel';
+  const MORE_KEY = 'apex_ana_more';
+  /** Sections that used to be tabs of their own: links to them land on the tab that now holds their cards. */
+  const PANEL_ALIAS = { ftp: 'power', intensity: 'load', aerobic: 'load' };
 
   /** Draws the drag-to-zoom selection and drops a zoom the app has since replaced (range change). */
   const brushPlugin = {
@@ -69,7 +72,18 @@
         if (m && keys[Number(m[1]) - 1]) { e.preventDefault(); this.showAnalyticsPanel(keys[Number(m[1]) - 1]); }
         else if (e.code === 'BracketRight' || e.code === 'BracketLeft') { e.preventDefault(); this.stepAnalyticsPanel(e.code === 'BracketRight' ? 1 : -1); }
       });
-      document.querySelectorAll('#anaPager .ana-pager-btn').forEach(b => this.on(b, 'click', () => this.stepAnalyticsPanel(Number(b.dataset.dir), true)));
+
+      // "More detail" folds: remember which are open; charts inside were measured while closed, so fit them on open.
+      let openMore = [];
+      try { openMore = JSON.parse(localStorage.getItem(MORE_KEY) || '[]'); } catch (e) { /* none */ }
+      view.querySelectorAll('details.ana-more').forEach(dt => {
+        if (Array.isArray(openMore) && openMore.includes(dt.dataset.more)) dt.open = true;
+        this.on(dt, 'toggle', () => {
+          if (dt.open) requestAnimationFrame(() => this.anaChartsIn(dt).forEach(c => c.resize()));
+          const open = [...view.querySelectorAll('details.ana-more[open]')].map(x => x.dataset.more);
+          try { localStorage.setItem(MORE_KEY, JSON.stringify(open)); } catch (e) { /* not kept */ }
+        });
+      });
 
       // Drill-down: tiles, today pills and insights carry data-goto (panel) and data-spot (card id).
       const go = (el) => this.showAnalyticsPanel(el.dataset.goto, { spot: el.dataset.spot });
@@ -105,15 +119,6 @@
 
       this.initAnaExpand();
 
-      // Sticky dock gets a solid backdrop once it is stuck under the header.
-      const sentinel = document.getElementById('anaDockSentinel');
-      if (sentinel && typeof IntersectionObserver === 'function') {
-        const header = parseFloat(getComputedStyle(document.documentElement).getPropertyValue('--header-h')) || 68;
-        const io = new IntersectionObserver(([en]) => nav.classList.toggle('is-stuck', !en.isIntersecting && en.boundingClientRect.top < header + 20),
-          { rootMargin: `-${header + 9}px 0px 0px 0px` });
-        io.observe(sentinel);
-        this._anaDockObserver = io;
-      }
       if (typeof ResizeObserver === 'function') {
         const ro = new ResizeObserver(() => this.moveAnaGlider(false));
         ro.observe(nav);
@@ -121,13 +126,14 @@
       }
 
       let start = 'overview';
-      try { const saved = localStorage.getItem(PANEL_KEY); if (saved && this.anaPanels().includes(saved)) start = saved; } catch (e) { /* storage blocked */ }
+      try { const saved = localStorage.getItem(PANEL_KEY); if (saved && this.anaPanels().includes(PANEL_ALIAS[saved] || saved)) start = saved; } catch (e) { /* storage blocked */ }
       this.showAnalyticsPanel(start, { instant: true, remember: false });
     },
 
     /** Shows one module. opts: spot (card id to bring into view), focusTab, instant, remember. */
     showAnalyticsPanel(key, opts = {}) {
       const keys = this.anaPanels();
+      key = PANEL_ALIAS[key] || key;
       if (!keys.includes(key)) return;
       const prev = this.anaPanel;
       const dir = prev && keys.indexOf(key) < keys.indexOf(prev) ? -1 : 1;
@@ -158,7 +164,6 @@
         clearTimeout(this._anaEnterTimer);
         this._anaEnterTimer = setTimeout(() => shown.classList.remove('ana-enter'), 900);
       }
-      this.updateAnaPager();
       this.moveAnaGlider(!opts.instant);
 
       // Charts measured while hidden have no size: fit them now and replay their draw-in.
@@ -171,13 +176,9 @@
       });
 
       // Keep the dock in view when switching from deep in a long panel.
-      if (!opts.instant && !opts.spot && this.activeTab === 'analytics') {
+      if (!opts.instant && !opts.spot && this.activeTab === 'analytics' && prev !== key) {
         const nav = document.getElementById('anaSectionNav');
-        const sentinel = document.getElementById('anaDockSentinel');
-        if (nav && sentinel && getComputedStyle(nav).position === 'sticky') {
-          const top = sentinel.getBoundingClientRect().top + window.scrollY - (parseFloat(getComputedStyle(nav).top) || 0) + 1;
-          if (window.scrollY > top) window.scrollTo({ top, behavior: 'auto' });
-        }
+        if (nav && nav.getBoundingClientRect().top < 0) nav.scrollIntoView({ block: 'start', behavior: 'auto' });
       }
       if (opts.spot) requestAnimationFrame(() => this.spotlightAnaCard(opts.spot));
     },
@@ -200,15 +201,6 @@
       return [...root.querySelectorAll('canvas')].map(c => Chart.getChart(c)).filter(Boolean);
     },
 
-    updateAnaPager() {
-      const keys = this.anaPanels();
-      const i = keys.indexOf(this.anaPanel);
-      const name = (k) => document.querySelector(`#anaSectionNav .ana-mod[data-panel="${k}"] .ana-mod-name`)?.textContent || '';
-      const prev = document.getElementById('anaPagerPrev'), next = document.getElementById('anaPagerNext');
-      if (prev) { prev.hidden = i <= 0; this.setText('anaPagerPrevName', i > 0 ? name(keys[i - 1]) : ''); }
-      if (next) { next.hidden = i < 0 || i >= keys.length - 1; this.setText('anaPagerNextName', i < keys.length - 1 ? name(keys[i + 1]) : ''); }
-    },
-
     /** Slides the highlight behind the active module and scrolls it into view on narrow screens. */
     moveAnaGlider(smooth = true) {
       const nav = document.getElementById('anaSectionNav');
@@ -229,6 +221,8 @@
     /** Brings a card into view and pulses its outline. */
     spotlightAnaCard(id) {
       const el = document.getElementById(id);
+      const fold = el && el.closest('details.ana-more');
+      if (fold && !fold.open) { fold.open = true; this.anaChartsIn(fold).forEach(c => c.resize()); }
       if (!el || el.offsetParent === null) return;
       el.scrollIntoView({ block: 'start', behavior: reducedMotion() ? 'auto' : 'smooth' });
       el.classList.remove('ana-spot');
@@ -341,44 +335,10 @@
       if (b) b.focus({ preventScroll: true });
     },
 
-    // ----------------------------------------------- dock values & insights --
-    /** Headline value on each dock module plus the "What changed" feed (after every dashboard render). */
+    // ------------------------------------------------------------- insights --
+    /** The "Also worth knowing" feed (after every dashboard render). */
     renderAnaOverview() {
-      const d = this._dashData;
-      if (!d) return;
-      const text = (id) => (document.getElementById(id)?.textContent || '').trim();
-      const tile = (k) => d.tiles.find(t => t.key === k) || {};
-      const fin = (v) => v !== null && v !== undefined && Number.isFinite(v);
-      // Arrow = direction of the 6-week change, colour = whether that direction is good (as on the tiles).
-      const trend = (t, step) => {
-        if (!fin(t.now) || !fin(t.then) || Math.abs(t.now - t.then) < step) return null;
-        const up = t.now > t.then;
-        return { dir: up ? 'up' : 'down', tone: (t.good === 'up') === up ? 'good' : 'bad' };
-      };
-      const setMod = (k, stat, sub, tr = null) => {
-        this.setText('anaModStat-' + k, stat);
-        this.setText('anaModSub-' + k, sub);
-        const el = document.getElementById('anaModStat-' + k);
-        if (el) { el.dataset.dir = tr ? tr.dir : ''; el.dataset.tone = tr ? tr.tone : ''; }
-      };
-      const has = this.cyclingRides().length > 0;
-      const form = text('pmcFormStatus');
-      setMod('overview', has ? text('pmcValTsb') : '--', has && form && form !== '--' ? form : 'form today');
-      const ramp = text('anaRampVal');
-      setMod('load', has ? text('pmcValCtl') : '--', ramp && ramp !== '--' ? `ramp ${ramp} / wk` : 'fitness (CTL)', trend(tile('ctl'), 0.1));
-      const m = this._cpModelForFtp;
-      const pdc = this._pdc;
-      const g20 = typeof VeloPower !== 'undefined' ? VeloPower.gridIndex(1200) : -1;
-      const p20 = pdc && g20 >= 0 ? pdc.range.watts[g20] : null;
-      if (m) setMod('power', `${m.cp} W`, `CP · W′ ${(m.w / 1000).toFixed(1)} kJ`);
-      else if (p20 > 0) setMod('power', `${p20} W`, 'best 20 min');
-      else setMod('power', '--', 'no power data yet');
-      setMod('ftp', text('pmcValFtp') || '--', (text('pmcValWkg').match(/^[\d.]+ W\/kg/) || ['in use'])[0], trend(tile('ftp'), 1));
-      const s = this._anaSeiler;
-      setMod('intensity', s ? s.label : '--', s ? `${Math.round(s.pct[0])}% easy · ${Math.round(s.pct[2])}% hard` : 'needs power data');
-      const ef = tile('ef');
-      setMod('aerobic', fin(ef.now) ? ef.now.toFixed(2) : '--', fin(ef.now) ? 'W per bpm · 30 days' : 'efficiency (EF)', trend(ef, 0.01));
-      this.renderAnaInsights(d);
+      if (this._dashData) this.renderAnaInsights(this._dashData);
     },
 
     renderAnaInsights(d) {
@@ -393,27 +353,7 @@
         box.innerHTML = '<div class="mix-note">No rides yet. Record a ride or import files in History and this page fills in.</div>';
         return;
       }
-      const pmc = d.pmc;
-      if (pmc && fin(pmc.currentTsb)) {
-        const z = VeloMetrics.formZone(pmc.currentTsb);
-        add({ goto: 'load', spot: 'anaCardPmc', icon: 'i-activity', tone: ['fresh', 'productive', 'optimal'].includes(z.key) ? 'good' : 'bad',
-          title: `Form: ${z.label}`, value: signed(pmc.currentTsb, 1), text: z.desc });
-      }
-      const ctl = tile('ctl');
-      if (fin(ctl.now) && fin(ctl.then)) {
-        const dv = ctl.now - ctl.then, v = VeloTrends.rampVerdict(d.ramp);
-        add({ goto: 'load', spot: 'anaCardPmc', icon: 'i-activity', tone: Math.abs(dv) < 0.1 ? 'flat' : dv > 0 ? 'good' : 'bad',
-          title: Math.abs(dv) < 0.1 ? 'Fitness is holding' : `Fitness ${dv > 0 ? 'up' : 'down'} in 6 weeks`, value: signed(dv, 1),
-          text: `CTL ${ctl.now.toFixed(1)} now${v.key !== 'none' ? ` · ramp: ${v.label.toLowerCase()}` : ''}` });
-      }
-      const k = this._progKpis;
-      if (k && k.cur && k.cur.rides) {
-        const c = k.cur, p = k.prev;
-        const pct = p && p.hours ? Math.round(((c.hours - p.hours) / p.hours) * 100) : null;
-        add({ goto: 'load', spot: 'anaCardWeekly', icon: 'i-calendar', tone: pct === null ? 'flat' : pct > 0 ? 'good' : pct < 0 ? 'bad' : 'flat',
-          title: `${c.hours.toFixed(1)} h on the bike`, value: pct === null ? `${c.rides}` : `${pct > 0 ? '+' : ''}${pct}%`,
-          text: `${c.rides} ride${c.rides === 1 ? '' : 's'} · ${Math.round(c.tss).toLocaleString()} TSS${pct === null ? '' : ` · vs the period before`}` });
-      }
+      // Form, fitness and volume are the key numbers above; this feed only adds what they do not say.
       const prs = this._anaPrs || [];
       if (prs.length) add({ goto: 'power', spot: 'anaCardProfile', icon: 'i-trophy', tone: 'good', title: `New PR${prs.length === 1 ? '' : 's'} in the last 90 days`, value: `${prs.length}`, text: prs.join(' · ') });
       const m = this._cpModelForFtp, ftp = Number((this.activeProfile || {}).ftp) || 0;
@@ -430,12 +370,12 @@
         }
       }
       const s = this._anaSeiler;
-      if (s) add({ goto: 'intensity', spot: 'anaCardZones', icon: 'i-focus', tone: 'flat', title: `${s.label} intensity`, value: s.pi === null ? '' : `PI ${s.pi.toFixed(2)}`,
+      if (s) add({ goto: 'load', spot: 'anaCardZones', icon: 'i-focus', tone: 'flat', title: `${s.label} intensity`, value: s.pi === null ? '' : `PI ${s.pi.toFixed(2)}`,
         text: `${s.pct[0]}% low · ${s.pct[1]}% moderate · ${s.pct[2]}% high` });
       const ef = tile('ef');
       if (fin(ef.now) && fin(ef.then) && ef.then > 0) {
         const pct = ((ef.now - ef.then) / ef.then) * 100;
-        add({ goto: 'aerobic', spot: 'anaCardEf', icon: 'i-crank', tone: Math.abs(pct) < 0.5 ? 'flat' : pct > 0 ? 'good' : 'bad',
+        add({ goto: 'load', spot: 'anaCardEf', icon: 'i-crank', tone: Math.abs(pct) < 0.5 ? 'flat' : pct > 0 ? 'good' : 'bad',
           title: `Aerobic efficiency ${Math.abs(pct) < 0.5 ? 'steady' : pct > 0 ? 'rising' : 'slipping'}`, value: `${signed(pct, 1)}%`, text: `EF ${ef.now.toFixed(2)} W per bpm, 30-day average vs 6 weeks ago` });
       }
       const rhr = tile('rhr'), hrv = tile('hrv');
@@ -451,7 +391,7 @@
           <span class="ana-insight-txt"><b>${esc(o.title)}</b><small>${esc(o.text)}</small></span>
           ${o.value ? `<span class="ana-insight-val num">${esc(o.value)}</span>` : ''}
           <svg class="ic ic-xs ana-insight-go"><use href="#i-right"/></svg>
-        </button>`).join('') || '<div class="mix-note">Not enough data in this period yet.</div>';
+        </button>`).join('') || '<div class="mix-note">Nothing else stands out in this period.</div>';
     }
   });
 })();

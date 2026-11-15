@@ -579,13 +579,23 @@ class VeloApp {
     return Math.round(sum / n);
   }
 
+  /** Power shown in the ride view: current (1 s) or a 3 / 5 / 10 s rolling average. Tapping the number steps through them. */
   setSmoothingWindow(sec) {
+    if (!VeloApp.POWER_VIEWS.includes(sec)) sec = 3;
     this.smoothingWindow = sec;
-    document.querySelectorAll('.smooth-pill').forEach(p => p.classList.toggle('active', parseInt(p.dataset.sec, 10) === sec));
-    this.setText('hudPowerHeroLabel', sec === 1 ? '1s INSTANT POWER' : (sec === 60 ? '1m SMOOTHED POWER' : `${sec}s SMOOTHED POWER`));
+    try { localStorage.setItem('apex_power_view', String(sec)); } catch (e) { /* storage blocked */ }
+    const name = sec === 1 ? 'current' : `${sec} second average`;
+    this.setText('hudPowerHeroLabel', sec === 1 ? 'POWER · CURRENT' : `POWER · ${sec}s AVG`);
+    this.setText('zenPowerViewLabel', `${sec === 1 ? 'Current' : sec + 's average'} · tap to change`);
+    ['hudPowerHeroLabel', 'zenPowerViewLabel'].forEach(id => this.$(id)?.setAttribute('aria-label', `Power shown: ${name}. Tap to change.`));
     const smoothed = this.getSmoothedPower(sec);
     this.setText('valInstantPower', smoothed);
     this.setText('zenInstantPower', smoothed);
+  }
+
+  cyclePowerView() {
+    const v = VeloApp.POWER_VIEWS;
+    this.setSmoothingWindow(v[(v.indexOf(this.smoothingWindow) + 1) % v.length]);
   }
 
   // --------------------------------------------------------------- targets --
@@ -2506,11 +2516,17 @@ class VeloApp {
       this.showToast(this.simulator.enabled ? 'Simulator on (used only when no hardware streams).' : 'Simulator off - live hardware only.');
     });
 
-    // Smoothing pills (one delegated handler per group; cockpit and Zen stay in sync)
-    document.querySelectorAll('.power-smoothing-pills').forEach(group => this.on(group, 'click', (e) => {
-      const pill = e.target.closest('.smooth-pill');
-      if (pill) this.setSmoothingWindow(parseInt(pill.dataset.sec, 10) || 3);
-    }));
+    // Tap the power number (cockpit or Zen) or its label to step Current -> 3 s -> 5 s -> 10 s.
+    let savedView = 3;
+    try { savedView = Number(localStorage.getItem('apex_power_view')) || 3; } catch (e) { /* storage blocked */ }
+    this.setSmoothingWindow(savedView);
+    ['hudHeroValue', 'zenHeroPower', 'hudPowerHeroLabel', 'zenPowerViewLabel'].forEach(id => {
+      const el = this.$(id);
+      this.on(el, 'click', () => this.cyclePowerView());
+      if (el && el.tagName !== 'BUTTON') this.on(el, 'keydown', (e) => {
+        if (e.target === el && (e.key === 'Enter' || e.key === ' ')) { e.preventDefault(); this.cyclePowerView(); }
+      });
+    });
 
     // Bluetooth
     this.on(this.$('btnBleFtms'), 'click', () => this.connectDevice('trainer'));
@@ -2772,6 +2788,8 @@ class VeloApp {
     }
   }
 }
+/** Ride-view power averaging choices in seconds (1 = current). */
+VeloApp.POWER_VIEWS = [1, 3, 5, 10];
 
 let app = null;
 window.addEventListener('DOMContentLoaded', async () => {

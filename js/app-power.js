@@ -180,7 +180,7 @@
         this.setText('wbalMatches', '0');
         this.setText('wbalNote', ready ? 'Full - your anaerobic reserve above CP. It drains above CP and recharges below it.'
           : m && m.reason === 'coverage' ? 'Needs a ride of 20 min or more with hard 3-5 min efforts in the last 90 days to model CP and W\u2032.'
-            : 'No CP model from the last 90 days yet - see Analytics \u203a Power & CP.');
+            : 'No CP model from the last 90 days yet - see Analytics \u203a Power \u203a More detail.');
         if (fill) { fill.style.width = ready ? '100%' : '0%'; fill.dataset.level = 'high'; }
         return;
       }

@@ -151,9 +151,10 @@
           const valDist = frame.contentDocument.getElementById('valDistance');
           const hudDist = frame.contentDocument.getElementById('hudTotalDistance');
           const hudSpeed = frame.contentDocument.getElementById('hudCurrentSpeed');
-          const smoothPills = frame.contentDocument.querySelectorAll('#powerSmoothingPills .smooth-pill');
+          const powerTap = frame.contentDocument.getElementById('hudHeroValue');
           log('Cockpit HUD Speed & Distance Elements', valSpeed && valDist && hudDist && hudSpeed, 'All DOM elements mounted');
-          log('Cockpit Multi-Window Smoothing Pills (6 buttons)', smoothPills.length === 6, `Count: ${smoothPills.length}`);
+          const viewBefore = app.smoothingWindow; powerTap.click(); const viewAfter = app.smoothingWindow; app.setSmoothingWindow(viewBefore);
+          log('Tapping the power number changes the averaging (Current / 3s / 5s / 10s)', VeloApp.POWER_VIEWS.join() === '1,3,5,10' && viewAfter !== viewBefore, `${viewBefore}s -> ${viewAfter}s`);
 
           // 11. Check Hard-Start Workouts in Normal Built-in Library
           const hardStartWorkouts = app.workoutLibrary.filter(w => 

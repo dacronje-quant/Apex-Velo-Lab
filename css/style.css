@@ -2213,3 +2213,14 @@ select.input-field option, .header-profile-dropdown option { background: #10142a
   .zen-sec-tile { min-height: 104px; }
   .zen-mini-canvas-wrap { display: none; }
 }
+
+/* Ride view: tap the power number (or its label) to step Current / 3 s / 5 s / 10 s */
+.power-view-tap { cursor: pointer; -webkit-tap-highlight-color: transparent; user-select: none; -webkit-user-select: none; touch-action: manipulation; }
+.power-view-tap:focus-visible { outline: 2px solid var(--zone-b); outline-offset: 4px; border-radius: 24px; }
+.power-view-btn {
+  display: inline-flex; align-items: center; min-height: 32px; padding: 0 14px; border-radius: 999px; cursor: pointer;
+  border: 1px solid rgba(255, 255, 255, 0.12); background: rgba(255, 255, 255, 0.05); color: var(--text-2);
+  font-size: 12px; font-weight: 700; letter-spacing: .08em; touch-action: manipulation;
+}
+.power-view-btn:hover { color: var(--text-1); border-color: rgba(255, 255, 255, 0.24); }
+.zen-smoothing-bar .power-view-btn { letter-spacing: .02em; font-size: 13px; }
