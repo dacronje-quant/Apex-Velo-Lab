@@ -425,7 +425,7 @@ const FLOWS = [
 // Devices panel, opened from Controls). The PC's Zen, Focus, Mini-HUD and all-metrics cockpit are not on the phone.
 const RIDE_TILES = ['hr', 'cadence', 'p1s', 'p3s', 'p30s', 'avg', 'np', 'wkg', 'wbal', 'lr', 'hrDrift', 'if', 'tss', 'distance', 'speed', 'intensity', 'erg', 'source', 'powermatch'];
 const PARITY = [
-  ['current power (smoothed)', 'screen', '#avRidePower'], ['target power and % FTP', 'screen', '#avRideTarget'],
+  ['current power (smoothed)', 'screen', '#avRidePower'], ['tap power to change its averaging', 'screen', '#avPowerView'], ['target power and % FTP', 'screen', '#avRideTarget'],
   ['power vs target deviation', 'screen', '#avRideDev'], ['step countdown (pulses before a change)', 'screen', '#avRideCountdown'],
   ['step name and number', 'screen', '#avRideStep'], ['total elapsed', 'screen', '#avRideClock'], ['workout time left', 'screen', '#avRideRemain'], ['workout progress', 'screen', '#avRideProgress'],
   ['live graph (power, HR, cadence over the targets)', 'screen', '#avRideGraph'], ['graph zoom (tap the graph)', 'screen', '#avGraphZoomLabel'], ['up next', 'screen', '#avRideNext'],
@@ -435,7 +435,8 @@ const PARITY = [
   ...RIDE_TILES.map((t) => [`tile switch: ${t}`, 'metrics', `#avMetricsSheet [data-item="tile:${t}"]`]), ['restore the default screen', 'metrics', '#avMetricsReset'],
   ['intensity ±1 / ±5', 'controls', '#avIntensityRow [data-av-press="btnBiasPlus1"]'], ['intensity reset', 'controls', '#avBiasReset'],
   ['ERG on / off', 'controls', '#avErgSwitch'], ['shorten / extend step', 'controls', '[data-av-press="btnExtendInterval"]'], ['stand 30 s', 'controls', '#avStand'],
-  ['reset workout', 'controls', '#avResetWorkout'], ['power smoothing 1s-1m', 'controls', '#avControlsSheet .smooth-pill[data-sec="60"]'],
+  ['reset workout', 'controls', '#avResetWorkout'], ['power shown: now / 3 s / 5 s / 10 s', 'controls', '#avPowerViews [data-sec="10"]'],
+  ['intensity buttons on the screen (switch)', 'controls', '#avQuickIntensitySwitch'], ['interval length buttons on the screen (switch)', 'controls', '#avQuickLengthSwitch'],
   ['ERG response', 'controls', '#avControlsSheet #ergResponse'], ['audio cues', 'controls', '#avAudioSwitch'], ['simulator', 'controls', '#avSimSwitch'],
   ['devices', 'controls', '#avControlsDevices'], ['rider profile', 'controls', '#avRider'], ['device details', 'controls', '#avDeviceDetails'],
   ['device list, state, connect', 'devices', '#avDevicesSheet'], ['pair a new device', 'devices', '#avPairDevice'],
@@ -498,6 +499,23 @@ FLOWS.push(['ride: taps from launch (start 1, devices sheet 1, last ride 2), no 
   assert.deepEqual(sw.small, [], 'small targets on the ride screen'); assert.ok(sw.overflowX <= 0, `the ride screen scrolls sideways (${sw.overflowX})`);
   assert.ok((await page.evaluate(() => document.documentElement.scrollHeight)) <= 852, 'the default ride screen fits without scrolling');
   await screenshot(page, 'ride-live');
+  // A tap on the power number steps its averaging; intensity and interval-length buttons can sit on the screen and it still fits.
+  const views = [];
+  for (let k = 0; k < 4; k++) { await tap(page, '#avRidePower'); views.push(await page.locator('#avPowerView').innerText()); }
+  assert.deepEqual(views, ['5 s avg', '10 s avg', 'Now', '3 s avg'], 'tap power: 3 s > 5 s > 10 s > now > 3 s');
+  assert.equal(await page.locator('.av-quick').first().isVisible(), false, 'no control buttons on the screen by default');
+  await tap(page, '#avRideControls'); await tap(page, '#avQuickIntensitySwitch'); await tap(page, '#avQuickLengthSwitch');
+  await page.evaluate(() => ApexNative.shell.closeSheet()); await page.waitForTimeout(400);
+  const was = await page.evaluate(() => [app.ergBiasMultiplier, app.intervalSecondsRemaining]);
+  await tap(page, '[data-av-quick="btnBiasPlus5"]'); await tap(page, '[data-av-quick="btnExtendInterval"]');
+  const now = await page.evaluate(() => [app.ergBiasMultiplier, app.intervalSecondsRemaining]);
+  assert.equal(now[0], 1.05, '+5% on the screen'); assert.ok(now[1] >= was[1] + 28, '+30 s on the screen');
+  await tap(page, '[data-av-quick="btnBiasMinus5"]'); await tap(page, '[data-av-quick="btnShortenInterval"]');
+  sw = await sweep(page);
+  assert.deepEqual(sw.small, [], 'small targets with the control buttons on'); assert.ok(sw.overflowX <= 0);
+  assert.ok((await page.evaluate(() => document.documentElement.scrollHeight)) <= 852, 'the ride screen with both control rows fits without scrolling');
+  await tap(page, '#avRideControls'); await tap(page, '#avQuickIntensitySwitch'); await tap(page, '#avQuickLengthSwitch');
+  await page.evaluate(() => ApexNative.shell.closeSheet()); await page.waitForTimeout(400);
   await allMetricsOn(page);
   await page.waitForTimeout(300);
   sw = await sweep(page);
@@ -945,10 +963,10 @@ module.exports.PARITY = PARITY;
 // and the Analytics+ / studio parts) and the Progress topic that shows it. [feature, topic, selector]
 const PROGRESS_PARITY = [
   ['readiness ring (tap a day)', 'health', '#anaCardReady'], ['your week (AI story)', 'fitness', '#anaCardStory'],
-  ['today strip: form, fitness, ramp, FTP', 'fitness', '#anaTodayStrip'], ['progression tiles (drill down)', 'fitness', '#anaTiles'],
+  ['today strip: fitness, form, ramp', 'fitness', '#anaTodayStrip'], ['key numbers: fitness, fatigue, form, FTP', '', '#avProgAnswer'],
   ['pinned charts', 'fitness', '#anaPinned'], ['what changed (insights)', 'fitness', '#anaCardInsights'], ['records', 'records', '#anaCardRecords'],
   ['performance management chart', 'fitness', '#anaCardPmc'], ['weekly load, KPIs, week rides', 'fitness', '#anaCardWeekly'], ['training year heatmap', 'fitness', '#anaCardYear'],
-  ['power duration curve, scrubber, table', 'power', '#anaCardPdc'], ['critical power model', 'power', '#cpModelCard'], ['power profile', 'power', '#anaCardProfile'],
+  ['power duration curve, scrubber, table', 'power', '#anaCardPdc'], ['critical power model', 'power', '#cpModelCard'], ['best efforts (5 s to 20 min)', 'power', '#avPowerSummary'],
   ['power profile (PRs)', 'records', '#anaCardProfile'], ['CP & W′ over time', 'power', '#anaCardCpHistory'], ['left / right balance', 'power', '#anaCardBalance'],
   ['FTP history & monthly peak NP, implied FTP', 'power', '#anaCardFtpHistory'], ['FTP over time (estimates, import, table)', 'power', '#ftpMetricsHistoryCard'],
   ['time in zones, polarisation', 'intensity', '#anaCardZones'], ['intensity mix', 'intensity', '#anaCardMix'], ['every ride: duration vs NP', 'intensity', '#anaCardScatter'],
@@ -1007,9 +1025,11 @@ FLOWS.push(['progress parity: every Analytics, Analytics+, Studio, Health and FT
   await seedHealth(page);
   const missing = [];
   for (const [feature, topic, sel] of PROGRESS_PARITY) {
-    await page.evaluate((t) => ApexNative.shell.go('progress/' + t), topic);
+    await page.evaluate((t) => ApexNative.shell.go(t ? 'progress/' + t : 'progress'), topic);
     // Cards without data hide themselves ([hidden]); the check is that the topic page shows the card when it has data.
+    // Secondary cards sit in the page's "More detail" fold: opened here, as a rider would.
     const ok = await page.evaluate((sel) => {
+      document.querySelectorAll('#view-analytics details.ana-more').forEach((d) => { d.open = true; });
       const el = document.querySelector(sel); if (!el) return false;
       const was = el.hidden; el.hidden = false;
       const r = el.getBoundingClientRect(); const vis = r.width > 0 && r.height > 0 && getComputedStyle(el).visibility !== 'hidden';

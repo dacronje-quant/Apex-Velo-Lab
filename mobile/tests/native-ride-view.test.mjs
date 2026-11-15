@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { RideLayouts, ALL_ITEMS, DEFAULTS, PANELS, TILES, TILE_GROUPS, ZOOMS, graphWindow, pastSegments, futureSegments } from '../src/native-ride-view.js';
+import { RideLayouts, ALL_ITEMS, DEFAULTS, PANELS, QUICK, TILES, TILE_GROUPS, ZOOMS, graphWindow, pastSegments, futureSegments } from '../src/native-ride-view.js';
 
 const mem = (init = {}) => { const m = { ...init }; return { getItem: (k) => (k in m ? m[k] : null), setItem: (k, v) => { m[k] = String(v); } }; };
 const on = (l) => l.items.filter((x) => x.on).map((x) => x.id);
@@ -10,7 +10,8 @@ test('ride layout: graph, next step, heart rate and cadence by default; saved pe
   const a = l.get('rider_a');
   assert.deepEqual(on(a), ['panel:graph', 'panel:next', 'tile:hr', 'tile:cadence']);
   assert.deepEqual(a.items.map((x) => x.id), ALL_ITEMS, 'every item, in catalog order');
-  assert.equal(a.items.length, Object.keys(PANELS).length + Object.keys(TILES).length);
+  assert.equal(a.items.length, Object.keys(PANELS).length + Object.keys(TILES).length + Object.keys(QUICK).length);
+  assert.deepEqual(a.items.filter((x) => x.id.startsWith('ctl:')).map((x) => x.on), [false, false], 'on-screen control buttons are off until switched on');
   assert.deepEqual(a.lines, { power: true, target: true, hr: true, cadence: false });
   assert.equal(a.zoom, 'all');
   a.items.find((x) => x.id === 'tile:hr').on = false;

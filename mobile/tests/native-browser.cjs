@@ -919,6 +919,7 @@ async function brokerFlow(browser, errors) {
     await page.evaluate(() => app.closeModal('settingsModal'));
     await page.evaluate(() => ApexNative.shell.go('progress'));
     await page.evaluate(() => app.showAnalyticsPanel('health', { instant: true }));
+    await page.evaluate(() => { document.getElementById('anaMore-health').open = true; }); // the secondary health cards are under "More detail"
     await page.locator('#anaHealthTiles .tile', { hasText: 'Sleeping HR' }).waitFor();
     assert.equal(await page.locator('#anaHealthTiles .tile').count(), 14, 'a tile for every metric with data');
     assert.equal(await page.locator('#anaHealthTiles .tile', { hasText: /Steps|VO2max|Body fat/ }).count(), 0, 'steps, body fat and VO2max are not shown');
@@ -928,7 +929,6 @@ async function brokerFlow(browser, errors) {
     assert.equal(await page.locator('#anaCardHealthVitals').isVisible(), false, 'no blood pressure, glucose or food data: the card stays hidden');
     assert.equal(await page.locator('.hl-legend[data-hl="healthSleepCanvas"] .lg-toggle').count(), 3, 'deep, light and REM');
     assert.match(await page.locator('#healthSleepMix').innerText(), /DEEP\s*1:00/i);
-    assert.match(await page.locator('#anaModStat-health').innerText(), /\d+ ms/);
     await page.locator('.hl-legend[data-hl="healthHrCanvas"] .lg-toggle', { hasText: 'Sleeping HR' }).click();
     assert.equal(await page.evaluate(() => { const c = app._healthCharts.healthHrCanvas; return c.data.datasets.filter((d, i) => d.hlKey === 'sleepHr' && c.isDatasetVisible(i)).length; }), 0, 'the legend hides a metric');
     // Linked crosshair: hovering one date chart marks the same day on the others.
@@ -962,19 +962,21 @@ async function brokerFlow(browser, errors) {
     assert.match(await page.locator('#anaStoryNote').innerText(), /Written by Claude Opus 5\.5/);
     const storyCall = await page.evaluate(() => __nativeLog.http.filter((r) => r.url === 'https://api.anthropic.com/v1/messages').at(-1));
     assert.match(storyCall.data.messages[0].content, /WEEKLY STORY/);
-    assert.equal(await page.locator('#anaSectionNav .ana-mod-stat.skel').count(), 0, 'skeletons are gone once the numbers are in');
+    assert.equal(await page.locator('#anaTiles .skel-tile').count(), 0, 'skeletons are gone once the numbers are in');
     // Pin the heart-rate chart to Overview.
     await page.evaluate(() => app.showAnalyticsPanel('health', { instant: true }));
     await page.locator('#anaCardHealthHr .ana-pin-btn').click();
     assert.equal(await page.evaluate(() => !!document.querySelector('#anaPinnedGrid #anaCardHealthHr')), true);
     // Training year heatmap: today's cell opens the day with the ride.
     await page.evaluate(() => app.showAnalyticsPanel('load', { instant: true }));
+    await page.evaluate(() => { document.getElementById('anaMore-load').open = true; });
     const todayKey = await page.evaluate(() => app.localDayKey(new Date()));
     await page.locator(`#anaYearGrid [data-day="${todayKey}"]`).click();
     await page.locator('#anaDayBody .ride-chip', { hasText: 'Native ERG test' }).waitFor();
     await page.locator('#btnAnaDayClose').click();
     // FTP over time is calculated on the phone (no imported research history needed).
     await page.evaluate(() => app.showAnalyticsPanel('ftp', { instant: true }));
+    await page.evaluate(() => { document.getElementById('anaMore-power').open = true; });
     await page.locator('#ftpMetricsStatus', { hasText: 'Calculated in the app from' }).waitFor();
     assert.equal(await page.locator('#ftpMetricsSourceWrap').isVisible(), false);
     step('Analytics: readiness ring, the week in three sentences (offline, then by Claude), skeletons cleared, pin to Overview, training year heatmap opens a day, FTP over time calculated on the phone');

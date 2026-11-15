@@ -12,15 +12,20 @@ const esc = (s) => String(s == null ? '' : s).replace(/[&<>"']/g, (c) => ({ '&':
  * hidden by apex-progress.css (body[data-av-prog]); the overview panel is shared out between topics.
  */
 export const TOPICS = [
-  { id: 'fitness', title: 'Fitness & load', icon: 'i-activity', panels: ['overview', 'load'], sub: 'Fitness, fatigue, form, weekly load, training year' },
-  { id: 'power', title: 'Power & FTP', icon: 'i-bolt', panels: ['ftp', 'power'], sub: 'FTP history, power curve, critical power' },
-  { id: 'intensity', title: 'Intensity', icon: 'i-target', panels: ['intensity', 'aerobic'], sub: 'Zones, intensity mix, efficiency, decoupling' },
-  { id: 'health', title: 'Health & recovery', icon: 'i-heart', panels: ['overview', 'health'], sub: 'Readiness, HRV, resting HR, sleep, weight' },
+  { id: 'fitness', title: 'Fitness & load', icon: 'i-activity', panels: ['overview', 'load'], sub: 'Your week, fitness and form, weekly load' },
+  { id: 'power', title: 'Power & FTP', icon: 'i-bolt', panels: ['power'], sub: 'FTP, best efforts, power curve' },
+  { id: 'intensity', title: 'Intensity', icon: 'i-target', panels: ['load'], sub: 'Zones, intensity mix, efficiency, decoupling' },
+  { id: 'health', title: 'Health & recovery', icon: 'i-heart', panels: ['overview', 'health'], sub: 'Readiness, HRV, resting HR, sleep' },
   { id: 'records', title: 'Records', icon: 'i-trophy', panels: ['overview', 'power'], sub: 'All-time bests and power profile' }
 ];
-/** Analytics panel -> topic, for the app's own drill-downs (tiles, today pills, insights). */
+/** Analytics panel -> topic, for the app's own drill-downs (key numbers, insights). */
 export const PANEL_TOPIC = { overview: 'fitness', load: 'fitness', power: 'power', ftp: 'power', intensity: 'intensity', aerobic: 'intensity', health: 'health' };
-const TOPIC_CARD = { anaCardRecords: 'records', anaCardProfile: 'records', anaCardReady: 'health' };
+/** Cards that live on another topic's page than their Analytics panel's. */
+const TOPIC_CARD = { anaCardRecords: 'records', anaCardProfile: 'records', anaCardReady: 'health',
+  anaCardZones: 'intensity', anaCardMix: 'intensity', anaCardScatter: 'intensity', anaCardEf: 'intensity', anaCardDrift: 'intensity' };
+/** "More detail" folds a topic page shows opened, without their summary (the page is that detail). */
+const TOPIC_FOLD = { intensity: 'load' };
+const FOLD_KEY = 'apex_ana_more';
 
 /** "Am I getting fitter?" from the fitness (CTL) trend: now against six weeks ago. */
 export function fitnessVerdict(pmc, weeks = 6) {
@@ -128,6 +133,7 @@ export class ProgressTab {
       p.style.order = String(t.panels.indexOf(p.dataset.panel));
     });
     if (app) app.anaPanel = t.panels[0];
+    this.syncFolds(t.id);
     if (t.id === 'power') { this.renderFtpSuggestion(); this.renderPowerSummary(); }
     if (t.id === 'health' && app && app.renderHealthAnalytics) {
       try {
@@ -154,7 +160,21 @@ export class ProgressTab {
   }
 
   /** Called before the next page mounts (a topic page sets its own again). */
-  leave() { delete this.doc.body.dataset.avProg; }
+  leave() { delete this.doc.body.dataset.avProg; this.syncFolds(null); }
+
+  /**
+   * The Intensity page is the Fitness panel's "More detail" fold shown open. A fold opened for a page is marked
+   * (js/app-ana-studio.js does not remember that) and goes back to the rider's own choice on any other page.
+   */
+  syncFolds(topicId) {
+    let open = [];
+    try { open = JSON.parse(this.win.localStorage.getItem(FOLD_KEY) || '[]') || []; } catch (e) { open = []; }
+    for (const d of this.doc.querySelectorAll('#view-analytics details.ana-more')) {
+      const forced = !!topicId && TOPIC_FOLD[topicId] === d.dataset.more;
+      if (forced) { d.dataset.avForced = '1'; d.open = true; }
+      else if (d.dataset.avForced) { d.open = Array.isArray(open) && open.includes(d.dataset.more); this.win.setTimeout(() => { delete d.dataset.avForced; }, 0); }
+    }
+  }
 
   /** Power & FTP's primary action: "Update FTP" when the rides suggest a higher one (the ride review's own suggestion). */
   renderFtpSuggestion() {
@@ -189,24 +209,13 @@ export class ProgressTab {
 
   /**
    * Power & FTP leads with the numbers a rider asks about (FTP, W/kg, recent bests, critical power), then the
-   * familiar charts, then the expert models under their own heading. The app's cards are only reordered
-   * (apex-progress.css flattens the two panels on this page), so every chart keeps its ids and bindings.
+   * power curve and FTP history; the expert models are in the page's "More detail" fold. The app's cards are
+   * only reordered (apex-progress.css flattens the panel on this page), so every chart keeps its ids and bindings.
    */
   renderPowerSummary() {
     const app = this.app();
     const stage = this.doc.getElementById('anaStage');
     if (!stage) return;
-    for (const [id, title, sub] of [
-      ['avPowSecBests', 'Best efforts', ''],
-      ['avPowSecFtp', 'FTP history', ''],
-      ['avPowSecExpert', 'Expert analysis', 'Models and estimates for a closer look.']
-    ]) {
-      if (this.doc.getElementById(id)) continue;
-      const h = this.doc.createElement('div');
-      h.id = id; h.className = 'av-pow-section';
-      h.innerHTML = `<h3>${esc(title)}</h3>${sub ? `<p>${esc(sub)}</p>` : ''}`;
-      stage.appendChild(h);
-    }
     let box = this.doc.getElementById('avPowerSummary');
     if (!box) {
       box = this.doc.createElement('div');

@@ -5,6 +5,8 @@
  *    zoom (whole ride, 10 min, 3 min, 1 min, following the ride) and does nothing else: it never moves the workout.
  *  - Next interval takes two taps, so a stray touch does not skip a step.
  *  - Metrics: a sheet of switches for the panels, the graph's lines and every tile; a tap shows or hides it at once.
+ *  - A tap on the power number steps its averaging: now, 3 s, 5 s, 10 s (kept for the next ride).
+ *  - Intensity and interval-length buttons can be put on the screen itself (switches in Controls and Metrics).
  *  - Controls: a sheet with the ride controls (intensity, ERG, step length, smoothing, audio, devices, ...).
  * The choices are saved per rider. Nothing here computes ride data or drives the trainer: values are read from the
  * outputs js/app.js keeps up to date (#valInstantPower, #hudIntervalCountdown, ...) and the controls press the
@@ -55,7 +57,12 @@ export const LINES = { power: 'Power', target: 'Target', hr: 'Heart rate', caden
 /** Graph zoom: the whole ride, or a window of this many seconds that follows the ride. */
 export const ZOOMS = [{ id: 'all', label: 'All', secs: 0 }, { id: '10m', label: '10 min', secs: 600 }, { id: '3m', label: '3 min', secs: 180 }, { id: '1m', label: '1 min', secs: 60 }];
 
-export const ALL_ITEMS = [...Object.keys(PANELS).map((k) => 'panel:' + k), ...Object.keys(TILES).map((k) => 'tile:' + k)];
+/** Ride controls that can sit on the screen itself (they are always in the Controls sheet). */
+export const QUICK = { intensity: 'Intensity − / +', length: 'Interval length − / +' };
+/** The hero's power: now (1 s) or a rolling average. A tap on the number steps through them. */
+export const POWER_VIEWS = [[1, 'Now'], [3, '3 s'], [5, '5 s'], [10, '10 s']];
+
+export const ALL_ITEMS = [...Object.keys(PANELS).map((k) => 'panel:' + k), ...Object.keys(TILES).map((k) => 'tile:' + k), ...Object.keys(QUICK).map((k) => 'ctl:' + k)];
 export const DEFAULTS = { on: ['panel:graph', 'panel:next', 'tile:hr', 'tile:cadence'], lines: { power: true, target: true, hr: true, cadence: false }, zoom: 'all' };
 
 /**
@@ -170,8 +177,8 @@ export class RideView {
       <div class="av-ride-grid" id="avRideGrid">
         <div class="av-ride-hero">
           <small class="av-ride-target" id="avRideTarget"></small>
-          <b class="av-ride-power num" id="avRidePower">--</b>
-          <small class="av-ride-unit"><span id="avRideUnit">W</span> <span class="av-ride-dev" id="avRideDev"></span></small>
+          <b class="av-ride-power num" id="avRidePower" role="button" tabindex="0">--</b>
+          <small class="av-ride-unit"><button type="button" class="av-power-view" id="avPowerView" aria-label="Power averaging. Tap to change.">3 s avg</button> <span id="avRideUnit">W</span> <span class="av-ride-dev" id="avRideDev"></span></small>
           <div class="av-devbar" id="avDevBar" aria-hidden="true"><i class="av-devbar-ok"></i><i class="av-devbar-mark" id="avDevMark"></i></div>
           <div class="av-hrz" id="avHrZones" hidden aria-hidden="true"><i></i><i></i><i></i><i></i><i></i></div>
           <span class="av-ride-countdown num" id="avRideCountdown">0:00</span>
@@ -187,6 +194,16 @@ export class RideView {
         <div class="av-ride-next" data-av-item="panel:next"><span class="av-ride-next-dot"></span><div><b id="avRideNext">--</b><small id="avRideNextSub"></small></div></div>
         <div class="av-ride-coach" data-av-item="panel:coach"><b>Coach</b> <span id="avRideCoach"></span></div>
         ${Object.entries(TILES).map(([id, t]) => `<div class="av-tile" data-av-item="tile:${id}" data-tile="${id}"><span class="av-tile-lbl">${esc(t.label)}</span><span class="av-tile-val num"></span><span class="av-tile-sub"></span></div>`).join('')}
+        <div class="av-quick" data-av-item="ctl:intensity" role="group" aria-label="Workout intensity">
+          <button type="button" class="btn" data-av-quick="btnBiasMinus5" aria-label="Intensity down 5%">−5%</button>
+          <span><small>Intensity</small><b class="num" id="avQuickBias">100%</b></span>
+          <button type="button" class="btn" data-av-quick="btnBiasPlus5" aria-label="Intensity up 5%">+5%</button>
+        </div>
+        <div class="av-quick" data-av-item="ctl:length" role="group" aria-label="Interval length">
+          <button type="button" class="btn" data-av-quick="btnShortenInterval" aria-label="Shorten this interval by 30 seconds">−30 s</button>
+          <span><small>This interval</small><b class="num" id="avQuickLen">0:00</b></span>
+          <button type="button" class="btn" data-av-quick="btnExtendInterval" aria-label="Extend this interval by 30 seconds">+30 s</button>
+        </div>
       </div>
       <div class="av-ride-ctrl">
         <button type="button" class="btn btn-stop" id="avRideEnd">End ride</button>
@@ -198,6 +215,13 @@ export class RideView {
     el.querySelector('#avRideEnd').addEventListener('click', () => this.confirmEnd());
     el.querySelector('#avRidePause').addEventListener('click', () => { this.$('btnPlayPause')?.click(); this.update(); });
     el.querySelector('#avRideSkip').addEventListener('click', () => this.skip());
+    // A tap on the power number (or its label) steps the averaging: now > 3 s > 5 s > 10 s.
+    const stepPower = () => { const app = this.app; if (app && app.cyclePowerView && !this.hrOnly(app)) { app.cyclePowerView(); this.update(); } };
+    el.querySelector('#avRidePower').addEventListener('click', stepPower);
+    el.querySelector('#avRidePower').addEventListener('keydown', (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); stepPower(); } });
+    el.querySelector('#avPowerView').addEventListener('click', stepPower);
+    // Intensity and interval length on the screen: each button presses the app's own control.
+    for (const b of el.querySelectorAll('[data-av-quick]')) b.addEventListener('click', () => { this.$(b.dataset.avQuick)?.click(); this.update(); });
     // A tap on the graph only steps its zoom (All > 10 min > 3 min > 1 min > All); it never moves the workout.
     el.querySelector('#avGraphZoom').addEventListener('click', () => {
       const l = this.layout();
@@ -237,7 +261,11 @@ export class RideView {
     const tiles = l.items.filter((it) => it.on && it.id.startsWith('tile:')).length;
     this.simple.dataset.tiles = String(tiles);
     this.simple.dataset.cols = tiles === 3 || tiles > 4 ? '3' : '2';
-    this.simple.dataset.density = tiles > 6 ? 'packed' : tiles > 3 ? 'dense' : 'roomy';
+    // A row of on-screen controls takes the room of three tiles, so the screen tightens up and still fits.
+    const quick = l.items.filter((it) => it.on && it.id.startsWith('ctl:')).length;
+    this.simple.dataset.quick = String(quick);
+    const load = tiles + 3 * quick;
+    this.simple.dataset.density = load > 6 ? 'packed' : load > 3 ? 'dense' : 'roomy';
     const zoom = ZOOMS.find((z) => z.id === l.zoom) || ZOOMS[0];
     const zb = this.$('avGraphZoom');
     if (zb) {
@@ -312,6 +340,13 @@ export class RideView {
       this.setText('avRidePower', started || running ? String(power) : '--');
       this.setText('avRideUnit', `W${z && !free ? ' · ' + z.name : ''}`);
     }
+    const view = POWER_VIEWS.find(([sec]) => sec === app.smoothingWindow) || POWER_VIEWS[1];
+    const pv = this.$('avPowerView');
+    pv.hidden = hrOnly;
+    this.setText('avPowerView', view[0] === 1 ? 'Now' : `${view[1]} avg`);
+    pv.setAttribute('aria-label', `Power shown: ${view[0] === 1 ? 'now' : view[1] + ' average'}. Tap to change.`);
+    this.setText('avQuickBias', this.text('biasValueDisplay'));
+    this.setText('avQuickLen', this.text('hudIntervalCountdown'));
     // Deviation from target: a chip (+12 W / on target) and a bar with the ±5 % band (TrainerRoad-style).
     const dev = this.$('avRideDev');
     const diff = power - target;
@@ -473,6 +508,8 @@ export class RideView {
       box.innerHTML = `<p class="av-note">Tap to show or hide. Saved for ${esc(this.text('hudRiderProfileName') || 'this rider')}.</p>
         <div class="av-label">On the screen</div>
         <div class="av-mgrid">${Object.entries(PANELS).map(([k, label]) => chip(`data-item="panel:${k}"`, label, on('panel:' + k))).join('')}</div>
+        <div class="av-label">Controls on the screen</div>
+        <div class="av-mgrid">${Object.entries(QUICK).map(([k, label]) => chip(`data-item="ctl:${k}"`, label, on('ctl:' + k))).join('')}</div>
         <div class="av-label">Graph lines</div>
         <div class="av-mgrid">${Object.entries(LINES).map(([k, label]) => chip(`data-line="${k}"`, label, l.lines[k])).join('')}</div>
         ${TILE_GROUPS.map(([title, ids]) => `<div class="av-label">${esc(title)}</div>
@@ -517,7 +554,17 @@ export class RideView {
     const group = (title) => { const d = this.doc.createElement('div'); d.className = 'card av-list'; if (title) box.insertAdjacentHTML('beforeend', `<div class="av-label">${esc(title)}</div>`); box.appendChild(d); return d; };
     const steps = (ids) => { const d = this.doc.createElement('span'); d.className = 'av-steps'; for (const [id, t] of ids) { const b = this.doc.createElement('button'); b.type = 'button'; b.className = 'btn'; b.dataset.avPress = id; b.textContent = t; b.addEventListener('click', (e) => { e.stopPropagation(); press(id)(); }); d.appendChild(b); } return d; };
 
-    const ride = group('');
+    const onScreen = group('Show on the ride screen');
+    const layout = this.layout();
+    for (const [k, label] of Object.entries(QUICK)) {
+      const id = 'ctl:' + k;
+      const toggle = () => { const l = this.layout(); const it = l.items.find((x) => x.id === id); if (!it) return; it.on = !it.on; this.saveLayout(l); this.applyLayout(); };
+      const s = sw(k === 'intensity' ? 'avQuickIntensitySwitch' : 'avQuickLengthSwitch', layout.items.some((x) => x.id === id && x.on), toggle);
+      s.setAttribute('aria-label', `${label} buttons on the ride screen`);
+      onScreen.appendChild(S.row({ icon: k === 'intensity' ? 'i-target' : 'i-skip', title: `${label.replace(' − / +', '')} buttons`, sub: k === 'intensity' ? '−5% and +5% under the metrics' : '−30 s and +30 s under the metrics', end: s }));
+    }
+
+    const ride = group('During this ride');
     const intensityRow = S.row({ icon: 'i-target', title: 'Workout intensity', sub: `Workout at ${this.text('biasValueDisplay')}`, end: steps([['btnBiasMinus5', '−5%'], ['btnBiasMinus1', '−1%'], ['btnBiasPlus1', '+1%'], ['btnBiasPlus5', '+5%']]) });
     intensityRow.id = 'avIntensityRow';
     ride.appendChild(intensityRow);
@@ -528,11 +575,23 @@ export class RideView {
     ride.appendChild(S.row({ icon: 'i-reset', title: 'Restart workout', sub: 'Return to the first interval', onClick: () => { if (this.win.confirm('Restart this workout from the first interval?')) press('btnResetWorkout')(); }, id: 'avResetWorkout' }));
 
     const show = group('Power and trainer feel');
-    const smooth = this.$('powerSmoothingPills');
-    const smoothRow = S.row({ icon: 'i-activity', title: 'Power smoothing' });
+    const views = this.doc.createElement('span');
+    views.className = 'av-steps'; views.id = 'avPowerViews';
+    for (const [sec, label] of POWER_VIEWS) {
+      const b = this.doc.createElement('button');
+      b.type = 'button'; b.className = 'btn'; b.dataset.sec = String(sec); b.textContent = label;
+      b.setAttribute('aria-pressed', String(app.smoothingWindow === sec));
+      b.addEventListener('click', (e) => {
+        e.stopPropagation();
+        app.setSmoothingWindow(sec);
+        for (const x of views.children) x.setAttribute('aria-pressed', String(x === b));
+        this.update();
+      });
+      views.appendChild(b);
+    }
+    const smoothRow = S.row({ icon: 'i-activity', title: 'Power shown', sub: 'Or tap the number', end: views });
     smoothRow.id = 'avSmoothingRow';
     show.appendChild(smoothRow);
-    if (smooth) { const holder = this.doc.createElement('div'); holder.className = 'av-row av-row-sub'; show.appendChild(holder); holder.dataset.avMoved = '1'; this._smoothHome = this._smoothHome || smooth.parentNode; holder.appendChild(smooth); }
     const erg = this.doc.querySelector('.erg-response-control');
     if (erg) { const holder = this.doc.createElement('div'); holder.className = 'av-row av-row-sub'; show.appendChild(holder); this._ergHome = this._ergHome || erg.parentNode; this._ergNext = this._ergNext || erg.nextSibling; holder.appendChild(erg); }
 
@@ -552,14 +611,12 @@ export class RideView {
       if (st) st.querySelector('b').textContent = this.text('btnStandText') || 'Stand 30s';
       this.update();
     };
-    const sheet = S.openSheet(box, { title: 'During this ride', onClose: () => this.restoreMoved() });
+    const sheet = S.openSheet(box, { title: 'Controls', onClose: () => this.restoreMoved() });
     sheet.classList.add('av-controls-sheet');
   }
 
-  /** Puts the smoothing pills and the ERG response control back in the cockpit. */
+  /** Puts the ERG response control back in the cockpit. */
   restoreMoved() {
-    const smooth = this.$('powerSmoothingPills');
-    if (smooth && this._smoothHome && smooth.parentNode !== this._smoothHome) this._smoothHome.appendChild(smooth);
     const erg = this.doc.querySelector('.erg-response-control');
     if (erg && this._ergHome && erg.parentNode !== this._ergHome) this._ergHome.insertBefore(erg, this._ergNext && this._ergNext.parentNode === this._ergHome ? this._ergNext : null);
   }

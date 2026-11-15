@@ -454,6 +454,8 @@ function lazySamples(P, storage, win) {
 }
 
 const HEALTH_SYNC_EVERY_MS = 60 * 60 * 1000;
+/** Reading intervals.icu when the app opens or comes back: every time, but not twice within a minute. */
+const ICU_OPEN_GAP_MS = 60 * 1000;
 const localDay = (d = new Date()) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
 
 const UPLOAD_DEST = 'strava';
@@ -1199,6 +1201,10 @@ export function bootNativeApp({ bluetooth, storage, strava, ai, icu, uploads, pl
   App.getLaunchUrl().then((r) => { if (r && r.url) onAppUrl(r); }).catch(() => {});
   // Uploads left in the queue by the last session go out at app start.
   if (uploads) whenApp().then((app) => { if (app) return uploads.run(); }).catch(() => {});
+  // intervals.icu is read every time the app opens or comes back to the screen, not only once an hour.
+  let icuOpenAt = 0;
+  const icuDueOnOpen = () => { const now = Date.now(); if (now - icuOpenAt < ICU_OPEN_GAP_MS) return false; icuOpenAt = now; return true; };
+  if (icu) whenApp().then((app) => { if (app && app.pullHealthInbox && !win.__APEX_TEST_MODE__) return app.pullHealthInbox({ force: icuDueOnOpen() }); }).catch(() => {});
   if (healthConnect) whenApp().then((app) => { if (app && app.syncHealthConnect && !win.__APEX_TEST_MODE__) return app.syncHealthConnect({ force: true }); }).catch(() => {});
   // Backups: a pending automatic snapshot is written before Android may close the app in the background, and
   // one that is due (a day old, or changes since the last) when it comes back.
@@ -1211,7 +1217,7 @@ export function bootNativeApp({ bluetooth, storage, strava, ai, icu, uploads, pl
     if (!app) return;
     if (app._awaitingStravaConnect) app.refreshStravaStatus(true);
     if (uploads) uploads.run().catch(() => {}); // the offline retry queue
-    if (icu && app.pullHealthInbox) app.pullHealthInbox().catch(() => {}); // at most hourly
+    if (icu && app.pullHealthInbox) app.pullHealthInbox({ force: icuDueOnOpen() }).catch(() => {}); // every time the app comes back (a minute apart at least)
     if (healthConnect && app.syncHealthConnect) app.syncHealthConnect().catch(() => {}); // at most every 15 minutes
   });
 

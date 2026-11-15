@@ -80,6 +80,7 @@
         if (Array.isArray(openMore) && openMore.includes(dt.dataset.more)) dt.open = true;
         this.on(dt, 'toggle', () => {
           if (dt.open) requestAnimationFrame(() => this.anaChartsIn(dt).forEach(c => c.resize()));
+          if (dt.dataset.avForced) return; // opened by the phone's topic page, not by the rider
           const open = [...view.querySelectorAll('details.ana-more[open]')].map(x => x.dataset.more);
           try { localStorage.setItem(MORE_KEY, JSON.stringify(open)); } catch (e) { /* not kept */ }
         });
