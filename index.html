@@ -83,6 +83,7 @@
       <symbol id="i-trash" viewBox="0 0 24 24"><path d="M3 6h18M8 6V4h8v2M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/></symbol>
       <symbol id="i-save" viewBox="0 0 24 24"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"/><path d="M17 21v-8H7v8M7 3v5h8"/></symbol>
       <symbol id="i-upload" viewBox="0 0 24 24"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4M17 8l-5-5-5 5M12 3v12"/></symbol>
+      <symbol id="i-share" viewBox="0 0 24 24"><circle cx="18" cy="5" r="3"/><circle cx="6" cy="12" r="3"/><circle cx="18" cy="19" r="3"/><path d="m8.6 13.5 6.8 4M15.4 6.5l-6.8 4"/></symbol>
       <symbol id="i-download" viewBox="0 0 24 24"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4M7 10l5 5 5-5M12 15V3"/></symbol>
       <symbol id="i-folder" viewBox="0 0 24 24"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/></symbol>
       <symbol id="i-dumbbell" viewBox="0 0 24 24"><path d="M6.5 6.5v11M17.5 6.5v11M3.5 9v6M20.5 9v6M6.5 12h11"/></symbol>
@@ -1634,12 +1635,35 @@
           <span class="modal-sub" id="modalRideSub"></span>
         </div>
         <div class="btn-row btn-row-tight">
+          <button type="button" class="btn btn-sm btn-share-card" id="btnRideShareCard" hidden title="Make a picture of this ride for Strava or Instagram"><svg class="ic"><use href="#i-share"/></svg>Share card</button>
           <button type="button" class="icon-btn" id="btnRidePrev" title="Previous (older) ride"><svg class="ic"><use href="#i-left"/></svg></button>
           <button type="button" class="icon-btn" id="btnRideNext" title="Next (newer) ride"><svg class="ic"><use href="#i-right"/></svg></button>
           <button type="button" class="close-modal icon-btn" id="btnCloseModal" aria-label="Close"><svg class="ic"><use href="#i-x"/></svg></button>
         </div>
       </div>
       <div id="modalRideDetails"></div>
+    </div>
+  </div>
+
+  <!-- ============================== MODAL: SHARE CARD ============================== -->
+  <div class="modal-overlay" id="shareCardModal" role="dialog" aria-modal="true" aria-labelledby="shareCardTitle">
+    <div class="modal-content share-card-modal">
+      <div class="modal-header">
+        <div><span class="eyebrow">SHARE YOUR RIDE</span><h3 id="shareCardTitle">Ride card</h3></div>
+        <div class="btn-row btn-row-tight">
+          <div class="share-card-styles" role="group" aria-label="Card style">
+            <button type="button" class="btn btn-ghost btn-sm" data-card-style="full" aria-pressed="true">Full</button>
+            <button type="button" class="btn btn-ghost btn-sm" data-card-style="minimal" aria-pressed="false">Minimal</button>
+          </div>
+          <button type="button" class="close-modal icon-btn" id="btnCloseShareCard" aria-label="Close"><svg class="ic"><use href="#i-x"/></svg></button>
+        </div>
+      </div>
+      <div class="share-card-preview" id="shareCardPreview"><img id="shareCardImg" alt="Ride summary card" width="1080" height="1350"></div>
+      <div class="btn-row share-card-actions">
+        <button type="button" class="btn btn-share-card btn-grow" id="btnShareCard" hidden><svg class="ic"><use href="#i-share"/></svg>Share</button>
+        <a class="btn btn-ghost btn-grow" id="btnDownloadCard" href="#" download><svg class="ic"><use href="#i-download"/></svg>Download image</a>
+      </div>
+      <p class="share-card-hint" id="shareCardHint"></p>
     </div>
   </div>
 
@@ -1832,6 +1856,7 @@
   <script src="js/velo-insight.js"></script>
   <script src="js/velo-importer.js"></script>
   <script src="js/velo-export.js"></script>
+  <script src="js/velo-share-card.js"></script>
   <script src="js/velo-clock.js"></script>
   <script src="js/velo-progress.js"></script>
   <script src="js/velo-dedupe.js"></script>
@@ -1860,6 +1885,7 @@
   <script src="js/app-ftp-history.js"></script>
   <script src="js/app-history.js"></script>
   <script src="js/app-bulk-import.js"></script>
+  <script src="js/app-share-card.js"></script>
   <script src="js/app-coach.js"></script>
   <script src="js/app-describe.js"></script>
   <script src="js/app-block.js"></script>

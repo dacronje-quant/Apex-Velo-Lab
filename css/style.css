@@ -2248,3 +2248,18 @@ select.input-field option, .header-profile-dropdown option { background: #10142a
 .zen-smoothing-bar .power-view-btn { letter-spacing: .02em; font-size: 13px; }
 .ss-dock-bias[data-ctl="length"] .bias-val-display { min-width: 0; padding: 0 2px; color: var(--text-3); }
 #rideControlSettings .toggle { display: flex; margin: 12px 0; }
+/* ---- Share card (ride summary > Share card) ---- */
+.btn-share-card { --b-bg: linear-gradient(135deg, #F0522E, #ff3d78); --b-bd: rgba(255, 120, 110, 0.6); --b-fg: #fff; font-weight: 700; }
+.btn-share-card .ic { width: 15px; height: 15px; }
+.share-card-modal { width: min(560px, 100%); }
+.share-card-styles { display: flex; gap: 4px; }
+.share-card-styles .btn[aria-pressed="true"] { --b-fg: var(--text-1); --b-bg: rgba(148, 163, 184, 0.14); --b-bd: rgba(148, 163, 184, 0.4); }
+.share-card-preview { position: relative; border-radius: var(--radius-md); overflow: hidden; background: #07070d; aspect-ratio: 4 / 5; max-height: 68vh; margin: 0 auto; }
+.share-card-preview img { display: block; width: 100%; height: 100%; object-fit: contain; transition: opacity .2s var(--ease); }
+.share-card-preview.busy img { opacity: 0.35; }
+.share-card-preview.busy::after { content: "Drawing your card..."; position: absolute; inset: 0; display: grid; place-items: center; color: var(--text-2); font-size: 13px; }
+.share-card-actions { margin-top: 14px; }
+.share-card-actions .btn.disabled { opacity: 0.45; pointer-events: none; }
+.share-card-hint { margin: 10px 0 0; font-size: 12px; line-height: 1.5; color: var(--text-3, var(--text-2)); text-align: center; }
+.wcb-share { margin-left: 4px; }
+a.btn, a.btn:hover { text-decoration: none; }

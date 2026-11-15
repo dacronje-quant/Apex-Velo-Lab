@@ -391,6 +391,7 @@ $liveCmdTtlMs = 10000
 $script:liveSnapshotJson = 'null'
 $script:liveAt = $null
 $script:liveFit = $null
+$script:liveCards = $null   # the finished ride's share cards (JPEG or PNG), drawn by the PC app
 $script:liveSeq = 0
 $script:liveCmds = New-Object System.Collections.ArrayList
 $script:liveWaiters = New-Object System.Collections.ArrayList
@@ -403,7 +404,61 @@ function Get-LiveJson {
     if ($null -ne $script:liveFit) {
         $fitJson = @{ id = $script:liveFit.Id; filename = $script:liveFit.Filename; url = '/api/live/fit?id=' + $script:liveFit.Id } | ConvertTo-Json -Compress
     }
-    return '{"snapshot":' + $script:liveSnapshotJson + ',"ageMs":' + $age + ',"pending":' + $script:liveCmds.Count + ',"seq":' + $script:liveSeq + ',"fit":' + $fitJson + '}'
+    return '{"snapshot":' + $script:liveSnapshotJson + ',"ageMs":' + $age + ',"pending":' + $script:liveCmds.Count + ',"seq":' + $script:liveSeq + ',"fit":' + $fitJson + ',"cards":' + (Get-LiveCardsJson) + '}'
+}
+
+function Get-LiveCardsJson {
+    if ($null -eq $script:liveCards) { return 'null' }
+    $styles = @($script:liveCards.Images.Keys | Sort-Object | ForEach-Object { '"' + $_ + '"' }) -join ','
+    return '{"id":"' + $script:liveCards.Id + '","styles":[' + $styles + ']}'
+}
+
+# The ride's share card (JPEG or PNG): inline for the phone's preview, or as a download with download=1.
+function Invoke-LiveCard($request, $response) {
+    if (-not (Test-LocalRequest $request)) { return Send-Json $response 403 @{ error = 'Forbidden' } }
+    $id = [string]$request.QueryString['id']
+    $style = [string]$request.QueryString['style']
+    if ($request.HttpMethod -eq 'GET' -or $request.HttpMethod -eq 'HEAD') {
+        $img = $null
+        if ($null -ne $script:liveCards -and $script:liveCards.Id -ceq $id -and $script:liveCards.Images.ContainsKey($style)) { $img = $script:liveCards.Images[$style] }
+        if ($null -eq $img) { return Send-Json $response 404 @{ error = 'This ride card is no longer available. Keep the PC app open until saved.' } }
+        $disp = if ([string]$request.QueryString['download'] -eq '1') { 'attachment' } else { 'inline' }
+        $response.Headers['Content-Disposition'] = $disp + '; filename="' + $img.Filename + '"'
+        if ($request.HttpMethod -eq 'HEAD') {
+            $response.StatusCode = 200
+            $response.ContentType = $img.Type
+            $response.Headers['Cache-Control'] = 'no-store'
+            $response.Headers['X-Content-Type-Options'] = 'nosniff'
+            $response.ContentLength64 = $img.Bytes.Length
+            return $response.Close()
+        }
+        return Send-Bytes $response 200 $img.Bytes $img.Type
+    }
+    if ($request.HttpMethod -ne 'POST') { return Send-Json $response 405 @{ error = 'Method not allowed' } }
+    if (-not (Test-PcRequest $request)) { return Send-Json $response 403 @{ error = 'Only the app on this PC can publish ride cards.' } }
+    $filename = [string]$request.QueryString['filename']
+    if ($id -cnotmatch '^[a-zA-Z0-9_-]{1,80}$' -or $style -cnotin @('full', 'minimal') -or $filename -cnotmatch '^[a-zA-Z0-9_-]{1,120}\.(png|jpg)$') { return Send-Json $response 400 @{ error = 'Invalid card name, style or ride id.' } }
+    $limit = 12MB
+    if ($request.ContentLength64 -gt $limit) { return Send-Json $response 413 @{ error = 'Card image too large' } }
+    $ms = New-Object System.IO.MemoryStream
+    try {
+        $buf = New-Object byte[] 8192
+        while (($n = $request.InputStream.Read($buf, 0, $buf.Length)) -gt 0) {
+            if ($ms.Length + $n -gt $limit) { return Send-Json $response 413 @{ error = 'Card image too large' } }
+            $ms.Write($buf, 0, $n)
+        }
+        $bytes = $ms.ToArray()
+    } finally { $ms.Dispose() }
+    $type = if ($filename.EndsWith('.png')) { 'image/png' } else { 'image/jpeg' }
+    $sig = if ($type -eq 'image/png') { [byte[]](0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A) } else { [byte[]](0xFF, 0xD8, 0xFF) }
+    $isImage = $bytes.Length -ge 64
+    for ($i = 0; $isImage -and $i -lt $sig.Length; $i++) { if ($bytes[$i] -ne $sig[$i]) { $isImage = $false } }
+    if (-not $isImage) { return Send-Json $response 400 @{ error = 'Invalid card image.' } }
+    if ($null -eq $script:liveCards -or $script:liveCards.Id -cne $id) { $script:liveCards = @{ Id = $id; Images = @{} } }
+    $script:liveCards.Images[$style] = @{ Filename = $filename; Type = $type; Bytes = $bytes }
+    $script:liveSeq++
+    Send-Json $response 200 @{ ok = $true }
+    Send-LiveWaiters
 }
 
 # A normal attachment URL works in phone browsers over plain home-Wi-Fi HTTP.
@@ -526,7 +581,7 @@ function Invoke-Live($request, $response) {
         $script:liveCmds.Clear()
     }
     $fitIdJson = if ($null -ne $script:liveFit) { '"' + $script:liveFit.Id + '"' } else { 'null' }
-    $json = $json.Substring(0, $json.Length - 1) + ',"fitId":' + $fitIdJson + '}'
+    $json = $json.Substring(0, $json.Length - 1) + ',"fitId":' + $fitIdJson + ',"cards":' + (Get-LiveCardsJson) + '}'
     Send-RawJson $response 200 $json
     Send-LiveWaiters
 }
@@ -1521,6 +1576,8 @@ try {
                 Invoke-Live $request $response
             } elseif ($path -eq '/api/live/fit') {
                 Invoke-LiveFit $request $response
+            } elseif ($path -eq '/api/live/card') {
+                Invoke-LiveCard $request $response
             } elseif ($path -eq '/api/live/cmd') {
                 Invoke-LiveCmd $request $response
             } elseif ($path -eq '/api/live/cmds') {
