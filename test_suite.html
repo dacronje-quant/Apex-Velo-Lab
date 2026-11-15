@@ -154,7 +154,7 @@
           const powerTap = frame.contentDocument.getElementById('hudHeroValue');
           log('Cockpit HUD Speed & Distance Elements', valSpeed && valDist && hudDist && hudSpeed, 'All DOM elements mounted');
           const viewBefore = app.smoothingWindow; powerTap.click(); const viewAfter = app.smoothingWindow; app.setSmoothingWindow(viewBefore);
-          log('Tapping the power number changes the averaging (Current / 3s / 5s / 10s)', VeloApp.POWER_VIEWS.join() === '1,3,5,10' && viewAfter !== viewBefore, `${viewBefore}s -> ${viewAfter}s`);
+          log('Tapping the power number changes the averaging (Current / 3s / 5s / 10s)', app.constructor.POWER_VIEWS.join() === '1,3,5,10' && viewAfter !== viewBefore, `${viewBefore}s -> ${viewAfter}s`);
 
           // 11. Check Hard-Start Workouts in Normal Built-in Library
           const hardStartWorkouts = app.workoutLibrary.filter(w => 
@@ -1586,7 +1586,7 @@
           });
 
           // 46j. Analytics dashboard: tiles, EF on steady rides only, power profile PRs, ramp rate
-          await suite('Analytics Dashboard: 6 Progression Tiles, EF Only From Steady Rides, Power Profile 90 d vs 90 d With Honest PRs, Ramp Rate', async () => {
+          await suite('Analytics Dashboard: 4 Key Numbers, EF Only From Steady Rides, Power Profile 90 d vs 90 d With Honest PRs, Ramp Rate', async () => {
             const T = frame.contentWindow.VeloTrends;
             const W = frame.contentWindow;
             const DAY = 86400000, now = Date.now();
@@ -1611,7 +1611,7 @@
             const rangeOk = app.efChart.options.scales.x.max - app.efChart.options.scales.x.min > 90 * DAY && app.efChart.options.scales.x.max - app.efChart.options.scales.x.min < 92 * DAY;
             D.querySelector('#anaRangePills [data-range="6m"]').click();
             app.switchTab('cockpit');
-            const ok = ef && ef.ef === Math.round((140 / 130) * 100) / 100 && efV === null && ppOk && prOk && rampOk && tiles === 6 && profile === 4 && charts && rangeOk;
+            const ok = ef && ef.ef === Math.round((140 / 130) * 100) / 100 && efV === null && ppOk && prOk && rampOk && tiles === 4 && profile === 4 && charts && rangeOk;
             return { ok, detail: `EF steady ${ef && ef.ef}, intervals ${efV} | profile:${ppOk} PR only when it beats older bests:${prOk} | ramp ${ramp}:${rampOk} | tiles ${tiles}, profile cells ${profile}, charts:${charts}, page range drives charts:${rangeOk}` };
           });
 
@@ -2732,11 +2732,12 @@
                 return { ok, detail: `${ok ? '' : '[' + diag1 + '] '}rate-limited -> summary + "pending" note:${pendingOk} previews write nothing:${previewClean}/${preview2Clean} streams fetched only for measured-power rides (${streamCalls() || 'none now'}; asked 650,652):${fetchedOk} stream TSS + no-stream flag:${planOk} "adds power" label:${labelOk} stored 3600 samples:${storedOk}${applied.ok ? '' : ' (apply: ' + applied.error + ')'} import never sent back (guard/panel):${noSend}/${noButton} next sync asks nothing:${quiet} undo after streams added exact:${undoAdded} deleted on Strava removed:${removing}/${gone} restore point keeps its samples:${inline} undo after removal restores samples:${undoRemoved}${undoRemoved ? '' : ` [back samples: ${back && back.samples ? back.samples.length : 'none'}, backup keys: ${bk ? Object.keys(bk.idb.find(r => r.id === 'strava_650') || {}).join('/') : 'no backup'}]`}` };
               });
 
-              await suite('Strava Background Check: Reads Only (No Streams), Writes Nothing, Badges History & Sync; Off Switch; Real Threshold HR Replaces the Estimate', async () => {
+              await suite('Strava Check On Open: Badge-Only Mode Reads Only And Writes Nothing; Off Switch; Auto-Sync Applies A Routine Plan (Never Mid-Ride); Real Threshold HR Replaces the Estimate', async () => {
                 const scheduledInTests = app._stravaAutoTimer;
                 strava.push({ id: '660', name: 'New since last sync', sport_type: 'VirtualRide', start_date: iso(at(0, 5, 0)), moving_time: 1800, elapsed_time: 1800, average_watts: 190, device_watts: true, description: '', calories: 350 });
                 streamData['660'] = { time: { data: Array.from({ length: 1800 }, (_, i) => i) }, watts: { data: Array.from({ length: 1800 }, () => 190) } };
                 W.localStorage.removeItem(SS.AUTOCHECK_KEY);
+                W.localStorage.setItem(SS.AUTOSYNC_KEY, 'false'); // badge only: nothing is imported until Sync
                 app.strava = { reachable: false };
                 const S0 = await snapshot();
                 calls.length = 0;
@@ -2753,6 +2754,17 @@
                 // A sync clears the badge
                 await app.previewStravaSync(choice); await app.applyStravaSync();
                 const cleared = !D.querySelector('.sync-badge');
+                // Automatic sync (the default): a routine plan is applied when the app opens, with its restore point; never mid-ride.
+                W.localStorage.removeItem(SS.AUTOSYNC_KEY);
+                strava.push({ id: '661', name: 'Rode since the app was closed', sport_type: 'VirtualRide', start_date: iso(at(0, 3, 0)), moving_time: 1500, elapsed_time: 1500, average_watts: 180, device_watts: true, description: '', calories: 280 });
+                const lastBackup = async () => Math.max(0, ...(await backups()).map(b => b.createdAt)); const backupBefore = await lastBackup();
+                D.querySelectorAll('.modal-overlay.open').forEach(m => app.closeModal(m.id)); // it waits while a dialog is open
+                app.isPlaying = true;
+                await app.runStravaAutoCheck();
+                const notMidRide = !app.completedWorkouts.some(r => r.id === 'strava_661') && !app._stravaSyncPreview;
+                app.isPlaying = false;
+                const autoPlan = await app.runStravaAutoCheck();
+                const autoSynced = notMidRide && app.completedWorkouts.some(r => r.id === 'strava_661') && app.stravaPlanIsRoutine(autoPlan) && (await lastBackup()) > backupBefore && !D.querySelector('.sync-badge') && !app._stravaSyncPreview && !app._syncBusy;
                 const noTimerInTests = scheduledInTests === undefined;
 
                 // Threshold HR: estimated from max HR until a real one is entered in the profile, then used (and kept).
@@ -2772,8 +2784,8 @@
                 Object.assign(app.activeProfile, JSON.parse(savedProf));
                 app.applyProfileChange();
 
-                return { ok: readOnly && badgeOk && off && cleared && noTimerInTests && lthrOk && profileOk,
-                  detail: `read-only, no streams, nothing written:${readOnly} badge ${n} on History + Sync:${badgeOk} off switch:${off} sync clears badge:${cleared} not scheduled in test mode:${noTimerInTests} LTHR est 162 -> real 165 kept:${lthrOk} profile field saved + used:${profileOk}` };
+                return { ok: readOnly && badgeOk && off && cleared && autoSynced && noTimerInTests && lthrOk && profileOk,
+                  detail: `read-only, no streams, nothing written:${readOnly} badge ${n} on History + Sync:${badgeOk} off switch:${off} sync clears badge:${cleared} auto-sync imports a routine plan, not mid-ride:${autoSynced} not scheduled in test mode:${noTimerInTests} LTHR est 162 -> real 165 kept:${lthrOk} profile field saved + used:${profileOk}` };
               });
 
               await suite('Strava Sync: Real Browser Storage Untouched & Reconnect Error Shown When activity:read_all Is Missing', async () => {
