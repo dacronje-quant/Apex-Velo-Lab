@@ -20,6 +20,7 @@
       const fileInput = document.getElementById('fileInputTcx');
       this.on(fileInput, 'change', (e) => { this.handleIncomingFiles(e.target.files); e.target.value = ''; });
       this.on(document.getElementById('btnChooseImportFiles'), 'click', () => fileInput && fileInput.click());
+      if (this.initBulkImportDom) this.initBulkImportDom();
       const dz = document.getElementById('historyDropzone');
       if (dz) {
         this.on(dz, 'dragover', (e) => { e.preventDefault(); dz.classList.add('dragover'); });
@@ -93,6 +94,14 @@
 
     handleIncomingFiles(fileList) {
       if (!fileList || !fileList.length) return;
+      // Archives, .gz ride files and GPX go to the bulk importer (with backups still restored here).
+      if (this.startBulkImport && this.wantsBulkImport(Array.from(fileList))) {
+        const backups = Array.from(fileList).filter(f => /\.json(\.gz)?$/i.test(f.name));
+        const rides = Array.from(fileList).filter(f => !backups.includes(f));
+        if (backups.length) this.handleIncomingFiles(backups);
+        if (rides.length) this.startBulkImport(rides);
+        return;
+      }
       Array.from(fileList).forEach(file => {
         const name = file.name.toLowerCase();
         const stem = file.name.replace(/\.[^/.]+$/, '');
@@ -238,7 +247,7 @@
         const tss = pos(r.tss) ? r.tss : (np > 0 ? '0' : '--');
         const ifv = pos(r.if) ? Number(r.if).toFixed(2) : (np > 0 ? '0.00' : '--');
         const z = pos(r.if) ? VeloProgress.ifBand(parseFloat(r.if)) : null;
-        const hasSamples = r.samples && r.samples.length >= 5;
+        const hasSamples = VeloRideSummary.count(r) >= 5;
         return `
           <tr data-id="${esc(r.id)}">
             <td class="num nowrap">${dateStr}</td>

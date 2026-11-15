@@ -82,7 +82,7 @@ Confirmed rides, profiles, preferences, health records and Strava restore points
 The **gear icon** in the header opens Settings - everything you set up once:
 
 - **Rider** - FTP, weight, max / threshold heart rate and crank length (opens the rider profiles).
-- **AI engine** - Claude or Gemini, model and reasoning effort (low by default).
+- **AI engine** - Claude or Gemini, model and reasoning effort (low by default). The ✦ engine switcher next to the Coach's main button, in Ask, in Describe a workout and on ride breakdowns changes the model on the spot (everywhere at once).
 - **Apple Health** - live status, the address and token for Health Auto Export, and the setup steps with your PC's address filled in.
 - **Backups** - save status, last automatic backup, **Back up now**, preview and restore, and backup-file import.
 - **Phone view** - the address to open on your phone.

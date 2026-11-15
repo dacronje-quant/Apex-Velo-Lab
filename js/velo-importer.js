@@ -1,5 +1,5 @@
 /**
- * APEX VELO // LAB - Ride file importers (.fit, .tcx, .csv).
+ * APEX VELO // LAB - Ride file importers (.fit, .tcx, .gpx, .csv).
  *
  * Zero-placeholder policy: a channel that is absent from the source file stays
  * null/0 and is rendered as "--" by the UI. No default cadence, heart rate,
@@ -58,54 +58,157 @@ class VeloRideImporter {
     return `${prefix}_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`;
   }
 
-  // -------------------------------------------------------------------- TCX --
-  static parseTcx(tcxXmlString, riderFtp = 185, profileName = 'Imported rider') {
-    const xmlDoc = new DOMParser().parseFromString(tcxXmlString, 'text/xml');
-    const trackpoints = xmlDoc.getElementsByTagName('Trackpoint');
-    if (!trackpoints.length) throw new Error('No trackpoints found in TCX file.');
-    const text = (el, tag) => {
-      const n = el.getElementsByTagName(tag)[0] || el.getElementsByTagNameNS('*', tag)[0];
-      return n ? n.textContent.trim() : null;
-    };
+  // ------------------------------------------------------------------- XML --
+  /** Text of the first <tag> (any namespace prefix) inside an XML fragment, or null. Works without DOMParser (Web Workers). */
+  static _xmlText(block, tag) {
+    const m = block.match(new RegExp(`<(?:[\\w.-]+:)?${tag}\\b[^>]*>((?:<!\\[CDATA\\[[\\s\\S]*?\\]\\]>|[^<])*)<`));
+    return m ? VeloRideImporter._xmlDecode(m[1].trim()) : null;
+  }
 
-    const idNode = xmlDoc.getElementsByTagName('Id')[0];
-    const firstTime = text(trackpoints[0], 'Time');
-    const startIso = firstTime || (idNode ? idNode.textContent.trim() : new Date().toISOString());
+  /** Inner text of every <tag>...</tag> element (any namespace prefix). */
+  static _xmlBlocks(text, tag) {
+    const out = [];
+    const re = new RegExp(`<(?:[\\w.-]+:)?${tag}\\b([^>]*?)(?:/>|>([\\s\\S]*?)</(?:[\\w.-]+:)?${tag}>)`, 'g');
+    let m;
+    while ((m = re.exec(text))) out.push({ attrs: m[1] || '', body: m[2] || '' });
+    return out;
+  }
+
+  static _xmlAttr(attrs, name) {
+    const m = attrs.match(new RegExp(`\\b${name}\\s*=\\s*("([^"]*)"|'([^']*)')`));
+    return m ? VeloRideImporter._xmlDecode(m[2] ?? m[3]) : null;
+  }
+
+  static _xmlDecode(s) {
+    return String(s).replace(/<!\[CDATA\[([\s\S]*?)\]\]>/g, '$1').replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&quot;/g, '"').replace(/&apos;/g, "'")
+      .replace(/&#(\d+);/g, (_, n) => String.fromCodePoint(+n)).replace(/&#x([0-9a-f]+);/gi, (_, n) => String.fromCodePoint(parseInt(n, 16))).replace(/&amp;/g, '&');
+  }
+
+  // -------------------------------------------------------------------- TCX --
+  /** Trackpoints of a TCX file as plain values; DOMParser when the page has it, a tolerant scanner in Web Workers. */
+  static _tcxPoints(tcxXmlString) {
+    if (typeof DOMParser !== 'undefined') {
+      const xmlDoc = new DOMParser().parseFromString(tcxXmlString, 'text/xml');
+      const trackpoints = xmlDoc.getElementsByTagName('Trackpoint');
+      const text = (el, tag) => {
+        const n = el.getElementsByTagName(tag)[0] || el.getElementsByTagNameNS('*', tag)[0];
+        return n ? n.textContent.trim() : null;
+      };
+      const points = [];
+      const tracks = [];
+      for (let i = 0; i < trackpoints.length; i++) {
+        const pt = trackpoints[i];
+        let track = pt.parentNode;
+        while (track && track.localName !== 'Track') track = track.parentNode;
+        let ti = tracks.indexOf(track);
+        if (ti < 0) { tracks.push(track); ti = tracks.length - 1; }
+        const hrNode = pt.getElementsByTagName('HeartRateBpm')[0];
+        points.push({ track: ti, time: text(pt, 'Time'), hr: hrNode ? text(hrNode, 'Value') : null, watts: text(pt, 'Watts'),
+          cad: text(pt, 'Cadence'), spd: text(pt, 'Speed'), dist: text(pt, 'DistanceMeters') });
+      }
+      const idNode = xmlDoc.getElementsByTagName('Id')[0];
+      const act = xmlDoc.getElementsByTagName('Activity')[0];
+      return { points, id: idNode ? idNode.textContent.trim() : null, sport: act ? act.getAttribute('Sport') : null };
+    }
+    const X = VeloRideImporter;
+    const points = [];
+    X._xmlBlocks(tcxXmlString, 'Track').forEach((track, ti) => {
+      for (const pt of X._xmlBlocks(track.body, 'Trackpoint')) {
+        const hrBlock = X._xmlBlocks(pt.body, 'HeartRateBpm')[0];
+        points.push({ track: ti, time: X._xmlText(pt.body, 'Time'), hr: hrBlock ? X._xmlText(hrBlock.body, 'Value') : null, watts: X._xmlText(pt.body, 'Watts'),
+          cad: X._xmlText(pt.body, 'Cadence'), spd: X._xmlText(pt.body, 'Speed'), dist: X._xmlText(pt.body, 'DistanceMeters') });
+      }
+    });
+    const act = X._xmlBlocks(tcxXmlString, 'Activity')[0];
+    return { points, id: X._xmlText(tcxXmlString, 'Id'), sport: act ? X._xmlAttr(act.attrs, 'Sport') : null };
+  }
+
+  static parseTcx(tcxXmlString, riderFtp = 185, profileName = 'Imported rider') {
+    const { points, id, sport } = VeloRideImporter._tcxPoints(tcxXmlString);
+    if (!points.length) throw new Error('No trackpoints found in TCX file.');
+    const startIso = points[0].time || id || new Date().toISOString();
     const startMs = new Date(startIso).getTime();
 
-    const samples = [];
-    let previousTrack = null;
-    for (let i = 0; i < trackpoints.length; i++) {
-      const pt = trackpoints[i];
-      let track = pt.parentNode;
-      while (track && track.localName !== 'Track') track = track.parentNode;
-      const tStr = text(pt, 'Time');
-      const t = tStr && Number.isFinite(startMs) ? Math.round((new Date(tStr).getTime() - startMs) / 1000) : i;
-      const hrNode = pt.getElementsByTagName('HeartRateBpm')[0];
-      const hr = hrNode ? parseInt(text(hrNode, 'Value'), 10) || 0 : 0;
-      const watts = text(pt, 'Watts');
-      const cad = text(pt, 'Cadence');
-      const spd = text(pt, 'Speed');
-      const dist = text(pt, 'DistanceMeters');
-      samples.push({
-        time: t,
-        segmentStart: i > 0 && track !== previousTrack,
+    const samples = points.map((pt, i) => {
+      const tStr = pt.time;
+      return {
+        time: tStr && Number.isFinite(startMs) ? Math.round((new Date(tStr).getTime() - startMs) / 1000) : i,
+        segmentStart: i > 0 && pt.track !== points[i - 1].track,
         timestamp: tStr ? new Date(tStr).getTime() : undefined,
-        power: watts !== null ? parseInt(watts, 10) || 0 : 0,
-        cadence: cad !== null ? parseInt(cad, 10) || 0 : 0,
-        hr,
-        speed: spd !== null ? Math.round(parseFloat(spd) * 3.6 * 10) / 10 : null,
-        dist: dist !== null ? parseFloat(dist) / 1000 : null
-      });
-      previousTrack = track;
-    }
+        power: pt.watts !== null ? parseInt(pt.watts, 10) || 0 : 0,
+        cadence: pt.cad !== null ? parseInt(pt.cad, 10) || 0 : 0,
+        hr: pt.hr !== null ? parseInt(pt.hr, 10) || 0 : 0,
+        speed: pt.spd !== null ? Math.round(parseFloat(pt.spd) * 3.6 * 10) / 10 : null,
+        dist: pt.dist !== null ? parseFloat(pt.dist) / 1000 : null
+      };
+    });
 
     return VeloRideImporter.summarize(samples, riderFtp, {
       id: VeloRideImporter.uid('imported_tcx'),
       date: new Date(startIso).toISOString(),
       profileName,
       title: 'Imported Ride (' + new Date(startIso).toLocaleDateString() + ')',
-      source: 'TCX Import'
+      source: 'TCX Import',
+      ...(sport ? { fileSport: sport } : {})
+    });
+  }
+
+  // -------------------------------------------------------------------- GPX --
+  /**
+   * GPX tracks (Strava, Garmin, Komoot, Wahoo exports). Speed and distance come from the coordinates;
+   * heart rate, cadence and power from the usual Garmin/Strava extensions when present.
+   */
+  static parseGpx(gpxXmlString, profileName = 'Imported rider', riderFtp = 185) {
+    const X = VeloRideImporter;
+    const trk = X._xmlBlocks(gpxXmlString, 'trk')[0];
+    const name = (trk && X._xmlText(trk.body.split(/<(?:[\w.-]+:)?trkseg\b/)[0], 'name')) || null;
+    const type = (trk && X._xmlText(trk.body.split(/<(?:[\w.-]+:)?trkseg\b/)[0], 'type')) || null;
+    const raw = [];
+    X._xmlBlocks(trk ? trk.body : gpxXmlString, 'trkseg').forEach((seg, si) => {
+      X._xmlBlocks(seg.body, 'trkpt').forEach((pt, pi) => {
+        const t = Date.parse(X._xmlText(pt.body, 'time') || '');
+        if (!Number.isFinite(t)) return;
+        const num = (tag) => { const v = parseFloat(X._xmlText(pt.body, tag)); return Number.isFinite(v) ? v : null; };
+        raw.push({ seg: si, newSeg: pi === 0, t, lat: parseFloat(X._xmlAttr(pt.attrs, 'lat')), lon: parseFloat(X._xmlAttr(pt.attrs, 'lon')),
+          hr: num('hr') ?? num('heartrate'), cad: num('cad') ?? num('cadence'), power: num('power') ?? num('watts') });
+      });
+    });
+    if (!raw.length) throw new Error('No timed track points found in GPX file.');
+    raw.sort((a, b) => a.t - b.t);
+    const startMs = raw[0].t;
+    const R = 6371.0088;
+    const rad = (d) => d * Math.PI / 180;
+    let distKm = 0;
+    const samples = raw.map((p, i) => {
+      const prev = raw[i - 1];
+      let speed = null;
+      if (prev && Number.isFinite(p.lat) && Number.isFinite(prev.lat) && Number.isFinite(p.lon) && Number.isFinite(prev.lon)) {
+        const dLat = rad(p.lat - prev.lat), dLon = rad(p.lon - prev.lon);
+        const h = Math.sin(dLat / 2) ** 2 + Math.cos(rad(prev.lat)) * Math.cos(rad(p.lat)) * Math.sin(dLon / 2) ** 2;
+        const d = 2 * R * Math.asin(Math.min(1, Math.sqrt(h)));
+        if (!p.newSeg) distKm += d;
+        const dt = (p.t - prev.t) / 1000;
+        if (dt > 0 && !p.newSeg) speed = Math.round((d / (dt / 3600)) * 10) / 10;
+      }
+      return {
+        time: Math.round((p.t - startMs) / 1000),
+        segmentStart: i > 0 && p.newSeg,
+        timestamp: p.t,
+        power: p.power !== null ? Math.round(p.power) : 0,
+        cadence: p.cad !== null ? Math.round(p.cad) : 0,
+        hr: p.hr !== null ? Math.round(p.hr) : 0,
+        speed,
+        dist: Number.isFinite(p.lat) ? distKm : null
+      };
+    });
+    const iso = new Date(startMs).toISOString();
+    return VeloRideImporter.summarize(samples, riderFtp, {
+      id: VeloRideImporter.uid('imported_gpx'),
+      date: iso,
+      profileName,
+      title: name || 'GPX Ride (' + new Date(iso).toLocaleDateString() + ')',
+      source: 'GPX Import',
+      ...(type ? { fileSport: type } : {})
     });
   }
 
@@ -218,8 +321,12 @@ class VeloRideImporter {
     const records = [];
     let lastTimestamp = 0;
     let timerStopped = false, segmentPending = false;
+    let sport = null; // FIT sport / sub_sport from the session message, else the sport message
     const acceptMessage = (def, msg) => {
       if (msg.timestamp !== undefined) lastTimestamp = msg.timestamp;
+      if ((def.globalMesg === 18 || def.globalMesg === 12) && msg.sport !== undefined && (!sport || (def.globalMesg === 18 && !sport.session))) {
+        sport = { sport: msg.sport, subSport: msg.subSport ?? 0, session: def.globalMesg === 18 };
+      }
       if (def.globalMesg === 21 && msg.event === 0) {
         if (msg.eventType === 0) { if (timerStopped) segmentPending = true; timerStopped = false; }
         else if ([1, 4, 8, 9].includes(msg.eventType)) timerStopped = true;
@@ -310,7 +417,8 @@ class VeloRideImporter {
       title: 'FIT Ride (' + new Date(rideDate).toLocaleDateString() + ')',
       date: rideDate,
       profileName,
-      source: 'FIT Import'
+      source: 'FIT Import',
+      ...(sport ? { fitSport: sport.sport, fitSubSport: sport.subSport } : {})
     });
   }
 
@@ -323,7 +431,9 @@ class VeloRideImporter {
       if (f.size === 1) {
         const val = dv.getUint8(off);
         if (val !== 0xff) {
-          if (def.globalMesg === 21 && f.num === 0) msg.event = val;
+          if ((def.globalMesg === 12 && f.num === 0) || (def.globalMesg === 18 && f.num === 5)) msg.sport = val;
+          else if ((def.globalMesg === 12 && f.num === 1) || (def.globalMesg === 18 && f.num === 6)) msg.subSport = val;
+          else if (def.globalMesg === 21 && f.num === 0) msg.event = val;
           else if (def.globalMesg === 21 && f.num === 1) msg.eventType = val;
           else if (f.num === 3) msg.heart_rate = val;
           else if (f.num === 4) msg.cadence = val;
@@ -350,3 +460,5 @@ class VeloRideImporter {
 }
 
 if (typeof window !== 'undefined') window.VeloRideImporter = VeloRideImporter;
+if (typeof self !== 'undefined' && typeof window === 'undefined') self.VeloRideImporter = VeloRideImporter;
+if (typeof module !== 'undefined') module.exports = VeloRideImporter;

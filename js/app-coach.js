@@ -66,6 +66,11 @@
           this.showToast(`Coach will look back ${d} days.`, 'success');
         });
       }
+      // Every AI engine switcher, wherever it is (including ones rendered later), changes the engine at once.
+      this.on(document, 'change', (e) => {
+        const sel = e.target && e.target.closest && e.target.closest('select[data-ai-pick]');
+        if (sel) this.pickAiEngine(sel.value);
+      });
       // Switching provider applies at once (and resets the model to that provider's default).
       this.on(providerSelect, 'change', () => {
         this.aiCoach.saveConfig({ provider: providerSelect.value, model: '' });
@@ -200,6 +205,65 @@
       sel.value = c.modelOverride && VeloAiCoach.providerOf(c.modelOverride) === p ? c.modelOverride : '';
     },
 
+    // ---------------------------------------------------------------- AI engine picker --
+    // One small switcher wherever AI is used (Coach, quick workout, Ask, Describe, ride breakdowns). It is a native
+    // <select>, so a phone shows its own picker. Every copy changes the same choice as Settings > AI engine, and
+    // updateCoachEngineStatus() keeps them all in step.
+
+    /** The options: each provider's models (live list when known), the current one selected, then AI settings. */
+    aiPickerOptions() {
+      const c = this.aiCoach;
+      if (!c) return '';
+      const cur = c.model;
+      // Which keys exist is known once the server answers, and always in the Android app (keys live on the phone).
+      const knowsKeys = c.engine.reachable || document.documentElement.classList.contains('apex-native');
+      const groups = Object.keys(VeloAiCoach.PROVIDERS).map((p) => {
+        const ep = c.engine.providers && c.engine.providers[p];
+        const noKey = knowsKeys && !(ep && ep.configured);
+        const ids = VeloAiCoach.modelsFor(p);
+        if (VeloAiCoach.providerOf(cur) === p && !ids.includes(cur)) ids.unshift(cur);
+        const opts = ids.map((id) => `<option value="${esc(id)}"${id === cur ? ' selected' : ''}>${esc(VeloAiCoach.labelFor(id))}${noKey ? ' (no key)' : ''}</option>`).join('');
+        return `<optgroup label="${esc(VeloAiCoach.PROVIDERS[p].label)}${noKey ? ' - no API key' : ''}">${opts}</optgroup>`;
+      });
+      return groups.join('') + '<option value="__settings">AI settings...</option>';
+    },
+
+    /** The switcher's markup (`where` names the place, for tests and styles). */
+    aiPickerHtml(where = '') {
+      return `<label class="ai-pick${this.aiCoach && this.aiCoach.isLive ? ' live' : ''}" title="AI engine for the coach, Ask, Describe and ride breakdowns"><svg class="ic ic-xs" aria-hidden="true"><use href="#i-sparkles"/></svg><span class="sr-only">AI engine</span><select class="ai-pick-select" data-ai-pick="${esc(where)}">${this.aiPickerOptions()}</select></label>`;
+    },
+
+    /** Brings every switcher on the page up to date (options, selection, live state). */
+    refreshAiPickers() {
+      const c = this.aiCoach;
+      if (!c) return;
+      const html = this.aiPickerOptions();
+      document.querySelectorAll('select[data-ai-pick]').forEach((sel) => {
+        if (sel._aiOpts !== html) { sel.innerHTML = html; sel._aiOpts = html; }
+        sel.value = c.model;
+        const wrap = sel.closest('.ai-pick');
+        if (wrap) wrap.classList.toggle('live', c.isLive);
+      });
+    },
+
+    /** A switcher changed: use that model (and its provider) everywhere from now on. */
+    pickAiEngine(value) {
+      if (value === '__settings') {
+        this.refreshAiPickers();
+        if (this.openSettings) this.openSettings('ai');
+        return;
+      }
+      const provider = VeloAiCoach.providerOf(value);
+      this.aiCoach.saveConfig({ provider, model: value });
+      const providerSelect = document.getElementById('selectCoachProvider');
+      if (providerSelect) providerSelect.value = provider;
+      this.fillCoachModelOptions();
+      this.updateCoachEngineStatus();
+      const c = this.aiCoach;
+      if (c.isLive) this.showToast(`AI engine: ${VeloAiCoach.labelFor(c.model)}.`, 'success');
+      else this.showToast(`${c.providerLabel} has no API key yet - add it in ${this.settingsLabel ? this.settingsLabel('ai') : 'Settings > AI engine'}. Until then the built-in engine is used.`, 'warning');
+    },
+
     /** Re-reads the local server's status (which keys are present, default models) and updates the UI. */
     async refreshCoachEngine(announce) {
       await this.aiCoach.detectEngine(3000, !!announce);  // "Re-check server" also re-reads every provider's model list
@@ -301,6 +365,7 @@
     },
 
     updateCoachEngineStatus() {
+      this.refreshAiPickers();
       if (this.updateAskEngine) this.updateAskEngine();
       if (this.updateDescribeEngine) this.updateDescribeEngine();
       this.updateCoachGoButton();

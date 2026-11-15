@@ -49,10 +49,13 @@
       const steps = VeloFtpHistory.activeHistory(p, this.cyclingRides(), now);
       const ftpAt = (t) => { let v = steps.length ? steps[0].y : Number(p.ftp) || null; for (const s of steps) { if (s.x <= t) v = s.y; else break; } return v; };
       const cache = this._hrPowerCache || (this._hrPowerCache = new Map());
-      const rides = this.cyclingRides().filter(VeloInsight.hasSamples).map(r => {
+      const rides = this.cyclingRides().filter(VeloRideSummary.has).map(r => {
         const t = Date.parse(r.date), ftp = this.rideFtp(r) || ftpAt(t);
-        const key = `${r.id}|${r.samples.length}|${thr ? thr.hr : ''}|${ftp}`;
-        if (!cache.has(key)) cache.set(key, thr ? VeloFtpModel.hrPowerEstimate(VeloPower.prepare(r.samples), thr.hr, ftp) : null);
+        const key = `${r.id}|${VeloRideSummary.count(r)}|${thr ? thr.hr : ''}|${ftp}`;
+        if (!cache.has(key)) {
+          const s = !VeloInsight.hasSamples(r) && VeloRideSummary.get(r);
+          cache.set(key, !thr ? null : s ? VeloFtpModel.hrPowerFromBlocks(s.hrp, thr.hr, ftp) : VeloFtpModel.hrPowerEstimate(VeloPower.prepare(r.samples), thr.hr, ftp));
+        }
         return { id: r.id, t, title: r.title, curve: this.ridePower(r).curve, hrp: cache.get(key) };
       }).filter(r => Number.isFinite(r.t));
       if (!rides.length) { this._appFtpBundle = { sig, bundle: null }; return null; }

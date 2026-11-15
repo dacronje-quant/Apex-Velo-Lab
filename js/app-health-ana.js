@@ -63,7 +63,7 @@
         this.setText('anaHealthEmptyText', all.length
           ? 'No health days in this time range. Pick a longer range above.'
           : document.documentElement.classList.contains('apex-native')
-            ? 'Add your intervals.icu API key in Settings > Health: resting HR, HRV, sleep and the rest of your wellness data appear here.'
+            ? `Add your intervals.icu API key in ${this.settingsLabel('health', 'Settings > Health')}: resting HR, HRV, sleep and the rest of your wellness data appear here.`
             : 'Set up Apple Health in Settings: resting HR, HRV and sleep appear here.');
       }
       this.renderHealthTiles(all, today);
@@ -232,7 +232,7 @@
       card.hidden = !inRange.length;
       if (card.hidden) return;
       const last = days.filter(d => Wl.value(d, 'hrv') !== null).pop();
-      const kind = last && last.hrvSrc === 'icu' ? (last.hrvKind === 'sdnn' ? 'SDNN' : 'rMSSD') : 'SDNN';
+      const kind = last && (last.hrvSrc === 'icu' || last.hrvSrc === 'hc') ? (last.hrvKind === 'sdnn' ? 'SDNN' : 'rMSSD') : 'SDNN';
       const chart = this.healthChart('healthHrvCanvas', 'line');
       if (!chart) return;
       const within = (p) => p.t >= range.x0 && p.t <= range.x1;

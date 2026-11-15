@@ -234,7 +234,7 @@
       if (rampEl) { rampEl.textContent = d.ramp === null ? '--' : `${d.ramp > 0 ? '+' : ''}${d.ramp}`; rampEl.dataset.ramp = v.key; }
       this.setText('anaRampNote', d.ramp === null ? 'CTL change per week' : v.label);
       const r = this.healthReadiness ? this.healthReadiness() : null;
-      this.setText('anaReadinessNote', r ? (r.advice || (r.level === 'baseline' ? 'Needs 7 nights of HRV' : r.level === 'none' ? 'Set up Apple Health in Settings' : 'No data from the last 2 days')) : '--');
+      this.setText('anaReadinessNote', r ? (r.advice || (r.level === 'baseline' ? 'Needs 7 nights of HRV' : r.level === 'none' ? this.settingsLabel('appleHealth') : 'No data from the last 2 days')) : '--');
 
       this.renderPowerProfile(d);
       this.updateDashboardCharts(d);

@@ -6,6 +6,8 @@
  * them instead of rescanning every ride on every refresh. The CP model (VeloPower.fitModel) is fitted
  * to the best efforts of the 90 days up to a date and memoised until the ride history changes.
  * During a ride, W' balance runs live from the model in force when the ride started.
+ * A ride whose samples are not in memory (the Android app loads them per ride) is analysed from its
+ * sampleSummary (js/velo-ride-summary.js), which gives the same numbers.
  */
 (function () {
   const DAY = 86400000;
@@ -17,16 +19,21 @@
     /** FTP a ride was analysed with: the FTP stored with it, else the current one. */
     rideFtp(r) { return Number(r && r.ftpAtRide) > 0 ? Number(r.ftpAtRide) : Number((this.activeProfile || {}).ftp) || 0; },
 
-    /** Cached { curve (VeloPower.GRID), zones, zonesFtp, n } for a ride with samples, else null. */
+    /** Cached { curve (VeloPower.GRID), zones, zonesFtp, n } for a ride with samples (or their summary), else null. */
     ridePower(r) {
-      if (!VeloInsight.hasSamples(r)) return null;
+      if (!VeloRideSummary.has(r)) return null;
       const cache = this._ridePowerCache || (this._ridePowerCache = new Map());
-      const key = `${r.id}|${r.samples.length}`;
+      const key = `${r.id}|${VeloRideSummary.count(r)}`;
       let e = cache.get(key);
       if (!e) {
-        const prep = VeloPower.prepare(r.samples);
         const ftp = this.rideFtp(r);
-        e = { n: prep.n, curve: VeloPower.mmp(prep), zones: VeloPower.zoneSeconds(prep.power, ftp), zonesFtp: ftp };
+        if (VeloInsight.hasSamples(r)) {
+          const prep = VeloPower.prepare(r.samples);
+          e = { n: prep.n, curve: VeloPower.mmp(prep), zones: VeloPower.zoneSeconds(prep.power, ftp), zonesFtp: ftp };
+        } else {
+          const s = VeloRideSummary.get(r);
+          e = { n: s.pn, curve: s.curve, zones: VeloRideSummary.zoneSeconds(s, ftp), zonesFtp: ftp };
+        }
         if (cache.size > 2 * (this.completedWorkouts || []).length + 50) cache.clear();
         cache.set(key, e);
       }
@@ -38,17 +45,40 @@
       const e = this.ridePower(r);
       if (!e) return null;
       const ftp = this.rideFtp(r);
-      if (e.zonesFtp !== ftp) { e.zones = VeloPower.zoneSeconds(VeloPower.prepare(r.samples).power, ftp); e.zonesFtp = ftp; }
+      if (e.zonesFtp !== ftp) {
+        e.zones = VeloInsight.hasSamples(r) ? VeloPower.zoneSeconds(VeloPower.prepare(r.samples).power, ftp) : VeloRideSummary.zoneSeconds(VeloRideSummary.get(r), ftp);
+        e.zonesFtp = ftp;
+      }
       return e.zones;
+    },
+
+    /** VeloInsight.decoupling of a ride, from its samples or its summary; cached per ride. */
+    rideDecoupling(r) {
+      const cache = this._decCache || (this._decCache = new Map());
+      const key = `${r.id}|${VeloRideSummary.count(r)}`;
+      if (!cache.has(key)) {
+        const s = !VeloInsight.hasSamples(r) && VeloRideSummary.get(r);
+        cache.set(key, s ? s.decoupling : VeloInsight.decoupling(r.samples));
+      }
+      return cache.get(key);
+    },
+
+    /** VeloInsight.intervalRows of a ride at this FTP, from its samples or its summary. */
+    rideIntervalRows(r, ftp) {
+      const s = !VeloInsight.hasSamples(r) && VeloRideSummary.get(r);
+      return s ? VeloInsight.intervalWork(s.steps, ftp) : VeloInsight.intervalRows(r.samples, ftp);
     },
 
     /** VeloTrends.efOf, cached per ride (NP over the steady part is the expensive bit). */
     rideEf(r) {
       const cache = this._efCache || (this._efCache = new Map());
-      const key = `${r.id}|${r.samples ? r.samples.length : 0}|${r.ftpAtRide || ''}|${r.np || ''}|${r.avgHr || ''}|${r.duration || ''}`;
+      const key = `${r.id}|${VeloRideSummary.count(r)}|${r.ftpAtRide || ''}|${r.np || ''}|${r.avgHr || ''}|${r.duration || ''}`;
       if (!cache.has(key)) {
         if (cache.size > 2 * (this.completedWorkouts || []).length + 50) cache.clear();
-        cache.set(key, VeloTrends.efOf(r));
+        // Without samples in memory the summary's value counts when it was worked out at the same ride FTP;
+        // VeloTrends.efOf only reads samples from 1200 of them, so shorter rides take its summary-only path.
+        const s = !Array.isArray(r.samples) && VeloRideSummary.get(r);
+        cache.set(key, s && s.n >= 1200 && s.efFtp === (Number(r.ftpAtRide) || 0) ? s.ef : VeloTrends.efOf(r));
       }
       return cache.get(key);
     },
@@ -71,7 +101,7 @@
       const mix = (s) => { for (let i = 0; i < s.length; i++) { h ^= s.charCodeAt(i); h = Math.imul(h, 16777619); } };
       for (const r of this.completedWorkouts || []) {
         if (!r) continue;
-        mix(String(r.id)); mix(String(r.date)); mix(String(r.samples ? r.samples.length : 0)); mix(String(r.ftpAtRide || ''));
+        mix(String(r.id)); mix(String(r.date)); mix(String(VeloRideSummary.count(r))); mix(String(r.ftpAtRide || ''));
       }
       return `${(this.completedWorkouts || []).length}:${h >>> 0}`;
     },
@@ -90,7 +120,7 @@
     powerEntries() {
       const memo = this.powerMemo();
       if (!memo.has('entries')) {
-        memo.set('entries', this.cyclingRides().filter(VeloInsight.hasSamples)
+        memo.set('entries', this.cyclingRides().filter(VeloRideSummary.has)
           .map(r => ({ id: r.id, t: Date.parse(r.date), title: r.title, curve: this.ridePower(r).curve }))
           .filter(e => Number.isFinite(e.t)).sort((a, b) => a.t - b.t));
       }
