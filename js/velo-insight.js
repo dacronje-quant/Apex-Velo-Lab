@@ -276,9 +276,11 @@ class VeloInsight {
       `Workout: ${meta.title || 'workout'}; FTP ${meta.ftp || '?'} W; duration ${meta.minutes || '?'} min${meta.avgHr ? `; avg HR ${meta.avgHr}` : ''}${meta.maxHr ? `; rider max HR ${meta.maxHr}` : ''}.`,
       'Per-step data (cadence fade and HR rise compare the first and last third of each step; "-" = not recorded):',
       head, table,
-      'Write 3 short markdown bullet points in plain language for a beginner: how the hard efforts went overall (group those on target),',
-      'where cadence faded or heart rate drifted and what it likely means (fatigue, fuelling, heat, pacing),',
-      'and one concrete suggestion for the next session. Avoid jargon and acronyms; say pedalling slowed or heart rate rose instead of cadence fade or cardiac drift. Explain any essential technical term immediately. Use numbers only when needed to identify a particular effort or give an actionable target; do not repeat the step table or percentages. Only use the data above - never invent data or diagnose a cause from these measurements alone. No preamble.'
+      'Write 3 to 5 markdown bullet points, talking to the rider directly like a good coach: how the hard efforts went (group the ones on target, single out the ones that were not),',
+      'where pedalling slowed or heart rate climbed and the most likely reasons (fatigue, fuelling, heat, pacing, targets set too high),',
+      'what the session says about their current level, and one concrete change for the next session with a real target.',
+      'Name the efforts and quote the numbers that make each point; do not restate the whole table. Give a few plain words the first time you use a less common term.',
+      'Only use the data above and never invent any. Causes are your best reading of these measurements, not a diagnosis: say which is most likely and what would confirm it. No preamble.'
     ].join('\n');
   }
 

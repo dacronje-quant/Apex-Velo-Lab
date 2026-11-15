@@ -46,6 +46,7 @@ class VeloAiCoach {
   static LOOKBACK_OPTIONS = [7, 14, 28, 42, 90];
   static DEFAULT_LOOKBACK = 28;
   static MAX_LISTED_RIDES = 30;
+  static MAX_NOTES = 1500;  // the rider's own words for the coach (a short paragraph, not a one-liner)
   static STATUS_URL = 'api/coach/status';
   static COACH_URL = 'api/coach';
 
@@ -260,7 +261,7 @@ class VeloAiCoach {
       lookbackDays: lookback, windowRideCount: windowRides.length, listedRideCount: listedRides.length,
       history, strength, heavyLegsRecent, otherActivities,
       goal: VeloAiCoach.GOALS[goal] ? goal : 'ftp',
-      notes: String(notes || '').slice(0, 280),
+      notes: String(notes || '').trim().slice(0, VeloAiCoach.MAX_NOTES),
       targetFocus,
       autoDuration: String(durationMin).toLowerCase() === 'auto',
       durationMin: parseInt(durationMin, 10) || 60
@@ -499,56 +500,6 @@ class VeloAiCoach {
     };
   }
 
-  /** 7-day outlook sized to a CTL ramp appropriate for the goal and current form. */
-  buildWeekPlan(ctx, todayFocus, todayWorkout) {
-    const goal = VeloAiCoach.GOALS[ctx.goal] || VeloAiCoach.GOALS.ftp;
-    let ramp = goal.ctlRampPerWeek;
-    if (ctx.formKey === 'fatigue' || ctx.formKey === 'overtraining') ramp = 0;
-    else if (ctx.formKey === 'optimal') ramp = Math.min(ramp, 2);
-    // Daily TSS that lifts CTL by `ramp` per week: dCTL/day ~= (TSS - CTL) / 42  ->  TSS = CTL + 6 * ramp
-    const dailyTarget = Math.max(20, ctx.ctl + 6 * ramp);
-    const weekTarget = Math.round(dailyTarget * 7);
-
-    const templates = {
-      ftp:       ['endurance', 'threshold', 'recovery', 'sweetspot', 'off', 'endurance-long'],
-      longevity: ['endurance', 'endurance', 'recovery', 'sweetspot', 'off', 'endurance-long'],
-      vo2:       ['endurance', 'vo2max', 'recovery', 'threshold', 'off', 'endurance-long'],
-      balanced:  ['endurance', 'vo2max', 'recovery', 'endurance', 'off', 'sweetspot']
-    };
-    const weights = { recovery: 0.35, endurance: 0.75, 'endurance-long': 1.5, sweetspot: 1.0, threshold: 1.05, vo2max: 0.95, off: 0 };
-    const seq = [todayFocus, ...(templates[ctx.goal] || templates.ftp)];
-    // Longevity: one short 4 x 4 a week for aerobic fitness; if today is the 4 x 4, keep the second hard day steady.
-    if (ctx.goal === 'longevity') seq[4] = todayFocus === 'vo2max' ? 'sweetspot' : 'vo2max';
-    // Never stack the same hard stimulus within 48 h of today's session.
-    const hard = ['threshold', 'vo2max', 'sweetspot'];
-    for (let i = 1; i <= 2; i++) if (hard.includes(todayFocus) && hard.includes(seq[i])) seq[i] = 'endurance';
-    if (ctx.formKey === 'fatigue' || ctx.formKey === 'overtraining') { seq[1] = 'recovery'; seq[2] = 'off'; }
-    const remaining = Math.max(0, weekTarget - (todayWorkout.tss || 0));
-    const restWeight = seq.slice(1).reduce((a, f) => a + (weights[f] || 0), 0) || 1;
-    const labels = { recovery: 'Recovery spin', endurance: 'Zone 2 endurance', 'endurance-long': 'Long Zone 2 ride', sweetspot: 'SweetSpot', threshold: 'Threshold over-unders', vo2max: 'VO2 max', off: 'Rest day' };
-    const ifFor = { recovery: 0.5, endurance: 0.68, 'endurance-long': 0.68, sweetspot: 0.86, threshold: 0.9, vo2max: 0.88, off: 0 };
-
-    const now = new Date();
-    return {
-      weekTargetTss: weekTarget,
-      ramp,
-      days: seq.map((f, i) => {
-        const d = new Date(now.getFullYear(), now.getMonth(), now.getDate() + i);
-        const tss = i === 0 ? todayWorkout.tss : Math.round(remaining * (weights[f] || 0) / restWeight);
-        const ifac = ifFor[f] || 0;
-        const minutes = f === 'off' || !ifac ? 0 : Math.round((tss / (ifac * ifac * 100)) * 60 / 5) * 5;
-        return {
-          date: VeloMetrics.localDateKey(d),
-          dayLabel: i === 0 ? 'Today' : d.toLocaleDateString('en-US', { weekday: 'short' }),
-          focus: f,
-          title: i === 0 ? todayWorkout.title.replace(/^AI Coach: /, '') : labels[f],
-          durationMin: i === 0 ? todayWorkout.durationMin : minutes,
-          tss
-        };
-      })
-    };
-  }
-
   /** One or two sentences for the offline engine's advice, from the recent-ride insight. */
   insightAdvice(ctx, focus) {
     const ins = ctx.insight || {};
@@ -570,7 +521,6 @@ class VeloAiCoach {
     if (ctx.autoDuration) ctx.durationMin = this.optimalDuration(focus, ctx);
     const { workout, notes } = this.buildWorkout(focus, ctx);
     const h = ctx.history || {};
-    const weekPlan = this.buildWeekPlan(ctx, focus, workout);
 
     const mixText = h.lowIntensityPct !== null && h.lowIntensityPct !== undefined
       ? (h.lowIntensityPct >= 70 ? 'Most of your recent riding has been easy.' : 'Your recent riding includes plenty of harder work. Keep room for easy days.')
@@ -608,8 +558,7 @@ class VeloAiCoach {
         trainingAdvice: `${why} ${this.insightAdvice(ctx, focus)} ${ctx.autoDuration ? `Allow about ${ctx.durationMin} minutes for this ride. ` : ''}${notes} ${fuelText}`.replace(/\s+/g, ' ').trim()
       },
       evidence: typeof VeloSportScience !== 'undefined' ? VeloSportScience.notesFor(ctx.goal, ctx, { focus }) : [],
-      workout,
-      weekPlan
+      workout
     };
   }
 
@@ -618,12 +567,17 @@ class VeloAiCoach {
     const h = ctx.history || {};
     const goal = VeloAiCoach.GOALS[ctx.goal] || VeloAiCoach.GOALS.ftp;
     const evidence = typeof VeloSportScience !== 'undefined' ? `${VeloSportScience.brief(ctx.goal, ctx, 'session')}\n\n` : '';
-    return `You are the app's sport scientist: an elite cycling coach and exercise physiologist. Prescribe today's indoor ERG session and a 7-day outlook for rider "${ctx.profile.name}".
+    const fixedLength = `within 3 minutes of ${ctx.durationMin} min`;
+    return `You are the app's sport scientist: an elite cycling coach and exercise physiologist. Build today's indoor ERG session for rider "${ctx.profile.name}".
 
 RIDER: FTP ${ctx.profile.ftp} W, weight ${ctx.profile.weightKg} kg, max HR ${ctx.profile.maxHr} bpm.
 PRIMARY GOAL: ${goal.label} - ${goal.summary}
 TODAY'S FOCUS REQUEST: ${ctx.targetFocus} (auto = decide). ${ctx.autoDuration ? 'Duration: YOU choose the most effective length (30-150 min) for this session given its focus, the goal, current form/fatigue and the rider\'s usual ride length - long enough for a real stimulus, short enough to execute with quality; explain the choice in trainingAdvice.' : `Time available: ${ctx.durationMin} minutes.`}
-${ctx.notes ? `RIDER NOTES: ${ctx.notes}\n` : ''}
+${ctx.notes ? `RIDER'S OWN WORDS (what they want today - this outranks the goal, the focus request and every default below):
+"""
+${ctx.notes}
+"""
+` : ''}
 PERFORMANCE MANAGEMENT (Banister model):
 - CTL (fitness) ${ctx.ctl.toFixed(1)}, ATL (fatigue) ${ctx.atl.toFixed(1)}, TSB (form) ${ctx.tsb.toFixed(1)} -> ${ctx.formZone}
 - Last 7 days: ${ctx.sevenDayTss} TSS, ${ctx.sevenDayHours.toFixed(1)} h, ${ctx.recentWorkouts.length} rides; consecutive riding days: ${ctx.consecutiveDays}
@@ -633,25 +587,26 @@ PERFORMANCE MANAGEMENT (Banister model):
 - Power profile: ${h.profileType || 'n/a'}
 NON-CYCLING ACTIVITIES (from Strava, last ${ctx.lookbackDays} days, newest first; today is ${VeloMetrics.localDateKey(new Date())}):
 ${ctx.otherActivities && ctx.otherActivities.line ? ctx.otherActivities.line : '- None recorded.'}
-${ctx.readiness ? `DAILY READINESS (Apple Watch, vs the rider's own baselines): ${ctx.readiness.level.toUpperCase()} - ${ctx.readiness.label}.${ctx.readiness.hrv ? ` HRV 7-day ${ctx.readiness.hrv.avg7} ms (normal ${ctx.readiness.hrv.normalLow}-${ctx.readiness.hrv.normalHigh}).` : ''}${ctx.readiness.rhr ? ` Resting HR ${ctx.readiness.rhr.today} bpm (baseline ${ctx.readiness.rhr.base}).` : ''}${ctx.readiness.sleep ? ` Sleep ${ctx.readiness.sleep.last} h.` : ''}${ctx.readiness.reasons.length ? ' Flags: ' + ctx.readiness.reasons.join('; ') + '.' : ''} Amber = no key session today (endurance or shortened sets); red = Z1-Z2 recovery spin. Say so in fatigueStatus.
+${ctx.readiness ? `DAILY READINESS (Apple Watch, vs the rider's own baselines): ${ctx.readiness.level.toUpperCase()} - ${ctx.readiness.label}.${ctx.readiness.hrv ? ` HRV 7-day ${ctx.readiness.hrv.avg7} ms (normal ${ctx.readiness.hrv.normalLow}-${ctx.readiness.hrv.normalHigh}).` : ''}${ctx.readiness.rhr ? ` Resting HR ${ctx.readiness.rhr.today} bpm (baseline ${ctx.readiness.rhr.base}).` : ''}${ctx.readiness.sleep ? ` Sleep ${ctx.readiness.sleep.last} h.` : ''}${ctx.readiness.reasons.length ? ' Flags: ' + ctx.readiness.reasons.join('; ') + '.' : ''} By default amber argues for endurance or shortened sets rather than a key session, and red for an easy Z1-Z2 spin. Say what the readings mean for today in fatigueStatus.
 ` : ''}${ctx.insight && ctx.insight.lines.length ? `RECENT RIDE INSIGHT (computed from recorded power and heart rate - use it, e.g. ease or re-pace a session type that faded, keep aerobic work steady while drift is high, build on new bests):
 ${ctx.insight.lines.map(l => `- ${l}`).join('\n')}
 ` : ''}RIDES IN THE LAST ${ctx.lookbackDays} DAYS (newest first${ctx.windowRideCount > ctx.listedRideCount ? `, ${ctx.listedRideCount} most recent of ${ctx.windowRideCount}` : ''}):
 ${ctx.recentList}
 
-${evidence}METHOD: 1) needs analysis - what limits this rider for the goal, given the data above; 2) choose today's session type and its dose (interval length, intensity, recovery length, total time in the target zone) from the goal model and evidence; 3) safety check - recent hard days, fatigue, recovery readings and strength sessions; adjust before answering.
+${evidence}HOW TO DECIDE: think it through as this rider's coach. What limits them for the goal? What should today be, and at what dose (interval length, intensity, recovery length, total time in the target zone)? Do recent hard days, fatigue, recovery readings, other sports or strength sessions change that? The goal model, the session menu and the thresholds above are starting points, not limits: build whatever session serves this rider best today, in any format (steady blocks, over-unders, ramps, micro-intervals, sprints, cadence or torque work, mixed sessions, something of your own design).
 
-RULES: scale all targets as % of FTP; include warmup and cooldown; interval durations in seconds; every interval needs a cadence target (rpm); ${ctx.autoDuration ? 'total duration 30-150 min as you judge optimal' : `total duration must be within 3 minutes of ${ctx.durationMin} min`}; respect fatigue (TSB < -25 -> recovery). The weekPlan must contain 7 days starting today; use focus "off" for rest days.
+THE RIDER DECIDES: when their own words ask for something specific (a session type, a duration, particular efforts, harder or easier than usual, a way they feel), build that, as asked. If their data argues against it, still build it - trimmed only as far as needed to be sensible - and say plainly in fatigueStatus what you would have chosen instead and why. Without such a request, a deeply negative form (TSB below about -25) or poor recovery readings mean an easy day.
 
-WRITING STYLE: Write for a beginner in plain language. Each assessment field should be one or two short sentences explaining what to do and why. Say fitness base, recent training strain, and freshness instead of CTL, ATL, and TSB. Explain any essential technical term immediately. Do not repeat the input scores, percentages, or statistics in prose. Use numbers only for an actionable duration or target. Give workout and day titles simple, descriptive names. Keep all numeric workout fields, enum values and JSON keys exact; these control the workout.
+WORKOUT FORMAT (these fields drive the trainer, so keep them exact): targets as % of FTP; include a warmup and a cooldown; interval durations in seconds; every interval needs a cadence target (rpm); write each repetition and each recovery as its own interval; ${ctx.autoDuration ? 'total duration 30-150 min as you judge optimal' : `total duration ${fixedLength}, unless the rider's own words ask for a different length`}.
+
+WRITING: talk to the rider directly, like a good coach to a committed amateur - specific, honest, no filler and no generic advice that would fit anyone. fitnessDiagnosis: what their recent training shows (trend, consistency, intensity mix, standout rides) and what it means for the goal. fatigueStatus: how fresh they are today and why, from load, recovery readings and other activities. trainingAdvice: why this session, and how to ride it - pacing, cadence, fuelling, and what to do if it feels too hard or too easy. Each can be as long as it needs to be useful, usually 2-5 sentences. Back points with the numbers, rides and dates that matter rather than listing statistics. Use the app's words fitness (CTL), fatigue (ATL) and form (TSB), and give a few plain words the first time you use a less common term. Give the workout and its intervals short, descriptive names.
 
 Return ONLY JSON matching:
 {
   "coachAssessment": { "formZone": "Fresh" | "Productive" | "Optimal" | "High Fatigue" | "Overtraining", "fitnessDiagnosis": "...", "fatigueStatus": "...", "trainingAdvice": "..." },
-  "workout": { "title": "...", "category": "sweetspot" | "vo2" | "threshold" | "endurance", "desc": "...", "intervals": [ { "name": "Warmup", "duration": 600, "pctFtp": 55, "cadence": 88 } ] },
-  "weekPlan": { "days": [ { "dayLabel": "Today", "focus": "sweetspot", "title": "...", "durationMin": 45, "tss": 50 } ] }${evidence ? `,
+  "workout": { "title": "...", "category": "sweetspot" | "vo2" | "threshold" | "endurance", "desc": "...", "intervals": [ { "name": "Warmup", "duration": 600, "pctFtp": 55, "cadence": 88 } ] }${evidence ? `,
   ${VeloSportScience.OUTPUT_FIELD}` : ''}
-}${evidence ? '\nevidence: 2-4 items, in the same plain language as the assessment.' : ''}`;
+}${evidence ? '\nevidence: 2-4 items on the choices that matter most for this session.' : ''}`;
   }
 
   async generateRecommendation(targetFocus = 'auto', durationMin = 45, goal = 'ftp', notes = '') {
@@ -715,9 +670,7 @@ Return ONLY JSON matching:
         if: load.if,
         intervals: clean
       };
-      if (!parsed.weekPlan || !Array.isArray(parsed.weekPlan.days) || !parsed.weekPlan.days.length) {
-        parsed.weekPlan = this.buildWeekPlan(ctx, this.decideFocus(ctx), parsed.workout);
-      }
+      delete parsed.weekPlan;  // older answers carried a 7-day outlook; the app no longer shows one
       parsed.coachAssessment = parsed.coachAssessment || {};
       parsed.coachAssessment.formZone = parsed.coachAssessment.formZone || ctx.formZone;
       // Only references from the evidence base survive, so the app never shows an invented study.

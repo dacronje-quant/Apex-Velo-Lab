@@ -29,7 +29,9 @@ class VeloAsk {
     'How does this period compare with the one before?',
     'Where are my strengths and weaknesses?',
     'Is my left/right pedal balance OK?',
-    'What should I focus on next?'
+    'What should I focus on next?',
+    'Give me a full analysis of this period: what went well, what did not, and what to change.',
+    'Suggest three sessions for next week with targets.'
   ];
 
   static dayKey(d) {

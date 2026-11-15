@@ -1065,22 +1065,21 @@
           });
 
           // 43. AI coach goals, week plan, fatigue guard, markdown safety
-          await suite('AI Coach: Goal-Driven Sessions Fit Requested Time, 7-Day Plan, Fatigue Guard & Safe Markdown Trace', async () => {
+          await suite('AI Coach: Goal-Driven Sessions Fit Requested Time, No 7-Day Outlook, Fatigue Guard & Safe Markdown Trace', async () => {
             const results = [];
             for (const goal of ['ftp', 'longevity', 'vo2', 'balanced']) {
               for (const dur of [45, 90]) {
                 const rec = await app.aiCoach.generateRecommendation('auto', dur, goal);
-                results.push({ goal, dur, got: rec.workout.durationMin, days: rec.weekPlan.days.length, ivs: rec.workout.intervals.length });
+                results.push({ goal, dur, got: rec.workout.durationMin, days: rec.weekPlan ? 1 : 0, ivs: rec.workout.intervals.length });
               }
             }
-            const fitOk = results.every(r => Math.abs(r.got - r.dur) <= 3 && r.days === 7 && r.ivs >= 3);
+            const fitOk = results.every(r => Math.abs(r.got - r.dur) <= 3 && r.days === 0 && r.ivs >= 3);
             const ctx = app.aiCoach.getPhysiologicalContext('auto', 60, 'ftp');
             const tired = { ...ctx, tsb: -32, formKey: 'fatigue' };
             const guard = app.aiCoach.decideFocus(tired) === 'recovery';
-            const planTired = app.aiCoach.buildWeekPlan(tired, 'recovery', app.aiCoach.buildWorkout('recovery', tired).workout);
             const md = W.VeloMarkdown.render('## Plan\n- **Hold 172 W**\n<img src=x onerror=alert(1)>\n```json\n{"a": 1}\n```');
             const mdOk = md.includes('<strong>') && md.includes('&lt;img') && !md.includes('<img') && md.includes('tk-key');
-            return { ok: fitOk && guard && planTired.ramp === 0 && mdOk, detail: `${results.map(r => `${r.goal}/${r.dur}->${r.got}m`).join(' ')} | TSB-32 guard:${guard} ramp:${planTired.ramp} | markdown safe:${mdOk}` };
+            return { ok: fitOk && guard && mdOk, detail: `${results.map(r => `${r.goal}/${r.dur}->${r.got}m`).join(' ')} | TSB-32 guard:${guard} | markdown safe:${mdOk}` };
           });
 
           // 44. Zen halo +/-5 %, cadence halo and HR strain gauge

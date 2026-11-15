@@ -137,7 +137,7 @@ test('offline advice uses everyday words while preserving exact workout instruct
     assert(!/\b(CTL|ATL|TSB|TSS|IF|NP|VO2|FTP)\b/.test(Object.values(rec.coachAssessment).join(' ')));
     assert(!/\d/.test(rec.coachAssessment.fitnessDiagnosis + rec.coachAssessment.fatigueStatus));
     assert(rec.workout.intervals.every(iv => Number.isFinite(iv.pctFtp) && iv.duration > 0 && iv.cadence > 0));
-    assert.equal(rec.weekPlan.days.length, 7);
+    assert.equal(rec.weekPlan, undefined, 'no 7-day outlook');
   }
 });
 
@@ -145,18 +145,31 @@ test('all AI prompts request simple explanations while retaining numeric input a
   const c = Object.create(C.prototype);
   const ctx = context();
   const prompt = c.buildPrompt(ctx);
-  assert(prompt.includes('Write for a beginner'));
+  assert(prompt.includes('talk to the rider directly'));
+  assert(!/weekPlan|7-day outlook/.test(prompt));
   assert(prompt.includes('"pctFtp": 55'));
   assert(prompt.includes('CTL (fitness) 35.0'));
   const p = planner();
   const blockPrompt = p.buildDesignPrompt(P.normaliseOptions({ ...options, hoursPerWeek: 6 }), ctx);
-  assert(blockPrompt.includes('Use plain language for a beginner'));
+  assert(blockPrompt.includes('talk to the rider directly'));
   const review = I.breakdownPrompt([], { ftp: 185 });
-  assert(review.includes('Use numbers only when needed'));
+  assert(review.includes('quote the numbers that make each point'));
   for (const path of ['server.js', 'start_server.ps1']) {
     const src = fs.readFileSync(path, 'utf8');
-    assert(src.includes('Explain things to a beginner'));
+    assert(src.includes('Write clearly and directly'));
+    assert(src.includes('do not quietly swap in a different session'));
     assert(src.includes('Keep numeric workout fields and schema keys exact'));
     assert(!src.includes('reply with exactly the JSON object requested'));
   }
+});
+
+test('the rider\'s own words lead the coach prompt and are not cut to a one-liner', () => {
+  const c = Object.create(C.prototype);
+  const long = 'I want 4 x 8 min at threshold with low cadence. '.repeat(20);
+  const ctx = context({ notes: long.slice(0, C.MAX_NOTES) });
+  const prompt = c.buildPrompt(ctx);
+  assert(C.MAX_NOTES >= 1000);
+  assert(prompt.includes(long.slice(0, 900)));
+  assert(prompt.includes('THE RIDER DECIDES'));
+  assert(prompt.indexOf("RIDER'S OWN WORDS") < prompt.indexOf('PERFORMANCE MANAGEMENT'));
 });

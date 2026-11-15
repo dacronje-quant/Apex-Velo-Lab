@@ -620,9 +620,10 @@
               <p class="field-help" id="blockHoursHelp">Your weekly limit. Leave it blank and the AI coach picks weekly time from your recent riding and recovery (needs a connected AI coach).</p>
             </div>
 
-            <label class="field"><span>Notes for the coach (optional)</span>
-              <input type="text" id="inputAiCoachNotes" class="input-field" placeholder="e.g. legs heavy after yesterday, want low cadence work">
+            <label class="field"><span>Tell the coach what you want (optional)</span>
+              <textarea id="inputAiCoachNotes" class="input-field coach-notes" rows="3" maxlength="1500" placeholder="e.g. legs heavy after yesterday, want low cadence work" aria-describedby="coachNotesHelp"></textarea>
             </label>
+            <p class="field-help" id="coachNotesHelp">Your own words come first: ask for a session type, a length, particular efforts or how hard, and the AI coach builds that and tells you if your data argues against it.</p>
             <details class="coach-more">
               <summary>More options</summary>
               <label class="field"><span>History look-back</span>
@@ -649,7 +650,7 @@
               <div class="ai-coach-card-title"><span>One workout</span><span class="ai-coach-status-badge ai-coach-badge-productive">Ready</span></div>
               <div class="empty-state">
                 <svg class="ic ic-lg"><use href="#i-brain"/></svg>
-                <p>Pick a goal and press <strong>Prescribe today's workout</strong>. The coach reviews your history and current form, then builds today's session and a 7-day outlook scaled to your FTP.</p>
+                <p>Pick a goal and press <strong>Prescribe today's workout</strong>. The coach reviews your history and current form, then builds today's session scaled to your FTP. Tell it what you want in your own words and it builds that.</p>
               </div>
             </div>
 
@@ -710,10 +711,6 @@
               </div>
             </div>
 
-            <div class="card ai-coach-card">
-              <div class="ai-coach-card-title"><span>7-day outlook</span><span class="chip chip-ghost num" id="aiCoachWeekTss">--</span></div>
-              <div class="week-plan" id="aiCoachWeekPlan"></div>
-            </div>
           </div>
           </div>
 
@@ -762,7 +759,7 @@
           <div>
             <span class="eyebrow">Ask your data</span>
             <h2 class="section-title">Ask anything about your training</h2>
-            <p class="section-sub">Plain answers with the numbers behind them, from your own rides, power, heart rate and recovery. To build a workout or a plan, use the Coach.</p>
+            <p class="section-sub">Plain answers with the numbers behind them, from your own rides, power, heart rate and recovery. Ask for analysis, an opinion or what to do next; the Coach turns a session into a workout for the trainer.</p>
           </div>
           <div class="ask-head-tools">
             <button type="button" class="engine-chip" id="btnAskEngine" title="Change the AI engine (Settings &rsaquo; AI engine)"><svg class="ic ic-xs"><use href="#i-sparkles"/></svg><span id="askEngineLabel">AI engine</span></button>

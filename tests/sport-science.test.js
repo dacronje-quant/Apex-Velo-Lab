@@ -75,7 +75,7 @@ test('AI prompts carry the evidence brief, the method and an evidence field', ()
   const c = Object.create(C.prototype);
   const prompt = c.buildPrompt(context({ goal: 'vo2' }));
   assert(prompt.includes('SPORT-SCIENCE EVIDENCE BRIEF'));
-  assert(prompt.includes('METHOD: 1) needs analysis'));
+  assert(prompt.includes('HOW TO DECIDE:'));
   assert(prompt.includes('"evidence": ['));
   assert(prompt.includes('Cite only the references listed above'));
   const p = new P({ isLive: false });
@@ -132,8 +132,6 @@ test('longevity builds aerobic fitness with a heart-rate guided 4 x 4 that fits 
     assert(Math.abs(rec.workout.durationMin - durationMin) <= 3, `${durationMin} -> ${rec.workout.durationMin}`);
     assert(rec.coachAssessment.trainingAdvice.includes('153-171 bpm'));
   }
-  const week = c.buildWeekPlan(ctx, 'vo2max', c.buildWorkout('vo2max', ctx).workout);
-  assert.equal(week.days.filter(d => d.focus === 'vo2max').length, 1);
   assert(P.PHASES.longevity.slice(1).every(ph => ph.keys[0] === 'vo2max'));
 });
 

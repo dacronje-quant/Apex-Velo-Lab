@@ -24,7 +24,7 @@ No account, no cloud service, no subscription. Your rides stay in your browser a
 **Workout library** - SweetSpot, threshold, VO2 and endurance sessions with interval profiles
 ![Workout library](docs/images/workouts.png)
 
-**AI Coach** - today's session and a 7-day outlook from your fitness, fatigue and form
+**AI Coach** - today's session from your fitness, fatigue and form, or exactly the session you ask for in your own words
 ![AI Coach](docs/images/ai-coach.png)
 
 **Analytics** - readiness, FTP, fitness/fatigue/form (PMC), power curve and CP
