@@ -144,6 +144,21 @@ The secret stays in `.env`; the access tokens are stored in `.strava-tokens.json
 
 What is uploaded: the ride's FIT file (per-second power, cadence, heart rate, speed, distance and L/R balance, validated with Garmin's FIT SDK), the workout title, the trainer flag, and a short description (avg/NP power, IF, TSS, heart rate, balance, work). Only rides recorded with per-second data can be sent; summary-only imports cannot.
 
+## Share card (Strava, Instagram, messages)
+
+Every ride with recorded power gets a **share card**: a 1080 x 1350 portrait picture (4:5, shown uncropped on Strava and Instagram, saved at 2160 x 2700 as a high-quality JPEG). Open it from **Share to Strava** on the *Workout complete* banner or **Share card** at the top of any ride summary.
+
+- **Full** - title with the interval pattern highlighted (for example *4x4 min* or *30/15*), distance, moving time and NP, the power and heart-rate traces, then the work intervals: up to 8 as average power with each one's peak heart rate, more as bars grouped into sets with the best one lit. A ride without targets shows its best 5 s / 1 / 5 / 20 min powers instead. A strip with cadence, TSS, IF and kJ closes it.
+- **Minimal** - the interval pattern in large thin type, one edge-to-edge power wave with a thin heart-rate line, and six numbers.
+
+Intervals come from the workout's own targets (steps within 80% of the hardest target); a lone effort well before the sets counts as an opener, not a repeat. Every number is the saved ride's.
+
+**Sharing.** Where the browser can share files (Chrome on Android, Safari on iPhone, Edge/Chrome on Windows), **Share** opens the system share sheet: choose Strava to post the picture or add it to the ride, or Instagram, WhatsApp and so on. Otherwise **Download image** saves it; on Strava open the activity and choose *Add photos*. Strava's API does not let personal apps attach photos, so the picture always goes through the share sheet or the Strava app.
+
+**On the phone.** When a ride ends, the PC draws both styles and hands them to the phone view next to the FIT download (**Share card**). The phone page uses plain home-Wi-Fi HTTP, where browsers do not offer file sharing, so it shows **Save image**; then share the saved picture to Strava, or press and hold the picture and choose *Share*. Like the FIT file, the latest ride's cards are kept in the server's memory only (never on disk), and only the PC app can publish them.
+
+The thin numerals use the variable Inter font (`vendor/fonts/inter-latin-wght-normal.woff2`, SIL Open Font License, same as the other Inter files).
+
 ## Sync from Strava (import your activities)
 
 The **Sync from Strava** card in *History* imports your Strava activities for a date range into the history and the Calendar - outdoor rides, Zwift rides from other apps, gym sessions, walks, yoga.

@@ -368,6 +368,12 @@
       if (nextBtn) nextBtn.disabled = idx <= 0;
 
       const isAutoSaved = isNaturalEnd || (record.source === 'APEX VELO Cockpit' && record.completedAt && Date.now() - record.completedAt < 25000);
+      const shareCard = !!(this.canShareCard && this.canShareCard(record));
+      const shareBtn = document.getElementById('btnRideShareCard');
+      if (shareBtn) {
+        shareBtn.hidden = !shareCard;
+        shareBtn.onclick = shareCard ? () => this.openShareCard(record) : null;
+      }
       const catBadge = document.getElementById('modalRideCategoryBadge');
       if (catBadge) {
         catBadge.className = isAutoSaved ? 'eyebrow eyebrow-lime' : 'eyebrow';
@@ -418,6 +424,7 @@
           <div class="btn-row btn-row-tight">
             ${record.compliancePct > 0 ? `<span class="chip chip-accent num" title="Execution fidelity vs interval targets">${record.compliancePct}% Execution</span>` : ''}
             <span class="chip chip-lime">AUTOSAVED</span>
+            ${shareCard ? '<button type="button" class="btn btn-sm btn-share-card wcb-share" data-share-card><svg class="ic"><use href="#i-share"/></svg>Share to Strava</button>' : ''}
           </div>
         </div>` : '';
 
@@ -550,6 +557,7 @@
         if (st.state === 'processing' && st.uploadId && !this.stravaPolls.has(record.id)) this.pollStravaUpload(record.id);
         else if (st.state === 'none' && this.canSendToStrava(record)) this.autoCheckRideOnStrava(record);
       }
+      details.querySelector('[data-share-card]')?.addEventListener('click', () => this.openShareCard(record));
       this.openModal('rideSummaryModal');
       if (hasSamples) {
         clearTimeout(this._scrubTimer);

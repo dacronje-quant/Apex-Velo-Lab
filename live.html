@@ -203,6 +203,25 @@
   .ride-download a { display: flex; align-items: center; justify-content: center; min-height: 60px; padding: 12px 16px; border-radius: 12px; background: var(--lime); color: var(--bg); text-decoration: none; font-size: 18px; font-weight: 750; white-space: nowrap; }
   .ride-download a:focus-visible { outline: 2px solid var(--cyan); outline-offset: 3px; }
   body.finished .controls, body.finished #zoneBar { display: none; }
+  .ride-actions { display: flex; flex-direction: column; gap: 8px; }
+  .ride-actions button { min-height: 52px; padding: 10px 16px; border-radius: 12px; font-size: 16px; font-weight: 700; white-space: nowrap; }
+  .ride-actions button[hidden] { display: none; }
+  .card-sheet { position: fixed; inset: 0; z-index: 60; display: flex; flex-direction: column; gap: 12px; background: rgba(5,6,10,.95);
+    -webkit-backdrop-filter: blur(12px); backdrop-filter: blur(12px);
+    padding: max(14px, env(safe-area-inset-top)) max(14px, env(safe-area-inset-right)) max(14px, env(safe-area-inset-bottom)) max(14px, env(safe-area-inset-left)); }
+  .card-sheet[hidden] { display: none; }
+  .cs-top { display: flex; align-items: center; gap: 10px; }
+  .cs-top strong { font-size: 17px; margin-right: auto; }
+  .cs-styles { display: flex; gap: 4px; padding: 3px; border: 1px solid var(--line); border-radius: 12px; }
+  .cs-styles button { min-height: 40px; padding: 6px 14px; border: 0; border-radius: 9px; background: transparent; font-size: 15px; }
+  .cs-styles button[aria-pressed="true"] { background: rgba(255,255,255,.12); color: var(--text); font-weight: 700; }
+  #btnCloseCard { min-width: 44px; min-height: 44px; font-size: 24px; line-height: 1; padding: 0; }
+  #cardImg { flex: 1; min-height: 0; width: 100%; object-fit: contain; border-radius: 16px; }
+  .cs-actions { display: flex; gap: 10px; }
+  .cs-actions > * { flex: 1; display: flex; align-items: center; justify-content: center; min-height: 58px; border-radius: 14px; font-size: 18px; font-weight: 750; text-decoration: none; }
+  .cs-actions > [hidden] { display: none; }
+  .cs-actions a { background: linear-gradient(135deg, #F0522E, #ff3d78); color: #fff; }
+  #cardHint { margin: 0; font-size: 13px; line-height: 1.45; color: var(--muted); text-align: center; }
 
   /* Workout bar above the controls, on every screen */
   #zoneBar { flex: none; height: 20px; margin: 0; }
@@ -532,8 +551,28 @@
       <p id="rampTestResult" hidden></p>
       <p id="fitDownloadStatus" role="status">Preparing your FIT file...</p>
     </div>
-    <a id="btnDownloadFit" hidden download>Download .fit</a>
+    <div class="ride-actions">
+      <a id="btnDownloadFit" hidden download>Download .fit</a>
+      <button type="button" id="btnOpenCard" hidden>Share card</button>
+    </div>
   </section>
+
+  <div class="card-sheet" id="cardSheet" hidden role="dialog" aria-modal="true" aria-labelledby="cardSheetTitle">
+    <div class="cs-top">
+      <strong id="cardSheetTitle">Share card</strong>
+      <div class="cs-styles" role="group" aria-label="Card style">
+        <button type="button" data-card-style="full" aria-pressed="true">Full</button>
+        <button type="button" data-card-style="minimal" aria-pressed="false">Minimal</button>
+      </div>
+      <button type="button" id="btnCloseCard" aria-label="Close">&times;</button>
+    </div>
+    <img id="cardImg" alt="Ride summary card">
+    <div class="cs-actions">
+      <button type="button" class="primary" id="btnShareCard" hidden>Share</button>
+      <a id="btnSaveCard" download>Save image</a>
+    </div>
+    <p id="cardHint"></p>
+  </div>
 
   <section class="controls">
     <button class="primary" id="btnToggle" disabled>START</button>
@@ -572,6 +611,7 @@
 (function () {
   'use strict';
   const $ = (id) => document.getElementById(id);
+  let cardFiles = null, cardStyle = 'full'; // share card for the finished ride (see the Share card sheet)
   // Pairing: the address shown on the PC ends in #pair=<key>. The key stays in the address too, because an
   // iPhone home-screen icon saves the address but not Safari's storage.
   const hashKey = (location.hash.match(/(?:^#|&)pair=([0-9a-f]+)/) || [])[1] || '';
@@ -729,7 +769,7 @@
           overlay(true, 'Open the app on the PC', 'The server is running, but Apex Velo Lab is not open in Chrome on the PC (or the tab is closed). Open it there and this screen comes alive.');
         } else {
           overlay(false);
-          render({ ...d.snapshot, fitFile: d.fit });
+          render({ ...d.snapshot, fitFile: d.fit, cardFiles: d.cards });
         }
         if (seq == null) await wait(1000); // older server without long-poll: plain 1 s polling
       } catch (e) {
@@ -788,6 +828,10 @@
       download.removeAttribute('download');
     }
     $('fitDownloadStatus').textContent = fit ? 'Save this ride to your phone. Keep the PC server running until downloaded.' : completed?.fitError || 'Preparing your FIT file...';
+    cardFiles = completed && s.cardFiles?.id === completed.id ? s.cardFiles : null;
+    $('btnOpenCard').hidden = !cardFiles?.styles?.length;
+    if (!cardFiles && !$('cardSheet').hidden) closeCard();
+    else if (cardFiles && !$('cardSheet').hidden) showCard();
     const tb = $('btnToggle');
     tb.disabled = !live || finished || sending;
     tb.textContent = !live ? 'START' : riding ? 'PAUSE' : finished ? 'FINISHED' : s.state === 'paused' ? 'RESUME' : 'START';
@@ -982,6 +1026,50 @@
   }
 
   $('closeFanSettings').addEventListener('click', () => $('fanSettings').close());
+
+  // ---- Share card: the PC draws the image; this phone shows, saves or shares it (Strava, Instagram...).
+  try { cardStyle = localStorage.getItem('apexCardStyle') || 'full'; } catch (e) { /* ignore */ }
+  const canShareFiles = () => !!(window.isSecureContext && navigator.canShare && window.File);
+  const cardUrl = (style, dl) => 'api/live/card?id=' + encodeURIComponent(cardFiles.id) + '&style=' + style + (dl ? '&download=1' : '') + (phoneKey ? '&k=' + encodeURIComponent(phoneKey) : '');
+  function showCard() {
+    if (!cardFiles) return;
+    if (!cardFiles.styles.includes(cardStyle)) cardStyle = cardFiles.styles[0];
+    document.querySelectorAll('[data-card-style]').forEach(b => {
+      b.hidden = !cardFiles.styles.includes(b.dataset.cardStyle);
+      b.setAttribute('aria-pressed', String(b.dataset.cardStyle === cardStyle));
+    });
+    const src = cardUrl(cardStyle, false);
+    if ($('cardImg').getAttribute('src') !== src) $('cardImg').src = src;
+    $('btnSaveCard').href = cardUrl(cardStyle, true);
+    $('btnShareCard').hidden = !canShareFiles();
+    $('cardHint').textContent = canShareFiles()
+      ? 'Tap Share and choose Strava to post it or add it to this ride.'
+      : 'Save the image, then add it to this ride in the Strava app (or press and hold the picture and choose Share).';
+    $('cardSheet').hidden = false;
+  }
+  function closeCard() { $('cardSheet').hidden = true; }
+  $('btnOpenCard').addEventListener('click', showCard);
+  $('btnCloseCard').addEventListener('click', closeCard);
+  document.querySelectorAll('[data-card-style]').forEach(b => b.addEventListener('click', () => {
+    cardStyle = b.dataset.cardStyle;
+    try { localStorage.setItem('apexCardStyle', cardStyle); } catch (e) { /* ignore */ }
+    showCard();
+  }));
+  $('btnShareCard').addEventListener('click', async () => {
+    if (!cardFiles) return;
+    try {
+      const res = await fetch(cardUrl(cardStyle, false), { headers: authHeaders(), cache: 'no-store' });
+      if (!res.ok) throw new Error(String(res.status));
+      const name = (/filename="([^"]+)"/.exec(res.headers.get('Content-Disposition') || '') || [])[1] || 'apex-velo-ride.jpg';
+      const blob = await res.blob();
+      const file = new File([blob], name, { type: blob.type || 'image/jpeg' });
+      if (!navigator.canShare({ files: [file] })) throw new Error('unsupported');
+      await navigator.share({ files: [file] });
+    } catch (e) {
+      if (e && e.name === 'AbortError') return; // closed the share sheet
+      $('cardHint').textContent = 'Sharing did not open here. Save the image, then add it to the ride in Strava.';
+    }
+  });
   $('fanSettings').addEventListener('click', e => { if (e.target === $('fanSettings')) $('fanSettings').close(); });
 
   const fmtAgo = (sec) => (sec >= 3600 ? Math.floor(sec / 3600) + ' h ' + Math.floor((sec % 3600) / 60) + ' min' : sec >= 60 ? Math.floor(sec / 60) + ' min' : Math.max(0, sec) + ' s');
