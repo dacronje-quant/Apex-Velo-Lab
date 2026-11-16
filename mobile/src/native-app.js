@@ -604,6 +604,19 @@ export function bootNativeApp({ bluetooth, storage, strava, ai, icu, uploads, pl
       box.checked = autoSaveFit();
       this.on(box, 'change', () => { try { localStorage.setItem(AUTO_FIT_KEY, box.checked ? '1' : '0'); } catch (e) { /* storage unavailable */ } });
     };
+    // Share card (js/app-share-card.js): Share opens Android's share sheet (Strava, Instagram, gallery...);
+    // Save keeps a copy in Documents/ApexVelo next to the ride files.
+    P.shareCardCanUseShareSheet = function () { return true; };
+    P.shareCardNow = async function () {
+      if (this._shareCardBlob) return this.downloadBlob(this._shareCardName, this._shareCardBlob);
+    };
+    P.saveShareCardFile = async function (filename, blob) {
+      try {
+        this.showToast(`Saved to ${await saveRideFile(Filesystem, filename, blob)}.`, 'success');
+      } catch (e) {
+        this.showToast(`Could not save to ${FOLDER_LABEL} (${(e && e.message) || e}). Use Share instead.`, 'warning');
+      }
+    };
     // Sending to Strava would otherwise pop a share sheet for the workout card every time.
     const prepareImage = P.prepareStravaImage;
     P.prepareStravaImage = function (ride) { return prepareImage.call(this, ride, false); };

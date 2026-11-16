@@ -155,7 +155,9 @@ Intervals come from the workout's own targets (steps within 80% of the hardest t
 
 **Sharing.** Where the browser can share files (Chrome on Android, Safari on iPhone, Edge/Chrome on Windows), **Share** opens the system share sheet: choose Strava to post the picture or add it to the ride, or Instagram, WhatsApp and so on. Otherwise **Download image** saves it; on Strava open the activity and choose *Add photos*. Strava's API does not let personal apps attach photos, so the picture always goes through the share sheet or the Strava app.
 
-**On the phone.** When a ride ends, the PC draws both styles and hands them to the phone view next to the FIT download (**Share card**). The phone page uses plain home-Wi-Fi HTTP, where browsers do not offer file sharing, so it shows **Save image**; then share the saved picture to Strava, or press and hold the picture and choose *Share*. Like the FIT file, the latest ride's cards are kept in the server's memory only (never on disk), and only the PC app can publish them.
+**In the Android app.** The same card and dialog; **Share** always opens Android's share sheet and **Download image** saves to Documents/ApexVelo.
+
+**On the phone view (PC rides).** When a ride ends, the PC draws both styles and hands them to the phone view next to the FIT download (**Share card**). The phone page uses plain home-Wi-Fi HTTP, where browsers do not offer file sharing, so it shows **Save image**; then share the saved picture to Strava, or press and hold the picture and choose *Share*. Like the FIT file, the latest ride's cards are kept in the server's memory only (never on disk), and only the PC app can publish them.
 
 The thin numerals use the variable Inter font (`vendor/fonts/inter-latin-wght-normal.woff2`, SIL Open Font License, same as the other Inter files).
 

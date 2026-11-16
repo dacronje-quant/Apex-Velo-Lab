@@ -2263,3 +2263,4 @@ select.input-field option, .header-profile-dropdown option { background: #10142a
 .share-card-hint { margin: 10px 0 0; font-size: 12px; line-height: 1.5; color: var(--text-3, var(--text-2)); text-align: center; }
 .wcb-share { margin-left: 4px; }
 a.btn, a.btn:hover { text-decoration: none; }
+.share-card-styles .btn[aria-pressed="true"] { background: rgba(148, 163, 184, 0.2); border-color: rgba(148, 163, 184, 0.5); color: #fff; }

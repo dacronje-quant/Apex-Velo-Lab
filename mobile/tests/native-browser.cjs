@@ -1069,6 +1069,26 @@ async function brokerFlow(browser, errors) {
     assert.equal(await page.evaluate(() => document.getElementById('settingsModal').classList.contains('open')), false);
     step('exports save to Documents/ApexVelo (a name an old install left gets _2), the image goes to the share sheet, auto-save can be turned off; Settings > About shows the open-source licences (SQLCipher in full); back closes the open dialog');
 
+    // ------------------------------------------------------------------ share card --
+    const cardRide = await page.evaluate(async (id) => {
+      const r = app.completedWorkouts.find((x) => x.id === id);
+      await app.showRideSummary(r);
+      return { can: app.canShareCard(r), samples: (r.samples || []).length };
+    }, rideId);
+    assert.equal(cardRide.can, true, `the recorded ride (${cardRide.samples} samples) gets a share card`);
+    await page.locator('#btnRideShareCard').click();
+    await page.waitForFunction(() => document.getElementById('shareCardImg').src.startsWith('blob:') && !document.getElementById('shareCardPreview').classList.contains('busy'));
+    assert.equal(await page.locator('#btnShareCard').isVisible(), true, 'the app always offers the share sheet');
+    await page.locator('#btnShareCard').click();
+    await page.waitForFunction(() => __nativeLog.shared.length === 2);
+    assert.match(await page.evaluate(() => __nativeLog.shared[1].files[0]), /apex-velo-.*\.jpg$/);
+    await page.locator('#shareCardModal [data-card-style="minimal"]').click();
+    await page.waitForFunction(() => /-minimal\.jpg$/.test(document.getElementById('btnDownloadCard').download) && !document.getElementById('shareCardPreview').classList.contains('busy'));
+    await page.locator('#btnDownloadCard').click();
+    await page.waitForFunction(() => __nativeLog.files.some((f) => f.directory === 'DOCUMENTS' && /^ApexVelo\/apex-velo-.*-minimal\.jpg$/.test(f.path) && /^\/9j\//.test(f.data)));
+    await page.evaluate(() => { app.closeShareCard(); app.closeModal('rideSummaryModal'); });
+    step('share card: drawn from the recorded ride, Share hands the JPEG to the Android share sheet, Download saves the minimal style to Documents/ApexVelo');
+
     // ------------------------------------------------------------------ bulk history import --
     const workerRequests = [];
     context.on('request', (r) => { if (r.url().endsWith('/js/velo-import-worker.js')) workerRequests.push(r.url()); });

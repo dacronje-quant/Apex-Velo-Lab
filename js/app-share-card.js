@@ -23,6 +23,12 @@
         this.renderShareCard();
       }));
       this.on(this.$('btnShareCard'), 'click', () => this.shareCardNow());
+      // The Android app saves the image itself (mobile/src/native-app.js); a blob download does nothing in a WebView.
+      this.on(this.$('btnDownloadCard'), 'click', (e) => {
+        if (!this.saveShareCardFile) return;
+        e.preventDefault();
+        if (this._shareCardBlob) this.saveShareCardFile(this._shareCardName, this._shareCardBlob);
+      });
     },
 
     openShareCard(record) {
