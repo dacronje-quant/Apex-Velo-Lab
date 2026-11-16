@@ -1,0 +1,24 @@
+name: Token broker
+on:
+  push:
+    paths: ['broker/**', '.github/workflows/broker.yml']
+  pull_request:
+    paths: ['broker/**', '.github/workflows/broker.yml']
+  workflow_dispatch:
+jobs:
+  worker:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: broker
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: broker/package-lock.json
+      - run: npm ci
+      - run: npm test
+      # Typecheck and bundle with wrangler (no Cloudflare account needed; nothing is deployed).
+      - run: npm run check

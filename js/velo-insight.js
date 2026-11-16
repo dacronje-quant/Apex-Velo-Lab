@@ -212,7 +212,10 @@ class VeloInsight {
    * execution %, and - for steps of 60 s or more - cadence fade and heart-rate rise between the
    * first and last third of the step. `work` = a step at or above 88% FTP.
    */
-  static intervalRows(samples, ftp) {
+  static intervalRows(samples, ftp) { return VeloInsight.intervalWork(VeloInsight.intervalSteps(samples), ftp); }
+
+  /** The rows of intervalRows without `work` / `iv`, which depend on the FTP (kept per ride). */
+  static intervalSteps(samples) {
     const segs = [];
     let cur = null;
     (samples || []).forEach((s, i, all) => {
@@ -234,10 +237,15 @@ class VeloInsight {
         n: i + 1, sec: n, target, avgP, pctOfTarget: target ? Math.round((avgP / target) * 100) : null,
         execution: VeloMetrics.complianceScore(g.samples),
         cadence: cad(g.samples) ? Math.round(cad(g.samples)) : null, cadFade,
-        hr: hr(g.samples) ? Math.round(hr(g.samples)) : null, hrRise,
-        work: ftp > 0 && target >= ftp * 0.88
+        hr: hr(g.samples) ? Math.round(hr(g.samples)) : null, hrRise
       };
-    }).map((r, _, all) => ({ ...r, iv: r.work ? all.filter(x => x.work && x.n <= r.n).length : null }));
+    });
+  }
+
+  /** Marks the hard steps (`work`: target at or above 88% FTP) and numbers them (`iv`). */
+  static intervalWork(steps, ftp) {
+    return (steps || []).map(r => ({ ...r, work: ftp > 0 && r.target >= ftp * 0.88 }))
+      .map((r, _, all) => ({ ...r, iv: r.work ? all.filter(x => x.work && x.n <= r.n).length : null }));
   }
 
   /** Free, deterministic breakdown (always shown); the AI coach can add a richer one. */
@@ -280,7 +288,13 @@ class VeloInsight {
    * higher one). The 20 min effort must be steady (VI <= 1.05) to count. `hard` = heart rate shows
    * a near-maximal effort in that window (>= 90% of threshold HR, or >= 85% of max HR).
    */
-  static ftpEvidence(samples, { maxHr = 0, lthr = 0 } = {}) {
+  static ftpEvidence(samples, opts = {}) { return VeloInsight.ftpEvidenceFor(VeloInsight.ftpEvidenceBase(samples), opts); }
+
+  /**
+   * The part of ftpEvidence that does not depend on the rider: best 20 / 60 min, steadiness and the average
+   * heart rate of the 20 min window (kept per ride, so rides whose samples are not in memory still count).
+   */
+  static ftpEvidenceBase(samples) {
     samples = VeloMetrics.toOneHz(samples);
     if (samples.length < 1200) return null;
     const p = samples.map(s => Number(s.power) || 0);
@@ -298,30 +312,50 @@ class VeloInsight {
     const steady = vi20 <= 1.05;
     const hrs = samples.slice(w20.at, w20.at + 1200).map(s => Number(s.hr) || 0).filter(h => h > 0);
     const hrAvg = hrs.length >= 600 ? hrs.reduce((a, b) => a + b, 0) / hrs.length : 0;
-    const hard = hrAvg > 0 && ((lthr > 0 && hrAvg >= 0.9 * lthr) || (maxHr > 0 && hrAvg >= 0.85 * maxHr));
     const from20 = steady ? Math.round(w20.avg * 0.95) : 0;
     const w60 = p.length >= 3600 ? bestWindow(3600) : null;
     const from60 = w60 ? Math.round(w60.avg) : 0;
     const estimate = Math.max(from20, from60);
-    if (!estimate) return { estimate: 0, steady, hard, reason: 'not-steady', vi20: Math.round(vi20 * 100) / 100 };
+    if (!estimate) return { estimate: 0, steady, vi20: Math.round(vi20 * 100) / 100, hrAvg };
     return {
-      estimate, steady, hard, from20, from60,
+      estimate, steady, from20, from60,
       p20: Math.round(w20.avg), p60: w60 ? Math.round(w60.avg) : null,
       method: from60 >= from20 ? '60 min best' : '20 min best x 0.95',
+      vi20: Math.round(vi20 * 100) / 100, hrAvg
+    };
+  }
+
+  /** ftpEvidence from its rider-independent part and the rider's max / threshold heart rate. */
+  static ftpEvidenceFor(base, { maxHr = 0, lthr = 0 } = {}) {
+    if (!base) return null;
+    const hrAvg = base.hrAvg;
+    const hard = hrAvg > 0 && ((lthr > 0 && hrAvg >= 0.9 * lthr) || (maxHr > 0 && hrAvg >= 0.85 * maxHr));
+    if (!base.estimate) return { estimate: 0, steady: base.steady, hard, reason: 'not-steady', vi20: base.vi20 };
+    return {
+      estimate: base.estimate, steady: base.steady, hard, from20: base.from20, from60: base.from60,
+      p20: base.p20, p60: base.p60, method: base.method,
       hrPct: hrAvg && maxHr ? Math.round((hrAvg / maxHr) * 100) : null,
-      vi20: Math.round(vi20 * 100) / 100
+      vi20: base.vi20
     };
   }
 
   /** FTP evidence from a finished ramp test: 75% of the best minute. The test runs to the rider's limit, so it counts as a hard effort. */
-  static rampEvidence(samples, { maxHr = 0 } = {}) {
+  static rampEvidence(samples, opts = {}) { return VeloInsight.rampEvidenceFor(VeloInsight.rampEvidenceBase(samples), opts); }
+
+  /** rampEvidence without the rider: the best minute and the average heart rate of the last minute. */
+  static rampEvidenceBase(samples) {
     samples = VeloMetrics.toOneHz(samples);
     if (samples.length < 120) return null;
     let best = -1;
     VeloMetrics.powerWindows(samples, 60, avg => { if (avg > best) best = avg; });
     if (!(best > 0)) return null;
     const hrs = samples.slice(-60).map(s => Number(s.hr) || 0).filter(h => h > 0);
-    const hrAvg = hrs.length >= 30 ? hrs.reduce((a, b) => a + b, 0) / hrs.length : 0;
+    return { best, hrAvg: hrs.length >= 30 ? hrs.reduce((a, b) => a + b, 0) / hrs.length : 0 };
+  }
+
+  static rampEvidenceFor(base, { maxHr = 0 } = {}) {
+    if (!base) return null;
+    const { best, hrAvg } = base;
     return {
       estimate: Math.round(best * 0.75), ramp: Math.round(best * 0.75), steady: true, hard: true,
       p20: null, p60: null, method: 'ramp test, best minute x 0.75',

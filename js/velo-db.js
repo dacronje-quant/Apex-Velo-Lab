@@ -91,6 +91,23 @@ class VeloDB {
 
   static saveRide(ride) { return VeloDB.saveRidesBatch([ride]); }
 
+  /** The stored rides with these ids (missing ones left out), or null when the database could not be read. */
+  static async getRides(ids) {
+    const db = await VeloDB.open();
+    if (!db) return null;
+    return new Promise((resolve) => {
+      const out = [];
+      try {
+        const tx = db.transaction('rides', 'readonly'), store = tx.objectStore('rides');
+        for (const id of ids) { const req = store.get(id); req.onsuccess = () => { if (req.result) out.push(req.result); }; }
+        tx.oncomplete = () => resolve(out);
+        tx.onerror = tx.onabort = () => resolve(null);
+      } catch (e) {
+        resolve(null);
+      }
+    });
+  }
+
   /** All stored rides, [] when the database is empty, or null when it could not be read. */
   static async getAllRides() {
     const db = await VeloDB.open();

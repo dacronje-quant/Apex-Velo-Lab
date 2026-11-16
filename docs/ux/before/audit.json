@@ -1,0 +1,92 @@
+[
+ {
+  "name": "cockpit",
+  "pageHeight": 4036,
+  "screens": 4.7,
+  "hScroll": false,
+  "controls": 79,
+  "under44": 64,
+  "headerH": 189
+ },
+ {
+  "name": "workouts",
+  "pageHeight": 16550,
+  "screens": 19.4,
+  "hScroll": false,
+  "controls": 166,
+  "under44": 166,
+  "headerH": 189
+ },
+ {
+  "name": "ai-coach",
+  "pageHeight": 1905,
+  "screens": 2.2,
+  "hScroll": false,
+  "controls": 61,
+  "under44": 55,
+  "headerH": 189
+ },
+ {
+  "name": "ask",
+  "pageHeight": 1504,
+  "screens": 1.8,
+  "hScroll": false,
+  "controls": 61,
+  "under44": 61,
+  "headerH": 189
+ },
+ {
+  "name": "analytics",
+  "pageHeight": 2805,
+  "screens": 3.3,
+  "hScroll": false,
+  "controls": 74,
+  "under44": 51,
+  "headerH": 189
+ },
+ {
+  "name": "calendar",
+  "pageHeight": 1775,
+  "screens": 2.1,
+  "hScroll": false,
+  "controls": 50,
+  "under44": 50,
+  "headerH": 189
+ },
+ {
+  "name": "history",
+  "pageHeight": 2201,
+  "screens": 2.6,
+  "hScroll": false,
+  "controls": 373,
+  "under44": 372,
+  "headerH": 189
+ },
+ {
+  "name": "settings:rider",
+  "modalScrollHeight": 720
+ },
+ {
+  "name": "settings:ai",
+  "modalScrollHeight": 656
+ },
+ {
+  "name": "settings:health",
+  "modalScrollHeight": 411
+ },
+ {
+  "name": "settings:backups",
+  "modalScrollHeight": 411
+ },
+ {
+  "name": "settings:phone",
+  "modalScrollHeight": 354
+ },
+ {
+  "name": "settings:guide",
+  "modalScrollHeight": 1464
+ },
+ {
+  "name": "devices"
+ }
+]

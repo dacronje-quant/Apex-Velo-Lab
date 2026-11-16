@@ -1,7 +1,7 @@
 /**
  * APEX VELO // LAB - Analytics progression dashboard (mixin on VeloApp).
  *
- * Today strip (readiness, form, fitness, ramp rate, FTP), six progression tiles (value, trend
+ * Four key numbers on Summary (fitness, form, FTP, last 7 days), the Fitness strip (value, trend
  * sparkline over the page range, change vs 6 weeks ago), the power profile table and the
  * efficiency-factor and pedal-balance trend charts (resting HR and HRV live in Analytics > Health). Everything is derived
  * from recorded rides and Apple Health days; a metric without data shows "--", never a guess.
@@ -11,10 +11,6 @@
   const DAY = 86400000;
   const SIX_WEEKS = 42 * DAY;
   /** Plain-English subtext for each progression tile (js/velo-glossary.js). */
-  const TILE_TERMS = { ftp: 'ftp', ctl: 'ctl', ef: 'ef', p20: 'peak20', rhr: 'rhr', hrv: 'hrv' };
-  /** Where each tile drills to: analytics module and the card brought into view. */
-  const TILE_GOTO = { ftp: ['ftp', 'anaCardFtpHistory'], ctl: ['load', 'anaCardPmc'], ef: ['aerobic', 'anaCardEf'], p20: ['power', 'anaCardProfile'], rhr: ['health', 'anaCardHealthHr'], hrv: ['health', 'anaCardHealthHrv'] };
-
   /** Trailing `days`-day mean of field `key` at each point that has it (two pointers, O(n)). */
   function trailingMeans(points, key, days) {
     const list = (points || []).filter(p => p[key] !== null && p[key] !== undefined && Number.isFinite(p[key])).sort((a, b) => a.t - b.t);
@@ -193,24 +189,44 @@
       const d = this.dashboardData();
       this._dashData = d;
 
-      // Tiles
-      const fmt = (v, dec) => (v === null || v === undefined || !Number.isFinite(v) ? '--' : (dec ? v.toFixed(dec) : String(Math.round(v))));
-      el.innerHTML = d.tiles.map(t => {
-        const has = Number.isFinite(t.now);
-        const delta = has && Number.isFinite(t.then) ? t.now - t.then : null;
-        const dz = delta !== null && Math.abs(delta) >= (t.dec === 2 ? 0.01 : t.dec === 1 ? 0.1 : 1);
-        const better = dz && ((t.good === 'up' && delta > 0) || (t.good === 'down' && delta < 0));
-        const cls = !dz ? 'flat' : better ? 'good' : 'bad';
-        const arrow = !dz ? '&rarr;' : delta > 0 ? '&#9650;' : '&#9660;';
-        const dTxt = delta === null ? 'no data 6 weeks ago' : `${arrow} ${dz ? (delta > 0 ? '+' : '') + fmt(delta, t.dec) : 'no change'} vs 6 weeks ago`;
-        const [goto, spot] = TILE_GOTO[t.key] || [];
-        return `<div class="tile${goto ? ' ana-link' : ''}" data-tile="${t.key}"${goto ? ` data-goto="${goto}" data-spot="${spot}" role="button" tabindex="0"` : ''}>
-          <div class="tile-lbl" title="${esc(VeloGlossary.tip(TILE_TERMS[t.key]))}">${esc(t.label)}${VeloGlossary.html(TILE_TERMS[t.key])}</div>
-          <div class="tile-row"><div class="tile-val num">${fmt(t.now, t.dec)}${has && t.unit ? `<small>${t.unit}</small>` : ''}</div>${VeloTrends.sparkline(t.spark, { color: 'currentColor' })}</div>
-          <div class="tile-delta ${has ? cls : 'flat'} num">${has ? dTxt : (t.key === 'rhr' || t.key === 'hrv' ? 'Set up Apple Health in Settings' : 'Not enough data yet')}</div>
-          <div class="tile-sub">${esc(t.sub || '')}</div>
+      // Key numbers: fitness, form, FTP and the last 7 days. Everything else lives in the tabs.
+      const fin = (v) => v !== null && v !== undefined && Number.isFinite(v);
+      const fmt = (v, dec) => (fin(v) ? (dec ? v.toFixed(dec) : String(Math.round(v))) : '--');
+      const tileOf = (k) => d.tiles.find(t => t.key === k);
+      const trend = (t) => {
+        if (!fin(t.now)) return { cls: 'flat', txt: 'Not enough data yet' };
+        if (!fin(t.then)) return { cls: 'flat', txt: 'No data 6 weeks ago' };
+        const delta = t.now - t.then;
+        if (Math.abs(delta) < (t.dec === 1 ? 0.1 : 1)) return { cls: 'flat', txt: 'Steady over 6 weeks' };
+        const better = (t.good === 'up') === (delta > 0);
+        return { cls: better ? 'good' : 'bad', txt: `${delta > 0 ? '&#9650;' : '&#9660;'} ${fmt(Math.abs(delta), t.dec)}${t.unit ? ' ' + t.unit : ''} in 6 weeks` };
+      };
+      const card = (o) => `<div class="tile tile-key ana-link" data-tile="${o.key}" data-goto="${o.goto}" data-spot="${o.spot}" role="button" tabindex="0" aria-label="${esc(o.label)}: open its chart">
+          <div class="tile-lbl" title="${esc(VeloGlossary.tip(o.term))}">${esc(o.label)}</div>
+          <div class="tile-row"><div class="tile-val num">${o.val}${o.unit ? `<small>${o.unit}</small>` : ''}</div>${o.spark ? VeloTrends.sparkline(o.spark, { color: 'currentColor' }) : ''}</div>
+          <div class="tile-delta ${o.cls} num">${o.status}</div>
+          <div class="tile-sub">${esc(o.sub || '')}</div>
         </div>`;
-      }).join('');
+      const has = d.rides.length > 0;
+      const ctl = tileOf('ctl'), ftp = tileOf('ftp');
+      const ctlTr = trend(ctl), ftpTr = trend(ftp);
+      const tsb = has && d.pmc && fin(d.pmc.currentTsb) ? d.pmc.currentTsb : null;
+      const zone = tsb === null ? null : VeloMetrics.formZone(tsb);
+      const wk = has && this.anaWeekFacts ? this.anaWeekFacts() : null;
+      const wkPct = wk && wk.tssPrev > 0 ? Math.round(((wk.tss - wk.tssPrev) / wk.tssPrev) * 100) : null; // same figure as the week story
+      el.innerHTML = [
+        { key: 'ctl', term: 'ctl', label: 'Fitness', goto: 'load', spot: 'anaCardPmc', val: has ? fmt(ctl.now, 1) : '--', spark: ctl.spark,
+          cls: has ? ctlTr.cls : 'flat', status: has ? ctlTr.txt : 'No rides yet', sub: 'Your training base (CTL). Builds slowly with steady riding.' },
+        { key: 'form', term: 'tsb', label: 'Form today', goto: 'load', spot: 'anaCardPmc', val: tsb === null ? '--' : `${tsb >= 0 ? '+' : '−'}${Math.abs(tsb).toFixed(1)}`,
+          cls: zone ? (['fresh', 'productive', 'optimal'].includes(zone.key) ? 'good' : 'bad') : 'flat', status: zone ? esc(zone.label) : 'No rides yet',
+          sub: zone ? zone.desc : 'How fresh you are: fitness minus recent fatigue (TSB).' },
+        { key: 'ftp', term: 'ftp', label: 'FTP', goto: 'power', spot: 'anaCardFtpHistory', val: fmt(ftp.now), unit: fin(ftp.now) ? 'W' : '', spark: ftp.spark,
+          cls: ftpTr.cls, status: ftpTr.txt, sub: [ftp.sub, 'the power you can hold for about an hour'].filter(Boolean).join(' · ') },
+        { key: 'week', term: 'tss', label: 'Last 7 days', goto: 'load', spot: 'anaCardWeekly', val: wk ? wk.hours.toFixed(1) : '--', unit: wk ? 'h' : '',
+          cls: 'flat', // less riding is not "bad": it may be a recovery week
+          status: !wk ? 'No rides yet' : wkPct === null ? 'No riding the week before' : wkPct === 0 ? 'Same as the week before' : `${wkPct > 0 ? '&#9650;' : '&#9660;'} ${Math.abs(wkPct)}% load vs the week before`,
+          sub: wk ? `${wk.rides} ride${wk.rides === 1 ? '' : 's'} · ${wk.tss} TSS (training load)` : 'Hours on the bike' }
+      ].map(card).join('');
 
       // Ramp rate
       const v = VeloTrends.rampVerdict(d.ramp);
@@ -218,7 +234,7 @@
       if (rampEl) { rampEl.textContent = d.ramp === null ? '--' : `${d.ramp > 0 ? '+' : ''}${d.ramp}`; rampEl.dataset.ramp = v.key; }
       this.setText('anaRampNote', d.ramp === null ? 'CTL change per week' : v.label);
       const r = this.healthReadiness ? this.healthReadiness() : null;
-      this.setText('anaReadinessNote', r ? (r.advice || (r.level === 'baseline' ? 'Needs 7 nights of HRV' : r.level === 'none' ? 'Set up Apple Health in Settings' : 'No data from the last 2 days')) : '--');
+      this.setText('anaReadinessNote', r ? (r.advice || (r.level === 'baseline' ? 'Needs 7 nights of HRV' : r.level === 'none' ? this.settingsLabel('appleHealth') : 'No data from the last 2 days')) : '--');
 
       this.renderPowerProfile(d);
       this.updateDashboardCharts(d);

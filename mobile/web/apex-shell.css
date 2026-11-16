@@ -1,0 +1,105 @@
+/* Phone navigation shell (src/native-shell.js, docs/ANDROID-UX.md "Shell contract"). Android app only.
+   Uses css/style.css tokens only. Primitives: .av-topbar .av-tabbar .av-page .av-sheet .av-row .av-seg .av-more */
+
+/* --- The desktop chrome the shell replaces (hidden, not removed: its controls keep their bindings) --- */
+html.apex-native .app-header { display: none !important; }
+html.apex-native body { padding-bottom: calc(76px + env(safe-area-inset-bottom, 0px)); }
+html.apex-native body.av-fullscreen { padding-bottom: 0; }
+html.apex-native main { padding: 4px 16px 24px; max-width: none; }
+body.av-shell[data-av-host="page"] main > .tab-view { display: none !important; }
+body.av-shell.av-fullscreen .av-topbar,
+body.av-shell.av-fullscreen .av-subnav,
+body.av-shell.av-fullscreen .av-tabbar { display: none !important; }
+html.apex-native, html.apex-native body { overflow-x: hidden; }
+
+/* --- Top bar: title and at most two 44 px actions --- */
+.av-topbar {
+  position: sticky; top: 0; z-index: 60;
+  display: flex; align-items: center; gap: 8px;
+  min-height: 56px; padding: calc(6px + env(safe-area-inset-top, 0px)) 16px 4px;
+  background: linear-gradient(180deg, var(--bg-1), color-mix(in srgb, var(--bg-1) 88%, transparent));
+  backdrop-filter: blur(14px);
+}
+.av-title { flex: 1; min-width: 0; margin: 0; font-family: var(--font-display); font-weight: 500; font-size: 22px; letter-spacing: -.03em;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.av-actions { display: flex; align-items: center; gap: 6px; }
+.av-back { margin-left: -6px; }
+.apex-native .av-icon-btn, .av-sheet .icon-btn { width: 44px; height: 44px; flex: none; }
+
+/* --- Bottom tab bar: five tabs, always visible except full-screen routes --- */
+.av-tabbar {
+  position: fixed; left: 0; right: 0; bottom: 0; z-index: 70;
+  display: grid; grid-template-columns: repeat(5, 1fr); gap: 2px;
+  padding: 6px 6px calc(6px + env(safe-area-inset-bottom, 0px));
+  background: linear-gradient(180deg, rgba(10, 13, 28, .86), rgba(6, 8, 18, .98));
+  border-top: 1px solid var(--line); backdrop-filter: blur(14px);
+}
+.av-tab { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 3px; min-height: 56px; min-width: 0;
+  border: 0; background: none; color: var(--text-3); font: 600 11.5px var(--font-sans); border-radius: 16px; cursor: pointer; }
+.av-tab .ic { width: 22px; height: 22px; }
+.av-tab-pill { display: grid; place-items: center; width: 56px; max-width: 100%; height: 30px; border-radius: 99px; }
+.av-tab.on { color: var(--text-1); }
+.av-tab.on .ic { color: var(--cyan); }
+.av-tab.on .av-tab-pill { background: rgba(255, 255, 255, .12); }
+
+/* --- Pages --- */
+.av-page[hidden] { display: none !important; }
+.av-page { display: flex; flex-direction: column; gap: 12px; }
+.av-page-body { display: flex; flex-direction: column; gap: 12px; }
+.av-page .card { padding: 16px; border-radius: 22px; }
+.av-label { font-size: 11px; font-weight: 700; letter-spacing: .12em; text-transform: uppercase; color: var(--text-3); margin: 6px 4px -4px; }
+.av-note { color: var(--text-3); font-size: 12.5px; margin: 0; }
+.av-big { min-height: 56px !important; width: 100%; justify-content: center; font-size: 16px; font-weight: 700; }
+
+/* --- Rows (56 px) and lists --- */
+.av-list { display: flex; flex-direction: column; padding: 4px 12px !important; }
+.av-row { display: flex; align-items: center; gap: 12px; width: 100%; min-height: 56px; padding: 8px 4px; color: inherit; text-align: left;
+  font: inherit; background: none; border: 0; border-bottom: 1px solid var(--line); }
+button.av-row { cursor: pointer; }
+.av-row:last-child { border-bottom: 0; }
+.av-row > .ic { color: var(--text-2); flex: none; }
+.av-row-text { flex: 1; min-width: 0; }
+.av-row-text b { display: block; font-weight: 600; overflow-wrap: anywhere; }
+.av-row-text small { display: block; color: var(--text-3); font-size: 12.5px; }
+.av-row-end { color: var(--text-3); font-size: 12.5px; text-align: right; }
+.av-row .btn { flex: none; }
+
+/* --- Segmented control (44 px), also the sub-navigation under the top bar --- */
+.av-seg { display: flex; padding: 4px; gap: 4px; border-radius: 99px; background: rgba(255, 255, 255, .05); border: 1px solid var(--line); }
+.av-seg[hidden] { display: none; }
+.av-subnav { margin: 0 16px 8px; position: sticky; top: calc(56px + env(safe-area-inset-top, 0px)); z-index: 59; backdrop-filter: blur(14px); }
+.av-seg > button { flex: 1; min-width: 0; min-height: 44px; border: 0; border-radius: 99px; background: none; color: var(--text-2);
+  font: 600 13.5px var(--font-sans); cursor: pointer; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.av-seg > button.on { color: #fff; background: linear-gradient(135deg, var(--zone-a), var(--zone-b)); }
+
+/* --- "More": less-used content folded inside a page --- */
+details.av-more > summary { display: flex; align-items: center; justify-content: center; min-height: 44px; color: var(--text-2); font-weight: 600; cursor: pointer; list-style: none; }
+details.av-more > summary::-webkit-details-marker { display: none; }
+
+/* --- Bottom sheets --- */
+.av-sheet-bg { position: fixed; inset: 0; z-index: 900; display: flex; align-items: flex-end; justify-content: center;
+  background: rgba(3, 5, 14, .6); backdrop-filter: blur(6px); }
+.av-sheet { width: min(560px, 100%); max-height: 88vh; overflow-y: auto; overscroll-behavior: contain;
+  padding: 10px 16px calc(20px + env(safe-area-inset-bottom, 0px));
+  background: linear-gradient(170deg, rgba(22, 28, 52, .98), rgba(9, 12, 26, .99));
+  border-radius: 26px 26px 0 0; border-top: 1px solid var(--line-strong); color: var(--text-1); }
+.av-grab { width: 40px; height: 5px; border-radius: 9px; background: var(--line-strong); margin: 0 auto 10px; }
+.av-sheet-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 4px; }
+.av-sheet-head h3 { margin: 0; font-family: var(--font-display); font-weight: 500; font-size: 18px; }
+.av-sheet-body { display: flex; flex-direction: column; gap: 12px; }
+body.av-sheet-open { overflow: hidden; }
+
+/* --- Switch (for on/off rows) --- */
+.av-switch { position: relative; flex: none; width: 52px; height: 44px; border: 0; background: none; cursor: pointer; }
+.av-switch::before { content: ''; position: absolute; left: 3px; right: 3px; top: 8px; height: 28px; border-radius: 99px; background: rgba(255, 255, 255, .12); }
+.av-switch::after { content: ''; position: absolute; top: 11px; left: 6px; width: 22px; height: 22px; border-radius: 50%; background: #fff; transition: left .2s; }
+.av-switch[aria-checked="true"]::before { background: linear-gradient(135deg, var(--zone-a), var(--zone-b)); }
+.av-switch[aria-checked="true"]::after { left: 24px; }
+
+/* --- Touch targets: small controls keep their look and get a 44 px hit area --- */
+.apex-native :is(.btn-sm, .btn-xs, .icon-btn, .icon-btn-sm, .chip, .cat-pill, .smooth-pill, .ble-badge) { position: relative; }
+.apex-native :is(.btn-sm, .btn-xs, .icon-btn, .icon-btn-sm, .chip, .cat-pill, .smooth-pill, .ble-badge)::after {
+  content: ''; position: absolute;
+  top: min(0px, calc(50% - 22px)); bottom: min(0px, calc(50% - 22px));
+  left: min(0px, calc(50% - 22px)); right: min(0px, calc(50% - 22px));
+}

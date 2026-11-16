@@ -66,7 +66,7 @@
   function value(day, key) {
     if (!day) return null;
     let v = day[key];
-    if (!fin(v) && key === 'hrvSdnn' && day.hrvSrc !== 'icu') v = day.hrv;
+    if (!fin(v) && key === 'hrvSdnn' && day.hrvSrc !== 'icu' && day.hrvSrc !== 'hc') v = day.hrv;
     return fin(v) ? v : null;
   }
 

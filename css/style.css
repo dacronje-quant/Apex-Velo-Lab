@@ -1405,6 +1405,18 @@ body.focus-mode #valInstantPower { font-size: clamp(120px, 14vw, 220px); }
 .import-row { display: flex; flex-direction: column; justify-content: center; gap: 10px; padding: 16px; border-radius: var(--radius-lg); border: 1px solid var(--line); background: var(--surface-sunk); }
 .import-row h4 { font-size: 14px; margin-bottom: 2px; }
 .import-row p { font-size: 12.5px; }
+.bulk-import-row { grid-column: 1 / -1; flex-direction: row; flex-wrap: wrap; align-items: center; justify-content: space-between; }
+.bulk-import-row > div:first-child { flex: 1 1 280px; }
+.bulk-mode-field { margin: 0; }
+.bulk-import-panel { grid-column: 1 / -1; display: flex; flex-direction: column; gap: 10px; padding: 14px 16px; border-radius: var(--radius-lg); border: 1px solid var(--line); background: var(--surface-sunk); }
+.bulk-import-panel[hidden] { display: none; }
+.bulk-counts { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 8px; }
+.bulk-counts > div { display: flex; flex-direction: column; align-items: flex-start; }
+.bulk-counts b { font-size: 20px; }
+.bulk-counts span { font-size: 11.5px; color: var(--text-dim, inherit); text-transform: uppercase; letter-spacing: .04em; }
+.bulk-foot { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.bulk-status { flex: 1 1 200px; min-width: 0; overflow-wrap: anywhere; font-size: 12.5px; }
+@media (max-width: 480px) { .bulk-counts { grid-template-columns: repeat(3, minmax(0, 1fr)); } }
 @media (max-width: 760px) { .import-rows { grid-template-columns: 1fr; } }
 details.menu { position: relative; }
 details.menu > summary { list-style: none; cursor: pointer; }
@@ -1705,6 +1717,16 @@ details.menu > summary::-webkit-details-marker { display: none; }
 .engine-chip { display: inline-flex; align-items: center; gap: 6px; height: 30px; padding: 0 12px; border-radius: var(--radius-full); border: 1px solid var(--line-strong); background: var(--surface-sunk); color: var(--text-2); font-size: 12px; font-weight: 600; }
 .engine-chip:hover { color: var(--text-1); border-color: rgba(124, 200, 255, 0.4); }
 .engine-chip .ic { color: var(--violet); }
+/* AI engine switcher (js/app-coach.js aiPickerHtml): a chip around a native select, so phones show their own picker. */
+.ai-pick { position: relative; display: inline-flex; align-items: center; gap: 6px; height: 30px; max-width: 100%; padding: 0 26px 0 12px; border-radius: var(--radius-full); border: 1px solid var(--line-strong); background: var(--surface-sunk); color: var(--text-2); font-size: 12px; font-weight: 600; vertical-align: middle; cursor: pointer; }
+.ai-pick .ic { flex: none; color: var(--violet); }
+.ai-pick.live .ic { color: var(--lime); }
+.ai-pick::after { content: ''; position: absolute; right: 12px; top: 50%; width: 5px; height: 5px; border-right: 1.5px solid currentColor; border-bottom: 1.5px solid currentColor; transform: translateY(-75%) rotate(45deg); pointer-events: none; }
+.ai-pick:hover, .ai-pick:focus-within { color: var(--text-1); border-color: rgba(124, 200, 255, 0.4); }
+.ai-pick-select { appearance: none; -webkit-appearance: none; min-width: 0; max-width: 100%; height: 100%; margin: 0; padding: 0; border: 0; outline: none; background: transparent; color: inherit; font: inherit; text-overflow: ellipsis; cursor: pointer; }
+.ai-pick-select option, .ai-pick-select optgroup { background: var(--bg-2); color: var(--text-1); }
+.ai-pick-row { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin: 4px 0 10px; }
+.describe-box .btn-row .ai-pick, .ai-breakdown-area .ai-pick { margin-left: 4px; }
 .ask-engine-warn { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; padding: 10px 14px; margin-bottom: 12px; border-radius: var(--radius-md); background: var(--amber-soft); border: 1px solid rgba(255, 190, 74, 0.3); color: var(--text-1); font-size: 13px; }
 .ask-period-card { padding: 14px 16px; }
 .ask-period-row { display: flex; align-items: center; gap: 10px 14px; flex-wrap: wrap; }
@@ -2214,6 +2236,18 @@ select.input-field option, .header-profile-dropdown option { background: #10142a
   .zen-mini-canvas-wrap { display: none; }
 }
 
+/* Ride view: tap the power number (or its label) to step Current / 3 s / 5 s / 10 s */
+.power-view-tap { cursor: pointer; -webkit-tap-highlight-color: transparent; user-select: none; -webkit-user-select: none; touch-action: manipulation; }
+.power-view-tap:focus-visible { outline: 2px solid var(--zone-b); outline-offset: 4px; border-radius: 24px; }
+.power-view-btn {
+  display: inline-flex; align-items: center; min-height: 32px; padding: 0 14px; border-radius: 999px; cursor: pointer;
+  border: 1px solid rgba(255, 255, 255, 0.12); background: rgba(255, 255, 255, 0.05); color: var(--text-2);
+  font-size: 12px; font-weight: 700; letter-spacing: .08em; touch-action: manipulation;
+}
+.power-view-btn:hover { color: var(--text-1); border-color: rgba(255, 255, 255, 0.24); }
+.zen-smoothing-bar .power-view-btn { letter-spacing: .02em; font-size: 13px; }
+.ss-dock-bias[data-ctl="length"] .bias-val-display { min-width: 0; padding: 0 2px; color: var(--text-3); }
+#rideControlSettings .toggle { display: flex; margin: 12px 0; }
 /* ---- Share card (ride summary > Share card) ---- */
 .btn-share-card { --b-bg: linear-gradient(135deg, #F0522E, #ff3d78); --b-bd: rgba(255, 120, 110, 0.6); --b-fg: #fff; font-weight: 700; }
 .btn-share-card .ic { width: 15px; height: 15px; }
@@ -2229,3 +2263,4 @@ select.input-field option, .header-profile-dropdown option { background: #10142a
 .share-card-hint { margin: 10px 0 0; font-size: 12px; line-height: 1.5; color: var(--text-3, var(--text-2)); text-align: center; }
 .wcb-share { margin-left: 4px; }
 a.btn, a.btn:hover { text-decoration: none; }
+.share-card-styles .btn[aria-pressed="true"] { background: rgba(148, 163, 184, 0.2); border-color: rgba(148, 163, 184, 0.5); color: #fff; }

@@ -226,6 +226,23 @@
   /* Workout bar above the controls, on every screen */
   #zoneBar { flex: none; height: 20px; margin: 0; }
   .controls { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 8px; }
+  /* Step length on display: the bottom row becomes Zen | -30s | +30s | Skip (no extra row, so nothing scrolls). */
+  @media not ((orientation: landscape) and (max-height: 560px)) {
+    body:not(.no-length) .controls { grid-template-columns: repeat(12, minmax(0, 1fr)); }
+    body:not(.no-length) .controls > button { grid-column: span 4; }
+    body:not(.no-length) .controls > button.primary { grid-column: 1 / -1; }
+    body:not(.no-length) .controls > #btnZen, body:not(.no-length) .controls > #btnSkip, body:not(.no-length) .controls > .len { grid-column: span 3 !important; font-size: 17px; }
+    body:not(.no-length).no-skip .controls > #btnZen, body:not(.no-length).no-skip .controls > .len { grid-column: span 4 !important; }
+    body:not(.no-length) .controls > #btnSkip { order: 1; }
+  }
+  @media (max-width: 380px) {
+    body:not(.no-length) .controls > #btnZen, body:not(.no-length) .controls > #btnSkip, body:not(.no-length) .controls > .len { font-size: 14px !important; white-space: nowrap !important; overflow: hidden; padding-left: 2px; padding-right: 2px; }
+  }
+  @media (orientation: landscape) and (max-height: 560px) {
+    body:not(.no-length) .controls { grid-template-columns: 1.6fr repeat(7, minmax(0, 1fr)) !important; }
+  }
+  body.no-intensity #btnDown, body.no-intensity #btnUp, body.no-intensity #btnReset, body.no-length .controls .len, body.no-skip #btnSkip { display: none; }
+  body.no-skip #btnZen { grid-column: 1 / -1; }
   /* Sweaty-finger targets: every control is at least 60 px tall */
   .controls button { min-height: 60px; font-size: 20px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   .controls button.primary { min-height: 66px; font-size: 22px; }
@@ -581,6 +598,8 @@
     <button id="btnUp" disabled>+5 W</button>
     <button id="btnZen" type="button" aria-pressed="false">Zen</button>
     <button id="btnSkip" disabled style="grid-column: span 2">Skip step</button>
+    <button id="btnShorter" class="len" disabled title="Shorten this step by 30 seconds" aria-label="Shorten this step by 30 seconds">&minus;30s</button>
+    <button id="btnLonger" class="len" disabled title="Extend this step by 30 seconds" aria-label="Extend this step by 30 seconds">+30s</button>
   </section>
 
 <section id="phoneZen" class="phone-zen" hidden aria-label="Zen ride view">
@@ -657,7 +676,7 @@
   });
   updateGraphMode();
   let balHistory = [], balLastSecond = -1;
-  const powerViews = [0, 3, 5, 7, 10];
+  const powerViews = [0, 3, 5, 10];
   let powerView = 0;
   try {
     const saved = Number(localStorage.getItem('apexLivePowerView'));
@@ -838,6 +857,9 @@
     tb.classList.toggle('pause', riding);
     ['btnUp', 'btnDown', 'btnReset'].forEach((id) => { $(id).disabled = !live || sending; });
     $('btnSkip').disabled = !riding || sending;
+    $('btnShorter').disabled = $('btnLonger').disabled = !riding || sending;
+    const ctl = (snap && snap.controls) || {};
+    ['intensity', 'length', 'skip'].forEach(k => document.body.classList.toggle('no-' + k, ctl[k] === false));
     $('btnZen').disabled = false;
     const offer = !!(s && s.easySpinOffer != null);
     $('spinOffer').hidden = !offer;
@@ -1545,6 +1567,8 @@
   $('devDots').addEventListener('click', () => setPage(5, true));
   $('btnToggle').addEventListener('click', () => send('toggle', snap && snap.state === 'running' ? 'Pausing...' : 'Starting...'));
   $('btnUp').addEventListener('click', () => send('watts-up'));
+  $('btnLonger').addEventListener('click', () => send('interval-plus', 'Step +30 s'));
+  $('btnShorter').addEventListener('click', () => send('interval-minus', 'Step -30 s'));
   $('btnDown').addEventListener('click', () => send('watts-down'));
   $('btnReset').addEventListener('click', () => { if (snap && (snap.bias || 100) !== 100) send('bias-reset', 'ERG back to the plan'); });
   $('btnSpinMore').addEventListener('click', () => send('spin-more', '+5 min easy spin'));
