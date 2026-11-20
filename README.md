@@ -24,7 +24,7 @@ No account, no cloud service, no subscription. Your rides stay in your browser a
 **Workout library** - SweetSpot, threshold, VO2 and endurance sessions with interval profiles
 ![Workout library](docs/images/workouts.png)
 
-**AI Coach** - today's session from your fitness, fatigue and form, or exactly the session you ask for in your own words
+**AI Coach** - one chat for everything AI: ask about your riding, create a workout or plan your training, in your own words
 ![AI Coach](docs/images/ai-coach.png)
 
 **Analytics** - readiness, FTP, fitness/fatigue/form (PMC), power curve and CP
@@ -60,7 +60,7 @@ No account, no cloud service, no subscription. Your rides stay in your browser a
 | **Power meter** | Bluetooth power pedals/crank/hub (Cycling Power Service, e.g. Favero Assioma, Garmin Rally, Stages, 4iiii). Used as the true power source, with left/right balance where reported; PowerMatch trims the trainer to it |
 | **Fan control** | Wahoo KICKR HEADWIND (Bluetooth) |
 | **Phone remote** | A phone or tablet on the **same home Wi-Fi** as the PC (any modern browser; iPhone Safari works). Shows the ride and controls the workout from another room. On Windows, run `Enable-Phone-View.bat` once |
-| **AI coach / Ask** | Internet plus your own API key from Anthropic (Claude), OpenAI (ChatGPT) or Google (Gemini). Usage is billed by the provider. Without a key the offline coach is used |
+| **AI coach** | Internet plus your own API key from Anthropic (Claude), OpenAI (ChatGPT) or Google (Gemini). Usage is billed by the provider. Without a key the offline coach is used |
 | **Strava API sync** | Internet, a Strava subscription and your own API application (see [setup](docs/LOCAL-SETUP.md#optional-connections)). File imports can be used without API credentials |
 | **Recovery (HRV, resting HR, sleep)** | iPhone with Apple Health and the third-party **Health Auto Export** app (automatic exports need its paid tier), on the same Wi-Fi as the PC |
 
@@ -76,7 +76,7 @@ No account, no cloud service, no subscription. Your rides stay in your browser a
    The app opens at **http://localhost:8080**. Use this address for Web Bluetooth and migration of your existing browser data. Confirmed rides and settings live in SQLite and load in other PC browsers too.
 3. **Set up** - choose **Set up my rider** and enter your FTP, weight and max heart rate, or **Explore a demo** to look around with synthetic rides (kept separate from your own data).
 4. **Ride** - open **Devices** in the header, choose a device type and **Pair device**. Next time, **Connect saved devices** reconnects everything. Pick a workout and press **Start**.
-5. **Bring your history (optional)** - drop FIT, TCX or CSV files from Garmin, Wahoo, Strava, Apple Watch and others into **History > Import**, or connect Strava.
+5. **Bring your history (optional)** - drop FIT, TCX or CSV files from Garmin, Wahoo, Strava, Apple Watch and others into **History > Import**, or use **Import history** for many files or whole archives at once (GPX, .gz, .zip, a Garmin data export or Strava's "Download your data" zip; duplicates are skipped), or connect Strava.
 
 ### Optional: AI coach, Strava, phone
 
@@ -90,13 +90,14 @@ STRAVA_CLIENT_SECRET=
 
 Keys stay on your PC; the browser never sees them. Step-by-step instructions for each connection, the phone remote and Apple Health are in **[local setup and troubleshooting](docs/LOCAL-SETUP.md)**.
 
-### Optional: AI workouts and AI training programs
+### Optional: the AI coach chat (questions, workouts and training plans)
 
-Everything here is optional. Without an API key the app builds workouts and training blocks with its built-in offline engine, and riding, analytics and Strava work the same. Add a Claude, ChatGPT or Gemini key (above) to let an AI do the planning instead.
+Everything here is optional. Without an API key the app builds workouts and training blocks with its built-in offline engine, and riding, analytics and Strava work the same. Add a Claude, ChatGPT or Gemini key (above) to let an AI answer your questions and do the planning instead.
 
-- **One builder for both.** The Coach tab has a single builder: switch between **One workout** and **Training plan**, pick a goal once, and press one button.
-- **AI workout creation.** In **AI Coach > One workout**, pick a goal (FTP, Longevity, VO2max or Balanced) and a session length (or Auto), optionally type a request such as "45 min over-unders", and load the result into the cockpit in one click. Targets are scaled to your current FTP and zones.
-- **AI training programs.** In **AI Coach > Training plan**, set a goal, length (4-12 weeks), available days and long-ride day. The AI designs the phases, weekly load and key sessions (and can choose your weekly hours if you leave them blank); the app places them on your Calendar, keeps the load ramp safe, and re-checks the plan after every ride. Suggested changes only apply when you press **Apply**.
+- **One place for everything AI.** The **Coach** tab (on the phone, the **Train** tab opens on it) is a single chat. Above the message box, pick what you want - **Ask about my riding**, **Create a workout** or **Plan my training** (the picked one shows a tick) - and type in your own words. Answers, workout cards and plan cards all land in the same thread, and each turn sees the conversation so far: press **Make it a workout** under an answer that describes a session, or say "make it shorter" after a workout. The Workouts tab's **Create with the coach**, a ride's **Discuss with the coach** and the phone's Train > Plan card all open this chat.
+- **Your words set the options.** "60 min sweet spot" sets the length; "10 weeks, no rides on Friday" sets the plan's weeks and ride days. **Options** under that switch hold the goal (FTP, Longevity, VO2max or Balanced), length, focus and history look-back for a workout, or the weeks, ride days, long-ride day and weekly hours for a plan, and the period the coach reads for questions.
+- **AI workout creation.** The workout card shows the profile, how to ride it, the steps and why it was chosen: **Ride now**, **Save**, **Change it** or **Another one**. Targets are scaled to your current FTP and zones.
+- **AI training programs.** The AI designs the phases, weekly load and key sessions (and can choose your weekly hours if you leave them blank); the app places them on your Calendar, keeps the load ramp safe, and re-checks the plan after every ride. The full plan sits beside the chat (on the phone, Train's **Plan** page); suggested changes only apply when you press **Apply**.
 - **Evidence-based.** The coach works as a sport scientist from a curated, graded evidence base (e.g. Rønnestad's 30/15s, Seiler's intensity distribution, tapering and strength-training meta-analyses). The AI may cite only those studies, and the offline engine follows the same findings. Each session and block shows **The science behind this**.
 - **Personalised from your own history.** The coach sees your fitness/fatigue/form, recent hours and intensity mix, power profile, recent interval diagnosis, power-to-heart-rate drift, new power bests, recovery data and strength sessions when imported. **History look-back** (7-90 days) controls how much is sent.
 - **Privacy and cost.** Only compact summaries are sent to the provider you choose, via your local server; keys stay in `.env`. The provider bills API usage, so pick the model and effort that suit your budget.
@@ -116,6 +117,7 @@ Everything here is optional. Without an API key the app builds workouts and trai
 - [Local setup, connections and troubleshooting](docs/LOCAL-SETUP.md)
 - [Full feature reference](docs/FEATURES.md) - cockpit, ERG behaviour, devices, coach, training blocks, Strava sync, phone view, analytics, formulas, architecture
 - [Privacy and local data](docs/PRIVACY.md)
+- [Android app (proof of concept)](mobile/README.md) - the cockpit as an APK: Bluetooth trainer control, workouts, on-phone storage and Strava, no PC needed
 - [Maintainer: preparing a release](docs/SHARING.md)
 - `tools/` - optional PowerShell helpers to build a ride archive from a HealthFit `.fit` export folder (not needed for normal use)
 

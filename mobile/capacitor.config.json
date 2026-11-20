@@ -1,0 +1,12 @@
+{
+  "appId": "com.apexvelo.lab",
+  "appName": "Apex Velo",
+  "webDir": "www",
+  "android": {
+    "allowMixedContent": false
+  },
+  "plugins": {
+    "CapacitorHttp": { "enabled": false },
+    "SystemBars": { "style": "DARK" }
+  }
+}

@@ -63,7 +63,7 @@
         this.setText('anaHealthEmptyText', all.length
           ? 'No health days in this time range. Pick a longer range above.'
           : document.documentElement.classList.contains('apex-native')
-            ? 'Add your intervals.icu API key in Settings > Health: resting HR, HRV, sleep and the rest of your wellness data appear here.'
+            ? `Add your intervals.icu API key in ${this.settingsLabel('health', 'Settings > Health')}: resting HR, HRV, sleep and the rest of your wellness data appear here.`
             : 'Set up Apple Health in Settings: resting HR, HRV and sleep appear here.');
       }
       this.renderHealthTiles(all, today);
@@ -71,7 +71,6 @@
       this.renderHealthHrvCard(all, days, range);
       this.renderHealthSleepCard(days, range);
       this.renderHealthLoadCard(all, range);
-      this.renderHealthModStat(all, today);
     },
 
     /** Latest value, 30-day average and change vs the 30 days before, for each metric with data. */
@@ -99,18 +98,6 @@
           <div class="tile-sub">30-day average · latest ${Wl.fmt(m.key, s.last)}${m.unit && m.unit !== 'h' ? ' ' + esc(m.unit) : ''}${stale}</div>
         </div>`;
       }).join('');
-    },
-
-    /** Headline on the dock tab: the 7-day HRV average, else resting HR, else sleep. */
-    renderHealthModStat(all, today) {
-      const Wl = W();
-      const last7 = (k) => { const s = Wl.stats(all, k, today, 7); return s && s.n ? s : null; };
-      const hrv = last7('hrv'), rhr = last7('rhr'), sleep = last7('sleepH');
-      const set = (stat, sub) => { this.setText('anaModStat-health', stat); this.setText('anaModSub-health', sub); };
-      if (hrv) set(`${Math.round(hrv.avg)} ms`, 'HRV · 7 days');
-      else if (rhr) set(`${Math.round(rhr.avg)} bpm`, 'resting HR · 7 days');
-      else if (sleep) set(Wl.fmt('sleepH', sleep.avg), 'sleep · 7 days');
-      else set('--', 'no data yet');
     },
 
     /** Chart.js scaffolding shared by the cards: one chart per canvas, rebuilt in place on each render. */
@@ -245,7 +232,7 @@
       card.hidden = !inRange.length;
       if (card.hidden) return;
       const last = days.filter(d => Wl.value(d, 'hrv') !== null).pop();
-      const kind = last && last.hrvSrc === 'icu' ? (last.hrvKind === 'sdnn' ? 'SDNN' : 'rMSSD') : 'SDNN';
+      const kind = last && (last.hrvSrc === 'icu' || last.hrvSrc === 'hc') ? (last.hrvKind === 'sdnn' ? 'SDNN' : 'rMSSD') : 'SDNN';
       const chart = this.healthChart('healthHrvCanvas', 'line');
       if (!chart) return;
       const within = (p) => p.t >= range.x0 && p.t <= range.x1;

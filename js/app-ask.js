@@ -1,24 +1,21 @@
 /**
- * APEX VELO // LAB - Ask: free questions about your own training, answered by Claude or Gemini (mixin on VeloApp).
+ * APEX VELO // LAB - the data side of the AI Coach chat's questions (mixin on VeloApp).
  *
- * Separate from the Coach (which builds workouts) and training blocks: pick a period, ask in your own
- * words, get a short plain-English answer with the numbers behind it. The question, the conversation and
- * a text summary of that period (js/velo-ask.js) go to POST /api/ask on the local server, which holds the
- * API key; the engine is the one chosen in Settings > AI engine. The chat stays in this browser.
+ * When the rider ticks "Ask about my riding" in the coach chat (js/app-coach-chat.js), the question, the
+ * conversation and a text summary of the chosen period (js/velo-ask.js) go to POST /api/ask on the local
+ * server (or the phone's own AI engine), which holds the API key; the engine is the one chosen in
+ * Settings > AI engine. This file keeps the period, that summary and the engine warning.
  */
 (function () {
   const DAY = 86400000;
   const STORE_KEY = 'apex_ask_v1';
-  const ASK_URL = 'api/ask';
-  const TIMEOUT_MS = 190000;
-  const MAX_HISTORY = 20;
   const MEANING_KEYS = [['TSS', 'tss'], ['NP', 'np'], ['IF', 'if'], ['CTL', 'ctl'], ['ATL', 'atl'], ['TSB', 'tsb'], ['EF', 'ef'], ['CP', 'cp'], ["W'", 'wprime'], ['VI', 'vi']];
   const esc = (v) => String(v ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
   const fmtDay = (d) => d.toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: d.getFullYear() === new Date().getFullYear() ? undefined : 'numeric' });
 
   Object.assign(VeloApp.prototype, {
+    /** The period the questions look at, saved with the chat (apex_ask_v1); the thread itself is js/app-coach-chat.js. */
     initAskUi() {
-      this.askMessages = [];
       this.askPeriod = '6w';
       this.askFrom = '';
       this.askTo = '';
@@ -28,9 +25,8 @@
           if (VeloAsk.PERIODS.some(p => p.key === s.period)) this.askPeriod = s.period;
           this.askFrom = typeof s.from === 'string' ? s.from : '';
           this.askTo = typeof s.to === 'string' ? s.to : '';
-          if (Array.isArray(s.messages)) this.askMessages = s.messages.filter(m => m && ['user', 'assistant', 'note'].includes(m.role) && typeof m.content === 'string').slice(-60);
         }
-      } catch (e) { /* storage unavailable: start empty */ }
+      } catch (e) { /* storage unavailable: the default period */ }
       const pills = document.getElementById('askPeriodPills');
       if (pills) {
         pills.innerHTML = VeloAsk.PERIODS.map(p => `<button type="button" class="ask-period" data-period="${p.key}" aria-pressed="false">${esc(p.short)}</button>`).join('');
@@ -39,42 +35,11 @@
       const from = document.getElementById('askFrom'), to = document.getElementById('askTo');
       if (from) { from.value = this.askFrom; this.on(from, 'change', () => { this.askFrom = from.value; this.askPeriodChanged(); }); }
       if (to) { to.value = this.askTo; this.on(to, 'change', () => { this.askTo = to.value; this.askPeriodChanged(); }); }
-      const form = document.getElementById('askForm'), input = document.getElementById('askInput');
-      if (form) this.on(form, 'submit', (e) => { e.preventDefault(); this.sendAsk(input ? input.value : ''); });
-      if (input) {
-        this.on(input, 'keydown', (e) => { if (e.key === 'Enter' && !e.shiftKey && !e.isComposing) { e.preventDefault(); this.sendAsk(input.value); } });
-        this.on(input, 'input', () => this.sizeAskInput());
-      }
-      this.on(document.getElementById('btnAskStop'), 'click', () => { if (this._askAbort) this._askAbort.abort('stop'); });
-      this.on(document.getElementById('btnAskNew'), 'click', () => this.newAskChat());
-      this.on(document.getElementById('btnAskClear'), 'click', () => {
-        if (this.askMessages.length && confirm('Clear this chat? The questions and answers are removed from this device.')) this.newAskChat();
-      });
-      this.on(document.getElementById('btnAskEngine'), 'click', () => this.openSettings && this.openSettings('ai'));
       this.on(document.getElementById('btnAskEngineWarn'), 'click', () => this.openSettings && this.openSettings('ai'));
-      const thread = document.getElementById('askThread');
-      if (thread) this.on(thread, 'click', (e) => {
-        const chip = e.target.closest('[data-suggest]');
-        if (chip) { this.sendAsk(chip.dataset.suggest); return; }
-        const copy = e.target.closest('[data-copy]');
-        if (copy) {
-          const m = this.askMessages[Number(copy.dataset.copy)];
-          if (m && this.copyText) this.copyText(m.content, 'Answer copied.');
-        }
-      });
       const peek = document.getElementById('askDataPeek');
       if (peek) this.on(peek, 'toggle', () => { if (peek.open) this.renderAskPeek(); });
       this.renderAskPeriod();
       this.updateAskEngine();
-      this.renderAskThread();
-    },
-
-    /** Called when the Ask tab opens: fresh scope line, engine state and focus in the question box. */
-    onAskTab() {
-      this.renderAskPeriod();
-      this.updateAskEngine();
-      const input = document.getElementById('askInput');
-      if (input && !this._askBusy) requestAnimationFrame(() => input.focus({ preventScroll: true }));
     },
 
     askRange(now = new Date()) {
@@ -98,13 +63,13 @@
     /** A new period applies from the next question; mid-chat, a note in the thread says so. */
     askPeriodChanged() {
       const r = this.askRange();
-      if (this.askMessages.some(m => m.role === 'user')) {
+      if ((this.askMessages || []).some(m => m.role === 'user')) {
         const last = this.askMessages[this.askMessages.length - 1];
         const note = { role: 'note', content: `Now looking at: ${r.label} (${VeloAsk.dayKey(r.from)} to ${VeloAsk.dayKey(r.to)})` };
         if (last && last.role === 'note') this.askMessages[this.askMessages.length - 1] = note; else this.askMessages.push(note);
-        this.renderAskThread();
-      } else this.renderAskThread();
-      this.saveAsk();
+        if (this.renderAskThread) this.renderAskThread();
+      } else if (this.renderAskThread) this.renderAskThread();
+      if (this.saveAsk) this.saveAsk();
       this.renderAskPeriod();
     },
 
@@ -119,7 +84,7 @@
       const r = this.askRange();
       const rides = this.cyclingRides().filter(x => { const t = Date.parse(x.date); return t >= r.from.getTime() && t <= r.to.getTime(); });
       const hours = rides.reduce((a, x) => a + (Number(x.duration) || 0), 0) / 3600;
-      const withPower = rides.filter(x => VeloInsight.hasSamples(x) || Number(x.np) > 0 || Number(x.avgWatts) > 0).length;
+      const withPower = rides.filter(x => VeloRideSummary.has(x) || Number(x.np) > 0 || Number(x.avgWatts) > 0).length;
       const scope = document.getElementById('askScope');
       if (scope) {
         scope.innerHTML = rides.length
@@ -128,7 +93,8 @@
       }
       const peek = document.getElementById('askDataPeek');
       if (peek && peek.open) this.renderAskPeek();
-      if (!this.askMessages.length) this.renderAskThread();
+      if (!(this.askMessages || []).length && this.renderAskThread) this.renderAskThread();
+      if (this.updateCoachGoButton) this.updateCoachGoButton();
     },
 
     renderAskPeek() {
@@ -139,18 +105,17 @@
       this.setText('askDataSize', `about ${Math.round(text.length / 4).toLocaleString()} tokens`);
     },
 
+    /** The note in the message box while Ask is picked: questions need an AI key (workouts and plans fall back to the built-in engine). */
     updateAskEngine() {
       const c = this.aiCoach;
       if (!c) return;
-      const m = c.model;
-      this.setText('askEngineLabel', `${VeloAiCoach.labelFor(m)}${VeloAiCoach.supportsEffort(m) ? ` · ${c.effort} effort` : ''}`);
       const warn = document.getElementById('askEngineWarn');
-      if (warn) {
-        warn.hidden = c.isLive;
-        this.setText('askEngineWarnText', c.engine.reachable
-          ? `Ask needs a ${c.providerLabel} API key. Add ${VeloAiCoach.PROVIDERS[c.provider].keyName} to the .env file and restart Launch-Apex-Velo.bat.`
-          : 'Ask uses Claude, Gemini or ChatGPT through the local server: open the app with Launch-Apex-Velo.bat (your API key stays on this PC).');
-      }
+      if (!warn) return;
+      const asking = (this.coachIntent || 'chat') === 'chat';
+      warn.hidden = c.isLive || !asking;
+      this.setText('askEngineWarnText', c.engine.reachable
+        ? `Questions need a ${c.providerLabel} key: add ${VeloAiCoach.PROVIDERS[c.provider].keyName} to .env and restart Launch-Apex-Velo.bat. Workouts and plans work without one.`
+        : 'Questions need the local server: open the app with Launch-Apex-Velo.bat. Workouts and plans work without it.');
     },
 
     /** The text summary of the chosen period the AI answers from (memoised until the data changes). */
@@ -180,7 +145,7 @@
           sec += d; km += Number(r.distanceKm) || 0; tss += Number(r.tss) || 0; kj += Number(r.kj) || 0; longest = Math.max(longest, d);
           const np = Number(r.np) || 0;
           if (np > 0) { npSum += np; npN++; }
-          if (VeloInsight.hasSamples(r) || np > 0 || Number(r.avgWatts) > 0) withPower++;
+          if (VeloRideSummary.has(r) || np > 0 || Number(r.avgWatts) > 0) withPower++;
           if (Number(r.avgHr) > 0) withHr++;
         });
         return { rides: list.length, hours: sec / 3600, km, tss: Math.round(tss), kj: Math.round(kj), avgNp: npN ? Math.round(npSum / npN) : 0, longestSec: longest, withPower, withHr };
@@ -273,149 +238,15 @@
 
     /** Heart-rate drift (Pw:HR, %) of a steady ride, or null; cached per ride. */
     askDrift(r) {
-      if (!VeloInsight.hasSamples(r)) return null;
+      if (!VeloRideSummary.has(r)) return null;
       const cache = this._askDrift || (this._askDrift = new Map());
-      const key = `${r.id}|${r.samples.length}`;
+      const key = `${r.id}|${VeloRideSummary.count(r)}`;
       if (!cache.has(key)) {
         if (cache.size > 2 * (this.completedWorkouts || []).length + 50) cache.clear();
-        const d = VeloInsight.decoupling(r.samples);
+        const d = this.rideDecoupling(r);
         cache.set(key, d && d.status === 'ok' ? d.pct : null);
       }
       return cache.get(key);
     },
-
-    /** User / assistant turns for the API: the last 20, alternating and starting with the rider. */
-    askHistoryForApi() {
-      const out = [];
-      this.askMessages.forEach(m => {
-        if (m.role !== 'user' && m.role !== 'assistant') return;
-        if (out.length && out[out.length - 1].role === m.role) out[out.length - 1] = { role: m.role, content: m.content };
-        else out.push({ role: m.role, content: m.content });
-      });
-      let list = out.slice(-MAX_HISTORY);
-      while (list.length && list[0].role !== 'user') list = list.slice(1);
-      return list;
-    },
-
-    async sendAsk(raw) {
-      const text = String(raw || '').trim();
-      const input = document.getElementById('askInput');
-      if (!text || this._askBusy) return;
-      if (text.length > 4000) { this.showToast('Please keep a question under 4000 characters.', 'warning'); return; }
-      const range = this.askRange();
-      let context;
-      try { context = this.askContext(range); } catch (e) { context = ''; console.warn('Ask: could not build the data summary', e); }
-      this.askMessages.push({ role: 'user', content: text, at: Date.now() });
-      if (input) { input.value = ''; this.sizeAskInput(); }
-      this._askBusy = true;
-      this._askStarted = performance.now();
-      this.renderAskThread();
-      this.saveAsk();
-      this.setAskBusyUi(true);
-      const c = this.aiCoach;
-      const ac = new AbortController();
-      this._askAbort = ac;
-      const timer = setTimeout(() => ac.abort('timeout'), TIMEOUT_MS);
-      this._askTick = setInterval(() => this.setText('askElapsed', `${Math.round((performance.now() - this._askStarted) / 1000)} s`), 1000);
-      try {
-        const res = await fetch(ASK_URL, {
-          method: 'POST', cache: 'no-store', signal: ac.signal,
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ messages: this.askHistoryForApi(), context, provider: c.provider, model: c.model, effort: c.effort })
-        });
-        const data = await res.json().catch(() => ({}));
-        if (!res.ok) throw Object.assign(new Error(data.error || `The local server answered ${res.status}.`), { server: true });
-        const secs = ((performance.now() - this._askStarted) / 1000).toFixed(1);
-        this.askMessages.push({ role: 'assistant', content: String(data.text || '').trim() || 'No answer came back - try asking again.', meta: `${VeloAiCoach.labelFor(data.model || c.model)} · ${secs} s`, at: Date.now() });
-      } catch (e) {
-        const reason = ac.signal.aborted ? ac.signal.reason : null;
-        const last = this.askMessages[this.askMessages.length - 1];
-        if (last && last.role === 'user') this.askMessages.pop();
-        if (input && !input.value) { input.value = text; this.sizeAskInput(); }
-        const msg = reason === 'stop' ? null
-          : reason === 'timeout' ? 'No answer after 3 minutes. Try again, or ask a shorter question.'
-            : e.server ? e.message
-              : 'Can\'t reach the local server. Open the app with Launch-Apex-Velo.bat - Ask needs it for your API key.';
-        if (msg) this.askMessages.push({ role: 'error', content: msg });
-      } finally {
-        clearTimeout(timer);
-        clearInterval(this._askTick);
-        this._askBusy = false;
-        this._askAbort = null;
-        this.setAskBusyUi(false);
-        this.renderAskThread();
-        this.saveAsk();
-      }
-    },
-
-    setAskBusyUi(busy) {
-      const send = document.getElementById('btnAskSend'), stop = document.getElementById('btnAskStop');
-      if (send) send.hidden = busy;
-      if (stop) stop.hidden = !busy;
-      const input = document.getElementById('askInput');
-      if (input) input.setAttribute('aria-busy', String(busy));
-    },
-
-    newAskChat() {
-      if (this._askAbort) this._askAbort.abort('stop');
-      this.askMessages = [];
-      this.saveAsk();
-      this.renderAskThread();
-      const input = document.getElementById('askInput');
-      if (input) input.focus();
-    },
-
-    saveAsk() {
-      try {
-        localStorage.setItem(STORE_KEY, JSON.stringify({
-          period: this.askPeriod, from: this.askFrom, to: this.askTo,
-          messages: this.askMessages.filter(m => m.role !== 'error').slice(-60)
-        }));
-      } catch (e) { /* storage full or blocked: the chat lives in memory only */ }
-    },
-
-    sizeAskInput() {
-      const input = document.getElementById('askInput');
-      if (!input) return;
-      input.style.height = 'auto';
-      input.style.height = `${Math.min(160, input.scrollHeight)}px`;
-    },
-
-    renderAskThread() {
-      const thread = document.getElementById('askThread');
-      if (!thread) return;
-      const newBtn = document.getElementById('btnAskNew');
-      if (newBtn) newBtn.hidden = !this.askMessages.length;
-      const clearBtn = document.getElementById('btnAskClear');
-      if (clearBtn) clearBtn.hidden = !this.askMessages.length;
-      if (!this.askMessages.length && !this._askBusy) {
-        const r = this.askRange();
-        thread.innerHTML = `
-          <div class="ask-empty">
-            <div class="ask-empty-icon"><svg class="ic"><use href="#i-chat"/></svg></div>
-            <h3>What would you like to know?</h3>
-            <p>Ask in your own words about <b>${esc(r.label.toLowerCase())}</b>. Answers come from your own rides, power, heart rate and recovery data.</p>
-            <div class="ask-suggest" role="list">${VeloAsk.SUGGESTIONS.map(s => `<button type="button" class="ask-chip" role="listitem" data-suggest="${esc(s)}">${esc(s)}</button>`).join('')}</div>
-          </div>`;
-        return;
-      }
-      const md = (t) => (window.VeloMarkdown ? window.VeloMarkdown.render(t) : `<p>${esc(t)}</p>`);
-      thread.innerHTML = this.askMessages.map((m, i) => {
-        if (m.role === 'note') return `<div class="ask-note"><span>${esc(m.content)}</span></div>`;
-        if (m.role === 'error') return `<div class="ask-msg ask-error" role="alert"><div class="ask-bubble">${esc(m.content)}</div></div>`;
-        if (m.role === 'user') return `<div class="ask-msg ask-user"><div class="ask-bubble">${esc(m.content).replace(/\n/g, '<br>')}</div></div>`;
-        return `<div class="ask-msg ask-ai">
-            <div class="ask-avatar" aria-hidden="true"><svg class="ic"><use href="#i-sparkles"/></svg></div>
-            <div class="ask-body"><div class="ask-bubble md">${md(m.content)}</div>
-            <div class="ask-meta"><span>${esc(m.meta || '')}</span><button type="button" class="link-btn" data-copy="${i}">Copy</button></div></div>
-          </div>`;
-      }).join('') + (this._askBusy ? `
-          <div class="ask-msg ask-ai pending">
-            <div class="ask-avatar" aria-hidden="true"><svg class="ic"><use href="#i-sparkles"/></svg></div>
-            <div class="ask-body"><div class="ask-bubble"><span class="ask-dots" aria-hidden="true"><i></i><i></i><i></i></span> Looking through your data<span class="ask-elapsed num" id="askElapsed">0 s</span></div></div>
-          </div>` : '');
-      const last = thread.lastElementChild;
-      if (last && this.activeTab === 'ask') requestAnimationFrame(() => last.scrollIntoView({ block: 'nearest', behavior: 'smooth' }));
-    }
   });
 })();

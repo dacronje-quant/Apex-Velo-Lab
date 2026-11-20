@@ -1,0 +1,684 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>Apex Velo phone mock-ups</title>
+  <!-- Static mock-ups for docs/ANDROID-UX.md. They use the app's own stylesheets, so they look like the real app.
+       Open in a browser; on a wide screen the phone frame shows with a screen list beside it. ?s=<screen> opens one screen. -->
+  <link href="../../css/fonts.css" rel="stylesheet">
+  <link href="../../css/style.css" rel="stylesheet">
+  <style>
+    /* Mock-up shell only (mx- prefix). Everything visual comes from css/style.css tokens and components. */
+    html, body { overflow-x: hidden; }
+    body.mx { display: flex; justify-content: center; gap: 32px; padding: 0; }
+    .mx a { text-decoration: none; }
+    .mx-index { display: none; }
+    .mx-phone { position: relative; width: 100%; max-width: 393px; min-height: 100vh; display: flex; flex-direction: column; }
+    @media (min-width: 900px) {
+      body.mx { padding: 32px 16px; align-items: flex-start; }
+      .mx-phone { height: 852px; min-height: 0; border: 1px solid var(--line-strong); border-radius: 44px; overflow: hidden;
+        box-shadow: 0 40px 120px -40px rgba(0,0,0,.9); background: var(--bg-1); }
+      .mx-index { display: block; width: 260px; position: sticky; top: 32px; }
+      .mx-index h1 { font-family: var(--font-display); font-weight: 500; font-size: 20px; margin: 0 0 4px; }
+      .mx-index p { color: var(--text-2); font-size: 13px; margin: 0 0 14px; }
+      .mx-index a { display: block; padding: 7px 10px; border-radius: 10px; color: var(--text-2); text-decoration: none; font-size: 13.5px; }
+      .mx-index a.on, .mx-index a:hover { background: var(--surface-2); color: var(--text-1); }
+      .mx-index .grp { margin: 12px 0 4px; font-size: 10.5px; letter-spacing: .12em; text-transform: uppercase; color: var(--text-3); }
+    }
+    .mx-screen { display: none; flex: 1; flex-direction: column; min-height: 0; }
+    .mx-screen.on { display: flex; }
+    .mx-top { display: flex; align-items: center; gap: 8px; min-height: 56px; padding: 8px 16px 4px; }
+    .mx-top h2 { flex: 1; margin: 0; font-family: var(--font-display); font-weight: 500; font-size: 22px; letter-spacing: -.03em; }
+    .mx-top .mx-back { margin-left: -6px; }
+    .mx-body { flex: 1; overflow-y: auto; overflow-x: hidden; padding: 4px 16px 24px; display: flex; flex-direction: column; gap: 12px; }
+    .mx .card { padding: 16px; border-radius: 22px; }
+    .mx .btn { min-height: 44px; min-width: 44px; justify-content: center; }
+    .mx .icon-btn { width: 44px; height: 44px; flex: none; }
+    .mx-big { min-height: 56px !important; font-size: 16px; font-weight: 700; width: 100%; justify-content: center; }
+    .mx-tabbar { display: grid; grid-template-columns: repeat(5, 1fr); padding: 6px 6px calc(6px + env(safe-area-inset-bottom)); gap: 2px;
+      background: linear-gradient(180deg, rgba(10,13,28,.86), rgba(6,8,18,.98)); border-top: 1px solid var(--line); backdrop-filter: blur(14px); }
+    .mx-tab { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 3px; min-height: 56px; border: 0; background: none;
+      color: var(--text-3); font: 600 11.5px var(--font-sans); border-radius: 16px; text-decoration: none; }
+    .mx-tab .ic { width: 22px; height: 22px; }
+    .mx-tab.on { color: var(--text-1); }
+    .mx-tab.on .ic { color: var(--cyan); }
+    .mx-tab.on span.pill { background: rgba(255,255,255,.12); }
+    .mx-tab span.pill { display: grid; place-items: center; width: 56px; height: 30px; border-radius: 99px; }
+    .mx-row { display: flex; align-items: center; gap: 12px; min-height: 56px; padding: 8px 4px; color: inherit; text-decoration: none; border-bottom: 1px solid var(--line); }
+    .mx-row:last-child { border-bottom: 0; }
+    .mx-row .ic { color: var(--text-2); flex: none; }
+    .mx-row b { display: block; font-weight: 600; }
+    .mx-row small { display: block; color: var(--text-3); font-size: 12.5px; }
+    .mx-row > div { flex: 1; min-width: 0; }
+    .mx-row .end { color: var(--text-3); font-size: 12.5px; text-align: right; }
+    .mx-list { padding: 4px 12px !important; }
+    .mx-label { font-size: 11px; font-weight: 700; letter-spacing: .12em; text-transform: uppercase; color: var(--text-3); margin: 6px 4px -4px; }
+    .mx-kpis { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; }
+    .mx-kpis .kpi { padding: 10px; }
+    .mx-kpis .kpi-val { font-family: var(--font-display); font-weight: 500; font-size: 20px; }
+    .mx-seg { display: flex; padding: 4px; gap: 4px; border-radius: 99px; background: rgba(255,255,255,.05); border: 1px solid var(--line); }
+    .mx-seg a { flex: 1; display: grid; place-items: center; min-height: 44px; border-radius: 99px; color: var(--text-2); text-decoration: none; font-weight: 600; font-size: 13.5px; }
+    .mx-seg a.on { color: #fff; background: linear-gradient(135deg, var(--zone-a), var(--zone-b)); }
+    .mx-chips { display: flex; gap: 8px; overflow-x: auto; scrollbar-width: none; margin: 0 -16px; padding: 0 16px; }
+    .mx-chips .chip { height: 36px; padding: 0 14px; flex: none; font-size: 13px; }
+    .mx-ready { display: flex; align-items: center; gap: 14px; }
+    .mx-ring { width: 64px; height: 64px; border-radius: 50%; display: grid; place-items: center; font: 500 20px var(--font-display);
+      background: conic-gradient(var(--lime) 0 78%, rgba(255,255,255,.08) 78% 100%); position: relative; flex: none; }
+    .mx-ring::after { content: ''; position: absolute; inset: 6px; border-radius: 50%; background: var(--bg-2); }
+    .mx-ring span { position: relative; z-index: 1; }
+    .mx-wo { display: flex; gap: 2px; height: 46px; align-items: flex-end; margin: 10px 0 4px; }
+    .mx-wo i { flex: 1; border-radius: 3px 3px 0 0; }
+    .mx-dev { display: flex; gap: 6px; flex-wrap: wrap; }
+    .mx-dev .chip { height: 32px; font-size: 12.5px; }
+    .mx-dot { width: 8px; height: 8px; border-radius: 50%; display: inline-block; margin-right: 6px; }
+    .mx-sheet-bg { position: absolute; inset: 0; background: rgba(3,5,14,.6); backdrop-filter: blur(6px); display: flex; align-items: flex-end; z-index: 5; }
+    .mx-sheet { width: 100%; background: linear-gradient(170deg, rgba(22,28,52,.98), rgba(9,12,26,.99)); border-radius: 26px 26px 0 0; padding: 10px 16px 20px; border-top: 1px solid var(--line-strong); }
+    .mx-grab { width: 40px; height: 5px; border-radius: 9px; background: var(--line-strong); margin: 0 auto 10px; }
+    .mx-live { flex: 1; display: flex; flex-direction: column; padding: 12px 16px 16px; gap: 10px; }
+    .mx-power { flex: 1; display: grid; place-items: center; text-align: center; border-radius: 28px; background: radial-gradient(circle at 50% 45%, color-mix(in srgb, var(--zone-a) 22%, transparent), transparent 70%); }
+    .mx-power b { display: block; font: 500 96px/1 var(--font-display); letter-spacing: -.05em; }
+    .mx-power small { color: var(--text-2); }
+    .mx-ctrl { display: grid; grid-template-columns: 1fr 1.4fr 1fr; gap: 10px; }
+    .mx-ctrl .btn { min-height: 64px; font-size: 15px; justify-content: center; }
+    .mx-chart { height: 120px; border-radius: 16px; background: linear-gradient(180deg, color-mix(in srgb, var(--zone-a) 30%, transparent), transparent);
+      clip-path: polygon(0 80%, 8% 60%, 16% 66%, 24% 40%, 32% 46%, 40% 30%, 48% 38%, 56% 22%, 64% 30%, 72% 26%, 80% 14%, 88% 20%, 100% 10%, 100% 100%, 0 100%); }
+    .mx-steps { display: flex; gap: 6px; }
+    .mx-steps i { flex: 1; height: 4px; border-radius: 4px; background: var(--line-strong); }
+    .mx-steps i.on { background: linear-gradient(90deg, var(--zone-a), var(--zone-b)); }
+    .mx-field { display: flex; flex-direction: column; gap: 6px; }
+    .mx-field label { font-size: 12.5px; color: var(--text-2); }
+    .mx-field input { min-height: 48px; border-radius: 14px; border: 1px solid var(--line-strong); background: var(--surface-sunk); color: var(--text-1); padding: 0 14px; font: 500 16px var(--font-sans); }
+    .mx-grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+    .mx-note { color: var(--text-3); font-size: 12.5px; margin: 0; }
+    .mx-more { display: flex; justify-content: center; }
+    .mx-switch { width: 46px; height: 28px; border-radius: 99px; background: linear-gradient(135deg, var(--zone-a), var(--zone-b)); position: relative; flex: none; }
+    .mx-switch::after { content: ''; position: absolute; top: 3px; right: 3px; width: 22px; height: 22px; border-radius: 50%; background: #fff; }
+    .mx-switch.off { background: rgba(255,255,255,.12); }
+    .mx-switch.off::after { right: auto; left: 3px; }
+    .mx-cal { display: grid; grid-template-columns: repeat(7, 1fr); gap: 6px; text-align: center; }
+    .mx-cal div { border-radius: 14px; padding: 8px 0; background: var(--surface); border: 1px solid var(--line); font-size: 12px; color: var(--text-2); min-height: 64px; }
+    .mx-cal div.today { border-color: var(--line-glow); color: var(--text-1); }
+    .mx-cal i { display: block; width: 10px; height: 10px; border-radius: 50%; margin: 8px auto 0; }
+    .mx-spark { height: 70px; border-radius: 12px; background: linear-gradient(180deg, rgba(124,200,255,.25), transparent);
+      clip-path: polygon(0 70%, 10% 64%, 20% 60%, 30% 62%, 40% 50%, 50% 46%, 60% 48%, 70% 36%, 80% 30%, 90% 32%, 100% 24%, 100% 100%, 0 100%); }
+    .mx-lv-top { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+    .mx-zchip { height: 44px; padding: 0 14px; font-size: 13px; color: #fff; background: color-mix(in srgb, var(--zone-a) 26%, transparent); border-color: color-mix(in srgb, var(--zone-a) 50%, transparent); }
+    .mx-lv-clock { font: 500 22px var(--font-display); }
+    .mx-prog { height: 6px; border-radius: 6px; background: rgba(255,255,255,.08); overflow: hidden; }
+    .mx-prog i { display: block; height: 100%; background: linear-gradient(90deg, var(--zone-a), var(--zone-b)); }
+    .mx-hot b { color: #fff; text-shadow: 0 0 40px color-mix(in srgb, var(--zone-a) 70%, transparent); }
+    .mx-count { margin-top: 14px; display: flex; flex-direction: column; align-items: center; }
+    .mx-count span { font: 500 44px/1 var(--font-display); color: var(--zone-a); letter-spacing: -.03em; }
+    .mx-next { display: flex; align-items: center; gap: 10px; min-height: 56px; padding: 8px 14px; border-radius: 18px; background: var(--surface-2); border: 1px solid var(--line); }
+    .mx-next > div { flex: 1; } .mx-next b { display: block; } .mx-next small { color: var(--text-3); } .mx-next > span { color: var(--text-2); }
+    .mx-ramp { display: flex; align-items: flex-end; gap: 3px; height: 54px; }
+    .mx-ramp i { flex: 1; border-radius: 3px 3px 0 0; background: color-mix(in srgb, var(--zone-a) 45%, #333); }
+    .mx-ramp i.on { background: #fff; } .mx-ramp i.nx { background: rgba(255,255,255,.1); }
+    .mx-banner { display: flex; align-items: center; gap: 10px; min-height: 52px; padding: 8px 14px; border-radius: 16px; background: var(--cyan-soft); border: 1px solid rgba(124,200,255,.3); color: var(--text-1); font-size: 13px; }
+    .mx-banner > span { flex: 1; }
+    .mx-warn { background: var(--amber-soft); border-color: rgba(255,190,74,.4); }
+    .mx-spin { flex: none !important; width: 18px; height: 18px; border-radius: 50%; border: 2px solid rgba(255,190,74,.3); border-top-color: var(--amber); }
+    .mx-hrz { display: flex; gap: 4px; margin-top: 14px; justify-content: center; }
+    .mx-hrz i { width: 34px; height: 8px; border-radius: 6px; opacity: .3; } .mx-hrz i.on { opacity: 1; height: 12px; }
+    .mx-mgrid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; }
+    .mx-mgrid .kpi { padding: 10px; } .mx-mgrid .kpi-val { font-family: var(--font-display); font-weight: 500; font-size: 19px; }
+    body.mx-landscape .mx-phone { max-width: 852px; }
+    @media (min-width: 900px) { body.mx-landscape .mx-phone { height: 393px; } }
+    .mx-land { flex: 1; display: grid; grid-template-columns: 1fr 300px; gap: 14px; padding: 12px 16px; min-height: 0; }
+    .mx-land-main { display: flex; flex-direction: column; gap: 8px; min-height: 0; }
+    .mx-land-main .mx-power b { font-size: 110px; }
+    .mx-land-side { display: flex; flex-direction: column; gap: 10px; justify-content: space-between; }
+    .mx-land-ctrl { display: grid; grid-template-columns: 1fr 1.3fr 1fr 44px; gap: 6px; }
+    .mx-land-ctrl .btn { min-height: 56px; justify-content: center; padding: 0 8px; }
+    .mx-full { flex: 1; display: flex; flex-direction: column; gap: 8px; padding: 10px 12px 12px; min-height: 0; }
+    .mx-full .mx-lv-top .btn { padding: 0 14px 0 8px; }
+    .mx-istrip { display: grid; grid-template-columns: 1fr auto; grid-template-rows: auto auto; column-gap: 10px; align-items: center; padding: 8px 12px; border-radius: 16px;
+      background: color-mix(in srgb, var(--zone-a) 14%, rgba(255,255,255,.04)); border: 1px solid color-mix(in srgb, var(--zone-a) 40%, transparent); font-size: 13px; }
+    .mx-ileft { grid-row: 1 / span 2; grid-column: 2; font: 500 34px/1 var(--font-display); color: var(--zone-a); }
+    .mx-inext { color: var(--text-2); font-size: 12.5px; }
+    .mx-gcard { border-radius: 18px; background: var(--surface-sunk); border: 1px solid var(--line); padding: 8px 8px 6px; }
+    .mx-graph { display: block; width: 100%; height: 250px; }
+    .mx-legend { display: flex; gap: 10px; align-items: center; font-size: 11px; color: var(--text-2); margin-top: 4px; flex-wrap: wrap; }
+    .mx-legend i { display: inline-block; width: 10px; height: 3px; border-radius: 2px; margin-right: 4px; vertical-align: middle; }
+    .mx-lg-time { margin-left: auto; }
+    .mx-tiles { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; }
+    .mx-t { display: flex; flex-direction: column; justify-content: center; padding: 7px 10px; min-height: 58px; border-radius: 14px; background: var(--surface-sunk); border: 1px solid var(--line); min-width: 0; }
+    .mx-t span { font-size: 10px; font-weight: 700; letter-spacing: .08em; text-transform: uppercase; color: var(--text-3); white-space: nowrap; }
+    .mx-t b { font: 500 20px/1.2 var(--font-display); white-space: nowrap; letter-spacing: -.02em; }
+    .mx-t b small { font: 500 10.5px var(--font-sans); color: var(--text-3); margin-left: 3px; }
+    .mx-t-hero { border-color: color-mix(in srgb, var(--zone-a) 45%, transparent); background: color-mix(in srgb, var(--zone-a) 12%, transparent); }
+    .mx-fctrl { display: grid; grid-template-columns: 1fr 1.3fr 1fr 1.3fr; gap: 6px; margin-top: auto; }
+    .mx-fctrl .btn { min-height: 56px; padding: 0 6px; font-size: 14px; }
+    .mx-full-l { flex: 1; display: grid; grid-template-columns: minmax(0, 1fr) 330px; gap: 10px; padding: 8px 12px; min-height: 0; }
+    .mx-fl-left { display: flex; flex-direction: column; gap: 6px; min-width: 0; }
+    .mx-full-l .mx-graph { height: 150px; }
+    .mx-full-l .mx-istrip { padding: 4px 12px; }
+    .mx-full-l .mx-ileft { font-size: 28px; }
+    .mx-full-l .mx-fctrl .btn { min-height: 48px; }
+    .mx-tiles-l { grid-template-rows: repeat(4, 1fr); align-content: stretch; }
+    .mx-tiles-l .mx-t { min-height: 0; padding: 4px 10px; }
+    .mx-tiles-l .mx-t b { font-size: 18px; }
+  </style>
+</head>
+<body class="mx">
+<svg xmlns="http://www.w3.org/2000/svg" style="display:none" aria-hidden="true">
+    <defs>
+      <symbol id="i-grid" viewBox="0 0 24 24"><rect x="3" y="3" width="7" height="7" rx="1.5"/><rect x="14" y="3" width="7" height="7" rx="1.5"/><rect x="3" y="14" width="7" height="7" rx="1.5"/><rect x="14" y="14" width="7" height="7" rx="1.5"/></symbol>
+      <symbol id="i-book" viewBox="0 0 24 24"><path d="M4 19.5V5a2 2 0 0 1 2-2h14v16H6.5A2.5 2.5 0 0 0 4 21.5"/><path d="M20 19v3H6.5"/></symbol>
+      <symbol id="i-crank" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><circle cx="12" cy="12" r="2"/><path d="M12 10V3M13.5 13.5l4 4"/></symbol>
+      <symbol id="i-activity" viewBox="0 0 24 24"><path d="M22 12h-4l-3 9L9 3l-3 9H2"/></symbol>
+      <symbol id="i-history" viewBox="0 0 24 24"><path d="M3 12a9 9 0 1 0 3-6.7L3 8"/><path d="M3 3v5h5M12 7v5l3 2"/></symbol>
+      <symbol id="i-calendar" viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="18" rx="2"/><path d="M16 2v4M8 2v4M3 10h18"/></symbol>
+      <symbol id="i-chat" viewBox="0 0 24 24"><path d="M21 12a8 8 0 0 1-11.6 7.1L4 20.5l1.4-4.6A8 8 0 1 1 21 12z"/><path d="M8.5 10.5h7M8.5 13.5h4.5"/></symbol>
+      <symbol id="i-sparkles" viewBox="0 0 24 24"><path d="m12 3-1.9 5.8a2 2 0 0 1-1.3 1.3L3 12l5.8 1.9a2 2 0 0 1 1.3 1.3L12 21l1.9-5.8a2 2 0 0 1 1.3-1.3L21 12l-5.8-1.9a2 2 0 0 1-1.3-1.3z"/></symbol>
+      <symbol id="i-gear" viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"/></symbol>
+      <symbol id="i-volume" viewBox="0 0 24 24"><path d="M11 5 6 9H2v6h4l5 4z"/><path d="M15.5 8.5a5 5 0 0 1 0 7M19 5a10 10 0 0 1 0 14"/></symbol>
+      <symbol id="i-volume-x" viewBox="0 0 24 24"><path d="M11 5 6 9H2v6h4l5 4z"/><path d="m22 9-6 6M16 9l6 6"/></symbol>
+      <symbol id="i-focus" viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M3 7V5a2 2 0 0 1 2-2h2M17 3h2a2 2 0 0 1 2 2v2M21 17v2a2 2 0 0 1-2 2h-2M7 21H5a2 2 0 0 1-2-2v-2"/></symbol>
+      <symbol id="i-zen" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><circle cx="12" cy="12" r="5"/><circle cx="12" cy="12" r="1.5"/></symbol>
+      <symbol id="i-expand" viewBox="0 0 24 24"><path d="M8 3H5a2 2 0 0 0-2 2v3M21 8V5a2 2 0 0 0-2-2h-3M16 21h3a2 2 0 0 0 2-2v-3M3 16v3a2 2 0 0 0 2 2h3"/></symbol>
+      <symbol id="i-keyboard" viewBox="0 0 24 24"><rect x="2" y="5" width="20" height="14" rx="2"/><path d="M6 9h.01M10 9h.01M14 9h.01M18 9h.01M6 13h.01M18 13h.01M10 13h4M8 16h8"/></symbol>
+      <symbol id="i-bluetooth" viewBox="0 0 24 24"><path d="m7 7 10 10-5 5V2l5 5L7 17"/></symbol>
+      <symbol id="i-battery" viewBox="0 0 24 24"><rect x="2" y="7" width="17" height="10" rx="2"/><path d="M22 11v2"/></symbol>
+      <symbol id="i-signal" viewBox="0 0 24 24"><path d="M2 20h.01M7 20v-4M12 20v-8M17 20V8M22 4v16"/></symbol>
+      <symbol id="i-play" viewBox="0 0 24 24"><path d="M6 4l14 8-14 8z" fill="currentColor" stroke="none"/></symbol>
+      <symbol id="i-pause" viewBox="0 0 24 24"><rect x="6" y="4" width="4" height="16" rx="1" fill="currentColor" stroke="none"/><rect x="14" y="4" width="4" height="16" rx="1" fill="currentColor" stroke="none"/></symbol>
+      <symbol id="i-stop" viewBox="0 0 24 24"><rect x="5" y="5" width="14" height="14" rx="2" fill="currentColor" stroke="none"/></symbol>
+      <symbol id="i-reset" viewBox="0 0 24 24"><path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/><path d="M3 3v5h5"/></symbol>
+      <symbol id="i-skip" viewBox="0 0 24 24"><path d="m5 4 10 8-10 8z"/><path d="M19 5v14"/></symbol>
+      <symbol id="i-pip" viewBox="0 0 24 24"><rect x="2" y="4" width="20" height="15" rx="2"/><rect x="12" y="11" width="8" height="6" rx="1" fill="currentColor"/></symbol>
+      <symbol id="i-target" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><circle cx="12" cy="12" r="5"/><circle cx="12" cy="12" r="1"/></symbol>
+      <symbol id="i-bolt" viewBox="0 0 24 24"><path d="M13 2 4 14h7l-1 8 9-12h-7z"/></symbol>
+      <symbol id="i-trash" viewBox="0 0 24 24"><path d="M3 6h18M8 6V4h8v2M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/></symbol>
+      <symbol id="i-save" viewBox="0 0 24 24"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"/><path d="M17 21v-8H7v8M7 3v5h8"/></symbol>
+      <symbol id="i-upload" viewBox="0 0 24 24"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4M17 8l-5-5-5 5M12 3v12"/></symbol>
+      <symbol id="i-download" viewBox="0 0 24 24"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4M7 10l5 5 5-5M12 15V3"/></symbol>
+      <symbol id="i-folder" viewBox="0 0 24 24"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/></symbol>
+      <symbol id="i-dumbbell" viewBox="0 0 24 24"><path d="M6.5 6.5v11M17.5 6.5v11M3.5 9v6M20.5 9v6M6.5 12h11"/></symbol>
+      <symbol id="i-footsteps" viewBox="0 0 24 24"><path d="M8 3c1.7 0 3 1.8 3 4.5S10 12 8.5 12 6 10.3 6 8c0-2.6.4-5 2-5zM6.5 15h4v1.8a2 2 0 0 1-4 0zM16 7c1.6 0 2 2.4 2 5 0 2.3-1 4-2.5 4S13 14.2 13 11.5 14.3 7 16 7zM13.5 19h4v1.2a2 2 0 0 1-4 0z"/></symbol>
+      <symbol id="i-heart" viewBox="0 0 24 24"><path d="M12 20s-7-4.4-9-9.2C1.7 7.6 3.8 4.5 7 4.5c2 0 3.3 1.1 5 3 1.7-1.9 3-3 5-3 3.2 0 5.3 3.1 4 6.3-2 4.8-9 9.2-9 9.2z"/><path d="M3.5 12h4l1.5-3 2.5 6 1.5-3h7.5"/></symbol>
+      <symbol id="i-pin" viewBox="0 0 24 24"><path d="M9 3h6l-1 6 4 4v2h-5v6l-1 1-1-1v-6H6v-2l4-4z"/></symbol>
+      <symbol id="i-moon" viewBox="0 0 24 24"><path d="M20 14.5A8 8 0 0 1 9.5 4a8 8 0 1 0 10.5 10.5z"/></symbol>
+      <symbol id="i-lotus" viewBox="0 0 24 24"><path d="M12 20c-4 0-8-2-9-6 3-.5 6 .5 9 3 3-2.5 6-3.5 9-3-1 4-5 6-9 6zM12 17c-2-2-3-5-3-8 1.2.5 2.2 1.3 3 2.4.8-1.1 1.8-1.9 3-2.4 0 3-1 6-3 8z"/></symbol>
+      <symbol id="i-refresh" viewBox="0 0 24 24"><path d="M21 12a9 9 0 0 1-15.5 6.2L3 16M3 12a9 9 0 0 1 15.5-6.2L21 8"/><path d="M21 3v5h-5M3 21v-5h5"/></symbol>
+      <symbol id="i-x" viewBox="0 0 24 24"><path d="M18 6 6 18M6 6l12 12"/></symbol>
+      <symbol id="i-check" viewBox="0 0 24 24"><path d="M20 6 9 17l-5-5"/></symbol>
+      <symbol id="i-edit" viewBox="0 0 24 24"><path d="M12 20h9M16.5 3.5a2.1 2.1 0 1 1 3 3L7 19l-4 1 1-4z"/></symbol>
+      <symbol id="i-search" viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><path d="m21 21-4.3-4.3"/></symbol>
+      <symbol id="i-plus" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></symbol>
+      <symbol id="i-eye" viewBox="0 0 24 24"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8S1 12 1 12z"/><circle cx="12" cy="12" r="3"/></symbol>
+      <symbol id="i-brain" viewBox="0 0 24 24"><path d="M9.5 2A2.5 2.5 0 0 0 7 4.5v.3A3 3 0 0 0 4 8a3 3 0 0 0 .5 1.7A3.5 3.5 0 0 0 3 12.5 3.5 3.5 0 0 0 5 15.7 3 3 0 0 0 8 20a2.5 2.5 0 0 0 4-1.5V4.5A2.5 2.5 0 0 0 9.5 2z"/><path d="M14.5 2A2.5 2.5 0 0 1 17 4.5v.3A3 3 0 0 1 20 8a3 3 0 0 1-.5 1.7 3.5 3.5 0 0 1 1.5 2.8 3.5 3.5 0 0 1-2 3.2A3 3 0 0 1 16 20a2.5 2.5 0 0 1-4-1.5"/></symbol>
+      <symbol id="i-chevron" viewBox="0 0 24 24"><path d="m6 9 6 6 6-6"/></symbol>
+      <symbol id="i-left" viewBox="0 0 24 24"><path d="m15 18-6-6 6-6"/></symbol>
+      <symbol id="i-right" viewBox="0 0 24 24"><path d="m9 18 6-6-6-6"/></symbol>
+      <symbol id="i-user" viewBox="0 0 24 24"><circle cx="12" cy="8" r="4"/><path d="M4 21a8 8 0 0 1 16 0"/></symbol>
+      <symbol id="i-trophy" viewBox="0 0 24 24"><path d="M8 21h8M12 17v4M7 4h10v5a5 5 0 0 1-10 0z"/><path d="M17 5h3v2a3 3 0 0 1-3 3M7 5H4v2a3 3 0 0 0 3 3"/></symbol>
+    </defs>
+  </svg>
+<nav class="mx-index" id="mxIndex">
+  <h1>apex velo · phone</h1>
+  <p>Clickable mock-up of the proposed navigation (docs/ANDROID-UX.md). Use the tab bar, or jump to a screen.</p>
+  <div class="grp">Tabs</div>
+  <a href="#ride">Ride (today)</a><a href="#train">Train · Plan</a><a href="#train-workouts">Train · Workouts</a><a href="#train-ask">Train · Ask coach</a>
+  <a href="#history">History</a><a href="#progress">Progress</a><a href="#you">You</a>
+  <div class="grp">Flows</div>
+  <a href="#ride-devices">Devices sheet</a><a href="#ride-live">Riding</a><a href="#ride-more">Ride › More</a><a href="#history-detail">Ride detail</a>
+  <a href="#progress-fitness">Progress › Fitness</a><a href="#you-connections">You › Connections</a><a href="#you-data">You › Data &amp; import</a>
+  <div class="grp">Live ride</div>
+  <a href="#live-vo2">a · VO2, end of step</a><a href="#live-recovery">b · Recovery step</a><a href="#live-ramp">c · Ramp test</a><a href="#live-free">d · Free ride, HR only</a>
+  <a href="#live-full">e · All metrics</a><a href="#live-full-landscape">e · All metrics, landscape</a><a href="#live-controls">e · Ride controls sheet</a><a href="#live-landscape">f · Landscape</a><a href="#live-paused">g · Paused, reconnecting</a><a href="#live-summary">h · Ride summary</a>
+  <div class="grp">First run</div>
+  <a href="#ob-1">1 · Rider profile</a><a href="#ob-2">2 · Pair devices</a><a href="#ob-3">3 · Connect services</a>
+</nav>
+
+<div class="mx-phone" id="mxPhone">
+
+  <!-- ===================== RIDE (today) ===================== -->
+  <section class="mx-screen" id="ride" data-tab="ride">
+    <header class="mx-top"><h2>Today</h2>
+      <a class="chip chip-lime" href="#ride-devices" style="height:44px"><span class="mx-dot" style="background:var(--lime)"></span>3 devices</a></header>
+    <div class="mx-body">
+      <div class="card"><div class="mx-ready"><div class="mx-ring"><span>78</span></div>
+        <div><span class="eyebrow">Readiness</span><div style="font-weight:700;font-size:16px">Good to train</div><p class="mx-note">HRV in your normal range · slept 7 h 40</p></div></div></div>
+      <div class="card">
+        <span class="eyebrow">Planned today</span>
+        <h3 style="margin:4px 0 0;font-family:var(--font-display);font-weight:500;font-size:20px">Sweet spot 3 × 12</h3>
+        <p class="mx-note">1 h 05 · TSS 74 · from your plan</p>
+        <div class="mx-wo"><i style="height:30%;background:var(--z1)"></i><i style="height:45%;background:var(--z2)"></i><i style="height:80%;background:var(--z4)"></i><i style="height:35%;background:var(--z2)"></i><i style="height:80%;background:var(--z4)"></i><i style="height:35%;background:var(--z2)"></i><i style="height:80%;background:var(--z4)"></i><i style="height:30%;background:var(--z1)"></i></div>
+        <a class="btn btn-start mx-big" href="#ride-live"><svg class="ic"><use href="#i-play"/></svg>Start ride</a>
+        <div class="btn-row" style="margin-top:10px"><a class="btn btn-ghost btn-grow" href="#train-workouts" style="justify-content:center">Change workout</a><a class="btn btn-ghost btn-grow" href="#ride-live" style="justify-content:center">Free ride</a></div>
+      </div>
+      <div class="mx-label">This week</div>
+      <div class="card mx-list">
+        <a class="mx-row" href="#history-detail"><svg class="ic"><use href="#i-history"/></svg><div><b>Last ride · Endurance 1 h 30</b><small>Yesterday · 182 W NP · TSS 68</small></div><svg class="ic"><use href="#i-right"/></svg></a>
+        <a class="mx-row" href="#train"><svg class="ic"><use href="#i-calendar"/></svg><div><b>3 of 5 rides done</b><small>Next: Thu · VO2 5 × 4</small></div><svg class="ic"><use href="#i-right"/></svg></a>
+      </div>
+    </div>
+  </section>
+
+  <section class="mx-screen" id="ride-devices" data-tab="ride" data-under="ride">
+    <div class="mx-sheet-bg"><div class="mx-sheet">
+      <div class="mx-grab"></div>
+      <div style="display:flex;align-items:center;justify-content:space-between"><h3 style="margin:0;font-family:var(--font-display);font-weight:500">Devices</h3><a class="icon-btn" href="#ride" aria-label="Close"><svg class="ic"><use href="#i-x"/></svg></a></div>
+      <div class="mx-list">
+        <div class="mx-row"><svg class="ic"><use href="#i-bolt"/></svg><div><b>Trainer · KICKR SHIFT</b><small>Connected · ERG ready</small></div><span class="chip chip-lime">On</span></div>
+        <div class="mx-row"><svg class="ic"><use href="#i-crank"/></svg><div><b>Power pedals · Assioma</b><small>Connected · 92 %</small></div><span class="chip chip-lime">On</span></div>
+        <div class="mx-row"><svg class="ic"><use href="#i-heart"/></svg><div><b>Heart rate · Polar H10</b><small>Wet the strap to wake it</small></div><a class="btn btn-sm" href="#ride-devices">Connect</a></div>
+      </div>
+      <a class="btn btn-primary mx-big" href="#ride-devices"><svg class="ic"><use href="#i-plus"/></svg>Pair a new device</a>
+      <p class="mx-note" style="margin-top:10px">Calibration, PowerMatch, fan and renaming are in each device's details.</p>
+    </div></div>
+  </section>
+
+  <section class="mx-screen" id="ride-live" data-tab="ride" data-notabs>
+    <div class="mx-live">
+      <div style="display:flex;align-items:center;justify-content:space-between">
+        <span class="chip chip-accent" style="height:32px">Interval 3 / 8 · SST</span><span class="num" style="font:500 22px var(--font-display)">08:41</span>
+        <a class="icon-btn" href="#ride-more" aria-label="More"><svg class="ic"><use href="#i-gear"/></svg></a></div>
+      <div class="mx-power"><div><small>Power · target 165 W</small><b class="num">168</b><small>W · Zone 4</small></div></div>
+      <div class="mx-kpis"><div class="kpi"><span class="kpi-lbl">Heart rate</span><span class="kpi-val num">152</span></div><div class="kpi"><span class="kpi-lbl">Cadence</span><span class="kpi-val num">91</span></div><div class="kpi"><span class="kpi-lbl">Elapsed</span><span class="kpi-val num">24:10</span></div></div>
+      <div class="mx-ctrl"><a class="btn btn-stop" href="#history-detail">End</a><a class="btn btn-pause" href="#ride-live"><svg class="ic"><use href="#i-pause"/></svg>Pause</a><a class="btn" href="#ride-live">Skip</a></div>
+    </div>
+  </section>
+
+  <section class="mx-screen" id="ride-more" data-tab="ride" data-notabs data-under="ride-live">
+    <div class="mx-sheet-bg"><div class="mx-sheet">
+      <div class="mx-grab"></div>
+      <h3 style="margin:0 0 6px;font-family:var(--font-display);font-weight:500">During this ride</h3>
+      <div class="mx-list">
+        <div class="mx-row"><svg class="ic"><use href="#i-volume"/></svg><div><b>Audio cues</b></div><span class="mx-switch"></span></div>
+        <div class="mx-row"><svg class="ic"><use href="#i-target"/></svg><div><b>Intensity</b><small>Workout at 100 %</small></div><span class="btn-row"><a class="icon-btn" href="#ride-more">−</a><a class="icon-btn" href="#ride-more">+</a></span></div>
+        <div class="mx-row"><svg class="ic"><use href="#i-bolt"/></svg><div><b>Mode</b><small>ERG · switch to resistance / slope</small></div><svg class="ic"><use href="#i-right"/></svg></div>
+        <a class="mx-row" href="#ride-devices"><svg class="ic"><use href="#i-bluetooth"/></svg><div><b>Devices</b><small>3 connected</small></div><svg class="ic"><use href="#i-right"/></svg></a>
+        <div class="mx-row"><svg class="ic"><use href="#i-activity"/></svg><div><b>Show charts &amp; all metrics</b><small>W′ balance, L/R, live graph</small></div><svg class="ic"><use href="#i-right"/></svg></div>
+      </div>
+      <a class="btn btn-ghost mx-big" href="#ride-live">Back to ride</a>
+    </div></div>
+  </section>
+
+  <!-- ===================== LIVE RIDE EXAMPLES (owner request) ===================== -->
+  <section class="mx-screen" id="live-vo2" data-tab="ride" data-notabs style="--zone-a:#f97316;--zone-b:#ef4444">
+    <div class="mx-live">
+      <div class="mx-lv-top"><span class="chip mx-zchip">VO2 4 / 5 · Zone 5</span><span class="mx-lv-clock num">31:48</span><a class="icon-btn" href="#live-full" aria-label="Ride options"><svg class="ic"><use href="#i-gear"/></svg></a></div>
+      <div class="mx-prog"><i style="width:95%"></i></div>
+      <div class="mx-power mx-hot"><div><small>Target 260 W</small><b class="num">263</b><small>W</small>
+        <div class="mx-count"><span class="num">0:12</span><small>left in this step</small></div></div></div>
+      <div class="mx-next"><span class="mx-dot" style="background:var(--z1)"></span><div><b>Next · Recovery 3:00</b><small>95 W · spin easy</small></div><span class="num">in 0:12</span></div>
+      <div class="mx-kpis"><div class="kpi"><span class="kpi-lbl">Heart rate</span><span class="kpi-val num">174</span></div><div class="kpi"><span class="kpi-lbl">Cadence</span><span class="kpi-val num">98</span></div><div class="kpi"><span class="kpi-lbl">W′ left</span><span class="kpi-val num">41%</span></div></div>
+      <div class="mx-ctrl"><a class="btn btn-stop" href="#live-summary">End</a><a class="btn btn-pause" href="#live-paused"><svg class="ic"><use href="#i-pause"/></svg>Pause</a><a class="btn" href="#live-recovery">Skip</a></div>
+    </div>
+  </section>
+
+  <section class="mx-screen" id="live-recovery" data-tab="ride" data-notabs style="--zone-a:#3b82f6;--zone-b:#7c8aa5">
+    <div class="mx-live">
+      <div class="mx-lv-top"><span class="chip mx-zchip">Recovery · Zone 1</span><span class="mx-lv-clock num">32:17</span><a class="icon-btn" href="#live-full" aria-label="Ride options"><svg class="ic"><use href="#i-gear"/></svg></a></div>
+      <div class="mx-prog"><i style="width:16%"></i></div>
+      <div class="mx-power"><div><small>Target 95 W</small><b class="num">98</b><small>W</small>
+        <div class="mx-count"><span class="num">2:31</span><small>of recovery left</small></div></div></div>
+      <div class="card" style="padding:12px 14px"><span class="eyebrow">Recover</span><p style="margin:2px 0 0">Spin easy and drink. HR is dropping: 174 → 138 bpm in 29 s.</p></div>
+      <div class="mx-next"><span class="mx-dot" style="background:var(--z5)"></span><div><b>Next · VO2 5 / 5 · 4:00</b><small>260 W · last one</small></div><span class="num">in 2:31</span></div>
+      <div class="mx-ctrl"><a class="btn btn-stop" href="#live-summary">End</a><a class="btn btn-pause" href="#live-paused"><svg class="ic"><use href="#i-pause"/></svg>Pause</a><a class="btn" href="#live-vo2">Skip</a></div>
+    </div>
+  </section>
+
+  <section class="mx-screen" id="live-ramp" data-tab="ride" data-notabs style="--zone-a:#ef4444;--zone-b:#a855f7">
+    <div class="mx-live">
+      <div class="mx-lv-top"><span class="chip mx-zchip">Ramp test · step 14</span><span class="mx-lv-clock num">18:38</span><a class="icon-btn" href="#live-full" aria-label="Ride options"><svg class="ic"><use href="#i-gear"/></svg></a></div>
+      <div class="mx-ramp"><i style="height:20%"></i><i style="height:25%"></i><i style="height:30%"></i><i style="height:35%"></i><i style="height:40%"></i><i style="height:45%"></i><i style="height:50%"></i><i style="height:55%"></i><i style="height:60%"></i><i style="height:65%"></i><i style="height:70%"></i><i style="height:75%"></i><i style="height:80%"></i><i class="on" style="height:85%"></i><i class="nx" style="height:90%"></i><i class="nx" style="height:95%"></i></div>
+      <div class="mx-power mx-hot"><div><small>Target 260 W · +20 W every minute</small><b class="num">261</b><small>W</small>
+        <div class="mx-count"><span class="num">0:22</span><small>until 280 W</small></div></div></div>
+      <div class="mx-kpis"><div class="kpi"><span class="kpi-lbl">Best 1 min</span><span class="kpi-val num">258</span></div><div class="kpi"><span class="kpi-lbl">FTP so far</span><span class="kpi-val num">194</span></div><div class="kpi"><span class="kpi-lbl">Heart rate</span><span class="kpi-val num">178</span></div></div>
+      <p class="mx-note" style="text-align:center">Keep going until you can't hold the target. Then tap <b>I'm done</b>.</p>
+      <div class="mx-ctrl" style="grid-template-columns:1fr 1.6fr"><a class="btn btn-pause" href="#live-paused"><svg class="ic"><use href="#i-pause"/></svg>Pause</a><a class="btn btn-stop" href="#live-summary" style="font-size:16px">I'm done</a></div>
+    </div>
+  </section>
+
+  <section class="mx-screen" id="live-free" data-tab="ride" data-notabs style="--zone-a:#3b82f6;--zone-b:#1fd1b2">
+    <div class="mx-live">
+      <div class="mx-lv-top"><span class="chip mx-zchip">Free ride · HR only</span><span class="mx-lv-clock num">42:05</span><a class="icon-btn" href="#live-full" aria-label="Ride options"><svg class="ic"><use href="#i-gear"/></svg></a></div>
+      <a class="mx-banner" href="#ride-devices"><svg class="ic"><use href="#i-bluetooth"/></svg><span>No power source. Connect pedals or a trainer for watts.</span><svg class="ic"><use href="#i-right"/></svg></a>
+      <div class="mx-power"><div><small>Heart rate</small><b class="num" style="color:var(--text-1)">142</b><small>bpm · Zone 2 · 76 % of max</small>
+        <div class="mx-hrz"><i style="background:var(--z1)"></i><i class="on" style="background:var(--z2)"></i><i style="background:var(--z3)"></i><i style="background:var(--z4)"></i><i style="background:var(--z5)"></i></div></div></div>
+      <div class="mx-kpis"><div class="kpi"><span class="kpi-lbl">Avg HR</span><span class="kpi-val num">138</span></div><div class="kpi"><span class="kpi-lbl">Max HR</span><span class="kpi-val num">156</span></div><div class="kpi"><span class="kpi-lbl">Calories</span><span class="kpi-val num">412</span></div></div>
+      <div class="mx-ctrl"><a class="btn btn-stop" href="#live-summary">End</a><a class="btn btn-pause" href="#live-paused"><svg class="ic"><use href="#i-pause"/></svg>Pause</a><a class="btn" href="#live-free">Lap</a></div>
+    </div>
+  </section>
+
+  <section class="mx-screen" id="live-full" data-tab="ride" data-notabs style="--zone-a:#f97316;--zone-b:#ef4444">
+    <div class="mx-full">
+      <div class="mx-lv-top"><a class="btn btn-ghost" href="#live-vo2"><svg class="ic"><use href="#i-left"/></svg>Simple view</a><span class="mx-lv-clock num">31:48</span></div>
+      <div class="mx-istrip"><div><span class="mx-dot" style="background:var(--z5)"></span><b>VO2 4 / 5</b> · target 260 W</div><b class="num mx-ileft">0:12</b><div class="mx-inext">Next <b>Recovery 3:00</b> · 95 W</div></div>
+      <div class="mx-gcard"><svg class="mx-graph" viewBox="0 0 360 150" preserveAspectRatio="none" aria-label="Live power, heart rate and cadence over the workout profile">
+          <rect x="0.0" y="99.1" width="47.0" height="50.9" fill="var(--z2)" opacity=".22"/><rect x="47.0" y="20.5" width="31.3" height="129.5" fill="var(--z5)" opacity=".22"/><rect x="78.3" y="102.8" width="23.5" height="47.2" fill="var(--z1)" opacity=".22"/><rect x="101.7" y="20.5" width="31.3" height="129.5" fill="var(--z5)" opacity=".22"/><rect x="133.0" y="102.8" width="23.5" height="47.2" fill="var(--z1)" opacity=".22"/><rect x="156.5" y="20.5" width="31.3" height="129.5" fill="var(--z5)" opacity=".22"/><rect x="187.8" y="102.8" width="23.5" height="47.2" fill="var(--z1)" opacity=".22"/><rect x="211.3" y="20.5" width="31.3" height="129.5" fill="var(--z5)" opacity=".22"/><rect x="242.6" y="102.8" width="23.5" height="47.2" fill="var(--z1)" opacity=".22"/><rect x="266.1" y="20.5" width="31.3" height="129.5" fill="var(--z5)" opacity=".22"/><rect x="297.4" y="102.8" width="23.5" height="47.2" fill="var(--z1)" opacity=".22"/><rect x="320.9" y="108.4" width="39.1" height="41.6" fill="var(--z1)" opacity=".22"/>
+          <line x1="0" x2="360" y1="57.5" y2="57.5" stroke="rgba(255,255,255,.35)" stroke-dasharray="3 4" stroke-width="1" vector-effect="non-scaling-stroke"/>
+          <path d="M0,150 L0.0,99.1 2.0,94.3 3.9,98.5 5.9,100.6 7.8,94.7 9.8,93.5 11.7,99.9 13.7,100.3 15.7,95.2 17.6,98.0 19.6,104.3 21.5,101.7 23.5,97.5 25.4,102.0 27.4,105.2 29.3,99.4 31.3,96.5 33.3,101.5 35.2,101.1 37.2,94.3 39.1,94.8 41.1,100.3 43.0,97.9 45.0,93.2 47.0,19.0 48.9,24.0 50.9,20.1 52.8,18.1 54.8,24.3 56.7,26.2 58.7,20.3 60.7,20.1 62.6,25.5 64.6,23.1 66.5,16.7 68.5,18.8 70.4,22.8 72.4,18.0 74.3,14.1 76.3,19.4 78.3,104.4 80.2,99.3 82.2,99.4 84.1,106.3 86.1,106.4 88.0,101.3 90.0,103.9 92.0,109.2 93.9,105.4 95.9,100.5 97.8,104.4 99.8,106.6 101.7,17.9 103.7,15.4 105.7,20.8 107.6,20.7 109.6,14.9 111.5,16.7 113.5,23.0 115.4,21.0 117.4,17.0 119.3,22.0 121.3,26.5 123.3,21.8 125.2,19.3 127.2,24.8 129.1,25.3 131.1,18.5 133.0,100.4 135.0,105.3 137.0,102.6 138.9,96.7 140.9,99.8 142.8,104.4 144.8,100.3 146.7,97.7 148.7,104.0 150.7,106.8 152.6,101.8 154.6,102.0 156.5,26.1 158.5,25.0 160.4,19.0 162.4,21.0 164.3,25.3 166.3,20.5 168.3,15.5 170.2,19.7 172.2,21.9 174.1,16.1 176.1,14.9 178.0,21.3 180.0,21.8 182.0,16.7 183.9,19.4 185.9,25.7 187.8,105.5 189.8,101.3 191.7,105.7 193.7,108.9 195.7,103.0 197.6,100.1 199.6,105.0 201.5,104.8 203.5,98.0 205.4,98.4 207.4,103.9 209.3,101.7 211.3,14.6 213.3,19.1 215.2,24.1 217.2,20.3 219.1,18.1 221.1,24.3 223.0,26.3 225.0,20.3 227.0,20.0 228.9,25.4 230.9,23.1 232.8,16.6 234.8,18.7 236.7,22.7 238.7,18.0 240.7,14.1 242.6,101.7 244.6,104.5 246.5,99.5 248.5,99.4 L248.9,150 Z" fill="color-mix(in srgb, var(--zone-a) 35%, transparent)" stroke="var(--zone-a)" stroke-width="1.6" vector-effect="non-scaling-stroke"/>
+          <polyline points="0.0,85.7 2.0,84.4 3.9,83.1 5.9,81.9 7.8,80.9 9.8,80.1 11.7,79.6 13.7,79.3 15.7,79.3 17.6,79.6 19.6,80.2 21.5,81.0 23.5,82.0 25.4,83.1 27.4,84.4 29.3,85.8 31.3,87.1 33.3,88.4 35.2,89.5 37.2,90.5 39.1,91.3 41.1,91.9 43.0,92.1 45.0,92.1 47.0,55.4 48.9,54.8 50.9,54.0 52.8,53.0 54.8,51.8 56.7,50.5 58.7,49.2 60.7,47.8 62.6,46.6 64.6,45.4 66.5,44.4 68.5,43.7 70.4,43.1 72.4,42.9 74.3,42.9 76.3,43.2 78.3,81.9 80.2,82.8 82.2,83.8 84.1,85.0 86.1,86.2 88.0,87.6 90.0,88.9 92.0,90.2 93.9,91.3 95.9,92.3 97.8,93.1 99.8,93.6 101.7,55.7 103.7,55.7 105.7,55.3 107.6,54.8 109.6,53.9 111.5,52.9 113.5,51.7 115.4,50.4 117.4,49.1 119.3,47.7 121.3,46.5 123.3,45.3 125.2,44.4 127.2,43.6 129.1,43.1 131.1,42.9 133.0,81.1 135.0,81.4 137.0,82.0 138.9,82.8 140.9,83.9 142.8,85.1 144.8,86.4 146.7,87.7 148.7,89.0 150.7,90.3 152.6,91.4 154.6,92.4 156.5,55.0 158.5,55.5 160.4,55.7 162.4,55.6 164.3,55.3 166.3,54.7 168.3,53.9 170.2,52.8 172.2,51.6 174.1,50.3 176.1,49.0 178.0,47.6 180.0,46.4 182.0,45.2 183.9,44.3 185.9,43.6 187.8,81.2 189.8,81.0 191.7,81.1 193.7,81.4 195.7,82.1 197.6,82.9 199.6,84.0 201.5,85.2 203.5,86.5 205.4,87.8 207.4,89.1 209.3,90.4 211.3,53.4 213.3,54.3 215.2,55.0 217.2,55.5 219.1,55.7 221.1,55.6 223.0,55.3 225.0,54.6 227.0,53.8 228.9,52.7 230.9,51.5 232.8,50.2 234.8,48.9 236.7,47.5 238.7,46.3 240.7,45.2 242.6,82.4 244.6,81.6 246.5,81.2 248.5,81.0" fill="none" stroke="var(--rose)" stroke-width="1.6" vector-effect="non-scaling-stroke"/>
+          <polyline points="0.0,100.5 2.0,98.1 3.9,97.5 5.9,99.2 7.8,101.9 9.8,103.5 11.7,102.9 13.7,100.4 15.7,98.0 17.6,97.5 19.6,99.2 21.5,101.9 23.5,103.5 25.4,102.9 27.4,100.4 29.3,98.0 31.3,97.5 33.3,99.3 35.2,102.0 37.2,103.5 39.1,102.8 41.1,100.3 43.0,98.0 45.0,97.5 47.0,93.1 48.9,95.8 50.9,97.4 52.8,96.6 54.8,94.1 56.7,91.8 58.7,91.4 60.7,93.2 62.6,95.9 64.6,97.4 66.5,96.6 68.5,94.1 70.4,91.7 72.4,91.4 74.3,93.2 76.3,95.9 78.3,103.6 80.2,102.7 82.2,100.2 84.1,97.9 86.1,97.6 88.0,99.5 90.0,102.1 92.0,103.6 93.9,102.7 95.9,100.1 97.8,97.9 99.8,97.6 101.7,93.3 103.7,96.0 105.7,97.4 107.6,96.5 109.6,93.9 111.5,91.7 113.5,91.4 115.4,93.4 117.4,96.0 119.3,97.4 121.3,96.4 123.3,93.8 125.2,91.6 127.2,91.4 129.1,93.4 131.1,96.1 133.0,103.6 135.0,102.6 137.0,100.0 138.9,97.8 140.9,97.6 142.8,99.7 144.8,102.3 146.7,103.6 148.7,102.5 150.7,99.9 152.6,97.8 154.6,97.7 156.5,93.5 158.5,96.2 160.4,97.4 162.4,96.3 164.3,93.7 166.3,91.6 168.3,91.5 170.2,93.6 172.2,96.2 174.1,97.4 176.1,96.3 178.0,93.6 180.0,91.5 182.0,91.5 183.9,93.6 185.9,96.3 187.8,103.6 189.8,102.4 191.7,99.8 193.7,97.7 195.7,97.7 197.6,99.9 199.6,102.5 201.5,103.6 203.5,102.4 205.4,99.7 207.4,97.7 209.3,97.8 211.3,93.7 213.3,96.3 215.2,97.4 217.2,96.1 219.1,93.5 221.1,91.5 223.0,91.6 225.0,93.8 227.0,96.4 228.9,97.4 230.9,96.1 232.8,93.4 234.8,91.4 236.7,91.6 238.7,93.8 240.7,96.4 242.6,103.6 244.6,102.2 246.5,99.6 248.5,97.6" fill="none" stroke="var(--cyan)" stroke-width="1.2" stroke-dasharray="4 3" vector-effect="non-scaling-stroke"/>
+          <line x1="248.9" x2="248.9" y1="0" y2="150" stroke="#fff" stroke-width="2" vector-effect="non-scaling-stroke"/>
+        </svg><div class="mx-legend"><span><i style="background:var(--zone-a)"></i>Power</span><span><i style="background:var(--rose)"></i>HR</span><span><i style="background:var(--cyan)"></i>Cadence</span><span><i style="background:rgba(255,255,255,.5)"></i>FTP</span><span class="mx-lg-time num">31:48 / 46:00</span></div></div>
+      <div class="mx-tiles"><div class="mx-t mx-t-hero"><span>Power 3 s</span><b class="num">263<small>W</small></b></div><div class="mx-t"><span>10 s</span><b class="num">258<small>W</small></b></div><div class="mx-t"><span>30 s</span><b class="num">251<small>W</small></b></div><div class="mx-t"><span>Avg</span><b class="num">188<small>W</small></b></div><div class="mx-t"><span>NP</span><b class="num">204<small>W</small></b></div><div class="mx-t"><span>IF · TSS</span><b class="num">1.10 · 52<small></small></b></div><div class="mx-t mx-t-hero"><span>Heart rate</span><b class="num">174<small>bpm</small></b></div><div class="mx-t"><span>Cadence</span><b class="num">98<small>rpm</small></b></div><div class="mx-t"><span>kJ</span><b class="num">358<small></small></b></div><div class="mx-t"><span>L / R</span><b class="num">49 / 51<small>%</small></b></div><div class="mx-t"><span>W′ bal</span><b class="num">8.1<small>kJ</small></b></div><div class="mx-t"><span>Target</span><b class="num">260<small>W</small></b></div></div>
+      <div class="mx-fctrl"><a class="btn btn-stop" href="#live-summary">End</a><a class="btn btn-pause" href="#live-paused"><svg class="ic"><use href="#i-pause"/></svg>Pause</a><a class="btn" href="#live-recovery">Skip</a><a class="btn" href="#live-controls"><svg class="ic"><use href="#i-gear"/></svg>Controls</a></div>
+    </div>
+  </section>
+
+  <section class="mx-screen" id="live-full-landscape" data-tab="ride" data-notabs data-landscape style="--zone-a:#f97316;--zone-b:#ef4444">
+    <div class="mx-full-l">
+      <div class="mx-fl-left">
+        <div class="mx-istrip"><div><span class="mx-dot" style="background:var(--z5)"></span><b>VO2 4 / 5</b> · target 260 W</div><b class="num mx-ileft">0:12</b><div class="mx-inext">Next <b>Recovery 3:00</b> · 95 W</div></div>
+        <div class="mx-gcard"><svg class="mx-graph" viewBox="0 0 360 150" preserveAspectRatio="none" aria-label="Live power, heart rate and cadence over the workout profile">
+          <rect x="0.0" y="99.1" width="47.0" height="50.9" fill="var(--z2)" opacity=".22"/><rect x="47.0" y="20.5" width="31.3" height="129.5" fill="var(--z5)" opacity=".22"/><rect x="78.3" y="102.8" width="23.5" height="47.2" fill="var(--z1)" opacity=".22"/><rect x="101.7" y="20.5" width="31.3" height="129.5" fill="var(--z5)" opacity=".22"/><rect x="133.0" y="102.8" width="23.5" height="47.2" fill="var(--z1)" opacity=".22"/><rect x="156.5" y="20.5" width="31.3" height="129.5" fill="var(--z5)" opacity=".22"/><rect x="187.8" y="102.8" width="23.5" height="47.2" fill="var(--z1)" opacity=".22"/><rect x="211.3" y="20.5" width="31.3" height="129.5" fill="var(--z5)" opacity=".22"/><rect x="242.6" y="102.8" width="23.5" height="47.2" fill="var(--z1)" opacity=".22"/><rect x="266.1" y="20.5" width="31.3" height="129.5" fill="var(--z5)" opacity=".22"/><rect x="297.4" y="102.8" width="23.5" height="47.2" fill="var(--z1)" opacity=".22"/><rect x="320.9" y="108.4" width="39.1" height="41.6" fill="var(--z1)" opacity=".22"/>
+          <line x1="0" x2="360" y1="57.5" y2="57.5" stroke="rgba(255,255,255,.35)" stroke-dasharray="3 4" stroke-width="1" vector-effect="non-scaling-stroke"/>
+          <path d="M0,150 L0.0,99.1 2.0,94.3 3.9,98.5 5.9,100.6 7.8,94.7 9.8,93.5 11.7,99.9 13.7,100.3 15.7,95.2 17.6,98.0 19.6,104.3 21.5,101.7 23.5,97.5 25.4,102.0 27.4,105.2 29.3,99.4 31.3,96.5 33.3,101.5 35.2,101.1 37.2,94.3 39.1,94.8 41.1,100.3 43.0,97.9 45.0,93.2 47.0,19.0 48.9,24.0 50.9,20.1 52.8,18.1 54.8,24.3 56.7,26.2 58.7,20.3 60.7,20.1 62.6,25.5 64.6,23.1 66.5,16.7 68.5,18.8 70.4,22.8 72.4,18.0 74.3,14.1 76.3,19.4 78.3,104.4 80.2,99.3 82.2,99.4 84.1,106.3 86.1,106.4 88.0,101.3 90.0,103.9 92.0,109.2 93.9,105.4 95.9,100.5 97.8,104.4 99.8,106.6 101.7,17.9 103.7,15.4 105.7,20.8 107.6,20.7 109.6,14.9 111.5,16.7 113.5,23.0 115.4,21.0 117.4,17.0 119.3,22.0 121.3,26.5 123.3,21.8 125.2,19.3 127.2,24.8 129.1,25.3 131.1,18.5 133.0,100.4 135.0,105.3 137.0,102.6 138.9,96.7 140.9,99.8 142.8,104.4 144.8,100.3 146.7,97.7 148.7,104.0 150.7,106.8 152.6,101.8 154.6,102.0 156.5,26.1 158.5,25.0 160.4,19.0 162.4,21.0 164.3,25.3 166.3,20.5 168.3,15.5 170.2,19.7 172.2,21.9 174.1,16.1 176.1,14.9 178.0,21.3 180.0,21.8 182.0,16.7 183.9,19.4 185.9,25.7 187.8,105.5 189.8,101.3 191.7,105.7 193.7,108.9 195.7,103.0 197.6,100.1 199.6,105.0 201.5,104.8 203.5,98.0 205.4,98.4 207.4,103.9 209.3,101.7 211.3,14.6 213.3,19.1 215.2,24.1 217.2,20.3 219.1,18.1 221.1,24.3 223.0,26.3 225.0,20.3 227.0,20.0 228.9,25.4 230.9,23.1 232.8,16.6 234.8,18.7 236.7,22.7 238.7,18.0 240.7,14.1 242.6,101.7 244.6,104.5 246.5,99.5 248.5,99.4 L248.9,150 Z" fill="color-mix(in srgb, var(--zone-a) 35%, transparent)" stroke="var(--zone-a)" stroke-width="1.6" vector-effect="non-scaling-stroke"/>
+          <polyline points="0.0,85.7 2.0,84.4 3.9,83.1 5.9,81.9 7.8,80.9 9.8,80.1 11.7,79.6 13.7,79.3 15.7,79.3 17.6,79.6 19.6,80.2 21.5,81.0 23.5,82.0 25.4,83.1 27.4,84.4 29.3,85.8 31.3,87.1 33.3,88.4 35.2,89.5 37.2,90.5 39.1,91.3 41.1,91.9 43.0,92.1 45.0,92.1 47.0,55.4 48.9,54.8 50.9,54.0 52.8,53.0 54.8,51.8 56.7,50.5 58.7,49.2 60.7,47.8 62.6,46.6 64.6,45.4 66.5,44.4 68.5,43.7 70.4,43.1 72.4,42.9 74.3,42.9 76.3,43.2 78.3,81.9 80.2,82.8 82.2,83.8 84.1,85.0 86.1,86.2 88.0,87.6 90.0,88.9 92.0,90.2 93.9,91.3 95.9,92.3 97.8,93.1 99.8,93.6 101.7,55.7 103.7,55.7 105.7,55.3 107.6,54.8 109.6,53.9 111.5,52.9 113.5,51.7 115.4,50.4 117.4,49.1 119.3,47.7 121.3,46.5 123.3,45.3 125.2,44.4 127.2,43.6 129.1,43.1 131.1,42.9 133.0,81.1 135.0,81.4 137.0,82.0 138.9,82.8 140.9,83.9 142.8,85.1 144.8,86.4 146.7,87.7 148.7,89.0 150.7,90.3 152.6,91.4 154.6,92.4 156.5,55.0 158.5,55.5 160.4,55.7 162.4,55.6 164.3,55.3 166.3,54.7 168.3,53.9 170.2,52.8 172.2,51.6 174.1,50.3 176.1,49.0 178.0,47.6 180.0,46.4 182.0,45.2 183.9,44.3 185.9,43.6 187.8,81.2 189.8,81.0 191.7,81.1 193.7,81.4 195.7,82.1 197.6,82.9 199.6,84.0 201.5,85.2 203.5,86.5 205.4,87.8 207.4,89.1 209.3,90.4 211.3,53.4 213.3,54.3 215.2,55.0 217.2,55.5 219.1,55.7 221.1,55.6 223.0,55.3 225.0,54.6 227.0,53.8 228.9,52.7 230.9,51.5 232.8,50.2 234.8,48.9 236.7,47.5 238.7,46.3 240.7,45.2 242.6,82.4 244.6,81.6 246.5,81.2 248.5,81.0" fill="none" stroke="var(--rose)" stroke-width="1.6" vector-effect="non-scaling-stroke"/>
+          <polyline points="0.0,100.5 2.0,98.1 3.9,97.5 5.9,99.2 7.8,101.9 9.8,103.5 11.7,102.9 13.7,100.4 15.7,98.0 17.6,97.5 19.6,99.2 21.5,101.9 23.5,103.5 25.4,102.9 27.4,100.4 29.3,98.0 31.3,97.5 33.3,99.3 35.2,102.0 37.2,103.5 39.1,102.8 41.1,100.3 43.0,98.0 45.0,97.5 47.0,93.1 48.9,95.8 50.9,97.4 52.8,96.6 54.8,94.1 56.7,91.8 58.7,91.4 60.7,93.2 62.6,95.9 64.6,97.4 66.5,96.6 68.5,94.1 70.4,91.7 72.4,91.4 74.3,93.2 76.3,95.9 78.3,103.6 80.2,102.7 82.2,100.2 84.1,97.9 86.1,97.6 88.0,99.5 90.0,102.1 92.0,103.6 93.9,102.7 95.9,100.1 97.8,97.9 99.8,97.6 101.7,93.3 103.7,96.0 105.7,97.4 107.6,96.5 109.6,93.9 111.5,91.7 113.5,91.4 115.4,93.4 117.4,96.0 119.3,97.4 121.3,96.4 123.3,93.8 125.2,91.6 127.2,91.4 129.1,93.4 131.1,96.1 133.0,103.6 135.0,102.6 137.0,100.0 138.9,97.8 140.9,97.6 142.8,99.7 144.8,102.3 146.7,103.6 148.7,102.5 150.7,99.9 152.6,97.8 154.6,97.7 156.5,93.5 158.5,96.2 160.4,97.4 162.4,96.3 164.3,93.7 166.3,91.6 168.3,91.5 170.2,93.6 172.2,96.2 174.1,97.4 176.1,96.3 178.0,93.6 180.0,91.5 182.0,91.5 183.9,93.6 185.9,96.3 187.8,103.6 189.8,102.4 191.7,99.8 193.7,97.7 195.7,97.7 197.6,99.9 199.6,102.5 201.5,103.6 203.5,102.4 205.4,99.7 207.4,97.7 209.3,97.8 211.3,93.7 213.3,96.3 215.2,97.4 217.2,96.1 219.1,93.5 221.1,91.5 223.0,91.6 225.0,93.8 227.0,96.4 228.9,97.4 230.9,96.1 232.8,93.4 234.8,91.4 236.7,91.6 238.7,93.8 240.7,96.4 242.6,103.6 244.6,102.2 246.5,99.6 248.5,97.6" fill="none" stroke="var(--cyan)" stroke-width="1.2" stroke-dasharray="4 3" vector-effect="non-scaling-stroke"/>
+          <line x1="248.9" x2="248.9" y1="0" y2="150" stroke="#fff" stroke-width="2" vector-effect="non-scaling-stroke"/>
+        </svg><div class="mx-legend"><span><i style="background:var(--zone-a)"></i>Power</span><span><i style="background:var(--rose)"></i>HR</span><span><i style="background:var(--cyan)"></i>Cadence</span><span><i style="background:rgba(255,255,255,.5)"></i>FTP</span><span class="mx-lg-time num">31:48 / 46:00</span></div></div>
+        <div class="mx-fctrl"><a class="btn btn-stop" href="#live-summary">End</a><a class="btn btn-pause" href="#live-paused"><svg class="ic"><use href="#i-pause"/></svg>Pause</a><a class="btn" href="#live-recovery">Skip</a><a class="btn" href="#live-controls"><svg class="ic"><use href="#i-gear"/></svg>Controls</a></div>
+      </div>
+      <div class="mx-tiles mx-tiles-l"><div class="mx-t mx-t-hero"><span>Power 3 s</span><b class="num">263<small>W</small></b></div><div class="mx-t"><span>10 s</span><b class="num">258<small>W</small></b></div><div class="mx-t"><span>30 s</span><b class="num">251<small>W</small></b></div><div class="mx-t"><span>Avg</span><b class="num">188<small>W</small></b></div><div class="mx-t"><span>NP</span><b class="num">204<small>W</small></b></div><div class="mx-t"><span>IF · TSS</span><b class="num">1.10 · 52<small></small></b></div><div class="mx-t mx-t-hero"><span>Heart rate</span><b class="num">174<small>bpm</small></b></div><div class="mx-t"><span>Cadence</span><b class="num">98<small>rpm</small></b></div><div class="mx-t"><span>kJ</span><b class="num">358<small></small></b></div><div class="mx-t"><span>L / R</span><b class="num">49 / 51<small>%</small></b></div><div class="mx-t"><span>W′ bal</span><b class="num">8.1<small>kJ</small></b></div><div class="mx-t"><span>Target</span><b class="num">260<small>W</small></b></div></div>
+    </div>
+  </section>
+
+  <section class="mx-screen" id="live-controls" data-tab="ride" data-notabs data-under="live-full">
+    <div class="mx-sheet-bg"><div class="mx-sheet">
+      <div class="mx-grab"></div>
+      <div style="display:flex;align-items:center;justify-content:space-between"><h3 style="margin:0;font-family:var(--font-display);font-weight:500">Ride controls</h3><a class="icon-btn" href="#live-full" aria-label="Close"><svg class="ic"><use href="#i-x"/></svg></a></div>
+      <div class="mx-label" style="margin-top:10px">Power smoothing</div>
+      <div class="mx-seg" style="margin-top:8px"><a href="#live-controls">1 s</a><a class="on" href="#live-controls">3 s</a><a href="#live-controls">10 s</a><a href="#live-controls">30 s</a></div>
+      <div class="mx-list">
+        <div class="mx-row"><svg class="ic"><use href="#i-target"/></svg><div><b>Intensity</b><small>100 %</small></div><span class="btn-row"><a class="icon-btn" href="#live-controls">−</a><a class="icon-btn" href="#live-controls">+</a></span></div>
+        <div class="mx-row"><svg class="ic"><use href="#i-bolt"/></svg><div><b>Mode · ERG</b><small>ERG response: normal</small></div><svg class="ic"><use href="#i-right"/></svg></div>
+        <div class="mx-row"><svg class="ic"><use href="#i-volume"/></svg><div><b>Audio cues</b></div><span class="mx-switch"></span></div>
+        <a class="mx-row" href="#ride-devices"><svg class="ic"><use href="#i-bluetooth"/></svg><div><b>Devices</b><small>3 connected</small></div><svg class="ic"><use href="#i-right"/></svg></a>
+        <a class="mx-row" href="#live-vo2"><svg class="ic"><use href="#i-eye"/></svg><div><b>Simple view</b><small>Big power, countdown, next step</small></div><svg class="ic"><use href="#i-right"/></svg></a>
+        <div class="mx-row"><svg class="ic"><use href="#i-grid"/></svg><div><b>Choose tiles</b><small>Reorder or hide metrics</small></div><svg class="ic"><use href="#i-right"/></svg></div>
+      </div>
+    </div></div>
+  </section>
+
+  <section class="mx-screen" id="live-landscape" data-tab="ride" data-notabs data-landscape style="--zone-a:#f97316;--zone-b:#ef4444">
+    <div class="mx-land">
+      <div class="mx-land-main">
+        <div class="mx-lv-top"><span class="chip mx-zchip">VO2 4 / 5 · Zone 5</span><span class="mx-lv-clock num">31:48</span></div>
+        <div class="mx-prog"><i style="width:95%"></i></div>
+        <div class="mx-power mx-hot" style="flex-direction:row"><div style="display:flex;align-items:center;gap:28px"><div><small>Target 260 W</small><b class="num">263</b><small>W</small></div>
+          <div class="mx-count" style="margin:0"><span class="num">0:12</span><small>Next: Recovery 3:00 · 95 W</small></div></div></div>
+      </div>
+      <div class="mx-land-side">
+        <div class="mx-kpis" style="grid-template-columns:1fr 1fr"><div class="kpi"><span class="kpi-lbl">HR</span><span class="kpi-val num">174</span></div><div class="kpi"><span class="kpi-lbl">Cadence</span><span class="kpi-val num">98</span></div><div class="kpi"><span class="kpi-lbl">W′ left</span><span class="kpi-val num">41%</span></div><div class="kpi"><span class="kpi-lbl">Elapsed</span><span class="kpi-val num">31:48</span></div></div>
+        <div class="mx-land-ctrl"><a class="btn btn-stop" href="#live-summary">End</a><a class="btn btn-pause" href="#live-paused"><svg class="ic"><use href="#i-pause"/></svg>Pause</a><a class="btn" href="#live-recovery">Skip</a><a class="icon-btn" href="#live-full" aria-label="Ride options"><svg class="ic"><use href="#i-gear"/></svg></a></div>
+      </div>
+    </div>
+  </section>
+
+  <section class="mx-screen" id="live-paused" data-tab="ride" data-notabs style="--zone-a:#ffbe4a;--zone-b:#ff8a3d">
+    <div class="mx-live">
+      <div class="mx-lv-top"><span class="chip chip-amber" style="height:44px">Paused</span><span class="mx-lv-clock num">24:10</span><a class="icon-btn" href="#live-full" aria-label="Ride options"><svg class="ic"><use href="#i-gear"/></svg></a></div>
+      <div class="mx-banner mx-warn"><span class="mx-spin"></span><span><b>Power pedals lost</b><br>Reconnecting to ASSIOMA 31877… attempt 2. Pedal a turn to wake them.</span></div>
+      <div class="mx-power" style="opacity:.55"><div><small>Sweet spot 2 / 3 · paused at</small><b class="num">7:48</b><small>left in this step</small></div></div>
+      <div class="card mx-list">
+        <div class="mx-row"><svg class="ic"><use href="#i-bolt"/></svg><div><b>Trainer · KICKR SHIFT</b><small>Connected</small></div><span class="chip chip-lime">On</span></div>
+        <div class="mx-row"><svg class="ic"><use href="#i-crank"/></svg><div><b>Power pedals</b><small>Reconnecting…</small></div><span class="chip chip-amber">…</span></div>
+        <div class="mx-row"><svg class="ic"><use href="#i-heart"/></svg><div><b>Heart rate · Polar H10</b><small>Connected</small></div><span class="chip chip-lime">On</span></div>
+      </div>
+      <a class="btn btn-ghost" href="#live-vo2" style="justify-content:center">Resume with trainer power instead</a>
+      <div class="mx-ctrl" style="grid-template-columns:1fr 1.6fr"><a class="btn btn-stop" href="#live-summary">End ride</a><a class="btn btn-start" href="#live-vo2" style="font-size:16px"><svg class="ic"><use href="#i-play"/></svg>Resume</a></div>
+    </div>
+  </section>
+
+  <section class="mx-screen" id="live-summary" data-tab="ride" data-notabs>
+    <header class="mx-top"><h2>Nice ride!</h2></header>
+    <div class="mx-body">
+      <p class="mx-note" style="margin:-6px 0 0">VO2 5 × 4 · today 07:12 · completed 100 %</p>
+      <div class="mx-kpis"><div class="kpi"><span class="kpi-lbl">Time</span><span class="kpi-val num">55:02</span></div><div class="kpi"><span class="kpi-lbl">NP</span><span class="kpi-val num">198</span></div><div class="kpi"><span class="kpi-lbl">TSS</span><span class="kpi-val num">71</span></div>
+        <div class="kpi"><span class="kpi-lbl">Avg HR</span><span class="kpi-val num">151</span></div><div class="kpi"><span class="kpi-lbl">kJ</span><span class="kpi-val num">612</span></div><div class="kpi"><span class="kpi-lbl">Best 4 min</span><span class="kpi-val num">266</span></div></div>
+      <div class="card" style="padding:12px"><div class="mx-chart" style="height:80px"></div>
+        <p style="margin:8px 0 0"><span class="chip chip-xs chip-lime" style="margin:0 6px 0 0">PR</span>New 4-minute best: 266 W (+9 W).</p></div>
+      <div class="mx-field"><label>Name</label><input value="VO2 5 × 4"></div>
+      <div class="card mx-list">
+        <div class="mx-row"><span class="mx-dot" style="background:#fc4c02"></span><div><b>Send to Strava</b><small>Uploads when you save</small></div><span class="mx-switch"></span></div>
+        <div class="mx-row"><span class="mx-dot" style="background:var(--lime)"></span><div><b>Save to Health Connect</b><small>As a cycling session</small></div><span class="mx-switch"></span></div>
+        <div class="mx-row"><svg class="ic"><use href="#i-heart"/></svg><div><b>How did it feel?</b><small>Optional</small></div><span class="btn-row"><a class="btn btn-sm" href="#live-summary">Easy</a><a class="btn btn-sm" href="#live-summary">OK</a><a class="btn btn-sm" href="#live-summary">Hard</a></span></div>
+      </div>
+      <a class="btn btn-start mx-big" href="#history-detail"><svg class="ic"><use href="#i-save"/></svg>Save ride</a>
+      <a class="btn btn-ghost" href="#ride" style="justify-content:center;color:var(--rose)">Discard</a>
+    </div>
+  </section>
+
+  <!-- ===================== TRAIN ===================== -->
+  <section class="mx-screen" id="train" data-tab="train">
+    <header class="mx-top"><h2>Train</h2></header>
+    <div class="mx-body">
+      <div class="mx-seg"><a class="on" href="#train">Plan</a><a href="#train-workouts">Workouts</a><a href="#train-ask">Ask coach</a></div>
+      <div class="mx-cal">
+        <div>Mon<i style="background:var(--z2)"></i></div><div>Tue<i style="background:var(--z4)"></i></div><div>Wed</div>
+        <div class="today">Thu<i style="background:var(--z5)"></i></div><div>Fri</div><div>Sat<i style="background:var(--z2)"></i></div><div>Sun<i style="background:var(--z3)"></i></div></div>
+      <div class="card">
+        <span class="eyebrow">Thursday</span><div style="font-weight:700;font-size:16px;margin-top:2px">VO2 5 × 4 min</div>
+        <p class="mx-note">55 min · TSS 70 · chosen by the AI coach for this week</p>
+        <div class="btn-row" style="margin-top:10px"><a class="btn btn-primary btn-grow" href="#ride" style="justify-content:center">Ride it today</a><a class="btn btn-ghost btn-grow" href="#train-workouts" style="justify-content:center">Swap</a></div>
+      </div>
+      <div class="card"><span class="eyebrow">Your block</span><div style="font-weight:700;margin-top:2px">Build · week 2 of 4</div><p class="mx-note">Goal: FTP 200 W by 1 Dec · 6 h / week</p>
+        <a class="btn btn-ai mx-big" href="#train-ask" style="margin-top:10px"><svg class="ic"><use href="#i-sparkles"/></svg>Re-plan with the coach</a></div>
+      <a class="btn btn-ghost" href="#train" style="justify-content:center">Month view</a>
+    </div>
+  </section>
+
+  <section class="mx-screen" id="train-workouts" data-tab="train">
+    <header class="mx-top"><h2>Train</h2><a class="icon-btn" href="#train-workouts" aria-label="Search"><svg class="ic"><use href="#i-search"/></svg></a></header>
+    <div class="mx-body">
+      <div class="mx-seg"><a href="#train">Plan</a><a class="on" href="#train-workouts">Workouts</a><a href="#train-ask">Ask coach</a></div>
+      <div class="mx-chips"><span class="chip chip-accent">All</span><span class="chip">Endurance</span><span class="chip">Sweet spot</span><span class="chip">Threshold</span><span class="chip">VO2</span><span class="chip">Saved</span><span class="chip">Tests</span></div>
+      <div class="card mx-list">
+        <a class="mx-row" href="#ride"><span class="mx-dot" style="background:var(--z4)"></span><div><b>Sweet spot 3 × 12</b><small>1 h 05 · TSS 74</small></div><svg class="ic"><use href="#i-right"/></svg></a>
+        <a class="mx-row" href="#ride"><span class="mx-dot" style="background:var(--z2)"></span><div><b>Endurance 90</b><small>1 h 30 · TSS 62</small></div><svg class="ic"><use href="#i-right"/></svg></a>
+        <a class="mx-row" href="#ride"><span class="mx-dot" style="background:var(--z5)"></span><div><b>VO2 5 × 4</b><small>55 min · TSS 70</small></div><svg class="ic"><use href="#i-right"/></svg></a>
+        <a class="mx-row" href="#ride"><span class="mx-dot" style="background:var(--z4)"></span><div><b>Threshold 2 × 20</b><small>1 h 10 · TSS 85</small></div><svg class="ic"><use href="#i-right"/></svg></a>
+        <a class="mx-row" href="#ride"><span class="mx-dot" style="background:var(--z6)"></span><div><b>Ramp test</b><small>25 min · sets your FTP</small></div><svg class="ic"><use href="#i-right"/></svg></a>
+      </div>
+      <a class="btn btn-ai mx-big" href="#train-ask"><svg class="ic"><use href="#i-sparkles"/></svg>Describe a workout</a>
+    </div>
+  </section>
+
+  <section class="mx-screen" id="train-ask" data-tab="train">
+    <header class="mx-top"><h2>Train</h2><a class="chip" href="#you-connections" style="height:44px">On-device AI</a></header>
+    <div class="mx-body">
+      <div class="mx-seg"><a href="#train">Plan</a><a href="#train-workouts">Workouts</a><a class="on" href="#train-ask">Ask coach</a></div>
+      <div class="mx-chips"><span class="chip">Am I ready for intervals?</span><span class="chip">Plan my next 4 weeks</span><span class="chip">Why was Tuesday hard?</span></div>
+      <div class="card"><span class="eyebrow">You</span><p style="margin:4px 0 0">Plan my next 4 weeks for a 200 W FTP, 6 hours a week.</p></div>
+      <div class="card"><span class="eyebrow">Coach</span><p style="margin:4px 0 0">Your fitness (CTL 48) is rising about 3 a week. I'd do 3 build weeks and 1 easy week: two quality days (Tue sweet spot, Thu VO2), a long Sunday ride…</p>
+        <div class="btn-row" style="margin-top:10px"><a class="btn btn-primary btn-grow" href="#train" style="justify-content:center">Add to my plan</a></div></div>
+      <div style="display:flex;gap:8px;margin-top:auto"><div class="mx-field" style="flex:1"><input aria-label="Ask" placeholder="Ask about your training"></div><a class="icon-btn" href="#train-ask" style="width:48px;height:48px" aria-label="Send"><svg class="ic"><use href="#i-right"/></svg></a></div>
+    </div>
+  </section>
+
+  <!-- ===================== HISTORY ===================== -->
+  <section class="mx-screen" id="history" data-tab="history">
+    <header class="mx-top"><h2>History</h2><a class="icon-btn" href="#history" aria-label="Search"><svg class="ic"><use href="#i-search"/></svg></a><a class="icon-btn" href="#you-data" aria-label="Import rides"><svg class="ic"><use href="#i-plus"/></svg></a></header>
+    <div class="mx-body">
+      <div class="mx-chips"><span class="chip chip-accent">All rides</span><span class="chip">Indoor</span><span class="chip">Outdoor</span><span class="chip">With power</span><span class="chip">This year</span></div>
+      <div class="mx-label">October · 12 rides · 14 h</div>
+      <div class="card mx-list">
+        <a class="mx-row" href="#history-detail"><span class="mx-dot" style="background:var(--z2)"></span><div><b>Endurance</b><small>Tue 21 Oct · 1 h 30 · 182 W</small></div><div class="end">TSS 68<br><span class="chip chip-xs chip-lime">Strava ✓</span></div></a>
+        <a class="mx-row" href="#history-detail"><span class="mx-dot" style="background:var(--z3)"></span><div><b>Tempo</b><small>Sun 19 Oct · 1 h 10 · 176 W</small></div><div class="end">TSS 61</div></a>
+        <a class="mx-row" href="#history-detail"><span class="mx-dot" style="background:var(--z2)"></span><div><b>Easy spin</b><small>Fri 17 Oct · 40 min · 130 W</small></div><div class="end">TSS 22</div></a>
+        <a class="mx-row" href="#history-detail"><span class="mx-dot" style="background:var(--z4)"></span><div><b>Sweet spot 3 × 12</b><small>Wed 15 Oct · 1 h 05 · 189 W</small></div><div class="end">TSS 74</div></a>
+        <a class="mx-row" href="#history-detail"><span class="mx-dot" style="background:var(--z5)"></span><div><b>VO2 5 × 4</b><small>Mon 13 Oct · 55 min · 194 W</small></div><div class="end">TSS 70</div></a>
+      </div>
+      <div class="mx-label">September · 15 rides · 17 h</div>
+      <div class="card mx-list">
+        <a class="mx-row" href="#history-detail"><span class="mx-dot" style="background:var(--z2)"></span><div><b>Long ride</b><small>Sun 28 Sep · 3 h 10 · 168 W</small></div><div class="end">TSS 140</div></a>
+      </div>
+    </div>
+  </section>
+
+  <section class="mx-screen" id="history-detail" data-tab="history">
+    <header class="mx-top"><a class="icon-btn mx-back" href="#history" aria-label="Back"><svg class="ic"><use href="#i-left"/></svg></a><h2 style="font-size:19px">Endurance</h2><a class="icon-btn" href="#history-detail" aria-label="Share"><svg class="ic"><use href="#i-upload"/></svg></a></header>
+    <div class="mx-body">
+      <p class="mx-note" style="margin:-4px 0 0">Tue 21 Oct · 08:00 · indoor · recorded in Apex Velo</p>
+      <div class="mx-kpis"><div class="kpi"><span class="kpi-lbl">Time</span><span class="kpi-val num">1:30</span></div><div class="kpi"><span class="kpi-lbl">NP</span><span class="kpi-val num">182</span></div><div class="kpi"><span class="kpi-lbl">TSS</span><span class="kpi-val num">68</span></div>
+        <div class="kpi"><span class="kpi-lbl">Avg HR</span><span class="kpi-val num">138</span></div><div class="kpi"><span class="kpi-lbl">IF</span><span class="kpi-val num">.73</span></div><div class="kpi"><span class="kpi-lbl">kJ</span><span class="kpi-val num">912</span></div></div>
+      <div class="card"><span class="eyebrow">Power &amp; heart rate</span><div class="mx-chart" style="margin-top:8px"></div></div>
+      <div class="card"><span class="eyebrow">Coach's take</span><p style="margin:4px 0 0">Steady Z2 with only 2 % drift — your aerobic base is holding. Keep tomorrow easy.</p></div>
+      <div class="card mx-list">
+        <a class="mx-row" href="#history-detail"><svg class="ic"><use href="#i-activity"/></svg><div><b>Zones, laps &amp; best efforts</b></div><svg class="ic"><use href="#i-right"/></svg></a>
+        <a class="mx-row" href="#train-ask"><svg class="ic"><use href="#i-chat"/></svg><div><b>Ask the coach about this ride</b></div><svg class="ic"><use href="#i-right"/></svg></a>
+        <div class="mx-row"><svg class="ic"><use href="#i-upload"/></svg><div><b>Sent to Strava</b><small>and Health Connect</small></div><span class="chip chip-lime">Done</span></div>
+      </div>
+      <div class="mx-more"><a class="btn btn-ghost" href="#history-detail">More: edit, export FIT, delete</a></div>
+    </div>
+  </section>
+
+  <!-- ===================== PROGRESS ===================== -->
+  <section class="mx-screen" id="progress" data-tab="progress">
+    <header class="mx-top"><h2>Progress</h2><a class="chip" href="#progress" style="height:44px">3 months ▾</a></header>
+    <div class="mx-body">
+      <div class="card"><span class="eyebrow">Am I getting fitter?</span><div style="font-weight:700;font-size:16px;margin-top:2px">Yes — fitness up 9 % in 6 weeks</div>
+        <div class="mx-spark" style="margin-top:8px"></div>
+        <div class="mx-kpis" style="margin-top:8px"><div class="kpi"><span class="kpi-lbl">Fitness</span><span class="kpi-val num">48</span></div><div class="kpi"><span class="kpi-lbl">Fatigue</span><span class="kpi-val num">55</span></div><div class="kpi"><span class="kpi-lbl">Form</span><span class="kpi-val num">−7</span></div></div></div>
+      <div class="card mx-list">
+        <a class="mx-row" href="#progress-fitness"><svg class="ic"><use href="#i-activity"/></svg><div><b>Fitness &amp; load</b><small>Weekly load, training year</small></div><svg class="ic"><use href="#i-right"/></svg></a>
+        <a class="mx-row" href="#progress-fitness"><svg class="ic"><use href="#i-bolt"/></svg><div><b>Power &amp; FTP</b><small>FTP 185 W · power curve · records</small></div><svg class="ic"><use href="#i-right"/></svg></a>
+        <a class="mx-row" href="#progress-fitness"><svg class="ic"><use href="#i-target"/></svg><div><b>Intensity</b><small>Where your time went</small></div><svg class="ic"><use href="#i-right"/></svg></a>
+        <a class="mx-row" href="#progress-fitness"><svg class="ic"><use href="#i-heart"/></svg><div><b>Health &amp; recovery</b><small>HRV, resting HR, sleep, weight</small></div><svg class="ic"><use href="#i-right"/></svg></a>
+        <a class="mx-row" href="#progress-fitness"><svg class="ic"><use href="#i-trophy"/></svg><div><b>Records</b><small>3 new this month</small></div><svg class="ic"><use href="#i-right"/></svg></a>
+      </div>
+    </div>
+  </section>
+
+  <section class="mx-screen" id="progress-fitness" data-tab="progress">
+    <header class="mx-top"><a class="icon-btn mx-back" href="#progress" aria-label="Back"><svg class="ic"><use href="#i-left"/></svg></a><h2 style="font-size:19px">Power &amp; FTP</h2></header>
+    <div class="mx-body">
+      <div class="card"><span class="eyebrow">FTP</span><div style="font:500 34px var(--font-display)" class="num">185 W</div><p class="mx-note">2.47 W/kg · estimate from your rides: 189 W</p>
+        <a class="btn btn-primary mx-big" href="#progress-fitness" style="margin-top:8px">Update FTP to 189 W</a></div>
+      <div class="card"><span class="eyebrow">Power curve · 90 days</span><div class="mx-spark" style="margin-top:8px;transform:scaleY(-1)"></div></div>
+      <div class="card mx-list">
+        <div class="mx-row"><div><b>5 s</b></div><div class="end num">812 W</div></div>
+        <div class="mx-row"><div><b>1 min</b></div><div class="end num">402 W</div></div>
+        <div class="mx-row"><div><b>20 min</b></div><div class="end num">198 W</div></div>
+      </div>
+      <div class="mx-more"><a class="btn btn-ghost" href="#progress-fitness">More: CP model, L/R balance, tables</a></div>
+    </div>
+  </section>
+
+  <!-- ===================== YOU ===================== -->
+  <section class="mx-screen" id="you" data-tab="you">
+    <header class="mx-top"><h2>You</h2></header>
+    <div class="mx-body">
+      <div class="card"><div style="display:flex;align-items:center;gap:12px"><div class="profile-avatar" style="width:52px;height:52px;font-size:20px">D</div>
+        <div style="flex:1"><b style="font-size:16px">Demo rider</b><p class="mx-note">FTP 185 W · 75 kg · max HR 175</p></div><a class="btn btn-sm" href="#ob-1">Edit</a></div></div>
+      <div class="card mx-list">
+        <a class="mx-row" href="#ride-devices"><svg class="ic"><use href="#i-bluetooth"/></svg><div><b>Devices</b><small>Trainer, pedals, heart rate</small></div><svg class="ic"><use href="#i-right"/></svg></a>
+        <a class="mx-row" href="#you-connections"><svg class="ic"><use href="#i-refresh"/></svg><div><b>Connections</b><small>Strava, Health Connect, intervals.icu, AI</small></div><svg class="ic"><use href="#i-right"/></svg></a>
+        <a class="mx-row" href="#you-data"><svg class="ic"><use href="#i-folder"/></svg><div><b>Your data</b><small>Import history, export, backups</small></div><svg class="ic"><use href="#i-right"/></svg></a>
+        <a class="mx-row" href="#you"><svg class="ic"><use href="#i-gear"/></svg><div><b>App settings</b><small>Units, sounds, display, simulator</small></div><svg class="ic"><use href="#i-right"/></svg></a>
+        <a class="mx-row" href="#you"><svg class="ic"><use href="#i-book"/></svg><div><b>Help &amp; training guide</b><small>Terms explained, about, licences</small></div><svg class="ic"><use href="#i-right"/></svg></a>
+      </div>
+      <a class="btn btn-ghost" href="#you" style="justify-content:center">Switch rider</a>
+    </div>
+  </section>
+
+  <section class="mx-screen" id="you-connections" data-tab="you">
+    <header class="mx-top"><a class="icon-btn mx-back" href="#you" aria-label="Back"><svg class="ic"><use href="#i-left"/></svg></a><h2 style="font-size:19px">Connections</h2></header>
+    <div class="mx-body">
+      <div class="mx-label">Send my rides to</div>
+      <div class="card mx-list">
+        <div class="mx-row"><span class="mx-dot" style="background:#fc4c02"></span><div><b>Strava</b><small>Connected · uploads new rides</small></div><span class="mx-switch"></span></div>
+        <div class="mx-row"><span class="mx-dot" style="background:var(--lime)"></span><div><b>Health Connect</b><small>Writes rides · reads HRV, sleep</small></div><span class="mx-switch"></span></div>
+        <div class="mx-row"><span class="mx-dot" style="background:var(--violet)"></span><div><b>intervals.icu</b><small>Not connected</small></div><a class="btn btn-sm" href="#you-connections">Connect</a></div>
+      </div>
+      <div class="mx-label">AI coach</div>
+      <div class="card mx-list">
+        <div class="mx-row"><svg class="ic"><use href="#i-sparkles"/></svg><div><b>On this phone</b><small>Gemini Nano · free, offline</small></div><span class="chip chip-lime">In use</span></div>
+        <div class="mx-row"><svg class="ic"><use href="#i-chat"/></svg><div><b>Use my Claude / ChatGPT account</b><small>Add Apex Velo as a connector</small></div><svg class="ic"><use href="#i-right"/></svg></div>
+      </div>
+      <div class="mx-more"><a class="btn btn-ghost" href="#you-connections">Advanced: API keys, own Strava app</a></div>
+    </div>
+  </section>
+
+  <section class="mx-screen" id="you-data" data-tab="you">
+    <header class="mx-top"><a class="icon-btn mx-back" href="#you" aria-label="Back"><svg class="ic"><use href="#i-left"/></svg></a><h2 style="font-size:19px">Your data</h2></header>
+    <div class="mx-body">
+      <div class="card"><span class="eyebrow">104 rides on this phone</span><div style="font-weight:700;margin-top:2px">Bring in your history</div>
+        <p class="mx-note">Strava “Download your data” zip, Garmin export, or a folder of .fit files. Duplicates are skipped.</p>
+        <a class="btn btn-primary mx-big" href="#you-data" style="margin-top:8px"><svg class="ic"><use href="#i-download"/></svg>Import rides</a></div>
+      <div class="card mx-list">
+        <div class="mx-row"><svg class="ic"><use href="#i-folder"/></svg><div><b>Watch a folder</b><small>Auto-import from Wahoo, Zwift, Karoo</small></div><span class="mx-switch off"></span></div>
+        <div class="mx-row"><svg class="ic"><use href="#i-save"/></svg><div><b>Back up</b><small>Last backup: today 07:12</small></div><svg class="ic"><use href="#i-right"/></svg></div>
+        <div class="mx-row"><svg class="ic"><use href="#i-upload"/></svg><div><b>Export all rides</b><small>FIT, CSV or full backup</small></div><svg class="ic"><use href="#i-right"/></svg></div>
+      </div>
+      <div class="mx-more"><a class="btn btn-ghost" href="#you-data">Advanced: training-load options, clear history</a></div>
+    </div>
+  </section>
+
+  <!-- ===================== ONBOARDING ===================== -->
+  <section class="mx-screen" id="ob-1" data-notabs>
+    <header class="mx-top"><div class="mx-steps" style="flex:1"><i class="on"></i><i></i><i></i></div><a class="btn btn-ghost btn-sm" href="#ob-2">Skip</a></header>
+    <div class="mx-body">
+      <span class="eyebrow">Step 1 of 3</span><h2 class="section-title" style="font-size:28px">About you</h2>
+      <p class="mx-note" style="font-size:14px">These set your zones. Not sure? Keep the guesses — you can do a ramp test later.</p>
+      <div class="mx-field"><label>Name</label><input value="Dana"></div>
+      <div class="mx-grid2"><div class="mx-field"><label>Weight (kg)</label><input value="75" inputmode="decimal"></div><div class="mx-field"><label>FTP (W)</label><input value="200" inputmode="numeric"></div></div>
+      <div class="mx-field"><label>Max heart rate (optional)</label><input placeholder="e.g. 180" inputmode="numeric"></div>
+      <a class="btn btn-primary mx-big" href="#ob-2" style="margin-top:auto">Next</a>
+    </div>
+  </section>
+
+  <section class="mx-screen" id="ob-2" data-notabs>
+    <header class="mx-top"><a class="icon-btn mx-back" href="#ob-1" aria-label="Back"><svg class="ic"><use href="#i-left"/></svg></a><div class="mx-steps" style="flex:1"><i class="on"></i><i class="on"></i><i></i></div><a class="btn btn-ghost btn-sm" href="#ob-3">Skip</a></header>
+    <div class="mx-body">
+      <span class="eyebrow">Step 2 of 3</span><h2 class="section-title" style="font-size:28px">Pair your devices</h2>
+      <p class="mx-note" style="font-size:14px">Wake each device (pedal a turn, wet the HR strap), then tap it.</p>
+      <div class="card mx-list">
+        <div class="mx-row"><svg class="ic"><use href="#i-bolt"/></svg><div><b>KICKR SHIFT 4A1C</b><small>Smart trainer</small></div><span class="chip chip-lime">Paired</span></div>
+        <div class="mx-row"><svg class="ic"><use href="#i-crank"/></svg><div><b>ASSIOMA 31877</b><small>Power pedals</small></div><a class="btn btn-sm" href="#ob-2">Pair</a></div>
+        <div class="mx-row"><svg class="ic"><use href="#i-heart"/></svg><div><b>Polar H10 8D2E</b><small>Heart rate</small></div><a class="btn btn-sm" href="#ob-2">Pair</a></div>
+      </div>
+      <p class="mx-note">No trainer? Skip — you can ride with the simulator or add devices later in You › Devices.</p>
+      <a class="btn btn-primary mx-big" href="#ob-3" style="margin-top:auto">Next</a>
+    </div>
+  </section>
+
+  <section class="mx-screen" id="ob-3" data-notabs>
+    <header class="mx-top"><a class="icon-btn mx-back" href="#ob-2" aria-label="Back"><svg class="ic"><use href="#i-left"/></svg></a><div class="mx-steps" style="flex:1"><i class="on"></i><i class="on"></i><i class="on"></i></div><a class="btn btn-ghost btn-sm" href="#ride">Skip</a></header>
+    <div class="mx-body">
+      <span class="eyebrow">Step 3 of 3</span><h2 class="section-title" style="font-size:28px">Connect (optional)</h2>
+      <div class="card mx-list">
+        <div class="mx-row"><span class="mx-dot" style="background:#fc4c02"></span><div><b>Strava</b><small>Send new rides automatically</small></div><a class="btn btn-sm" href="#ob-3">Connect</a></div>
+        <div class="mx-row"><span class="mx-dot" style="background:var(--lime)"></span><div><b>Health Connect</b><small>Recovery data in, rides out</small></div><a class="btn btn-sm" href="#ob-3">Allow</a></div>
+        <div class="mx-row"><svg class="ic"><use href="#i-download"/></svg><div><b>Import my history</b><small>Strava or Garmin export zip</small></div><a class="btn btn-sm" href="#ob-3">Choose</a></div>
+      </div>
+      <p class="mx-note">Everything stays on this phone unless you connect it. Change any of this in You › Connections.</p>
+      <a class="btn btn-start mx-big" href="#ride" style="margin-top:auto">Start riding</a>
+    </div>
+  </section>
+
+  <nav class="mx-tabbar" id="mxTabs" aria-label="Main">
+    <a class="mx-tab" data-t="ride" href="#ride"><span class="pill"><svg class="ic"><use href="#i-play"/></svg></span>Ride</a>
+    <a class="mx-tab" data-t="train" href="#train"><span class="pill"><svg class="ic"><use href="#i-calendar"/></svg></span>Train</a>
+    <a class="mx-tab" data-t="history" href="#history"><span class="pill"><svg class="ic"><use href="#i-history"/></svg></span>History</a>
+    <a class="mx-tab" data-t="progress" href="#progress"><span class="pill"><svg class="ic"><use href="#i-activity"/></svg></span>Progress</a>
+    <a class="mx-tab" data-t="you" href="#you"><span class="pill"><svg class="ic"><use href="#i-user"/></svg></span>You</a>
+  </nav>
+</div>
+
+<script>
+  // Hash router: one screen at a time; sheets (data-under) show over the screen they belong to.
+  function show() {
+    const q = new URLSearchParams(location.search).get('s');
+    const id = (location.hash.slice(1) || q || 'ride');
+    const el = document.getElementById(id) || document.getElementById('ride');
+    document.querySelectorAll('.mx-screen').forEach(s => s.classList.remove('on'));
+    if (el.dataset.under) { const u = document.getElementById(el.dataset.under); u.classList.add('on'); }
+    el.classList.add('on');
+    if (el.dataset.under) { el.style.cssText = 'position:absolute;inset:0;z-index:5'; }
+    document.body.classList.toggle('mx-landscape', el.hasAttribute('data-landscape'));
+    document.getElementById('mxTabs').hidden = el.hasAttribute('data-notabs');
+    document.querySelectorAll('.mx-tab').forEach(t => t.classList.toggle('on', t.dataset.t === el.dataset.tab));
+    document.querySelectorAll('.mx-index a').forEach(a => a.classList.toggle('on', a.getAttribute('href') === '#' + el.id));
+  }
+  addEventListener('hashchange', show); show();
+</script>
+</body>
+</html>

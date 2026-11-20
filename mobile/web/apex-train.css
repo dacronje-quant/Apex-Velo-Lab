@@ -1,0 +1,141 @@
+/* Train tab (src/native-train.js, docs/ANDROID-UX.md 2.1). Android app only. style.css tokens only.
+   The Coach chat is the home; Plan and Workouts are the tab's own pages; the chat, the plan, Calendar and the
+   custom-workout table are the app's views, tidied for a 393 px screen with 44 px touch targets. */
+
+/* --- Plan: week strip, the day's session, the block --- */
+.av-week-strip { display: grid; grid-template-columns: repeat(7, 1fr); gap: 5px; }
+.av-day { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 6px; min-height: 60px; min-width: 0; padding: 6px 0;
+  border-radius: 14px; border: 1px solid var(--line); background: rgba(255, 255, 255, .04); color: var(--text-2); font: 600 12.5px var(--font-sans); cursor: pointer; }
+.av-day i { width: 8px; height: 8px; border-radius: 50%; }
+.av-day i.none { background: transparent; }
+.av-day i.done { box-shadow: 0 0 0 2px var(--lime); }
+.av-day.today { color: var(--text-1); border-color: var(--line-strong); }
+.av-day.on { background: rgba(255, 255, 255, .12); color: var(--text-1); border-color: var(--cyan); }
+.av-plan-suggest { width: 100%; margin-top: 10px; min-height: 44px; justify-content: center; }
+
+/* --- Coach (the Train home): one line for today above the chat; the top bar has Workouts and Plan --- */
+.av-today-line { display: flex; align-items: center; gap: 10px; margin: 0 0 14px; padding: 8px 8px 8px 14px; border-radius: 18px; }
+.av-today-main { flex: 1; min-width: 0; min-height: 48px; display: flex; flex-direction: column; justify-content: center; gap: 1px; padding: 0; border: 0; background: none; color: inherit; font: inherit; text-align: left; cursor: pointer; }
+.av-today-main small { font-size: 11px; font-weight: 700; letter-spacing: .08em; text-transform: uppercase; color: var(--coach-muted, var(--text-3)); }
+.av-today-main b { font-size: 15px; font-weight: 600; color: var(--text-1); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.av-today-main .num { font-size: 12.5px; color: var(--text-2); }
+.av-today-line .btn { flex: none; min-height: 46px; padding: 0 14px; justify-content: center; font-weight: 700; }
+.av-tray-engine { display: flex; align-items: center; gap: 10px; margin: 0 0 12px; }
+.av-tray-engine .ctrl-label { flex: none; }
+.av-tray-engine .ai-pick { flex: 1; min-width: 0; }
+
+/* --- Plan: this week, the day, then the plan and what the coach reads --- */
+.av-plan-week { display: flex; flex-direction: column; gap: 10px; margin: 0 0 12px; }
+.av-plan-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.av-plan-head .eyebrow { margin: 0; }
+.av-plan-head .link-btn { display: inline-flex; align-items: center; gap: 4px; min-height: 44px; font-weight: 700; }
+.av-plan-head .link-btn .ic { width: 15px; height: 15px; }
+
+/* The AI engine switcher (js/app-coach.js) at phone size: a 44 px target that never pushes the layout wide. */
+.apex-native .ai-pick { height: auto; min-height: 46px; font-size: 13px; max-width: 100%; }
+/* The chip is the control and the select inside it is bare. apex-polish.css styles every input and select through
+   :is(input:not(...)..., select), whose specificity (0,6,1) no plain selector here can beat, hence !important. */
+.apex-native .ai-pick select.ai-pick-select { appearance: none !important; -webkit-appearance: none !important; min-height: 44px !important; width: 100%; padding: 0 !important; border: 0 !important; border-radius: 0 !important; background: transparent !important; color: inherit !important; font: 600 14px/1.2 var(--font-sans) !important; }
+.apex-native .ai-breakdown-area .ai-pick { margin: 8px 0 0; }
+
+/* --- Workouts: chips, short list, sheet --- */
+.av-wk-chips { display: flex; gap: 8px; overflow-x: auto; scrollbar-width: none; margin: 0 -16px; padding: 0 16px; }
+.av-wk-chips::-webkit-scrollbar { display: none; }
+.av-wk-chips .chip { flex: none; min-height: 40px; padding: 0 14px; font-size: 13px; cursor: pointer; }
+.av-wk-search input { width: 100%; min-height: 48px; }
+.av-wk-dot { width: 10px; height: 10px; border-radius: 50%; flex: none; margin-left: 4px; }
+.av-wk-loaded .av-row-text b::after { content: ' · loaded'; color: var(--cyan); font-weight: 500; font-size: 12.5px; }
+.av-wk-all { min-height: 44px; justify-content: center; margin: 4px 0; }
+.av-wk-profile { width: 100%; height: 64px; display: block; }
+.av-wk-desc { margin: 0; color: var(--text-2); font-size: 14px; line-height: 1.45; }
+.av-wk-sheet { display: flex; flex-direction: column; gap: 10px; }
+
+/* Custom workout: the app's interval table */
+.av-train-builder #customWorkoutTableSection { margin: 0; padding: 12px; }
+.av-train-builder #customWorkoutTableSection .card-title { flex-wrap: wrap; gap: 8px; }
+.av-train-builder #customWorkoutTableSection .card-title .btn { min-height: 44px; }
+.av-train-builder .interval-table input, .av-train-builder .interval-table select { min-height: 44px; }
+.av-train-builder .interval-table button { min-width: 44px; min-height: 44px; }
+
+/* --- The app's views under Train --- */
+body[data-av-tab="train"] main > .tab-view .section-head { gap: 10px; }
+body[data-av-tab="train"] :is(#view-ai-coach, #view-calendar, #coachSide) :is(.btn, .preset-pill, .goal-pill, .day-chip, .ask-period, .ask-chip, .engine-chip, .chip-select > button, .coach-intent, .coach-opt-toggle, .coach-start-head, .coach-chip-action, select, input, textarea, summary):not(.sr-only) { min-height: 44px; }
+body[data-av-tab="train"] #view-ai-coach :is(.ask-period, .chip-select > button, .day-chip) { min-width: 44px; }
+body[data-av-tab="train"] #view-ai-coach .chip-select { flex-wrap: wrap; }
+body[data-av-tab="train"] :is(#view-ai-coach, #view-calendar, #coachSide) .link-btn { min-height: 44px; display: inline-flex; align-items: center; }
+body[data-av-tab="train"] #view-calendar .calendar-week-nav { flex-wrap: wrap; gap: 6px; }
+body[data-av-tab="train"] #view-calendar .calendar-week-nav .btn { min-width: 44px; }
+
+/* The top bar names the screen: the views' own headings go, their controls stay. */
+body[data-av-tab="train"] #view-calendar .ss-page-head { display: none; }
+
+/* --- Coach: the one chat. The message box stays above the tab bar: the mode switch and an Options button share a
+   row, then the text; the thread scrolls above it. The plan and today's numbers are on Your plan (train/block). --- */
+body[data-av-tab="train"] #view-ai-coach { animation: none; } /* its entry transform would anchor the fixed composer */
+body[data-av-tab="train"] #view-ai-coach .coach-shell { display: block; }
+body[data-av-tab="train"] #view-ai-coach .coach-main { min-height: 0; max-width: none; padding-bottom: 168px; }
+body[data-av-tab="train"] #view-ai-coach.coach-tray-open .coach-main { padding-bottom: min(64vh, 540px); }
+body[data-av-route="train/coach"] #coachSide { display: none; }
+/* Nothing above the chat but the Today line: the engine is in the options (the gear), Plan in the top bar. */
+body[data-av-tab="train"] #view-ai-coach .coach-head { display: none; }
+/* The message box */
+body[data-av-tab="train"] #view-ai-coach .coach-composer { position: fixed; left: 10px; right: 10px; bottom: calc(80px + env(safe-area-inset-bottom, 0px)); z-index: 65;
+  display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 6px; margin: 0; padding: 6px; border-radius: 24px; background: rgba(10, 13, 28, .97); border: 1px solid var(--line);
+  backdrop-filter: blur(14px); -webkit-backdrop-filter: blur(14px); }
+body[data-av-tab="train"] #view-ai-coach .coach-composer > .coach-intents { grid-column: 1; grid-row: 1; }
+body[data-av-tab="train"] #view-ai-coach .coach-composer > :is(.coach-notice, .coach-tray, .coach-input-row) { grid-column: 1 / -1; }
+body[data-av-tab="train"] #view-ai-coach .coach-intent { padding: 4px 6px; font-size: 14px; border-radius: 13px; }
+body[data-av-tab="train"] #view-ai-coach #btnCoachOptions { grid-column: 2; grid-row: 1; width: 46px; min-height: 46px; padding: 0; justify-content: center; border-radius: 16px;
+  background: rgba(255, 255, 255, .04); border: 1px solid rgba(255, 255, 255, .07); color: var(--text-2); }
+body[data-av-tab="train"] #view-ai-coach #btnCoachOptions[aria-expanded="true"] { color: #fff; background: color-mix(in srgb, var(--zone-a) 24%, transparent); border-color: color-mix(in srgb, var(--zone-a) 55%, transparent); }
+body[data-av-tab="train"] #view-ai-coach #btnCoachOptions :is(.coach-go-hint, .coach-opt-caret) { display: none; }
+body[data-av-tab="train"] #view-ai-coach #btnCoachOptions .coach-opt-label { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+body[data-av-tab="train"] #view-ai-coach #btnCoachOptions .coach-opt-gear { width: 19px; height: 19px; }
+body[data-av-tab="train"] #view-ai-coach .coach-tray-hint { display: block; }
+body[data-av-tab="train"] #view-ai-coach .coach-tray { max-height: 44vh; padding: 10px 10px 2px; }
+body[data-av-tab="train"] #view-ai-coach .coach-tray .goal-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+body[data-av-tab="train"] #view-ai-coach .coach-tray :is(.chip-select, .day-toggle) { display: grid; grid-auto-flow: column; grid-auto-columns: minmax(44px, 1fr); flex-wrap: nowrap; gap: 4px; }
+body[data-av-tab="train"] #view-ai-coach .coach-tray :is(.chip-select > button, .day-chip) { padding: 0; font-size: 13px; }
+body[data-av-tab="train"] #view-ai-coach #askPeriodPills { flex-wrap: nowrap; overflow-x: auto; scrollbar-width: none; max-width: 100%; }
+body[data-av-tab="train"] #view-ai-coach #askPeriodPills > button { flex: none; }
+body[data-av-tab="train"] #view-ai-coach .coach-notice { margin: 0; }
+body[data-av-tab="train"] #view-ai-coach .coach-input-row { padding-left: 0; }
+body[data-av-tab="train"] #view-ai-coach .coach-input-row .ask-clear { width: 46px; padding: 0; justify-content: center; flex: none; }
+body[data-av-tab="train"] #view-ai-coach .coach-input-row textarea { min-height: 46px; font-size: 16px; padding: 11px 8px; resize: none !important; }
+body[data-av-tab="train"] #view-ai-coach .coach-input-row .btn { height: 46px; padding: 0 14px; }
+body[data-av-tab="train"] #view-ai-coach .ask-privacy { margin-top: 12px; }
+/* The empty chat: the picked mode's examples, stacked (the switch below names all three). */
+body[data-av-tab="train"] #view-ai-coach .coach-welcome { padding: 2px 0 0; }
+body[data-av-tab="train"] #view-ai-coach .coach-welcome .ask-empty-icon { display: none; }
+body[data-av-tab="train"] #view-ai-coach .coach-welcome h3 { font-size: 19px; }
+body[data-av-tab="train"] #view-ai-coach .coach-welcome > p { font-size: 13px; margin-bottom: 12px; }
+body[data-av-tab="train"] #view-ai-coach .coach-start { gap: 8px; }
+body[data-av-tab="train"] #view-ai-coach .coach-start-card { padding: 10px 12px; gap: 8px; border-radius: 18px; }
+body[data-av-tab="train"] #view-ai-coach .coach-start-head { align-items: center; }
+body[data-av-tab="train"] #view-ai-coach .coach-start-head small { display: none; }
+body[data-av-tab="train"] #view-ai-coach .coach-start-card:not(.active) { display: none; }
+body[data-av-tab="train"] #view-ai-coach .coach-start-chips { flex-direction: column; flex-wrap: nowrap; gap: 8px; }
+body[data-av-tab="train"] #view-ai-coach .coach-start-chips .ask-chip { display: flex; align-items: center; width: 100%; white-space: normal; text-align: left; }
+/* Cards and turns in the thread */
+body[data-av-tab="train"] #view-ai-coach .ask-avatar { display: none; }
+body[data-av-tab="train"] #view-ai-coach .coach-card { padding: 14px; }
+body[data-av-tab="train"] #view-ai-coach .cc-title { font-size: 18px; }
+body[data-av-tab="train"] #view-ai-coach .cc-actions .btn { flex: 1 1 0; justify-content: center; min-height: 48px; }
+body[data-av-tab="train"] #view-ai-coach .cc-actions .btn-start { flex-basis: 100%; }
+body[data-av-tab="train"] #view-ai-coach .cc-actions .cc-icon-btn { flex: 0 0 48px; width: 48px; }
+body[data-av-tab="train"] #view-ai-coach .ask-meta { gap: 4px 12px; }
+body[data-av-tab="train"] #view-ai-coach .ask-meta .link-btn { font-size: 13px; padding: 0 4px; }
+body[data-av-tab="train"] #view-ai-coach .coach-chip-action { min-height: 44px; padding: 0 14px; font-size: 13px; }
+body[data-av-tab="train"] #view-ai-coach .bs-row { grid-template-columns: 1fr auto; row-gap: 2px; }
+body[data-av-tab="train"] #view-ai-coach .cc-steps th:nth-child(5), body[data-av-tab="train"] #view-ai-coach .cc-steps td:nth-child(5) { display: none; }
+
+/* The coach view's plan rail on the Plan page (the day card above already shows today's session). */
+.av-plan-rail #coachSide { position: static; display: flex; flex-direction: column; gap: 12px; max-width: none; max-height: none; overflow: visible; padding: 0; }
+.av-plan-rail #coachSide .ai-coach-card { padding: 14px; }
+.av-plan-rail #coachSide .block-head .btn-row { gap: 8px; }
+.av-plan-rail #coachSide .block-weeks { grid-template-columns: repeat(auto-fill, minmax(56px, 1fr)); }
+.av-plan-rail #coachPlanToday { display: none !important; }
+/* Calendar is in the week's header on the Plan page; "Enter to send" means nothing on a touch screen. */
+.av-plan-rail #btnBlockToCalendar { display: none; }
+body[data-av-tab="train"] #view-ai-coach .ask-privacy { display: none; }
+.av-plan-week .av-plan-title { font-size: 21px; }

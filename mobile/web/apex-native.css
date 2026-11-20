@@ -1,0 +1,107 @@
+/* Android app layer: device chooser, safe areas, and features that need the PC server hidden. */
+
+/* --- Not in the app (yet): phone remote, PC backups, desktop-only tools --- */
+.apex-native #settingsNav [data-sec="backups"],
+.apex-native #settingsNav [data-sec="phone"],
+.apex-native #btnToggleFullscreen,
+.apex-native #btnShowShortcuts {
+  display: none !important;
+}
+
+/* --- Bluetooth device chooser (the app's version of Chrome's picker) --- */
+.apex-ble-chooser {
+  position: fixed;
+  inset: 0;
+  z-index: 10000;
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+  background: rgba(2, 4, 10, 0.72);
+  font-family: Inter, system-ui, sans-serif;
+}
+.apex-ble-sheet {
+  width: min(520px, 100%);
+  max-height: 80vh;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 18px 16px calc(16px + env(safe-area-inset-bottom, 0px));
+  background: var(--bg-2, #0d1122);
+  border: 1px solid var(--line-strong, rgba(255, 255, 255, 0.16));
+  border-radius: 18px 18px 0 0;
+  color: var(--text-1, #f1f4ff);
+}
+@media (min-width: 700px) {
+  .apex-ble-chooser { align-items: center; }
+  .apex-ble-sheet { border-radius: 18px; }
+}
+.apex-ble-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; font-size: 17px; }
+.apex-ble-scan { display: inline-flex; align-items: center; gap: 8px; font-size: 13px; color: var(--text-2, #a4acc6); }
+.apex-ble-spinner {
+  width: 14px; height: 14px; border-radius: 50%;
+  border: 2px solid var(--cyan-soft, rgba(124, 200, 255, 0.14));
+  border-top-color: var(--cyan, #7cc8ff);
+  animation: apex-ble-spin 0.9s linear infinite;
+}
+@keyframes apex-ble-spin { to { transform: rotate(360deg); } }
+.apex-ble-hint, .apex-ble-empty { margin: 0; font-size: 13px; color: var(--text-3, #6f7894); }
+.apex-ble-list { list-style: none; margin: 0; padding: 0; overflow-y: auto; display: flex; flex-direction: column; gap: 6px; }
+.apex-ble-item {
+  width: 100%;
+  min-height: 52px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 12px 14px;
+  background: var(--surface-2, rgba(255, 255, 255, 0.07));
+  border: 1px solid var(--line, rgba(255, 255, 255, 0.09));
+  border-radius: 12px;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+.apex-ble-item:active { border-color: var(--line-glow, rgba(124, 200, 255, 0.35)); background: var(--cyan-soft, rgba(124, 200, 255, 0.14)); }
+.apex-ble-name { font-weight: 600; overflow-wrap: anywhere; }
+.apex-ble-meta { font-size: 12px; color: var(--text-3, #6f7894); white-space: nowrap; font-variant-numeric: tabular-nums; }
+.apex-ble-actions { display: flex; justify-content: flex-end; }
+
+/* Settings > Ride files */
+.native-toggle { display: flex; align-items: center; gap: 10px; margin: 12px 0; font-weight: 600; cursor: pointer; }
+.native-toggle input { width: 20px; height: 20px; accent-color: var(--cyan, #7cc8ff); }
+
+/* Settings > Strava */
+#nativeStravaSettings .form-group { margin: 10px 0; }
+#nativeStravaSettings .input-field { width: 100%; }
+
+/* Settings > AI engine: API keys */
+#nativeAiKeys { margin: 12px 0 18px; }
+#nativeAiKeys .form-group { margin: 10px 0; }
+#nativeAiKeys .native-key-link { margin: 4px 0 0; }
+.native-key-row { display: flex; gap: 8px; align-items: center; }
+.native-key-row .input-field { flex: 1; min-width: 0; }
+
+/* First start after the update: moving the rides into the phone database */
+.native-migration { position: fixed; inset: 0; z-index: 10000; display: flex; align-items: center; justify-content: center; padding: 16px; background: rgba(5, 8, 16, 0.82); }
+.native-migration-card { width: 100%; max-width: 360px; padding: 20px; border-radius: 14px; background: var(--panel, #12182a); color: var(--text-1, #e8ecf8); border: 1px solid var(--line, rgba(255, 255, 255, 0.08)); }
+.native-migration-card p { margin: 8px 0; color: var(--text-2, #aab3cc); }
+.native-migration-card progress { width: 100%; height: 10px; accent-color: var(--cyan, #7cc8ff); }
+.native-migration-count { font-variant-numeric: tabular-nums; }
+
+/* Settings > About: open-source licences */
+.native-licences-title { margin: 16px 0 8px; }
+.native-licence { margin: 6px 0; padding: 8px 10px; border: 1px solid var(--line, rgba(255, 255, 255, 0.08)); border-radius: 10px; }
+.native-licence summary { cursor: pointer; overflow-wrap: anywhere; }
+.native-licence pre { white-space: pre-wrap; overflow-wrap: anywhere; font-size: 12px; margin: 8px 0 0; }
+
+/* Settings > Health: Health Connect */
+.native-hc { margin-top: 1.5rem; border-top: 1px solid var(--border, rgba(255,255,255,.12)); padding-top: 1rem; }
+.native-hc-title { margin: 1rem 0 .4rem; }
+.native-hc-group { margin: .75rem 0; }
+.native-hc-types { list-style: none; padding: 0; margin: .35rem 0 .5rem; font-size: .9em; }
+.native-hc-types li { display: flex; gap: .5rem; padding: .15rem 0; opacity: .75; }
+.native-hc-types li.granted { opacity: 1; }
+.native-hc-mark { width: 1em; flex: none; text-align: center; font-weight: 700; }
+.native-hc-types li.granted .native-hc-mark { color: var(--success, #3fb950); }
+.native-hc-prefs { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: .4rem .75rem; align-items: center; }

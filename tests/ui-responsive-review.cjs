@@ -75,7 +75,7 @@ function audit() {
   if(!process.argv.includes('--phone-only')) {
   for(const [width,height] of sizes) {
    await page.setViewportSize({width,height});
-   for(const tab of ['cockpit','workouts','ai-coach','ask','analytics','history','calendar']) {
+   for(const tab of ['cockpit','workouts','ai-coach','analytics','history','calendar']) {
     await page.evaluate(t=>app.switchTab(t),tab);await page.waitForTimeout(60);
     results.push({surface:'app',view:tab,width,height,...await page.evaluate(audit)});
     if([1440,390,320,1024].includes(width))await page.screenshot({path:path.join(out,`app-${tab}-${width}.png`),fullPage:true});
@@ -117,7 +117,7 @@ function audit() {
   await page.waitForTimeout(80);
   results.push({surface:'stress',view:'long-workout',width:390,height:844,...await page.evaluate(audit)});
   await page.screenshot({path:path.join(out,'long-workout-390.png'),fullPage:true});
-  for(const tab of ['cockpit','workouts','ai-coach','ask','analytics','history','calendar']) {
+  for(const tab of ['cockpit','workouts','ai-coach','analytics','history','calendar']) {
    await page.setViewportSize({width:768,height:1024});
    await page.evaluate(tab=>app.switchTab(tab),tab);
    await page.evaluate(()=>{const fonts=[...document.querySelectorAll('body *')].filter(el=>!['SCRIPT','STYLE','SVG','CANVAS'].includes(el.tagName)).map(el=>[el,parseFloat(getComputedStyle(el).fontSize)]);fonts.forEach(([el,size])=>{el.dataset.reviewFont=el.style.fontSize;el.style.fontSize=(size*1.5)+'px';});});

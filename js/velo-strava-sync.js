@@ -36,6 +36,7 @@ class VeloStravaSync {
   static STREAM_BUDGET = 30;         // activities/{id}/streams per sync (1 read request each)
   static STREAM_MAX_GAP_S = 5;       // gaps up to 5 s (smart recording) are held; longer gaps are pauses
   static AUTOCHECK_KEY = 'apex_strava_autocheck';
+  static AUTOSYNC_KEY = 'apex_strava_autosync';   // import straightforward changes when the app opens
 
   // ------------------------------------------------------------- streams --
   /**
