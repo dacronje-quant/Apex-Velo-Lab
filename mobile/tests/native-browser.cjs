@@ -809,12 +809,13 @@ async function brokerFlow(browser, errors) {
     assert.equal(await page.locator('#btnAskClear').isVisible(), false);
     step('Ask: Clear empties the chat on the phone');
 
-    const breakdown = await page.evaluate((id) => app.requestAiBreakdown(id), rideId);
-    assert.ok(breakdown && /test breakdown/.test(breakdown.text), 'the coach answered the interval breakdown');
+    const chat = await page.evaluate((id) => app.sendRideAsk(id, 'Why did my heart rate climb?'), rideId);
+    assert.ok(chat && chat.at(-1).role === 'assistant' && /test answer/.test(chat.at(-1).content), 'the coach answered the question about the ride');
     const coachCall = await page.evaluate(() => __nativeLog.http.filter((r) => r.url === 'https://api.anthropic.com/v1/messages').at(-1));
-    assert.equal(typeof coachCall.data.system, 'string');
-    assert.deepEqual(coachCall.data.output_config, { effort: 'low' });
-    step('AI coach: the ride breakdown goes through /api/coach on the phone');
+    assert.equal(coachCall.data.messages.at(-1).content, 'Why did my heart rate climb?');
+    assert.match(coachCall.data.system[1].text, /^TRAINING DATA\nTHIS RIDE\n/);
+    assert.match(coachCall.data.system[1].text, /RECORDING \(5 s averages\)/, 'the recording itself goes with the question');
+    step('Ride coach: a question about one ride goes with its recording through /api/ask on the phone');
 
     await page.evaluate(() => ApexNative.shell.go('train/workouts'));
     await page.locator('#avDescribe').click(); // Train > Workouts > Describe a workout (a sheet)

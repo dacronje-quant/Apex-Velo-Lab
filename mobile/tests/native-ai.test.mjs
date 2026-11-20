@@ -24,6 +24,8 @@ test('request bodies are identical to server.js for every provider and model', (
     for (const effort of ['low', 'high']) {
       assert.deepEqual(b.buildClaudeRequest('PROMPT', model, effort), server.buildClaudeRequest('PROMPT', model, effort), `coach claude ${model}`);
       assert.deepEqual(b.buildGeminiRequest('PROMPT', model, effort), server.buildGeminiRequest('PROMPT', model, effort), `coach gemini ${model}`);
+      assert.deepEqual(b.buildGeminiRequest('PROMPT', model, effort, false), server.buildGeminiRequest('PROMPT', model, effort, false), `coach gemini text ${model}`);
+      assert.equal(b.buildGeminiRequest('PROMPT', model, effort, false).generationConfig.responseMimeType, undefined, 'text answers are not forced into JSON');
       assert.deepEqual(b.buildOpenAiCoachRequest('PROMPT', model, effort), server.buildOpenAiCoachRequest('PROMPT', model, effort), `coach openai ${model}`);
       for (const ctx of ['DATA', '']) {
         assert.deepEqual(b.buildClaudeAskRequest(messages, ctx, model, effort), server.buildClaudeAskRequest(messages, ctx, model, effort), `ask claude ${model}`);

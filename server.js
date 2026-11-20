@@ -332,13 +332,14 @@ function geminiThinking(model, effort) {
   return /^gemini-2\./.test(model || '') ? { thinkingBudget: GEMINI_BUDGETS[effort] || 1024, includeThoughts: true } : { thinkingLevel: effort, includeThoughts: true };
 }
 
-function buildGeminiRequest(prompt, model, effort) {
+/** `json` = the prompt asks for JSON (workouts, plans); text answers (reviews, stories) must not be forced into JSON. */
+function buildGeminiRequest(prompt, model, effort, json = true) {
   return {
     systemInstruction: { parts: [{ text: SYSTEM_PROMPT }] },
     contents: [{ role: 'user', parts: [{ text: prompt }] }],
     generationConfig: {
       maxOutputTokens: 16000,
-      responseMimeType: 'application/json',
+      ...(json ? { responseMimeType: 'application/json' } : {}),
       thinkingConfig: geminiThinking(model, effort)
     }
   };
@@ -525,7 +526,7 @@ async function handleCoach(req, res) {
   const t0 = Date.now();
   try {
     const out = provider === 'gemini'
-      ? await callGemini(buildGeminiRequest(prompt, model, effort), model, ac.signal)
+      ? await callGemini(buildGeminiRequest(prompt, model, effort, input.format !== 'text'), model, ac.signal)
       : provider === 'openai' ? await callOpenAi(buildOpenAiCoachRequest(prompt, model, effort), ac.signal)
       : await callClaude(buildClaudeRequest(prompt, model, effort), ac.signal);
     if (out.error) {

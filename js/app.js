@@ -824,6 +824,7 @@ class VeloApp {
     this.currentSpeed = 0;
     this.maxSpeedKmh = 0;
     this.sessionStartedAt = null;
+    this._ergChangedThisRide = false;
     this.analytics.reset();
     this.simulator.reset();
     this.trainerOdoLast = null;      // last KICKR odometer reading (m); null = re-sync on the next one
@@ -1242,6 +1243,8 @@ class VeloApp {
       rightBal: avgLeft === null ? null : Math.round((100 - avgLeft) * 10) / 10,
       compliancePct: VeloMetrics.complianceScore(samples) ?? 0,
       ftpAtRide: ftp,
+      // ERG on = the trainer set the power (the ride coach reads power vs target as trainer response, not pacing).
+      control: { erg: !!this.ergModeEnabled, changed: !!this._ergChangedThisRide },
       samplesCount: samples.length,
       source: 'APEX VELO Cockpit',
       completedAt: Date.now(),
@@ -2600,6 +2603,7 @@ class VeloApp {
 
   toggleErgMode() {
     this.ergModeEnabled = !this.ergModeEnabled;
+    if (this.recordedSamples && this.recordedSamples.length) this._ergChangedThisRide = true;
     this.erg.reset();
     this.powerMatchOffset = 0;
     this.ergApplyNow(true);

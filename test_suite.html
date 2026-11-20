@@ -1393,7 +1393,7 @@
             W.fetch = async (u, o = {}) => {
               const url = String(u);
               if (url.endsWith('api/coach/status')) return new W.Response(JSON.stringify({ provider: 'claude', providers: { claude: { label: 'Claude', configured: true, model: 'claude-opus-5-5' }, gemini: { label: 'Gemini', configured: false, model: 'gemini-3.8-flash' } }, configured: true, model: 'claude-opus-5-5', effort: 'high', models: [], efforts: ['low', 'medium', 'high'] }), { status: 200, headers: { 'Content-Type': 'application/json' } });
-              if (url.endsWith('api/coach')) { sent = JSON.parse(o.body); return new W.Response(JSON.stringify({ text: '- Intervals 1-3 on target.\n- **Interval 4** faded - fuel earlier.', model: 'claude-opus-5-5', effort: 'low' }), { status: 200, headers: { 'Content-Type': 'application/json' } }); }
+              if (url.endsWith('api/ask')) { sent = JSON.parse(o.body); return new W.Response(JSON.stringify({ text: '{"review": "- Intervals 1-3 on target.\\n- **Interval 4** faded - fuel earlier."}', model: 'claude-opus-5-5', effort: 'high' }), { status: 200, headers: { 'Content-Type': 'application/json' } }); }
               return realFetch(u, o);
             };
             let uiOk = false, reqOk = false, savedOk = false;
@@ -1401,12 +1401,13 @@
               await app.aiCoach.detectEngine();
               app.completedWorkouts = [ride, ...savedHist];
               app.showRideSummary(ride);
-              const btn = D.querySelector('#intervalDiagnosis [data-ai-breakdown]');
-              uiOk = D.querySelectorAll('#intervalDiagnosis .diag-list li').length === lines.length && !!btn && /low effort/.test(btn.textContent);
-              const res = await app.requestAiBreakdown(ride.id);
-              reqOk = !!sent && sent.effort === 'low' && sent.model === 'claude-opus-5-5' && /step \| interval/.test(sent.prompt) && !/timestamp/.test(sent.prompt) && !!res;
+              uiOk = D.querySelectorAll('#intervalDiagnosis .diag-list li').length === lines.length && !!D.querySelector('#aiBreakdownArea [data-ride-ask][data-q="Review this ride"]') && !!D.querySelector('#aiBreakdownArea .ride-coach-input');
+              const res = await app.sendRideAsk(ride.id, 'Why did interval 4 fade?');
+              const ctx = (sent && sent.context) || '';
+              reqOk = !!sent && sent.messages.at(-1).content === 'Why did interval 4 fade?' && /HOW TO READ THIS DATA/.test(ctx) && /ERG mode/.test(ctx) && /\| work 4 \|/.test(ctx) && /RECORDING \(5 s averages\)/.test(ctx) && !!res;
               const stored = ((await W.VeloDB.getAllRides()) || []).find(r => r.id === ride.id);
-              savedOk = !!(ride.aiBreakdown && stored && stored.aiBreakdown && stored.aiBreakdown.effort === 'low' && stored.samples.length === S.length) && /Interval 4/.test((D.querySelector('#aiBreakdownArea .ai-breakdown') || {}).textContent || '');
+              const shown = (D.querySelector('#aiBreakdownArea .ask-ai .ask-bubble') || {}).textContent || '';
+              savedOk = !!(stored && stored.rideChat && stored.rideChat.length === 2 && stored.samples.length === S.length) && /Interval 4/.test(shown) && !/review|[{}]/.test(shown);
             } finally {
               W.fetch = realFetch;
               app.closeModal('rideSummaryModal');
@@ -1415,7 +1416,7 @@
               await app.aiCoach.detectEngine();
             }
             return { ok: offlineOk && promptOk && uiOk && reqOk && savedOk,
-              detail: `offline: "${lines.join(' | ')}":${offlineOk} prompt = step table only (${prompt.length} chars):${promptOk} button says low effort:${uiOk} request effort=${sent && sent.effort} (server default was high) model=${sent && sent.model}:${reqOk} answer saved on the ride + shown:${savedOk}` };
+              detail: `offline: "${lines.join(' | ')}":${offlineOk} prompt = step table only (${prompt.length} chars):${promptOk} chips + question box:${uiOk} question + ride brief sent:${reqOk} answer unwrapped from JSON, saved on the ride + shown:${savedOk}` };
           });
 
           // 46f. Automatic backup + offline assets

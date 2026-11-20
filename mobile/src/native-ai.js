@@ -111,10 +111,11 @@ export function builders(MODELS) {
   const data = (context) => `TRAINING DATA\n${context || '(no data for this period)'}`;
   return {
     buildClaudeRequest: (prompt, model, effort) => claudeThinking({ model, max_tokens: 16000, system: SYSTEM_PROMPT, messages: [{ role: 'user', content: prompt }] }, model, effort),
-    buildGeminiRequest: (prompt, model, effort) => ({
+    // `json` = the prompt asks for JSON; text answers (reviews, stories) must not be forced into JSON.
+    buildGeminiRequest: (prompt, model, effort, json = true) => ({
       systemInstruction: { parts: [{ text: SYSTEM_PROMPT }] },
       contents: [{ role: 'user', parts: [{ text: prompt }] }],
-      generationConfig: { maxOutputTokens: 16000, responseMimeType: 'application/json', thinkingConfig: geminiThinking(model, effort) }
+      generationConfig: { maxOutputTokens: 16000, ...(json ? { responseMimeType: 'application/json' } : {}), thinkingConfig: geminiThinking(model, effort) }
     }),
     buildClaudeAskRequest: (messages, context, model, effort, fallback = true) => {
       const body = {
@@ -403,7 +404,7 @@ export class NativeAi {
     if (!key) return this._noKey(p);
     let out;
     try {
-      out = provider === 'gemini' ? await this.callGemini(this.build.buildGeminiRequest(prompt, model, effort), model, key, signal)
+      out = provider === 'gemini' ? await this.callGemini(this.build.buildGeminiRequest(prompt, model, effort, input.format !== 'text'), model, key, signal)
         : provider === 'openai' ? await this.callOpenAi(this.build.buildOpenAiCoachRequest(prompt, model, effort), key, signal)
           : await this.callClaude(this.build.buildClaudeRequest(prompt, model, effort), key, signal);
     } catch (e) { return this._failed(e, p); }

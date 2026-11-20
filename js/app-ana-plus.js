@@ -387,7 +387,7 @@ FACTS (JSON): ${JSON.stringify(facts)}`;
         const ac = new AbortController();
         const timer = setTimeout(() => ac.abort(), 120000);
         const resp = await fetch(VeloAiCoach.COACH_URL, { method: 'POST', cache: 'no-store', signal: ac.signal, headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ prompt, provider: c.provider, model: c.model, effort: VeloAiCoach.supportsEffort(c.model) ? 'low' : null }) });
+          body: JSON.stringify({ prompt, format: 'text', provider: c.provider, model: c.model, effort: VeloAiCoach.supportsEffort(c.model) ? 'low' : null }) });
         clearTimeout(timer);
         const json = await resp.json().catch(() => ({}));
         if (!resp.ok) throw new Error(json.error || `answered ${resp.status}`);

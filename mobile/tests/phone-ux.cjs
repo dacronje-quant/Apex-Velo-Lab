@@ -222,8 +222,9 @@ const FLOWS = [
     await page.mouse.move(b2.x + b2.width * 0.6, b2.y + b2.height * 0.3);
     await page.waitForFunction((t) => document.getElementById('scrubReadout').textContent !== t, readout, { timeout: 3000 }); // the scrub readout follows the pointer
     assert.ok(await page.locator('.av-ride-detail #intervalDiagnosis').isVisible(), 'interval diagnosis');
-    assert.match(await page.locator('.av-ride-detail .ai-breakdown').textContent(), /Steady repeats/);
-    assert.ok(await page.locator('.av-ride-detail [data-ai-breakdown]').count(), 'Ask again for a new breakdown');
+    assert.match(await page.locator('.av-ride-detail #aiBreakdownArea .ask-ai').textContent(), /Steady repeats/, 'an earlier AI review is shown in the ride chat');
+    assert.ok(await page.locator('.av-ride-detail [data-ride-ask]').count(), 'suggested questions');
+    assert.ok(await page.locator('.av-ride-detail .ride-coach-input').isVisible(), 'a box to ask your own question');
     const s = await sweep(page);
     assert.deepEqual(s.small, []); assert.ok(s.overflowX <= 0);
     await screenshot(page, 'history-recorded');

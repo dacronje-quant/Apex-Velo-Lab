@@ -384,6 +384,7 @@ function lazySamples(P, storage, win) {
   before('showRideSummary', (app, record) => record);
   before('exportRide', (app, ride) => ride);
   before('requestAiBreakdown', (app, id) => byId(app, id));
+  before('sendRideAsk', (app, id) => byId(app, id));
   before('saveStravaImage', (app, id) => byId(app, id));
   // Whether a ride can go to Strava (60 s or more of samples) is known from its summary as well.
   const canSend = P.canSendToStrava;

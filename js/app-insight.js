@@ -284,68 +284,182 @@
     },
 
     // ------------------------------------------------- interval diagnosis --
-    /** Offline breakdown (always) + the AI coach's breakdown (saved with the ride) or a button for it. */
+    /** Offline breakdown of the hard steps (when there are any) and the ride coach chat (any ride with samples). */
     intervalBreakdownHtml(record) {
       if (!VeloInsight.hasSamples(record)) return '';
       const ftp = record.ftpAtRide || this.activeProfile.ftp;
       const rows = VeloInsight.intervalRows(record.samples, ftp);
-      if (rows.length < 2 || !rows.some(r => r.work)) return '';
-      const lines = VeloInsight.offlineBreakdown(rows);
-      const ai = record.aiBreakdown;
-      const coach = this.aiCoach;
-      const live = !!(coach && coach.isLive);
-      const md = (t) => (window.VeloMarkdown ? window.VeloMarkdown.render(t) : `<p>${esc(t)}</p>`);
-      const aiHtml = ai && ai.text
-        ? `<div class="ai-breakdown md-body">${md(ai.text)}</div><div class="hint">AI coach: ${esc(ai.label || ai.model)}${ai.effort ? `, ${esc(ai.effort)} effort` : ''} &middot; ${esc(new Date(ai.at).toLocaleString('en-GB', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' }))} <button type="button" class="link-btn" data-ai-breakdown="${esc(record.id)}">Ask again</button></div>`
-        : live
-          ? `<button type="button" class="btn btn-sm" data-ai-breakdown="${esc(record.id)}"><svg class="ic"><use href="#i-sparkles"/></svg>Ask the AI coach (${esc(VeloAiCoach.labelFor(coach.model))}, low effort)</button>`
-          : '<span class="hint">Add an Anthropic, Gemini or OpenAI key to .env for an AI coach breakdown - the summary above is computed offline.</span>';
+      const diag = rows.length >= 2 && rows.some(r => r.work)
+        ? `<div class="sub-title"><span>Interval diagnosis</span><span class="hint">hard steps (88% FTP+): target, cadence fade, heart-rate drift</span></div>
+          <ul class="diag-list">${VeloInsight.offlineBreakdown(rows).map(l => `<li>${esc(l)}</li>`).join('')}</ul>`
+        : '';
       return `
         <div class="review-block interval-diagnosis" id="intervalDiagnosis">
-          <div class="sub-title"><span>Interval diagnosis</span><span class="hint">hard steps (88% FTP+): target, cadence fade, heart-rate drift</span></div>
-          <ul class="diag-list">${lines.map(l => `<li>${esc(l)}</li>`).join('')}</ul>
-          <div class="ai-breakdown-area" id="aiBreakdownArea">${aiHtml}</div>
+          ${diag}
+          <div class="ride-coach" id="aiBreakdownArea">${this.rideCoachHtml(record)}</div>
         </div>`;
     },
 
-    /** Sends the step table (not raw samples) to /api/coach at low effort and saves the answer on the ride. */
-    async requestAiBreakdown(rideId) {
+    /** The ride coach: ask anything about this ride; answers come from its full recording (VeloRideBrief). */
+    rideCoachHtml(record) {
+      const coach = this.aiCoach;
+      const live = !!(coach && coach.isLive);
+      const md = (t) => (window.VeloMarkdown ? window.VeloMarkdown.render(t) : `<p>${esc(t)}</p>`);
+      const chat = Array.isArray(record.rideChat) ? record.rideChat : [];
+      const old = record.aiBreakdown && record.aiBreakdown.text && !chat.length
+        ? [{ role: 'assistant', content: VeloRideBrief.cleanAiText(record.aiBreakdown.text), meta: record.aiBreakdown.label || record.aiBreakdown.model || '' }] : [];
+      const msgs = old.concat(chat);
+      const busy = this._rideAskBusy === record.id;
+      const thread = msgs.map((m, i) => {
+        if (m.role === 'error') return `<div class="ask-msg ask-error" role="alert"><div class="ask-bubble">${esc(m.content)}</div></div>`;
+        if (m.role === 'user') return `<div class="ask-msg ask-user"><div class="ask-bubble">${esc(m.label || m.content).replace(/\n/g, '<br>')}</div></div>`;
+        return `<div class="ask-msg ask-ai"><div class="ask-avatar" aria-hidden="true"><svg class="ic"><use href="#i-sparkles"/></svg></div>
+          <div class="ask-body"><div class="ask-bubble md">${md(VeloRideBrief.cleanAiText(m.content))}</div>${m.meta ? `<div class="ask-meta"><span>${esc(m.meta)}</span></div>` : ''}</div></div>`;
+      }).join('') + (busy ? `<div class="ask-msg ask-ai pending"><div class="ask-avatar" aria-hidden="true"><svg class="ic"><use href="#i-sparkles"/></svg></div>
+          <div class="ask-body"><div class="ask-bubble"><span class="ask-dots" aria-hidden="true"><i></i><i></i><i></i></span> Reading this ride's data</div></div></div>` : '');
+      const asked = new Set(chat.filter(m => m.role === 'user').map(m => m.label || m.content));
+      const chips = [VeloRideBrief.REVIEW_LABEL, ...VeloRideBrief.SUGGESTIONS].filter(q => !asked.has(q)).slice(0, msgs.length ? 4 : 7);
+      return `<div class="sub-title"><span>Ask the coach about this ride</span><span class="hint">${live ? `${esc(VeloAiCoach.labelFor(coach.model))} reads the whole recording: every step, heart rate, cadence and your earlier rides of this workout` : 'Add an Anthropic, Gemini or OpenAI key to .env for an AI coach breakdown - the summary above is computed offline.'}</span></div>
+        ${thread ? `<div class="ride-coach-thread" aria-live="polite">${thread}</div>` : ''}
+        ${busy ? '' : `<div class="ride-coach-chips" role="list">${chips.map(q => `<button type="button" class="ask-chip" role="listitem" data-ride-ask="${esc(record.id)}" data-q="${esc(q)}">${esc(q)}</button>`).join('')}</div>`}
+        <form class="ride-coach-form" data-ride-form="${esc(record.id)}">
+          <textarea class="input-field ride-coach-input" rows="2" maxlength="4000" placeholder="Ask anything about this ride, e.g. why did my heart rate climb in set 2?" aria-label="Your question about this ride" ${busy ? 'disabled' : ''}></textarea>
+          <div class="ride-coach-actions">
+            ${chat.length ? `<button type="button" class="link-btn" data-ride-clear="${esc(record.id)}">Clear chat</button>` : '<span></span>'}
+            <button type="submit" class="btn btn-sm btn-ai" ${busy ? 'disabled' : ''}><svg class="ic"><use href="#i-sparkles"/></svg>Ask</button>
+          </div>
+        </form>`;
+    },
+
+    /** What VeloRideBrief.build() needs besides the ride: profile, form, earlier rides of the workout, recent rides. */
+    rideBriefOpts(record) {
+      const p = this.activeProfile || {};
+      const t = Date.parse(record.date);
+      const ftp = record.ftpAtRide || p.ftp;
+      const rides = (this.cyclingRides ? this.cyclingRides() : this.completedWorkouts).filter(r => r.id !== record.id && Date.parse(r.date) < t);
+      const same = (r) => (record.workoutId && r.workoutId === record.workoutId) || (record.title && r.title === record.title);
+      const previous = rides.filter(same).sort((a, b) => Date.parse(b.date) - Date.parse(a.date)).slice(0, 6).map(r => {
+        let workP = null, workHr = null;
+        if (VeloInsight.hasSamples(r)) {
+          const w = VeloRideBrief.steps(r.samples, r.ftpAtRide || ftp).filter(s => s.work);
+          if (w.length) {
+            workP = Math.round(VeloRideBrief.mean(w.map(s => s.settledP)));
+            const h = VeloRideBrief.mean(w.map(s => (s.hrStart && s.hrEnd ? (s.hrStart + s.hrEnd) / 2 : 0)));
+            workHr = h ? Math.round(h) : null;
+          }
+        }
+        return { date: r.date, duration: r.duration, np: r.np, avgWatts: r.avgWatts, avgHr: r.avgHr, maxHr: r.maxHr, if: r.if, tss: r.tss, workP, workHr };
+      });
+      const recent = rides.filter(r => !same(r) && t - Date.parse(r.date) <= 14 * 86400000).sort((a, b) => Date.parse(b.date) - Date.parse(a.date))
+        .map(r => ({ date: r.date, title: r.title, duration: r.duration, tss: r.tss, np: r.np }));
+      let form = null;
+      try {
+        const pmc = this.analytics.calculatePmcHistory(this.completedWorkouts, 0, this.pmcOpts ? this.pmcOpts() : undefined);
+        if (pmc && Number.isFinite(pmc.currentCtl)) form = { ctl: pmc.currentCtl, atl: pmc.currentAtl, tsb: pmc.currentTsb };
+      } catch (e) { /* no form line */ }
+      const restHr = (this.healthDays || []).slice(-7).map(d => Number(d && (d.restingHr || d.rhr)) || 0).filter(Boolean);
+      return { ftp, maxHr: p.maxHr, weightKg: p.weightKg, restHr: restHr.length ? Math.round(restHr.reduce((a, b) => a + b, 0) / restHr.length) : null, form, previous, recent };
+    },
+
+    /** Kept for older callers: asks for the ride review. */
+    requestAiBreakdown(rideId) { return this.sendRideAsk(rideId, VeloRideBrief.REVIEW_PROMPT, VeloRideBrief.REVIEW_LABEL); },
+
+    /** Sends the rider's question with this ride's brief to /api/ask and keeps the chat on the ride. */
+    async sendRideAsk(rideId, text, label = null) {
       const record = this.completedWorkouts.find(r => r.id === rideId);
-      const area = document.getElementById('aiBreakdownArea');
-      if (!record || this._aiBreakdownBusy) return null;
+      const q = String(text || '').trim();
+      if (!record || !q || this._rideAskBusy) return null;
       const coach = this.aiCoach;
       if (coach && !coach.isLive) await coach.detectEngine();
-      if (!coach || !coach.isLive) { this.showToast('The AI coach is offline - start Launch-Apex-Velo.bat and add an API key.', 'warning'); return null; }
-      const ftp = record.ftpAtRide || this.activeProfile.ftp;
-      const rows = VeloInsight.intervalRows(record.samples, ftp);
-      const prompt = VeloInsight.breakdownPrompt(rows, { title: record.title, ftp, minutes: Math.round((record.duration || record.samples.length) / 60), avgHr: record.avgHr, maxHr: this.activeProfile.maxHr });
-      const model = coach.model;
-      const effort = VeloAiCoach.supportsEffort(model) ? 'low' : null; // always the cheapest reasoning level
-      this._aiBreakdownBusy = true;
-      if (area) area.innerHTML = `<span class="hint is-busy">Asking ${esc(VeloAiCoach.labelFor(model))} (low effort)...</span>`;
+      if (!coach || !coach.isLive) { this.showToast('The AI coach is offline - add an API key for Claude, Gemini or ChatGPT.', 'warning'); return null; }
+      if (!VeloInsight.hasSamples(record)) { this.showToast('This ride has no recorded data to ask about.', 'warning'); return null; }
+      let context = '';
+      try { context = VeloRideBrief.build(record, this.rideBriefOpts(record)); } catch (e) { console.warn('Ride coach: could not build the ride brief', e); }
+      const chat = Array.isArray(record.rideChat) ? record.rideChat.filter(m => m.role !== 'error') : [];
+      chat.push({ role: 'user', content: q, ...(label ? { label } : {}), at: Date.now() });
+      record.rideChat = chat;
+      const messages = [];
+      chat.forEach(m => {
+        if (m.role !== 'user' && m.role !== 'assistant') return;
+        if (messages.length && messages[messages.length - 1].role === m.role) messages[messages.length - 1] = { role: m.role, content: m.content };
+        else messages.push({ role: m.role, content: m.content });
+      });
+      let list = messages.slice(-20);
+      while (list.length && list[0].role !== 'user') list = list.slice(1);
+      this._rideAskBusy = rideId;
+      this.refreshRideCoach(record);
+      const started = performance.now();
+      const ac = new AbortController();
+      const timer = setTimeout(() => ac.abort(), 180000);
       try {
-        const resp = await fetch(VeloAiCoach.COACH_URL, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ prompt, provider: coach.provider, model, effort }) });
+        const resp = await fetch('api/ask', {
+          method: 'POST', cache: 'no-store', signal: ac.signal, headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ messages: list, context, provider: coach.provider, model: coach.model, effort: coach.effort })
+        });
         const json = await resp.json().catch(() => ({}));
         if (!resp.ok || !json.text) throw new Error(json.error || `AI coach error (${resp.status})`);
-        record.aiBreakdown = { text: String(json.text).trim().slice(0, 4000), model: json.model || model, label: VeloAiCoach.labelFor(json.model || model), effort: json.effort || effort, at: Date.now() };
-        this.persistHistoryLocal();
-        await VeloDB.saveRide(record);
-        return record.aiBreakdown;
+        const secs = ((performance.now() - started) / 1000).toFixed(0);
+        chat.push({ role: 'assistant', content: VeloRideBrief.cleanAiText(json.text).slice(0, 12000), meta: `${VeloAiCoach.labelFor(json.model || coach.model)} · ${secs} s`, at: Date.now() });
       } catch (e) {
-        this.showToast(`AI breakdown failed: ${e.message}`, 'error');
-        return null;
+        chat.pop();
+        chat.push({ role: 'error', content: ac.signal.aborted ? 'No answer after 3 minutes. Try again, or ask a shorter question.' : `The coach could not answer: ${e.message}` });
       } finally {
-        this._aiBreakdownBusy = false;
-        const block = document.getElementById('intervalDiagnosis');
-        if (block && this._reviewRideId === rideId) block.outerHTML = this.intervalBreakdownHtml(record);
+        clearTimeout(timer);
+        this._rideAskBusy = null;
+        record.rideChat = chat.slice(-40);
+        const saved = record.rideChat.filter(m => m.role !== 'error');
+        try {
+          const keep = record.rideChat;
+          record.rideChat = saved;
+          this.persistHistoryLocal();
+          await VeloDB.saveRide(record);
+          record.rideChat = keep;
+        } catch (e) { /* kept in memory for this view */ }
+        this.refreshRideCoach(record);
       }
+      return record.rideChat;
+    },
+
+    refreshRideCoach(record) {
+      if (this._reviewRideId !== record.id) return;
+      document.querySelectorAll('#aiBreakdownArea').forEach(area => {
+        area.innerHTML = this.rideCoachHtml(record);
+        const thread = area.querySelector('.ride-coach-thread');
+        const last = thread && thread.lastElementChild;
+        if (last) requestAnimationFrame(() => last.scrollIntoView({ block: 'nearest', behavior: 'smooth' }));
+      });
     },
 
     bindInsightActions(container) {
       if (!container) return;
+      this.on(container, 'submit', (e) => {
+        const form = e.target.closest('[data-ride-form]');
+        if (!form) return;
+        e.preventDefault();
+        const input = form.querySelector('textarea');
+        const q = input ? input.value.trim() : '';
+        if (q) this.sendRideAsk(form.dataset.rideForm, q);
+      });
+      this.on(container, 'keydown', (e) => {
+        if (e.key !== 'Enter' || e.shiftKey || !e.target.matches('.ride-coach-input')) return;
+        e.preventDefault();
+        const form = e.target.closest('form');
+        if (form) form.requestSubmit();
+      });
       this.on(container, 'click', (e) => {
-        const ai = e.target.closest('[data-ai-breakdown]');
-        if (ai) { this.requestAiBreakdown(ai.dataset.aiBreakdown); return; }
+        const chip = e.target.closest('[data-ride-ask]');
+        if (chip) {
+          const q = chip.dataset.q;
+          if (q === VeloRideBrief.REVIEW_LABEL) this.sendRideAsk(chip.dataset.rideAsk, VeloRideBrief.REVIEW_PROMPT, VeloRideBrief.REVIEW_LABEL);
+          else this.sendRideAsk(chip.dataset.rideAsk, q);
+          return;
+        }
+        const clear = e.target.closest('[data-ride-clear]');
+        if (clear) {
+          const r = this.completedWorkouts.find(x => x.id === clear.dataset.rideClear);
+          if (r) { r.rideChat = []; delete r.aiBreakdown; this.persistHistoryLocal(); Promise.resolve(VeloDB.saveRide(r)).catch(() => {}); this.refreshRideCoach(r); }
+          return;
+        }
         const b = e.target.closest('[data-ftp]');
         if (!b) return;
         if (b.dataset.ftp === 'accept') this.acceptFtpSuggestion(b.dataset.value);
