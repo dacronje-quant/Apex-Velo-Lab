@@ -1,0 +1,23 @@
+{
+  "name": "apex-velo-broker",
+  "version": "0.1.0",
+  "private": true,
+  "license": "MIT",
+  "description": "Token broker (Cloudflare Worker) for Apex Velo's one-tap Strava sign-in: holds the client secret so the app does not",
+  "type": "module",
+  "scripts": {
+    "dev": "wrangler dev",
+    "deploy": "wrangler deploy",
+    "check": "tsc --noEmit && wrangler deploy --dry-run --outdir dist",
+    "test": "vitest run"
+  },
+  "engines": {
+    "node": ">=22"
+  },
+  "devDependencies": {
+    "@cloudflare/workers-types": "^5.20261021.1",
+    "typescript": "^7.0.2",
+    "vitest": "^5.0.5",
+    "wrangler": "^4.151.3"
+  }
+}

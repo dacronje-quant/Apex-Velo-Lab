@@ -63,6 +63,11 @@
       });
       const auto = document.getElementById('chkStravaAutoCheck');
       if (auto) { auto.checked = this.stravaAutoCheckEnabled(); this.on(auto, 'change', () => this.setStravaAutoCheck(auto.checked)); }
+      const autoSync = document.getElementById('chkStravaAutoSync');
+      if (autoSync) {
+        autoSync.checked = this.stravaAutoSyncEnabled(); autoSync.disabled = !this.stravaAutoCheckEnabled();
+        this.on(autoSync, 'change', () => this.setStravaAutoSync(autoSync.checked));
+      }
       this.syncRangeUiState();
       this.renderStravaSyncStatus();
       this.scheduleStravaAutoCheck();
@@ -554,7 +559,52 @@
     setStravaAutoCheck(on) {
       try { localStorage.setItem(S().AUTOCHECK_KEY, on ? 'true' : 'false'); } catch (e) { /* ignore */ }
       if (!on) { clearTimeout(this._stravaAutoTimer); this.setStravaSyncBadge(null); }
-      this.showToast(on ? 'Strava is checked for changes each time the app opens (nothing is imported until you press Sync).' : 'Automatic Strava check turned off.', 'info');
+      const autoSync = document.getElementById('chkStravaAutoSync');
+      if (autoSync) autoSync.disabled = !on;
+      this.showToast(on ? 'Strava is checked for changes each time the app opens.' : 'Automatic Strava check turned off.', 'info');
+    },
+
+    stravaAutoSyncEnabled() { return rawGet(S().AUTOSYNC_KEY) !== 'false'; },
+
+    setStravaAutoSync(on) {
+      try { localStorage.setItem(S().AUTOSYNC_KEY, on ? 'true' : 'false'); } catch (e) { /* ignore */ }
+      this.showToast(on ? 'New Strava activities are imported each time the app opens. "Undo last sync" puts things back.' : 'Strava changes wait for you to press Sync.', 'info');
+    },
+
+    /** Changes that need no decision from the rider: nothing to review and nothing deleted. */
+    stravaPlanIsRoutine(plan) {
+      return !!plan && plan.hasChanges && !(plan.review && plan.review.length) && !(plan.removed && plan.removed.length);
+    },
+
+    /**
+     * The same steps as "Sync from Strava" + Apply, without the dialog. Only for routine plans, never during
+     * a ride; anything else is left on the badge for the rider to review. Apply writes its restore point first.
+     */
+    async autoApplyStravaSync(range) {
+      if (this._syncBusy || this._stravaSyncPreview || this.isPlaying || document.querySelector('.modal-overlay.open')) return false;
+      this._syncBusy = true;
+      try {
+        const fetched = await this.fetchStravaRange(range, { quiet: true });
+        const state = this.loadStravaSyncState();
+        this._stravaSyncPreview = { range, choice: this._syncChoice, fetched, decisions: { ...state.decisions }, state };
+        this.replanStravaSync();
+        await this.fetchStravaStreams(this._stravaSyncPreview);
+      } catch (e) {
+        this._stravaSyncPreview = null;
+        return false;
+      } finally {
+        this._syncBusy = false;
+        this.setSyncProgress('', false);
+      }
+      const plan = this._stravaSyncPreview.plan;
+      if (!this.stravaPlanIsRoutine(plan) || this.isPlaying || document.querySelector('.modal-overlay.open')) {
+        this._stravaSyncPreview = null;
+        this.setStravaSyncBadge(plan);
+        return false;
+      }
+      const r = await this.applyStravaSync();
+      if (!r.ok) this._stravaSyncPreview = null;
+      return r.ok;
     },
 
     scheduleStravaAutoCheck(delayMs = 5000) {
@@ -583,6 +633,10 @@
           state: { merged: state.merged, decisions: state.decisions }, opts: this.syncOptions()
         });
         if (this._syncBusy || this._stravaSyncPreview) return null;
+        if (this.stravaAutoSyncEnabled() && this.stravaPlanIsRoutine(plan)) {
+          this._stravaAutoRunning = false;
+          if (await this.autoApplyStravaSync(range)) return plan;
+        }
         const n = this.setStravaSyncBadge(plan);
         if (n && !this._stravaAutoToasted) {
           this._stravaAutoToasted = true;

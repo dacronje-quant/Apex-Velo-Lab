@@ -1,73 +1,88 @@
 /* ==========================================================================
-   Analytics studio: module dock, one panel at a time, drill-down tiles, insight feed,
+   Analytics: four tabs, one panel at a time, key numbers, "More detail" folds, insight feed,
    legend toggles, drag-to-zoom and the expanded chart dialog (js/app-ana-studio.js).
    ========================================================================== */
 
-/* ------------------------------------------------------------------ dock */
+/* ------------------------------------------------------------------ tabs */
 #view-analytics .ana-dock {
-  position: sticky; top: calc(var(--header-h) + 8px); z-index: 20;
-  display: grid; grid-auto-flow: column; grid-auto-columns: minmax(150px, 1fr); gap: 6px;
-  width: 100%; max-width: 100%; margin: 0 0 18px; padding: 6px;
-  border-radius: 26px; overflow-x: auto; overscroll-behavior-x: contain; scrollbar-width: none; scroll-snap-type: x proximity;
+  position: relative; display: inline-flex; gap: 4px; max-width: 100%; margin: 0 0 20px; padding: 5px;
+  border-radius: 999px; overflow-x: auto; overscroll-behavior-x: contain; scrollbar-width: none;
   background: rgba(10, 14, 30, 0.55); border: 1px solid rgba(255, 255, 255, 0.09);
   box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.06);
-  backdrop-filter: blur(18px) saturate(150%); -webkit-backdrop-filter: blur(18px) saturate(150%);
-  transition: background .25s var(--ease), box-shadow .25s var(--ease);
 }
-#view-analytics .ana-dock.is-stuck { background: rgba(9, 12, 26, 0.9); box-shadow: 0 18px 40px -18px rgba(0, 0, 0, 0.9), inset 0 1px 0 rgba(255, 255, 255, 0.06); }
 .ana-dock::-webkit-scrollbar { display: none; }
-.ana-dock-sentinel { height: 1px; margin-bottom: -1px; }
 
 .ana-dock-glider {
   position: absolute; left: 0; top: 0; width: 0; height: 0; z-index: 0; pointer-events: none; opacity: 0;
-  border-radius: 20px;
+  border-radius: 999px;
   background: linear-gradient(150deg, color-mix(in srgb, var(--zone-a) 30%, transparent), color-mix(in srgb, var(--zone-b) 16%, transparent));
-  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--zone-a) 55%, transparent), 0 10px 30px -12px var(--zone-a);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--zone-a) 55%, transparent);
   transition: transform .45s var(--spring), width .45s var(--spring), height .3s var(--ease), opacity .2s;
 }
 .ana-dock-glider.ready { opacity: 1; }
 .ana-dock-glider.no-anim { transition: none; }
 
 .ana-mod {
-  position: relative; z-index: 1; display: flex; flex-direction: column; align-items: flex-start; gap: 1px; min-width: 0;
-  padding: 9px 12px 10px; border: 0; border-radius: 20px; background: transparent; color: var(--text-2); text-align: left;
-  scroll-snap-align: center; transition: color .2s, background .2s;
+  position: relative; z-index: 1; flex: none; display: inline-flex; align-items: center; gap: 8px; min-height: 44px;
+  padding: 0 20px; border: 0; border-radius: 999px; background: transparent; color: var(--text-2);
+  font-size: 14.5px; font-weight: 700; white-space: nowrap; transition: color .2s, background .2s;
 }
 .ana-mod:hover { color: var(--text-1); background: rgba(255, 255, 255, 0.04); }
 .ana-mod.active { color: var(--text-1); background: transparent; }
-.ana-mod:focus-visible { outline-offset: -2px; border-radius: 20px; }
-.ana-mod-top { display: flex; align-items: flex-start; gap: 7px; width: 100%; min-width: 0; font-size: 12px; font-weight: 700; letter-spacing: .02em; }
-.ana-mod-top .ic { width: 14px; height: 14px; margin-top: 1px; opacity: .75; }
-.ana-mod.active .ana-mod-top .ic { opacity: 1; color: var(--zone-b); }
-.ana-mod-name { min-width: 0; overflow-wrap: anywhere; line-height: 1.25; }
-.ana-mod-key {
-  margin-left: auto; flex: none; min-width: 17px; height: 17px; padding: 0 4px; border-radius: 6px; display: inline-grid; place-items: center;
-  font: 600 10px/1 var(--font-mono); color: var(--text-3); background: rgba(255, 255, 255, 0.06); border: 1px solid rgba(255, 255, 255, 0.08);
-}
-.ana-mod-stat {
-  font-family: var(--font-display); font-weight: 500; font-size: 19px; letter-spacing: -0.03em; line-height: 1.25; color: var(--text-1);
-  max-width: 100%; overflow-wrap: anywhere; margin-top: 3px;
-}
-.ana-mod-stat[data-dir="up"]::after, .ana-mod-stat[data-dir="down"]::after {
-  --arrow: var(--text-3);
-  content: ''; display: inline-block; width: 0; height: 0; margin-left: 6px; vertical-align: middle;
-  border-left: 4px solid transparent; border-right: 4px solid transparent;
-}
-.ana-mod-stat[data-tone="good"]::after { --arrow: var(--lime); }
-.ana-mod-stat[data-tone="bad"]::after { --arrow: var(--amber); }
-.ana-mod-stat[data-dir="up"]::after { border-bottom: 6px solid var(--arrow); }
-.ana-mod-stat[data-dir="down"]::after { border-top: 6px solid var(--arrow); }
-.ana-mod-sub { font-size: 11px; line-height: 1.35; color: var(--text-3); max-width: 100%; overflow-wrap: anywhere; }
-.ana-mod.active .ana-mod-sub { color: var(--text-2); }
-@media (hover: none), (max-width: 860px) { .ana-mod-key { display: none; } }
-@media (max-width: 1180px) {
-  #view-analytics .ana-dock { position: static; grid-auto-columns: minmax(142px, 1fr); border-radius: 22px; }
-}
+.ana-mod:focus-visible { outline-offset: -2px; }
+.ana-mod .ic { width: 16px; height: 16px; opacity: .75; }
+.ana-mod.active .ic { opacity: 1; color: var(--zone-b); }
 @media (max-width: 560px) {
-  #view-analytics .ana-dock { grid-auto-columns: 128px; padding: 5px; gap: 4px; margin-bottom: 14px; }
-  .ana-mod { padding: 8px 10px; }
-  .ana-mod-stat { font-size: 16px; }
+  #view-analytics .ana-dock { display: flex; margin-bottom: 14px; }
+  .ana-mod { flex: 1 1 0; justify-content: center; padding: 0 8px; font-size: 13.5px; gap: 6px; }
+  .ana-mod .ic { display: none; }
 }
+
+/* ------------------------------------------------------------ key numbers */
+.key-grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: var(--gap); margin-bottom: var(--gap); }
+@media (max-width: 1100px) { .key-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+@media (max-width: 420px) { .key-grid { gap: 10px; } }
+.key-grid .skel-tile { min-height: 168px; border-radius: 24px; }
+.tile.tile-key { display: flex; flex-direction: column; gap: 4px; padding: 20px 22px; border-radius: 24px; }
+.tile.tile-key[data-tile="form"] { color: var(--amber); }
+.tile.tile-key[data-tile="ftp"] { color: var(--rose); }
+.tile.tile-key[data-tile="week"] { color: var(--violet); }
+.tile.tile-key .tile-lbl { font-size: 13px; letter-spacing: .04em; text-transform: none; color: var(--text-2); }
+.tile.tile-key .tile-row { margin: 6px 0 4px; align-items: center; }
+.tile.tile-key .tile-val { font-size: clamp(34px, 3.4vw, 46px); line-height: 1; }
+.tile.tile-key .tile-val small { font-size: 16px; margin-left: 4px; }
+.tile.tile-key .spark { height: 38px; }
+.tile.tile-key .tile-delta { font-size: 13.5px; font-weight: 700; }
+.tile.tile-key .tile-sub { font-size: 12.5px; line-height: 1.4; color: var(--text-3); margin-top: 2px; }
+@media (max-width: 560px) {
+  .tile.tile-key { padding: 14px 14px 16px; border-radius: 20px; }
+  .tile.tile-key .tile-val { font-size: 30px; }
+  .tile.tile-key .spark { display: none; }
+  .tile.tile-key .tile-delta { font-size: 12.5px; }
+  .tile.tile-key .tile-sub { font-size: 11.5px; }
+}
+
+/* ------------------------------------------------------------ more detail */
+.ana-more { margin: 6px 0 var(--gap); }
+.ana-more > summary {
+  list-style: none; cursor: pointer; display: flex; align-items: center; justify-content: space-between; gap: 14px;
+  padding: 16px 20px; border-radius: 22px; border: 1px dashed rgba(255, 255, 255, 0.16); background: rgba(255, 255, 255, 0.025);
+  color: var(--text-2); transition: border-color .2s, background .2s, color .2s;
+}
+.ana-more > summary::-webkit-details-marker { display: none; }
+.ana-more > summary:hover { color: var(--text-1); background: rgba(255, 255, 255, 0.05); border-color: color-mix(in srgb, var(--zone-a) 50%, transparent); }
+.ana-more-txt { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.ana-more-txt b { font-size: 14.5px; color: var(--text-1); }
+.ana-more-txt small { font-size: 12.5px; color: var(--text-3); line-height: 1.4; }
+.ana-more > summary .ic { flex: none; width: 18px; height: 18px; transition: transform .25s var(--ease); }
+.ana-more[open] > summary .ic { transform: rotate(90deg); }
+.ana-more[open] > summary { margin-bottom: var(--gap); border-style: solid; }
+.ana-more-body > .card:last-child, .ana-more-body > .ana-grid:last-child { margin-bottom: 0; }
+
+.ana-ftp-chip { margin-left: auto; gap: 6px; }
+.ana-ftp-chip b { color: var(--text-1); }
+#ana-panel-load .today-strip { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+@media (max-width: 640px) { #ana-panel-load .today-strip { grid-template-columns: minmax(0, 1fr); } #ana-panel-load .today-strip .pmc-stat-pill .val { font-size: 26px; } }
 
 /* ---------------------------------------------------------------- panels */
 .ana-stage { position: relative; min-width: 0; }
@@ -77,8 +92,8 @@
 .ana-panel-head .ana-section { margin: 0; font-size: 12px; }
 .ana-panel-head .ana-section::after { display: none; }
 .ana-panel-head p { font-size: 13px; color: var(--text-2); }
-#view-analytics .ana-section { scroll-margin-top: calc(var(--header-h) + 110px); }
-#view-analytics .ana-panel .card, #view-analytics .ana-panel .tile { scroll-margin-top: calc(var(--header-h) + 112px); }
+#view-analytics .ana-section { scroll-margin-top: calc(var(--header-h) + 16px); }
+#view-analytics .ana-panel .card, #view-analytics .ana-panel .tile, #view-analytics .ana-dock { scroll-margin-top: calc(var(--header-h) + 16px); }
 @media (max-width: 1180px) { #view-analytics .ana-panel .card, #view-analytics .ana-panel .tile, #view-analytics .ana-section { scroll-margin-top: 12px; } }
 
 /* Bento grid inside a panel */
@@ -87,8 +102,6 @@
 .ana-w-12 { grid-column: span 12; } .ana-w-8 { grid-column: span 8; } .ana-w-7 { grid-column: span 7; }
 .ana-w-6 { grid-column: span 6; } .ana-w-5 { grid-column: span 5; } .ana-w-4 { grid-column: span 4; }
 @media (max-width: 1180px) { .ana-grid > [class*="ana-w-"] { grid-column: span 12; } }
-#ana-panel-overview .tile-grid { margin-bottom: var(--gap); }
-#ana-panel-overview .today-strip { margin-bottom: 0; }
 
 /* Card body split: chart on the left, a list beside it */
 .ana-split { display: grid; grid-template-columns: minmax(0, 1.7fr) minmax(240px, 1fr); gap: 24px; align-items: start; }
@@ -104,22 +117,6 @@
 .ana-enter .card, .ana-enter .tile, .ana-enter .pmc-stat-pill, .ana-enter .ana-panel-head {
   animation: anaRise .5s var(--ease) backwards; animation-delay: calc(var(--i, 0) * 45ms);
 }
-
-/* Previous / next */
-.ana-pager { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; margin-top: 4px; }
-.ana-pager-btn {
-  display: inline-flex; align-items: center; gap: 12px; justify-self: start; max-width: 100%; min-width: 0; padding: 12px 16px; border-radius: 20px; text-align: left;
-  border: 1px solid rgba(255, 255, 255, 0.09); background: rgba(255, 255, 255, 0.035); color: var(--text-2);
-  transition: border-color .2s, background .2s, transform .35s var(--spring);
-}
-.ana-pager-btn.next { grid-column: 2; justify-self: end; text-align: right; }
-.ana-pager-btn span { display: flex; flex-direction: column; min-width: 0; }
-.ana-pager-btn small { font-size: 10.5px; font-weight: 700; letter-spacing: .1em; text-transform: uppercase; color: var(--text-3); }
-.ana-pager-btn b { color: var(--text-1); font-weight: 700; font-size: 14px; overflow-wrap: anywhere; }
-.ana-pager-btn:hover { border-color: color-mix(in srgb, var(--zone-a) 50%, transparent); background: rgba(255, 255, 255, 0.06); }
-.ana-pager-btn:hover .ic { color: var(--zone-b); }
-.ana-pager-btn:not(.next):hover { transform: translateX(-2px); }
-.ana-pager-btn.next:hover { transform: translateX(2px); }
 
 /* ------------------------------------------------------------ drill-down */
 .ana-link { cursor: pointer; transition: transform .35s var(--spring), border-color .2s, box-shadow .25s; }
@@ -232,7 +229,7 @@ html.ana-zoom-lock { overflow: hidden; }
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .ana-dock-glider, .ana-link, .ana-insight, .ana-pager-btn, .ana-expand-btn { transition: none; }
+  .ana-dock-glider, .ana-link, .ana-insight, .ana-more > summary .ic, .ana-expand-btn { transition: none; }
   .ana-enter .card, .ana-enter .tile, .ana-enter .pmc-stat-pill, .ana-enter .ana-panel-head, .ana-zoom[open], .card.ana-spot, .ana-zoom-reset { animation: none; }
 }
 
@@ -273,7 +270,7 @@ html.ana-zoom-lock { overflow: hidden; }
 /* ------------------------------------------------- analytics extras (js/app-ana-plus.js) */
 /* skeletons */
 @keyframes ana-shimmer { from { background-position: 200% 0; } to { background-position: -200% 0; } }
-.skel, .skel-tile, .ana-mod-stat.skel {
+.skel, .skel-tile {
   background: linear-gradient(90deg, rgba(255,255,255,0.05) 25%, rgba(255,255,255,0.11) 50%, rgba(255,255,255,0.05) 75%);
   background-size: 200% 100%; animation: ana-shimmer 1.4s linear infinite; border-radius: 8px;
 }
@@ -282,11 +279,11 @@ html.ana-zoom-lock { overflow: hidden; }
 .skel-line.short { width: 60%; }
 .skel-ring { width: 148px; height: 148px; border-radius: 50%; }
 .skel-tile { min-height: 104px; border-color: transparent; }
-.ana-mod-stat.skel { color: transparent; min-width: 56px; }
-@media (prefers-reduced-motion: reduce) { .skel, .skel-tile, .ana-mod-stat.skel { animation: none; } }
+@media (prefers-reduced-motion: reduce) { .skel, .skel-tile { animation: none; } }
 
 /* hero: readiness ring + your week */
-.ana-hero { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1.25fr); gap: var(--gap); margin-bottom: var(--gap); }
+.ana-hero:has(#anaCardReady[hidden]) { grid-template-columns: minmax(0, 1fr); }
+.ana-hero { display: grid; grid-template-columns: minmax(0, 1.25fr) minmax(0, 1fr); gap: var(--gap); margin-bottom: var(--gap); }
 @media (max-width: 900px) { .ana-hero { grid-template-columns: minmax(0, 1fr); } }
 .hero-ready-body { display: flex; align-items: center; gap: 22px; }
 @media (max-width: 420px) { .hero-ready-body { flex-direction: column; align-items: stretch; } .ready-ring { align-self: center; } }

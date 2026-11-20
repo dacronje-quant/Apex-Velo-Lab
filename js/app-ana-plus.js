@@ -174,9 +174,7 @@
     },
 
     renderAnaOverview(...args) {
-      const r = baseOverview ? baseOverview.apply(this, args) : undefined;
-      document.querySelectorAll('#anaSectionNav .ana-mod-stat.skel').forEach(el => el.classList.remove('skel'));
-      return r;
+      return baseOverview ? baseOverview.apply(this, args) : undefined;
     },
 
     renderHealthTiles(...args) {
@@ -286,9 +284,12 @@
       if (!ring || !parts || typeof VeloWellness === 'undefined') return;
       const r = this.healthReadiness ? this.healthReadiness() : null;
       const sc = VeloWellness.readinessScore(r);
+      // No health data set up: no empty ring on Summary (the Health tab says how to set it up).
+      const cardEl = document.getElementById('anaCardReady');
+      if (cardEl) cardEl.hidden = !r || r.level === 'none';
       if (!sc) {
         ring.innerHTML = `<span class="ring-empty"><svg class="ic"><use href="#i-heart"/></svg></span>`;
-        const msg = !r || r.level === 'none' ? (document.documentElement.classList.contains('apex-native') ? 'Add your intervals.icu API key in Settings > Health to see your readiness.' : 'Set up Apple Health in Settings to see your readiness.')
+        const msg = !r || r.level === 'none' ? (document.documentElement.classList.contains('apex-native') ? `Add your intervals.icu API key in ${this.settingsLabel('health', 'Settings > Health')} to see your readiness.` : 'Set up Apple Health in Settings to see your readiness.')
           : r.level === 'baseline' ? `${r.label}: readiness needs a week of HRV to know your normal.` : 'No health data from the last two days.';
         parts.innerHTML = `<p class="ready-empty">${esc(msg)}</p>`;
         return;
@@ -336,7 +337,7 @@
       if (f.hrv) body.push(f.hrv.avg7 < f.hrv.normalLow ? `your HRV (${f.hrv.avg7} ms) is below your normal ${f.hrv.normalLow}-${f.hrv.normalHigh} ms` : f.hrv.avg7 > f.hrv.normalHigh ? `your HRV (${f.hrv.avg7} ms) is above your normal range` : `your HRV is inside your normal range (${f.hrv.avg7} ms)`);
       if (f.rhr) body.push(Math.abs(f.rhr.delta) < 3 ? `resting HR is at your usual ${f.rhr.base} bpm` : `resting HR is ${f.rhr.delta > 0 ? 'up' : 'down'} ${Math.abs(f.rhr.delta)} bpm on your normal`);
       if (f.sleep7 !== null) body.push(`sleep averaged ${W.fmt('sleepH', f.sleep7)} a night`);
-      const s2 = body.length ? `${body[0][0].toUpperCase()}${body.join(', ').slice(1)}${f.tsb ? `, and form (TSB) is ${f.tsb}` : ''}.` : f.tsb && f.tsb !== '--' ? `Form (TSB) is ${f.tsb}${f.form && f.form !== '--' ? ` (${f.form.toLowerCase()})` : ''}.` : 'Add health data in Settings to see how your body is handling it.';
+      const s2 = body.length ? `${body[0][0].toUpperCase()}${body.join(', ').slice(1)}${f.tsb ? `, and form (TSB) is ${f.tsb}` : ''}.` : f.tsb && f.tsb !== '--' ? `Form (TSB) is ${f.tsb}${f.form && f.form !== '--' ? ` (${f.form.toLowerCase()})` : ''}.` : `Add health data in ${this.settingsLabel('health')} to see how your body is handling it.`;
       const tsb = parseFloat(f.tsb);
       const lvl = f.readiness && f.readiness.level;
       const s3 = lvl === 'red' ? 'Next: keep the next day or two to easy spinning in Z1-Z2 and sleep more before the next key session.'
@@ -373,7 +374,7 @@
       const c = this.aiCoach;
       if (!box || !c || this._storyBusy) return;
       if (!c.isLive) await c.detectEngine();
-      if (!c.isLive) { this.showToast('Writing the week with AI needs an API key (Settings > AI engine).', 'warning'); return; }
+      if (!c.isLive) { this.showToast(`Writing the week with AI needs an API key (${this.settingsLabel('ai')}).`, 'warning'); return; }
       this._storyBusy = true;
       if (btn) { btn.disabled = true; btn.classList.add('is-loading'); }
       box.innerHTML = '<span class="skel skel-line"></span><span class="skel skel-line"></span><span class="skel skel-line short"></span>';
@@ -664,8 +665,8 @@ FACTS (JSON): ${JSON.stringify(facts)}`;
         const title = card.querySelector('.card-title');
         if (!title || title.querySelector('.ana-pin-btn') || !card.id) return;
         const b = document.createElement('button');
-        b.type = 'button'; b.className = 'ana-pin-btn'; b.title = 'Pin to Overview';
-        b.setAttribute('aria-pressed', 'false'); b.setAttribute('aria-label', 'Pin to Overview');
+        b.type = 'button'; b.className = 'ana-pin-btn'; b.title = 'Pin to Summary';
+        b.setAttribute('aria-pressed', 'false'); b.setAttribute('aria-label', 'Pin to Summary');
         b.innerHTML = '<svg class="ic"><use href="#i-pin"/></svg>';
         const expand = title.querySelector('.ana-expand-btn');
         expand ? expand.before(b) : title.appendChild(b);
@@ -683,7 +684,7 @@ FACTS (JSON): ${JSON.stringify(facts)}`;
       const pinned = this.pinnedIds();
       if (pinned.includes(id)) this.unpinAnaCard(id);
       else if (pinned.length >= MAX_PINS) { this.showToast(`Up to ${MAX_PINS} charts can be pinned. Unpin one first.`, 'info'); return; }
-      else { this.pinAnaCard(id, true); this.showToast('Pinned to Overview.', 'success'); }
+      else { this.pinAnaCard(id, true); this.showToast('Pinned to Summary.', 'success'); }
       try { localStorage.setItem(PIN_KEY, JSON.stringify(this.pinnedIds())); } catch (e) { /* not kept */ }
       this.updatePinnedRow();
     },
@@ -697,7 +698,7 @@ FACTS (JSON): ${JSON.stringify(facts)}`;
       grid.appendChild(card);
       card.classList.add('is-pinned');
       const b = card.querySelector('.ana-pin-btn');
-      if (b) { b.setAttribute('aria-pressed', 'true'); b.title = 'Unpin from Overview'; b.setAttribute('aria-label', 'Unpin from Overview'); }
+      if (b) { b.setAttribute('aria-pressed', 'true'); b.title = 'Unpin from Summary'; b.setAttribute('aria-label', 'Unpin from Summary'); }
       if (resize) requestAnimationFrame(() => this.anaChartsIn(card).forEach(c => c.resize()));
     },
 
@@ -707,7 +708,7 @@ FACTS (JSON): ${JSON.stringify(facts)}`;
       home.replaceWith(card);
       card.classList.remove('is-pinned');
       const b = card.querySelector('.ana-pin-btn');
-      if (b) { b.setAttribute('aria-pressed', 'false'); b.title = 'Pin to Overview'; b.setAttribute('aria-label', 'Pin to Overview'); }
+      if (b) { b.setAttribute('aria-pressed', 'false'); b.title = 'Pin to Summary'; b.setAttribute('aria-label', 'Pin to Summary'); }
       requestAnimationFrame(() => this.anaChartsIn(card).forEach(c => c.resize()));
     },
 

@@ -204,6 +204,7 @@
         targetPct: iv ? Math.round(iv.pctFtp * this.ergBiasMultiplier) : null,
         zone: { name: zone.name, short: zone.short, color: zone.color },
         power5,
+        controls: this._rideControls || (this.rideControls ? this.rideControls() : null),
         powerAverages: Object.fromEntries([3, 5, 7, 10].map(seconds => [seconds,
           this.isPlaying && this.powerBuffer && this.powerBuffer.length ? this.getSmoothedPower(seconds) : power])),
         powerAvgSec: PHONE_POWER_SEC,
@@ -391,7 +392,48 @@
         this._remoteFitUpload = null;
         this._remoteFinishedRide.fitError = 'Could not create the FIT file. Export it from History on the PC.';
       }
+      this.preparePhoneCards(record);
       this.publishSoon();
+    },
+
+    /** Draws the ride's share cards (both styles) for the phone to save or share. */
+    async preparePhoneCards(record) {
+      this._remoteCardUploads = null;
+      const Card = window.VeloShareCard;
+      if (!Card || !Card.canRender?.(record)) return;
+      const uploads = { id: record.id, items: [] };
+      this._remoteCardUploads = uploads;
+      for (const style of Card.STYLES) {
+        try {
+          const blob = await Card.toBlob(record, { style });
+          if (this._remoteCardUploads !== uploads) return; // a newer ride replaced this one
+          uploads.items.push({ style, filename: Card.fileName(record, style), bytes: await blob.arrayBuffer(), ready: false, busy: false, retryAt: 0 });
+        } catch (e) { /* the FIT download still works without a card */ }
+      }
+      this.publishSoon();
+    },
+
+    async publishPhoneCards() {
+      const up = this._remoteCardUploads;
+      if (!up) return;
+      for (const item of up.items) {
+        if (item.ready || item.busy || Date.now() < item.retryAt) continue;
+        item.busy = true;
+        const ctl = new AbortController();
+        const timer = setTimeout(() => ctl.abort(), 15000);
+        try {
+          const res = await fetch(`api/live/card?id=${encodeURIComponent(up.id)}&style=${item.style}&filename=${encodeURIComponent(item.filename)}`, {
+            method: 'POST', headers: { 'Content-Type': 'image/jpeg' }, body: item.bytes, cache: 'no-store', signal: ctl.signal,
+          });
+          if (!res.ok) throw new Error('card ' + res.status);
+          item.ready = true;
+        } catch (e) {
+          item.retryAt = Date.now() + BACKOFF_MS;
+        } finally {
+          clearTimeout(timer);
+          item.busy = false;
+        }
+      }
     },
 
     async publishPhoneFit() {
@@ -419,7 +461,8 @@
     },
 
     async publishRemoteSnapshot() {
-      this.publishPhoneFit(); // binary transfer never delays the live controls
+      this.publishPhoneFit(); // binary transfers never delay the live controls
+      this.publishPhoneCards();
       const res = await fetch('api/live', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -430,6 +473,11 @@
       const data = await res.json();
       // A restarted server lost its in-memory file. Send it again without re-encoding.
       if (this._remoteFitUpload?.ready && data.fitId !== this._remoteFitUpload.id) this._remoteFitUpload.ready = false;
+      const cards = this._remoteCardUploads;
+      if (cards && data.cards !== undefined) {
+        const held = data.cards && data.cards.id === cards.id ? data.cards.styles || [] : [];
+        cards.items.forEach((it) => { if (it.ready && !held.includes(it.style)) it.ready = false; });
+      }
       this.takeRemoteCommands(data);
     },
 
@@ -478,6 +526,8 @@
           this.skipInterval();
           this.showToast('Skipped step from phone', 'info');
           break;
+        case 'interval-plus': if (this.isPlaying) this.adjustIntervalDuration(30); break;
+        case 'interval-minus': if (this.isPlaying) this.adjustIntervalDuration(-30); break;
         case 'bias-up': this.setErgBias(0.01); break;
         case 'bias-down': this.setErgBias(-0.01); break;
         case 'watts-up': this.setErgBiasWatts(5); break;
