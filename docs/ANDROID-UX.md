@@ -393,7 +393,7 @@ Owners register their own routes; U1 registers interim pages so everything stays
 | Route | Owner | Interim page in U1 |
 |---|---|---|
 | `ride`, `ride/live` | U1 | built: Today (`native-today.js`) and the ride screen (`native-ride-view.js`; one screen since 5.8) |
-| `train/plan`, `train/workouts`, `train/coach` (+ `train/calendar`, `train/block`; `train/ask` opens `train/coach`) | U2 | the Workouts and Calendar views and the one AI Coach chat (questions, workouts, plans) under one segmented control; Your plan on its own page |
+| `train/coach` (the Train home: the AI Coach chat under a Today line; Workouts and Plan in its top bar), `train/plan` (week, day, the plan, what the coach reads), `train/workouts`, `train/calendar`, `train/builder`; `train/ask` and `train/block` open their new homes | U2 | the one AI Coach chat (questions, workouts, plans) as the tab's home, with the Workouts and Calendar views and the plan one tap away |
 | `history`, `history/:rideId` | U3 | the History view; `history/<id>` opens the existing ride summary |
 | `progress`, `progress/<topic>` | U4 | the Analytics view |
 | `you`, `you/<page>` | U5 | rows that open the existing Settings sections, rider profiles and Devices |

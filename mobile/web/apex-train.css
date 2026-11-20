@@ -1,6 +1,6 @@
 /* Train tab (src/native-train.js, docs/ANDROID-UX.md 2.1). Android app only. style.css tokens only.
-   The Plan and Workouts pages are the tab's own; the Coach chat, Your plan, Calendar and the custom-workout table
-   are the app's views, tidied for a 393 px screen with 44 px touch targets. */
+   The Coach chat is the home; Plan and Workouts are the tab's own pages; the chat, the plan, Calendar and the
+   custom-workout table are the app's views, tidied for a 393 px screen with 44 px touch targets. */
 
 /* --- Plan: week strip, the day's session, the block --- */
 .av-week-strip { display: grid; grid-template-columns: repeat(7, 1fr); gap: 5px; }
@@ -13,19 +13,23 @@
 .av-day.on { background: rgba(255, 255, 255, .12); color: var(--text-1); border-color: var(--cyan); }
 .av-plan-suggest { width: 100%; margin-top: 10px; min-height: 44px; justify-content: center; }
 
-/* --- Plan: the AI coach card (three ticks into the one chat; today's coach workout one tap from the ride) --- */
-.av-coach-card { display: flex; flex-direction: column; gap: 10px; }
-.av-coach-card > .av-note { margin: -6px 0 0; }
-.av-coach-gos { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
-.av-coach-gos .av-coach-go { min-height: 48px; justify-content: center; gap: 8px; font-weight: 700; padding: 0 10px; }
-.av-coach-gos .av-coach-go:first-child { grid-column: 1 / -1; }
-.av-coach-gos .av-coach-go span { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.av-coach-today { display: flex; align-items: center; gap: 10px; padding-top: 12px; border-top: 1px solid var(--line); }
-.av-coach-today > div { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
-.av-coach-today small { font-size: 11px; font-weight: 700; letter-spacing: .08em; text-transform: uppercase; color: var(--text-3); }
-.av-coach-today b { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.av-coach-today .av-note { margin: 0; }
-.av-coach-today .btn { min-height: 48px; flex: none; }
+/* --- Coach (the Train home): one line for today above the chat; the top bar has Workouts and Plan --- */
+.av-today-line { display: flex; align-items: center; gap: 10px; margin: 0 0 14px; padding: 8px 8px 8px 14px; border-radius: 18px; }
+.av-today-main { flex: 1; min-width: 0; min-height: 48px; display: flex; flex-direction: column; justify-content: center; gap: 1px; padding: 0; border: 0; background: none; color: inherit; font: inherit; text-align: left; cursor: pointer; }
+.av-today-main small { font-size: 11px; font-weight: 700; letter-spacing: .08em; text-transform: uppercase; color: var(--coach-muted, var(--text-3)); }
+.av-today-main b { font-size: 15px; font-weight: 600; color: var(--text-1); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.av-today-main .num { font-size: 12.5px; color: var(--text-2); }
+.av-today-line .btn { flex: none; min-height: 46px; padding: 0 14px; justify-content: center; font-weight: 700; }
+.av-tray-engine { display: flex; align-items: center; gap: 10px; margin: 0 0 12px; }
+.av-tray-engine .ctrl-label { flex: none; }
+.av-tray-engine .ai-pick { flex: 1; min-width: 0; }
+
+/* --- Plan: this week, the day, then the plan and what the coach reads --- */
+.av-plan-week { display: flex; flex-direction: column; gap: 10px; margin: 0 0 12px; }
+.av-plan-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.av-plan-head .eyebrow { margin: 0; }
+.av-plan-head .link-btn { display: inline-flex; align-items: center; gap: 4px; min-height: 44px; font-weight: 700; }
+.av-plan-head .link-btn .ic { width: 15px; height: 15px; }
 
 /* The AI engine switcher (js/app-coach.js) at phone size: a 44 px target that never pushes the layout wide. */
 .apex-native .ai-pick { height: auto; min-height: 46px; font-size: 13px; max-width: 100%; }
@@ -72,12 +76,8 @@ body[data-av-tab="train"] #view-ai-coach .coach-shell { display: block; }
 body[data-av-tab="train"] #view-ai-coach .coach-main { min-height: 0; max-width: none; padding-bottom: 168px; }
 body[data-av-tab="train"] #view-ai-coach.coach-tray-open .coach-main { padding-bottom: min(64vh, 540px); }
 body[data-av-route="train/coach"] #coachSide { display: none; }
-/* Header: Your plan and the engine on one row (the top bar names the screen). */
-body[data-av-tab="train"] #view-ai-coach .coach-head { margin: 0 0 10px; align-items: center; }
-body[data-av-tab="train"] #view-ai-coach .coach-head-text { display: none; }
-body[data-av-tab="train"] #view-ai-coach .coach-head-tools { flex: 1; flex-wrap: nowrap; min-width: 0; }
-body[data-av-tab="train"] #view-ai-coach .coach-head-tools .ai-pick { flex: 1 1 auto; min-width: 0; order: 1; }
-body[data-av-tab="train"] #view-ai-coach .coach-plan-link { display: inline-flex; flex: none; order: 2; min-height: 46px; padding: 0 14px; }
+/* Nothing above the chat but the Today line: the engine is in the options (the gear), Plan in the top bar. */
+body[data-av-tab="train"] #view-ai-coach .coach-head { display: none; }
 /* The message box */
 body[data-av-tab="train"] #view-ai-coach .coach-composer { position: fixed; left: 10px; right: 10px; bottom: calc(80px + env(safe-area-inset-bottom, 0px)); z-index: 65;
   display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 6px; margin: 0; padding: 6px; border-radius: 24px; background: rgba(10, 13, 28, .97); border: 1px solid var(--line);
@@ -104,7 +104,7 @@ body[data-av-tab="train"] #view-ai-coach .coach-input-row .ask-clear { width: 46
 body[data-av-tab="train"] #view-ai-coach .coach-input-row textarea { min-height: 46px; font-size: 16px; padding: 11px 8px; resize: none !important; }
 body[data-av-tab="train"] #view-ai-coach .coach-input-row .btn { height: 46px; padding: 0 14px; }
 body[data-av-tab="train"] #view-ai-coach .ask-privacy { margin-top: 12px; }
-/* The empty chat: three short rows of examples rather than three tall cards. */
+/* The empty chat: the picked mode's examples, stacked (the switch below names all three). */
 body[data-av-tab="train"] #view-ai-coach .coach-welcome { padding: 2px 0 0; }
 body[data-av-tab="train"] #view-ai-coach .coach-welcome .ask-empty-icon { display: none; }
 body[data-av-tab="train"] #view-ai-coach .coach-welcome h3 { font-size: 19px; }
@@ -113,9 +113,9 @@ body[data-av-tab="train"] #view-ai-coach .coach-start { gap: 8px; }
 body[data-av-tab="train"] #view-ai-coach .coach-start-card { padding: 10px 12px; gap: 8px; border-radius: 18px; }
 body[data-av-tab="train"] #view-ai-coach .coach-start-head { align-items: center; }
 body[data-av-tab="train"] #view-ai-coach .coach-start-head small { display: none; }
-body[data-av-tab="train"] #view-ai-coach .coach-start-chips { flex-direction: row; flex-wrap: nowrap; overflow-x: auto; scrollbar-width: none; margin: 0 -12px; padding: 0 12px; }
-body[data-av-tab="train"] #view-ai-coach .coach-start-chips::-webkit-scrollbar { display: none; }
-body[data-av-tab="train"] #view-ai-coach .coach-start-chips .ask-chip { flex: none; white-space: nowrap; display: inline-flex; align-items: center; }
+body[data-av-tab="train"] #view-ai-coach .coach-start-card:not(.active) { display: none; }
+body[data-av-tab="train"] #view-ai-coach .coach-start-chips { flex-direction: column; flex-wrap: nowrap; gap: 8px; }
+body[data-av-tab="train"] #view-ai-coach .coach-start-chips .ask-chip { display: flex; align-items: center; width: 100%; white-space: normal; text-align: left; }
 /* Cards and turns in the thread */
 body[data-av-tab="train"] #view-ai-coach .ask-avatar { display: none; }
 body[data-av-tab="train"] #view-ai-coach .coach-card { padding: 14px; }
@@ -128,8 +128,13 @@ body[data-av-tab="train"] #view-ai-coach .coach-chip-action { min-height: 44px; 
 body[data-av-tab="train"] #view-ai-coach .bs-row { grid-template-columns: 1fr auto; row-gap: 2px; }
 body[data-av-tab="train"] #view-ai-coach .cc-steps th:nth-child(5), body[data-av-tab="train"] #view-ai-coach .cc-steps td:nth-child(5) { display: none; }
 
-/* --- Your plan: the coach view's plan rail on its own page --- */
-.av-train-block #coachSide { position: static; display: flex; flex-direction: column; gap: 12px; max-height: none; overflow: visible; padding: 0; }
-.av-train-block #coachSide .ai-coach-card { padding: 14px; }
-.av-train-block #coachSide .block-head .btn-row { gap: 8px; }
-.av-train-block #coachSide .block-weeks { grid-template-columns: repeat(auto-fill, minmax(56px, 1fr)); }
+/* The coach view's plan rail on the Plan page (the day card above already shows today's session). */
+.av-plan-rail #coachSide { position: static; display: flex; flex-direction: column; gap: 12px; max-width: none; max-height: none; overflow: visible; padding: 0; }
+.av-plan-rail #coachSide .ai-coach-card { padding: 14px; }
+.av-plan-rail #coachSide .block-head .btn-row { gap: 8px; }
+.av-plan-rail #coachSide .block-weeks { grid-template-columns: repeat(auto-fill, minmax(56px, 1fr)); }
+.av-plan-rail #coachPlanToday { display: none !important; }
+/* Calendar is in the week's header on the Plan page; "Enter to send" means nothing on a touch screen. */
+.av-plan-rail #btnBlockToCalendar { display: none; }
+body[data-av-tab="train"] #view-ai-coach .ask-privacy { display: none; }
+.av-plan-week .av-plan-title { font-size: 21px; }

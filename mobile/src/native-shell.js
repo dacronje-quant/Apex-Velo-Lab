@@ -12,7 +12,7 @@
 export const TAB_IDS = ['ride', 'train', 'history', 'progress', 'you'];
 const TAB_DEFAULTS = {
   ride: { label: 'Ride', icon: 'i-play', root: 'ride' },
-  train: { label: 'Train', icon: 'i-calendar', root: 'train/plan' },
+  train: { label: 'Train', icon: 'i-calendar', root: 'train/coach' },
   history: { label: 'History', icon: 'i-history', root: 'history' },
   progress: { label: 'Progress', icon: 'i-activity', root: 'progress' },
   you: { label: 'You', icon: 'i-user', root: 'you' }

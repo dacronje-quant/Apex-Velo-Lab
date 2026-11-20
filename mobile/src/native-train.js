@@ -1,15 +1,16 @@
 /**
- * Train tab (docs/ANDROID-UX.md 2.1, workstream U2): one segmented control, Plan | Workouts | Coach.
+ * Train tab (docs/ANDROID-UX.md 2.1, workstream U2): the AI Coach chat is the tab's home; the library and the plan
+ * are one tap away in the top bar.
  *
- *  train/plan      the week strip, the selected day's session (Ride it, Swap), the AI coach card (three ticks into
- *                  the one chat; "Workout for today" builds one at once), the training block and a row to the calendar
- *  train/coach     the app's AI Coach chat (js/app-coach-chat.js): questions about the rider's training, workouts
- *                  and training plans in one conversation. train/ask (the old Ask page) opens it too
- *  train/block     Your plan: the plan beside the desktop chat (today's session, the block, its weeks, suggested
- *                  changes, re-plan), moved in from the coach view
+ *  train/coach     home: the app's AI Coach chat (js/app-coach-chat.js) - questions about the rider's training,
+ *                  workouts and training plans in one conversation - under a one-line Today (today's planned session
+ *                  or coach workout with Ride, or Workout for today). train/ask (the old Ask page) opens it too
+ *  train/plan      Plan: the week strip and the selected day's session (Start ride, Change workout), the plan from the
+ *                  coach view (the block, its weeks, suggested changes, re-plan) and what the coach reads; train/block
+ *                  (the earlier plan page) opens it
  *  train/calendar  the app's Calendar view (week, month, year, all time; the recovery strip)
- *  train/workouts  a short library list with filter chips and search; a workout opens a sheet (Ride it, Fine-tune,
- *                  Delete); "Create with the coach" opens the chat with Create a workout ticked
+ *  train/workouts  Workouts: a short library list with filter chips and search; a workout opens a sheet (Ride it,
+ *                  Fine-tune, Delete)
  *  train/builder   the app's custom interval table (fine-tune the loaded workout, add steps, save as preset)
  *
  * Everything reads the app's own state and calls its own methods; the existing nodes are moved in (ids and
@@ -21,7 +22,6 @@ const esc = (s) => String(s == null ? '' : s).replace(/[&<>"']/g, (c) => ({ '&':
 const icon = (id) => `<svg class="ic" aria-hidden="true"><use href="#${id}"/></svg>`;
 import { workoutName, durationText, labelIntervalFields } from './native-ui.js';
 
-export const SEG = [{ route: 'train/plan', label: 'Plan' }, { route: 'train/workouts', label: 'Workouts' }, { route: 'train/coach', label: 'Coach' }];
 
 /** Library filters: the desktop's categories, in the phone's words. */
 export const FILTERS = [
@@ -49,12 +49,6 @@ export function workoutProfile(intervals = [], zoneFor) {
   }).join('');
   return `<svg class="av-workout-profile" viewBox="0 0 320 64" preserveAspectRatio="none" aria-hidden="true"><path d="M0 20H320M0 40H320M0 61H320" stroke="currentColor" stroke-width=".5" opacity=".3"/>${blocks}</svg>`;
 }
-/** The Plan page's way into the coach chat: one tick each (js/velo-coach-chat.js INTENTS). */
-export const COACH_ENTRIES = [
-  { intent: 'workout', icon: 'i-bolt', label: 'Workout for today', send: true },
-  { intent: 'plan', icon: 'i-calendar', label: 'Plan my training' },
-  { intent: 'chat', icon: 'i-chat', label: 'Ask about my riding' }
-];
 /** Rows shown before "Show all", so the Workouts root fits on the screen. */
 export const LIST_CAP = 4;
 
@@ -97,23 +91,27 @@ export class TrainTab {
     this.shell = shell; this.rideTab = rideTab; this.win = win; this.doc = win.document;
     this.cat = 'all'; this.query = ''; this.showAll = false; this.day = null; this.searching = true; this.maxMinutes = 0;
     this.planEl = this.page('av-train-plan');
+    this.planEl.innerHTML = '<div class="av-plan-week"></div><div class="av-plan-rail"></div>';
     this.workoutsEl = this.page('av-train-workouts');
     this.builderEl = this.page('av-train-builder');
-    this.blockEl = this.page('av-train-block');
-    const seg = SEG;
-    shell.registerTab('train', { root: 'train/plan' });
-    shell.registerPage('train/plan', { title: 'Train', el: this.planEl, seg, parent: null, mount: () => this.renderPlan() });
-    shell.registerPage('train/workouts', {
-      title: 'Train', el: this.workoutsEl, seg, parent: null,
-      mount: () => this.renderWorkouts()
+    this.todayEl = this.doc.createElement('div');
+    this.todayEl.className = 'card av-today-line';
+    this.todayEl.id = 'avToday';
+    const redirect = (to) => () => this.win.setTimeout(() => shell.go(to, { replace: true }), 0);
+    shell.registerTab('train', { root: 'train/coach' });
+    // Home: the coach chat. The library and the plan are labelled buttons in the top bar.
+    shell.registerPage('train/coach', {
+      title: 'Train', view: 'ai-coach', parent: null, mount: () => this.mountCoach(),
+      actions: () => [this.topAction('i-book', 'Workouts', 'avTopWorkouts', 'train/workouts'), this.topAction('i-calendar', 'Plan', 'avTopPlan', 'train/plan')]
     });
-    shell.registerPage('train/coach', { title: 'Train', view: 'ai-coach', seg, parent: null });
-    // The old Ask page is the coach chat now: a saved link or the app's own switchTab('ask') lands there.
-    shell.registerPage('train/ask', { title: 'Train', view: 'ai-coach', seg, parent: null, mount: () => this.win.setTimeout(() => shell.go('train/coach', { replace: true }), 0) });
-    shell.registerPage('train/block', {
-      title: 'Your plan', el: this.blockEl, parent: 'train/plan',
-      mount: () => this.mountBlock(), unmount: () => { if (this._restoreBlock) this._restoreBlock(); this._restoreBlock = null; }
+    // The old Ask page and the earlier plan page land on their new homes (saved links, the app's own switchTab('ask')).
+    shell.registerPage('train/ask', { title: 'Train', view: 'ai-coach', parent: null, mount: redirect('train/coach') });
+    shell.registerPage('train/block', { title: 'Plan', el: this.page('av-train-redirect'), parent: 'train/coach', mount: redirect('train/plan') });
+    shell.registerPage('train/plan', {
+      title: 'Plan', el: this.planEl, parent: 'train/coach',
+      mount: () => this.renderPlan(), unmount: () => { if (this._restoreSide) this._restoreSide(); this._restoreSide = null; }
     });
+    shell.registerPage('train/workouts', { title: 'Workouts', el: this.workoutsEl, parent: 'train/coach', mount: () => this.renderWorkouts() });
     shell.registerPage('train/calendar', { title: 'Calendar', view: 'calendar', parent: 'train/plan' });
     shell.registerPage('train/builder', {
       title: 'Custom workout', el: this.builderEl, parent: 'train/workouts',
@@ -125,8 +123,8 @@ export class TrainTab {
     shell.mapView('workouts', 'train/workouts');
     shell.mapView('ask', 'train/coach');
     shell.whenApp(() => {
-      // "View full plan" in the chat (and the app's other plan links) open the phone's plan page.
-      this.app.onOpenTrainingPlan = () => { this.shell.go('train/block'); return true; };
+      // "View full plan" in the chat (and the app's other plan links) open the phone's Plan page.
+      this.app.onOpenTrainingPlan = () => { this.shell.go('train/plan'); return true; };
     });
     this.watchCoachRide();
   }
@@ -140,8 +138,16 @@ export class TrainTab {
     return el;
   }
 
-  /** A ride is under way (playing, or paused with time on the clock). */
-  riding() { const app = this.app; return !!(app && (app.isPlaying || app.totalElapsedSeconds > 0)); }
+  /** A labelled top-bar button that opens `route`. */
+  topAction(ic, label, id, route) {
+    const b = this.shell.button({ icon: ic, label, id, onClick: () => this.shell.go(route) });
+    b.classList.add('av-labelled-action');
+    b.insertAdjacentHTML('beforeend', `<span>${esc(label)}</span>`);
+    return b;
+  }
+
+  /** A ride is under way: playing, or paused with time on the clock and not yet finished (a saved ride is not). */
+  riding() { const app = this.app; return !!(app && (app.isPlaying || (app.totalElapsedSeconds > 0 && !app.isWorkoutCompleted))); }
 
   /** Loads a workout (`load(app)`; none: the loaded one) and opens the ride screen with it (the Ride tab's flow). */
   ride(load = null) {
@@ -163,6 +169,8 @@ export class TrainTab {
   }
 
   // ------------------------------------------------------------------------------------------------ Plan --
+  // One page for the schedule: this week (Calendar in its header), the selected day's session, then the plan from
+  // the coach view (the block, suggested changes, re-plan, or Plan my training) and what the coach reads.
 
   plan() {
     const app = this.app;
@@ -172,8 +180,17 @@ export class TrainTab {
 
   renderPlan() {
     const app = this.app;
-    const el = this.planEl;
+    const el = this.planEl.querySelector('.av-plan-week');
     if (!app) { el.innerHTML = '<p class="av-note">Loading…</p>'; this.shell.whenApp(() => this.renderPlan()); return; }
+    if (!this._restoreSide) this._restoreSide = borrow(this.doc.getElementById('coachSide'), this.planEl.querySelector('.av-plan-rail'));
+    if (app.renderTrainingBlock) app.renderTrainingBlock();
+    if (app.updateAiCoachTelemetry) app.updateAiCoachTelemetry();
+    this.renderWeek();
+  }
+
+  renderWeek() {
+    const app = this.app;
+    const el = this.planEl.querySelector('.av-plan-week');
     const keys = weekKeys();
     const today = keys[(new Date().getDay() + 6) % 7];
     if (!this.day || !keys.includes(this.day)) this.day = today;
@@ -190,17 +207,12 @@ export class TrainTab {
       return `<button type="button" class="av-day${k === this.day ? ' on' : ''}${k === today ? ' today' : ''}" data-av-day="${k}" aria-pressed="${k === this.day}">
         <span>${esc(name)}</span><b>${dateOf(k).getDate()}</b>${colour ? `<i style="color:${esc(colour)}" aria-label="${done || s?.status === 'done' ? 'Completed' : 'Planned'}">${done || s?.status === 'done' ? '✓' : '○'}</i>` : '<i class="none"></i>'}</button>`;
     }).join('');
-    el.innerHTML = `<div class="av-week-strip" role="group" aria-label="This week">${days}</div>
-      <div class="card av-day-card" id="avPlanDay"></div>
-      <div class="card av-coach-card" id="avCoachCard"></div>
-      <div class="card av-block-card" id="avPlanBlock"></div>
-      <div class="card av-list av-train-rows"></div>`;
-    el.querySelectorAll('[data-av-day]').forEach((b) => b.addEventListener('click', () => { this.day = b.dataset.avDay; this.renderPlan(); }));
+    el.innerHTML = `<div class="av-plan-head"><span class="eyebrow">This week</span><button type="button" class="link-btn" id="avOpenCalendar">Calendar ${icon('i-right')}</button></div>
+      <div class="av-week-strip" role="group" aria-label="This week">${days}</div>
+      <div class="card av-day-card" id="avPlanDay"></div>`;
+    el.querySelectorAll('[data-av-day]').forEach((b) => b.addEventListener('click', () => { this.day = b.dataset.avDay; this.renderWeek(); }));
+    el.querySelector('#avOpenCalendar').addEventListener('click', () => this.shell.go('train/calendar'));
     this.renderDay(app, planned.get(this.day) || [], rides.get(this.day) || [], this.day === today);
-    this.renderCoachCard();
-    this.renderBlock(app, bp);
-    const rows = el.querySelector('.av-train-rows');
-    rows.appendChild(this.shell.row({ icon: 'i-calendar', id: 'avOpenCalendar', title: 'Calendar', sub: 'Planned and completed rides', onClick: () => this.shell.go('train/calendar') }));
   }
 
   renderDay(app, sessions, rides, isToday) {
@@ -231,9 +243,9 @@ export class TrainTab {
     on('#avPlanSwap', () => this.shell.go('train/workouts'));
   }
 
-  // ------------------------------------------------------------------------------------------- AI coach --
-  // The Plan page's way into the one chat: tick what you want and the chat opens with it ("Workout for today"
-  // builds one at once, as the quick workout did). Today's workout from the chat stays one tap from the ride.
+  // ---------------------------------------------------------------------------------------- Coach (home) --
+  // The chat is the Train home. Above it, one line says what today is (a planned session or the coach's workout,
+  // with Ride; a ride under way; or Workout for today, which asks the coach at once). Tap it for the Plan page.
 
   /** The newest workout the coach built in the chat today, if any. */
   todaysCoachWorkout() {
@@ -246,52 +258,50 @@ export class TrainTab {
     return null;
   }
 
-  renderCoachCard() {
+  mountCoach() {
     const app = this.app;
-    const el = this.planEl.querySelector('#avCoachCard');
-    if (!el || !app) return;
-    const w = this.todaysCoachWorkout();
-    const buttons = COACH_ENTRIES.map((e) => `<button type="button" class="btn ${e.intent === 'workout' ? 'btn-ai' : 'btn-ghost'} av-coach-go" data-av-coach="${e.intent}">${icon(e.icon)}<span>${esc(e.label)}</span></button>`).join('');
-    el.innerHTML = `<span class="eyebrow">AI coach</span>
-      <p class="av-note">Create a workout, plan your training or ask about your riding, all in one chat with your coach.</p>
-      <div class="av-coach-gos">${buttons}</div>
-      ${w ? `<div class="av-coach-today"><div><small>Today's coach workout</small><b>${esc(workoutName(w.title))}</b><span class="av-note num">${esc(fmtMin(w.durationMin))} · TSS ${esc(w.tss)}</span></div>
-        <button type="button" class="btn btn-start" id="avCoachTodayRide">${icon('i-play')}Start ride</button></div>` : ''}`;
-    el.querySelectorAll('[data-av-coach]').forEach((b) => b.addEventListener('click', () => {
-      const entry = COACH_ENTRIES.find((x) => x.intent === b.dataset.avCoach);
-      this.openCoach(entry.intent, { send: !!entry.send });
-    }));
-    el.querySelector('#avCoachTodayRide')?.addEventListener('click', () => this.ride((a) => { a.loadWorkoutObjectIntoCockpit(w); }));
+    if (!app) { this.shell.whenApp(() => { if (this.shell.current && this.shell.current.route === 'train/coach') this.mountCoach(); }); return; }
+    const doc = this.doc;
+    const main = doc.querySelector('#view-ai-coach .coach-main'), thread = doc.getElementById('askThread');
+    if (main && thread && this.todayEl.parentNode !== main) main.insertBefore(this.todayEl, thread);
+    // The engine is set once: on the phone it lives with the other options (the gear), not above the chat.
+    const pick = doc.getElementById('btnAskEngine'), tray = doc.getElementById('coachTray');
+    if (pick && tray && !tray.contains(pick)) {
+      const row = doc.createElement('div');
+      row.className = 'av-tray-engine';
+      row.innerHTML = '<span class="ctrl-label">AI engine</span>';
+      row.appendChild(pick);
+      const hint = doc.getElementById('coachTrayHint');
+      if (hint) hint.after(row); else tray.prepend(row);
+    }
+    // Today follows the chat: a workout the coach builds becomes today's, a cleared chat drops it.
+    if (thread && !this._todayWatch) {
+      this._todayWatch = new this.win.MutationObserver(() => { if (this.shell.current && this.shell.current.route === 'train/coach') this.renderToday(); });
+      this._todayWatch.observe(thread, { childList: true });
+    }
+    this.renderToday();
   }
 
-  renderBlock(app, bp) {
-    const el = this.planEl.querySelector('#avPlanBlock');
-    if (!bp) {
-      el.innerHTML = `<span class="eyebrow">Your training plan</span><h3 class="av-plan-title">Train towards your goals</h3>
-        <p class="av-note">Build a plan around your riding time.</p>
-        <button type="button" class="btn btn-ghost av-big" id="avPlanBuild">${icon('i-calendar')}Create a plan</button>`;
-      el.querySelector('#avPlanBuild').addEventListener('click', () => this.openCoach('plan'));
-      return;
-    }
-    const b = bp.block;
-    const C = this.win.VeloAiCoach;
-    const goal = (C && C.GOALS && (C.GOALS[b.goal] || C.GOALS.ftp)) || { label: 'Training' };
-    const P = this.win.VeloBlockPlanner;
-    const today = P ? P.today() : weekKeys()[0];
-    const i = b.weeks.findIndex((w) => today >= w.start && (!P || today <= P.addDays(w.start, 6)));
-    const week = i >= 0 ? b.weeks[i] : null;
-    const pending = (b.suggestions || []).filter((x) => !x.resolved && x.changes && x.changes.length).length;
-    const where = week ? `Week ${i + 1} of ${b.weeks.length}${week.phase ? ` · ${week.phase}` : ''}` : today < b.startDate ? `Starts ${b.startDate} · ${b.weeks.length} weeks` : `Finished · ${b.weeks.length} weeks`;
-    el.innerHTML = `<span class="eyebrow">Your block</span><h3 class="av-plan-title">${esc(goal.label)} block</h3>
-      <p class="av-note">${esc(where)}${b.options && b.options.hoursPerWeek && !b.options.aiChoosesHours ? ` · up to ${esc(b.options.hoursPerWeek)} h / week` : ''}</p>
-      ${pending ? `<button type="button" class="btn btn-grow av-plan-suggest" id="avPlanSuggestions">${pending} suggested change${pending === 1 ? '' : 's'} · review</button>` : ''}
-      <div class="btn-row av-plan-more">
-        <button type="button" class="btn btn-ghost btn-grow" id="avPlanReplan">${icon('i-sparkles')}Adjust plan</button>
-        <button type="button" class="btn btn-primary btn-grow" id="avPlanOpen">View plan</button>
-      </div>`;
-    el.querySelector('#avPlanReplan').addEventListener('click', () => { this.shell.go('train/block'); this.doc.getElementById('btnReplanBlock')?.click(); });
-    el.querySelector('#avPlanOpen').addEventListener('click', () => this.shell.go('train/block'));
-    el.querySelector('#avPlanSuggestions')?.addEventListener('click', () => { this.shell.go('train/block'); this.win.requestAnimationFrame(() => this.doc.getElementById('blockSuggestions')?.scrollIntoView({ block: 'start' })); });
+  renderToday() {
+    const app = this.app;
+    const el = this.todayEl;
+    if (!app) return;
+    const today = dayKeyOf(new Date());
+    const bp = this.plan();
+    const s = bp ? (bp.sessionsByDate().get(today) || []).find((x) => x.status === 'planned') : null;
+    const w = s ? null : this.todaysCoachWorkout();
+    const ridden = (app.completedWorkouts || []).filter((r) => dayKeyOf(r.date) === today);
+    let t;
+    if (this.riding()) t = { label: 'Riding now', title: workoutName((app.currentWorkout && app.currentWorkout.title) || 'Your ride'), cls: 'btn-start', ic: 'i-play', go: 'Back to ride', act: () => this.shell.go('ride/live') };
+    else if (s) t = { label: 'Today in your plan', title: s.title, meta: `${fmtMin(s.durationMin)} · TSS ${s.tss}`, cls: 'btn-start', ic: 'i-play', go: 'Ride', act: () => this.ride((a) => { a.loadBlockSession(s.id); }) };
+    else if (w) t = { label: "Today's coach workout", title: workoutName(w.title), meta: `${fmtMin(w.durationMin)} · TSS ${w.tss}`, cls: 'btn-start', ic: 'i-play', go: 'Ride', act: () => this.ride((a) => { a.loadWorkoutObjectIntoCockpit(w); }) };
+    else if (ridden.length) t = { label: 'Ridden today', title: ridden[0].title || 'Ride', meta: fmtMin((ridden[0].duration || 0) / 60), cls: 'btn-ghost', ic: 'i-history', go: 'See ride', act: () => this.shell.go('history/' + encodeURIComponent(ridden[0].id)) };
+    else t = { label: 'Today', title: bp ? 'Rest day in your plan' : 'Nothing planned yet', cls: 'btn-ai', ic: 'i-bolt', go: 'Workout for today', act: () => this.openCoach('workout', { send: true }) };
+    el.innerHTML = `<button type="button" class="av-today-main" id="avTodayOpen" aria-label="${esc(`${t.label}: ${t.title}. Open your plan`)}">
+        <small>${esc(t.label)}</small><b>${esc(t.title)}</b>${t.meta ? `<span class="num">${esc(t.meta)}</span>` : ''}</button>
+      <button type="button" class="btn ${t.cls}" id="avTodayGo"${app._askBusy && t.cls === 'btn-ai' ? ' disabled' : ''}>${icon(t.ic)}<span>${esc(t.go)}</span></button>`;
+    el.querySelector('#avTodayOpen').addEventListener('click', () => this.shell.go('train/plan'));
+    el.querySelector('#avTodayGo').addEventListener('click', t.act);
   }
 
   /**
@@ -305,16 +315,6 @@ export class TrainTab {
     if (!app || !app.openCoach) return;
     // On the phone the keyboard opens only when the rider is about to type.
     app.openCoach(intent, { text, send, focus: !send });
-  }
-
-  /** Your plan: the coach view's plan rail (today's session, the block, its weeks, suggestions, re-plan) on its own page. */
-  mountBlock() {
-    const app = this.app;
-    const el = this.blockEl;
-    if (!app) { this.shell.whenApp(() => { if (this.shell.current && this.shell.current.route === 'train/block') this.mountBlock(); }); return; }
-    if (!this._restoreBlock) this._restoreBlock = borrow(this.doc.getElementById('coachSide'), el);
-    if (app.renderTrainingBlock) app.renderTrainingBlock();
-    if (app.updateAiCoachTelemetry) app.updateAiCoachTelemetry();
   }
 
   /** Ride now on a workout in the chat opens the ride screen, the same as Start ride everywhere else on the phone. */
@@ -353,13 +353,11 @@ export class TrainTab {
         <label class="av-wk-duration"><span class="sr-only">Maximum duration</span><select class="input-field" id="avWorkoutDuration"><option value="0">Any length</option><option value="30">≤ 30 min</option><option value="45">≤ 45 min</option><option value="60">≤ 1 hour</option></select></label></div>
         <div class="av-wk-chips" role="group" aria-label="Workout type">${FILTERS.map((f) => `<button type="button" class="chip" data-av-cat="${f.cat}">${esc(f.label)}</button>`).join('')}</div>
         <div class="av-workout-grid av-wk-list" id="avWorkoutList"></div>
-        <button type="button" class="btn btn-ai av-big" id="avDescribe">${icon('i-sparkles')}Create with the coach</button>
         <div class="card av-list av-wk-tools"></div>`;
       el.querySelectorAll('[data-av-cat]').forEach((b) => b.addEventListener('click', () => { this.cat = b.dataset.avCat; this.showAll = false; this.renderWorkouts(); }));
       const input = el.querySelector('#avWorkoutSearch');
       el.querySelector('#avWorkoutDuration').addEventListener('change', (e) => { this.maxMinutes = Number(e.target.value); this.showAll = false; this.renderList(); });
       input.addEventListener('input', () => { this.query = input.value; this.showAll = false; this.renderList(); });
-      el.querySelector('#avDescribe').addEventListener('click', () => this.openCoach('workout'));
       const tools = el.querySelector('.av-wk-tools');
       tools.appendChild(this.shell.row({ icon: 'i-plus', id: 'avOpenBuilder', title: 'Build your own', sub: 'Fine-tune the loaded workout step by step, save it', onClick: () => this.shell.go('train/builder') }));
     }
@@ -377,7 +375,7 @@ export class TrainTab {
     const list = filterWorkouts(app.workoutLibrary, this.cat, this.query, this.App).filter((w) => !this.maxMinutes || (Number(w.durationMin) || (w.intervals || []).reduce((s, v) => s + Number(v.duration || 0), 0) / 60) <= this.maxMinutes);
     box.innerHTML = '';
     if (!list.length) {
-      box.innerHTML = `<p class="av-note av-empty">${this.cat === 'custom' && !this.query ? 'No saved workouts yet. Save one from the coach chat or Build your own.' : 'No workouts match. Try another type, or describe one.'}</p>`;
+      box.innerHTML = `<p class="av-note av-empty">${this.cat === 'custom' && !this.query ? 'No saved workouts yet. Save one from the coach chat or Build your own.' : 'No workouts match. Try another type, or ask the coach for one.'}</p>`;
       return;
     }
     const M = this.win.VeloMetrics;

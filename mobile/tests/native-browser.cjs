@@ -823,6 +823,8 @@ async function brokerFlow(browser, errors) {
     await page.locator('#askForm').evaluate((f) => f.requestSubmit());
     await page.locator('#askThread .ask-ai', { hasText: 'You rode 1 ride this week' }).waitFor({ timeout: 15000 });
     const pick = page.locator('#btnAskEngine select[data-ai-pick]');
+    await page.locator('#btnCoachOptions').click(); // on the phone the engine is with the other options (the gear)
+    assert.ok(await page.locator('#coachTray #btnAskEngine').isVisible(), 'the engine switcher is in the options');
     assert.equal(await pick.inputValue(), 'claude-opus-5-5');
     assert.ok(await pick.evaluate((s) => [...s.options].some((o) => o.value === 'claude-haiku-5-5')), 'the switcher lists the live models');
     await pick.selectOption('claude-haiku-5-5');
@@ -830,6 +832,7 @@ async function brokerFlow(browser, errors) {
     assert.equal(await page.evaluate(() => localStorage.getItem('apex_coach_model')), 'claude-haiku-5-5');
     assert.deepEqual(await page.evaluate(() => [...document.querySelectorAll('select[data-ai-pick]')].map((s) => s.value).filter((v) => v !== 'claude-haiku-5-5')), [], 'every switcher follows');
     assert.equal(await page.locator('#selectCoachModel').inputValue(), 'claude-haiku-5-5', 'Settings > AI engine follows');
+    await page.locator('#btnCoachOptions').click();
     await page.locator('#coachIntents [data-intent="workout"]').click();
     assert.equal(await page.locator('#coachIntents [data-intent="workout"]').getAttribute('aria-checked'), 'true');
     await page.locator('#askInput').fill('30 min tempo, legs a bit tired');
@@ -847,24 +850,28 @@ async function brokerFlow(browser, errors) {
     await page.locator('#askThread .coach-workout [data-coach-act="save"]').click();
     assert.ok(await page.evaluate(() => app.loadSavedWorkouts().some((w) => w.title === 'Quick Tempo Thirty')), 'saved to the library');
     assert.equal(await page.locator('#askThread .coach-workout [data-coach-act="save"]').isDisabled(), true);
-    await page.evaluate(() => ApexNative.shell.go('train/plan'));
-    assert.match(await page.locator('#avCoachCard .av-coach-today').innerText(), /Quick Tempo Thirty/, "today's coach workout is one tap from the ride on Train > Plan");
-    await page.evaluate(() => ApexNative.shell.go('train/coach'));
+    assert.match(await page.locator('#avToday').innerText(), /today's coach workout[\s\S]*Quick Tempo Thirty[\s\S]*Ride/i, "today's coach workout is one tap from the ride, above the chat");
     await page.locator('#askThread .coach-workout [data-coach-act="ride"]').click();
     await page.waitForFunction(() => app.currentWorkout.title === 'Quick Tempo Thirty' && ApexNative.shell.current.route === 'ride/live' && app.isPlaying);
     await page.evaluate(() => app.resetWorkout(false)); // discard it: the check below builds another
-    step('Coach chat: a workout from the rider\'s message, with the engine switched in place (all switchers and Settings follow); the length and the chat so far reach the coach; saved, shown on Train > Plan, started from Ride now');
+    step('Coach chat: a workout from the rider\'s message, with the engine switched in place (all switchers and Settings follow); the length and the chat so far reach the coach; saved, shown as today\'s, started from Ride now');
 
-    await page.evaluate(() => ApexNative.shell.go('train/plan'));
+    // A fresh chat, after riding today: the Today line points at today's ride (the phone UX checks cover Workout for
+    // today on a day with nothing yet); the empty chat's first workout example asks the coach from the form alone.
+    await page.evaluate(() => { app.newAskChat(); app.setCoachIntent('workout'); ApexNative.shell.go('train/coach'); });
+    assert.match(await page.locator('#avToday').innerText(), /Ridden today[\s\S]*See ride/i);
     const calls = await page.evaluate(() => __nativeLog.http.length);
-    await page.locator('#avCoachCard [data-av-coach="workout"]').click(); // Workout for today: one tap
-    await page.waitForFunction(() => ApexNative.shell.current.route === 'train/coach' && document.querySelectorAll('#askThread .coach-workout').length === 2, null, { timeout: 15000 });
+    await page.locator('#askThread [data-example="workout"][data-text=""]').click();
+    await page.waitForFunction(() => ApexNative.shell.current.route === 'train/coach' && document.querySelectorAll('#askThread .coach-workout').length === 1, null, { timeout: 15000 });
     const todayCall = await page.evaluate((n) => __nativeLog.http.slice(n).filter((r) => r.url === 'https://api.anthropic.com/v1/messages').at(-1), calls);
     assert.doesNotMatch(todayCall.data.messages[0].content, /RIDER'S OWN WORDS|EARLIER IN THIS CHAT/, 'leaving it to the coach sends no words and no chat');
     assert.match(await page.locator('#askThread .ask-user').last().innerText(), /Create today's workout from my form and history/);
+    await page.locator('#btnCoachOptions').click();
     await pick.selectOption('claude-opus-5-5');
+    await page.locator('#btnCoachOptions').click();
     assert.equal(await page.evaluate(() => app.aiCoach.model), 'claude-opus-5-5', 'switched back in the chat');
-    step('Coach chat: Workout for today on Train > Plan opens the chat and builds one in a tap, from the form alone');
+    assert.match(await page.locator('#avToday').innerText(), /Quick Tempo Thirty[\s\S]*Ride/, 'the new workout becomes today\'s');
+    step('Coach chat: today\'s workout from the form alone in one tap from the empty chat; it becomes today\'s above the chat');
 
     // ------------------------------------------------------------- health (intervals.icu) --
     const icuKey = 'abc123def456ghi789jkl0';
