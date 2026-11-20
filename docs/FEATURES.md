@@ -82,7 +82,7 @@ Confirmed rides, profiles, preferences, health records and Strava restore points
 The **gear icon** in the header opens Settings - everything you set up once:
 
 - **Rider** - FTP, weight, max / threshold heart rate and crank length (opens the rider profiles).
-- **AI engine** - Claude or Gemini, model and reasoning effort (low by default).
+- **AI engine** - Claude or Gemini, model and reasoning effort (low by default). The ✦ engine switcher at the top of the coach chat and on ride breakdowns changes the model on the spot (everywhere at once).
 - **Apple Health** - live status, the address and token for Health Auto Export, and the setup steps with your PC's address filled in.
 - **Backups** - save status, last automatic backup, **Back up now**, preview and restore, and backup-file import.
 - **Phone view** - the address to open on your phone.
@@ -111,9 +111,9 @@ Your Apple Watch's **resting heart rate**, **HRV** (Apple's SDNN, in ms) and **s
 
 ## Training blocks (periodised plans)
 
-The Coach tab has one builder. Switch it between **One workout** (today's session) and **Training plan**; the goal, notes and history look-back are shared, and only the fields for the chosen mode show. The button underneath says what will be built (goal, days, hours, engine) and warns when a new plan replaces the current one. The right side follows the mode: the session result, or your active plan. In workout mode a strip shows today's session from your plan with a one-click **Load**.
+Pick **Plan my training** in the coach chat and say what you want in your own words ("gran fondo in 10 weeks, no rides on Friday"); weeks, weekly hours, ride days and a long-ride day you name set the options, and the line under the ticks says what will be built (goal, weeks, days, hours, engine) and warns when a new plan replaces the current one.
 
-In **Training plan** mode, pick a goal, a length (4-12 weeks), the days you can ride, a long-ride day, a start date and your hours per week. The coach builds a periodised block:
+Under **Options**, pick a goal, a length (4-12 weeks), the days you can ride, a long-ride day, a start date and your hours per week. The coach builds a periodised block, shown as a plan card in the chat and in full beside it:
 
 - **3 load weeks + 1 recovery week** (about 45% less load, a short key session kept), and a final lighter week that ends with a **ramp test** to reset FTP and zones.
 - **Progressive overload by a controlled CTL ramp** (3-4 CTL per load week by goal, none in the first week if you start fatigued). Volume grows toward your available hours instead of jumping to them.
@@ -144,6 +144,23 @@ The secret stays in `.env`; the access tokens are stored in `.strava-tokens.json
 
 What is uploaded: the ride's FIT file (per-second power, cadence, heart rate, speed, distance and L/R balance, validated with Garmin's FIT SDK), the workout title, the trainer flag, and a short description (avg/NP power, IF, TSS, heart rate, balance, work). Only rides recorded with per-second data can be sent; summary-only imports cannot.
 
+## Share card (Strava, Instagram, messages)
+
+Every ride with recorded power gets a **share card**: a 1080 x 1350 portrait picture (4:5, shown uncropped on Strava and Instagram, saved at 2160 x 2700 as a high-quality JPEG). Open it from **Share to Strava** on the *Workout complete* banner or **Share card** at the top of any ride summary.
+
+- **Full** - title with the interval pattern highlighted (for example *4x4 min* or *30/15*), distance, moving time and NP, the power and heart-rate traces, then the work intervals: up to 8 as average power with each one's peak heart rate, more as bars grouped into sets with the best one lit. A ride without targets shows its best 5 s / 1 / 5 / 20 min powers instead. A strip with cadence, TSS, IF and kJ closes it.
+- **Minimal** - the interval pattern in large thin type, one edge-to-edge power wave with a thin heart-rate line, and six numbers.
+
+Intervals come from the workout's own targets (steps within 80% of the hardest target); a lone effort well before the sets counts as an opener, not a repeat. Every number is the saved ride's.
+
+**Sharing.** Where the browser can share files (Chrome on Android, Safari on iPhone, Edge/Chrome on Windows), **Share** opens the system share sheet: choose Strava to post the picture or add it to the ride, or Instagram, WhatsApp and so on. Otherwise **Download image** saves it; on Strava open the activity and choose *Add photos*. Strava's API does not let personal apps attach photos, so the picture always goes through the share sheet or the Strava app.
+
+**In the Android app.** The same card and dialog; **Share** always opens Android's share sheet and **Download image** saves to Documents/ApexVelo.
+
+**On the phone view (PC rides).** When a ride ends, the PC draws both styles and hands them to the phone view next to the FIT download (**Share card**). The phone page uses plain home-Wi-Fi HTTP, where browsers do not offer file sharing, so it shows **Save image**; then share the saved picture to Strava, or press and hold the picture and choose *Share*. Like the FIT file, the latest ride's cards are kept in the server's memory only (never on disk), and only the PC app can publish them.
+
+The thin numerals use the variable Inter font (`vendor/fonts/inter-latin-wght-normal.woff2`, SIL Open Font License, same as the other Inter files).
+
 ## Sync from Strava (import your activities)
 
 The **Sync from Strava** card in *History* imports your Strava activities for a date range into the history and the Calendar - outdoor rides, Zwift rides from other apps, gym sessions, walks, yoga.
@@ -171,7 +188,7 @@ The **Sync from Strava** card in *History* imports your Strava activities for a 
 
 **Threshold heart rate.** Heart-rate TSS uses the optional *Threshold heart rate* in your profile. Left blank, it is estimated as 90 % of max HR and the record is marked as estimated; once you enter your real threshold HR, the next sync recomputes those estimated records (records that already used a real threshold HR are kept).
 
-**Background check.** About 5 s after the app opens, it quietly reads your chosen range from Strava (the list plus up to 20 descriptions - no power streams) and plans a sync **without applying it**. If anything would change, a count badge appears on the *History* tab and the *Sync from Strava* button, with one toast. Nothing is imported until you press Sync and Apply. Turn it off with *Check Strava for changes when the app opens*.
+**Automatic sync when the app opens.** About 5 s after the app opens, it quietly reads your chosen range from Strava (the list plus up to 20 descriptions) and plans a sync. If the plan is routine - new, linked, refreshed or merged activities, with nothing to review and nothing deleted on Strava - it is applied straight away, with the same restore point as a manual sync (*Undo last sync* puts everything back) and a toast saying what changed. It never runs during a ride or while a dialog is open. A plan that would delete a record or needs a decision is not applied: a count badge appears on the *History* tab and the *Sync from Strava* button for you to review. *Import new activities automatically* turns the applying off (badge only); *Check Strava for changes when the app opens* turns the whole check off.
 
 **Non-cycling activities.** Strength, walks, yoga and other sports are **non-cycling** activities: they appear on the Calendar with their own icon and colour and in History, but never in cycling analytics, the power curve (MMP), FTP or power charts. Strength sessions keep Motra's exercise list for the detail view and get a **strength load** from Strava's relative effort (capped at 60). It counts toward fatigue (ATL) - toggle **Count strength sessions in fatigue** - and toward cycling fitness (CTL) only if you tick the second toggle. A heavy leg day (squats, deadlifts, lunges... or a high strength load) counts like a hard day: the training block review suggests turning a key ride on the next day into endurance, and the AI coach does not prescribe a key session right after it. The coach and block prompts get one line on the strength sessions in the look-back window (count, dates, main lifts).
 
@@ -199,7 +216,7 @@ The AI coach, Ask, Strava and saved data are only available to the app on the PC
 
 The phone has three main views: **Ride**, **Pedaling** and **Devices**. Tap the tabs or swipe sideways; the phone remembers the last view. Only Pedaling has a view switch. Each screen fits without vertical scrolling on small phones and in landscape.
 
-- **Ride** - the compact clover puts power in the centre, with target watts, interval time left, heart rate and cadence around it. Power sits clearly inside the coloured ring; four-digit readings scale down. A slim row shows workout time left and elapsed time, with average power, distance and W′ remaining inline below. There are no Workout, Focus or Stats categories. The graph shows the whole workout with power, heart rate and cadence; tap it for the six-minute **Following** window. Tap power to choose Current, 3 s, 5 s, 7 s or 10 s averaging.
+- **Ride** - the compact clover puts power in the centre, with target watts, interval time left, heart rate and cadence around it. Power sits clearly inside the coloured ring; four-digit readings scale down. A slim row shows workout time left and elapsed time, with average power, distance and W′ remaining inline below. There are no Workout, Focus or Stats categories. The graph shows the whole workout with power, heart rate and cadence; tap it for the six-minute **Following** window. Tap power to choose Current, 3 s, 5 s or 10 s averaging.
 - **Pedaling** - switch between **Balance** (measured L/R split, two-minute trend, cadence and power source) and **Stroke model** (the polar visual). The phone remembers this choice. Balance, power and cadence are measured; the lobe shape is illustrative.
 - **Devices** - all four compact device cards are visible together, showing connection, reading, battery/signal and the existing connection/calibration actions. There are no device categories. **Airflow** on the fan card opens its cooling controls in a dialog. The header sensor dots also open Devices. Disconnect still needs a second tap; calibration is unavailable during a ride. Reconnection alerts work from every view.
 
@@ -208,6 +225,8 @@ The phone has three main views: **Ride**, **Pedaling** and **Devices**. Tap the 
 Chrome forgets a sensor it has not seen for a few minutes (and every sensor when it restarts), and then refuses to reconnect it with *Bluetooth Device is no longer in range* - however close it is. So a connect from the phone listens for the sensor first (up to 12 s, even with the PC window minimised) and connects the moment it shows up: wake it before you tap (turn the cranks, put the strap on). A sensor that stays silent shows *Not found nearby* instead of three failed tries. This relies on Chrome's `chrome://flags/#enable-web-bluetooth-new-permissions-backend` (Enabled); without it the phone can only reconnect sensors picked since the PC page last loaded, and asks for **Pair now** otherwise.
 
 Before you press Start (and while paused) the phone already shows live heart rate, power and cadence from connected devices; nothing is recorded until the ride runs.
+
+**Controls on display.** *Settings > Ride screen* has a switch for each group of ride controls - **Intensity** (easier / harder), **Interval length** (−30 s / +30 s on the current step) and **Next step** - and the cockpit dock, Zen and the phone view show only the ones switched on. Keyboard shortcuts keep working for hidden controls.
 
 A thin zone-coloured bar of the whole workout sits above the controls on every screen, with a needle showing where you are. The controls stay at the bottom of every screen, sized for sweaty fingers (60 px targets): **Start/Pause**, **-5 W / +5 W** (the middle shows the change from the plan in watts - tap it to go back to the plan), **Zen** and **Skip step** (tap twice to confirm). When a workout ends, the phone shows the **+5 min easy spin** offer with giant buttons too. Keep the Apex tab open on the PC (it can be minimised). Only devices on your private home network are accepted; anything else gets 403.
 
@@ -263,41 +282,54 @@ A thin zone-coloured bar of the whole workout sits above the controls on every s
 - **+5 min easy spin.** When the last step ends, the ride keeps going on a 5-minute easy spin (45 % FTP) and a prompt offers **+5 min easy spin** or **Finish now** for 10 s (on the PC and the phone). No answer = finish: the extra step is dropped and the workout is saved as completed. Accept, and at the end of the spin you are asked again.
 - **Keyboard.** Space start/pause, Tab or -> next step, `S` stand break, `Z` Zen, `F` fullscreen, `P` mini-HUD, `M` mute; the full list is behind the keyboard icon.
 
-### AI Coach
-- **Build a session:** the Workouts tab is the library (filter, search, fine-tune in the table); anything built for you comes from the **AI Coach** (its notes box takes requests in your own words, up to 1,500 characters, like "45 min over-unders, low cadence, legs are tired"; what you ask for comes first, and the coach says so when your data argues against it).
-- **Goals:** FTP, Longevity (Z2/durability, a weekly 4 x 4 and strength work), VO2max and Balanced.
-- **Context from your real history.** 28-day hours per week, intensity mix, CTL/ATL/TSB, days since the last hard and last long ride, and a power-profile type from your all-time MMP curve. Free-text notes are passed through as well.
-- **Claude or Gemini (Claude Opus 5.5 or Gemini 3.8 Flash, low effort by default).** The summarised reasoning trace is rendered as markdown with a live timer, alongside phase cards. The assessment speaks to you directly and quotes the rides and numbers behind each point. For the days ahead, build a Training plan.
-- **Offline engine.** Builds a workout sized to the requested duration: sweet-spot blocks, threshold under/overs, 4×4 VO2 (heart-rate guided for Longevity) or Rønnestad 30/15. IF and TSS are computed from the intervals, not estimated. See *Evidence-based sport scientist* above.
-- **One-click load** into the cockpit, and **Clear Recommendation**.
-- **Recent ride insight in the prompt.** From rides with recorded power, the coach (Claude/Gemini, and the offline engine's advice) gets: the last hard session's interval diagnosis (and its saved AI breakdown), the Pw:HR drift of recent steady rides, new power bests over an earlier best (5 min and longer), and an FTP suggestion you have not applied yet - so a session type that faded is re-paced, aerobic work stays steady while drift is high, and targets reflect a proven FTP.
+### AI Coach: one chat for questions, workouts and plans
+Everything AI happens in one conversation on the **Coach** tab (on the phone, the **Train** tab opens on it). Above the message box is a three-way switch; one is always picked, and it shows a tick:
 
-### Ask your data
-A separate, simple chat for questions about your own training, apart from the Coach (which builds workouts) and training blocks.
-- **Pick a period** (7 days, 4 weeks, 6 weeks, 3 months, 6 months, 1 year, all history or custom dates) and **ask in your own words** - or tap a suggested question such as *Am I recovering well enough?* Follow-up questions keep the conversation; changing the period mid-chat applies from the next question and the thread notes it.
+- **Ask about my riding** - questions, analysis and advice from your own data (see *Questions about your training* below).
+- **Create a workout** - one session for the trainer, from your form, history and your own words.
+- **Plan my training** - a 4-12 week periodised plan on your Calendar (see *Training blocks* below).
+
+Type in your own words and press the button (Ask / Create workout / Build plan). An empty message with **Create a workout** ticked leaves it to the coach: today's session from your form alone.
+
+- **Results land in the thread.** A workout is a card with its profile, duration, TSS, IF and peak watts, *How to ride it*, and under it the steps, *Why this workout* (fitness and fatigue), *The science behind this* and the coach's reasoning. **Ride now** loads it into the cockpit (on the phone it opens the ride screen and starts), **Save** adds it to your library, **Change it** ticks Create a workout so your next message ("shorter", "no VO2") changes it, and **Another one** builds a fresh one from the same request. A plan is a card with its weeks, summary and this week's sessions (each with **Load**), and **View full plan** / **Calendar**.
+- **Everything connects.** Each turn sees the chat so far: a question can follow a workout ("why that one?"), **Make it a workout** under an answer that describes a session builds it, and "make it shorter" after a workout changes that one. Workouts and plans the coach built count as its turns when you ask the next question.
+- **Your words set the options.** A session length in the message ("60 min", "1.5 h"; never an interval such as "2x20 min") sets the workout length; weeks ("10 weeks"), weekly hours ("6 hours a week"), rides a week ("4 rides a week"), days off ("no rides on Friday", "except Tuesday and Thursday") and a long-ride day ("long ride on Saturday") set the plan. The line under the ticks shows what will be built, with what came from your message in bold, and your message says *Set from your message* afterwards.
+- **Options** (the line under the switch; on the phone, the gear beside it) hold the rest: the period the coach reads for questions and *What the AI sees*; the goal (FTP, Longevity, VO2max or Balanced, shared by workouts and plans), length, focus and history look-back for a workout; the weeks, ride days, long-ride day, start and weekly hours for a plan.
+- **Without an AI key** questions need one, but workouts and plans are still built by the offline engine from your form and the options (it cannot read your words, and the card says so).
+- **Ways in.** The Workouts tab's **Create with the coach**, a ride's **Discuss with the coach** (the question is ready, the period covers the ride), the plan card beside the chat and, on the phone, the line above the chat (**Workout for today** builds one in a tap) all lead here; on the phone the chat is the Train tab's home. Clicking a planned session on the Calendar opens the plan.
+- **Beside the chat** (below it on narrow screens; on the phone, Train's **Plan** page) are today's session from your plan, the plan itself with its suggestions, re-plan and delete, and **What the coach sees**: readiness, form, fitness, fatigue, the last 7 days, FTP, volume, intensity mix, last hard and long ride and power profile.
+- **Goals:** FTP, Longevity (Z2/durability, a weekly 4 x 4 and strength work), VO2max and Balanced.
+- **Context from your real history.** 28-day hours per week, intensity mix, CTL/ATL/TSB, days since the last hard and last long ride, and a power-profile type from your all-time MMP curve. Your words come first (up to 4,000 characters with the chat so far): what you ask for is built, and the coach says so when your data argues against it.
+- **Claude, Gemini or ChatGPT (Claude Opus 5.5, low effort by default).** The summarised reasoning trace is under each workout. The assessment speaks to you directly and quotes the rides and numbers behind each point.
+- **Offline engine.** Builds a workout sized to the requested duration: sweet-spot blocks, threshold under/overs, 4×4 VO2 (heart-rate guided for Longevity) or Rønnestad 30/15. IF and TSS are computed from the intervals, not estimated. See *Evidence-based sport scientist* above.
+- **Recent ride insight in the prompt.** From rides with recorded power, the coach (Claude/Gemini, and the offline engine's advice) gets: the last hard session's interval diagnosis (and its saved AI breakdown), the Pw:HR drift of recent steady rides, new power bests over an earlier best (5 min and longer), and an FTP suggestion you have not applied yet - so a session type that faded is re-paced, aerobic work stays steady while drift is high, and targets reflect a proven FTP.
+- **Made for keyboards and screen readers.** The switch is a radio group (arrow keys move it), Esc closes the options, the send button waits for a question, and a status line announces answers and finished workouts and plans instead of the whole thread being read again.
+- The chat (questions, answers, workout and plan cards) is kept on this device; **Clear** next to the message box starts over after asking (a plan stays on your Calendar).
+
+### Questions about your training (Ask about my riding)
+- **Pick a period** under Options (7 days, 4 weeks, 6 weeks, 3 months, 6 months, 1 year, all history or custom dates) and **ask in your own words** - or tap a suggested question such as *Am I recovering well enough?* Follow-up questions keep the conversation; changing the period mid-chat applies from the next question and the thread notes it.
 - **What the AI sees** is a compact text summary of that period, built on your PC from measured data only: rider settings, today's fitness / strain / freshness, the CP model, period totals against the period before, a week-by-week table, power bests (period and all-time), time in power zones, efficiency and heart-rate drift, pedal balance, FTP changes, weekly resting HR / HRV / sleep from Apple Health, other activities, and one line per ride. Open **What the AI sees** under the period to read the exact text. Very long periods list fewer of the oldest rides (the totals still include them).
-- **Answers** are short and plain-English, with the numbers that back them; they are not medical advice. Copy any answer with one click; **New chat** starts over. The chat is kept in this browser only.
+- **Answers** are short and plain-English, with the numbers that back them; they are not medical advice. Copy any answer with one click; **Clear** starts over. The chat is kept in this browser only.
 - **Engine:** the same Claude or Gemini model and effort chosen in **Settings > AI engine**; the key stays on the local server. The summary is sent as a cached block, so follow-up questions about the same period cost less. On Claude Opus 5.5, if the safety system declines a request, the server lets Claude answer with the default fallback model instead of failing (the request carries `fallbacks: "default"`); older API versions that reject this are retried without it.
 
 ### Analytics - progression dashboard
-One **time range for the whole page** (6 weeks, 3 months, 6 months, 1 year, All). The page is a set of **modules**, one on screen at a time: a dock under the title (Overview, Fitness & load, Power & CP, FTP, Intensity, Aerobic engine, Health) shows each module's headline number live (form, CTL and ramp, CP or best 20 min, FTP, intensity pattern, EF, 7-day HRV or resting HR) with an arrow for the 6-week change (green = the good direction). Click a module, use **1-7** or **[ ]** on the keyboard (arrow keys inside the dock), or the previous / next buttons at the bottom; the app remembers the last one.
-- **Drill down.** Click a progression tile, a today-strip value or a *What changed* card and the module that explains it opens with the right chart highlighted.
-- **Interactive charts.** Legend chips show or hide a series (the axis rescales). With a mouse, drag across the PMC, CP & W′ history, EF, resting HR / HRV or balance chart to zoom into those dates; double-click or *Reset zoom* to go back. The expand button on a chart card opens it full-window (Esc closes).
-- **What changed** (Overview): short cards built only from the numbers on the page - form, the 6-week fitness change and ramp, volume vs the period before, new power PRs, CP vs FTP (or the 20-min peak), the intensity pattern, the EF trend and resting HR / HRV. Next to it, the **records** board (best NP, longest ride, biggest TSS, most kJ, best week, streak).
+One **time range for the whole page** (6 weeks, 3 months, 6 months, 1 year, All) and four tabs, one on screen at a time: **Summary**, **Fitness**, **Power** and **Health**. Click a tab, use **1-4** or **[ ]** on the keyboard (arrow keys inside the tab bar); the app remembers the last one. Each tab shows its two or three main cards; everything else is under a **More detail** fold at the bottom of the tab, which stays open or closed as you left it.
+- **Summary** - four key numbers, each with its trend and one plain sentence: **Fitness** (CTL, change in 6 weeks), **Form today** (TSB and its zone), **FTP** (with W/kg) and **Last 7 days** (hours, rides, TSS and the load change vs the week before). Tap one to open its chart. Below: *Your week* in three sentences (or written by the AI engine), the readiness ring when health data is set up, *Also worth knowing* (new power PRs, CP vs FTP or the 20-min peak, the intensity pattern, the EF trend, resting HR / HRV - only what the key numbers do not already say) and the **records** board (best NP, longest ride, biggest TSS, most kJ, best week, streak).
+- **Where things are.** Fitness: today's fitness / form / ramp rate, the PMC and weekly load; *More detail* holds the training year, time in zones, intensity mix, the ride scatter, efficiency factor and decoupling. Power: the power duration curve, power profile and FTP history; *More detail* holds the critical power model, CP & W′ over time, *FTP over time* and left / right balance. Health: the tiles, heart rate, HRV and sleep; *More detail* holds the rest.
+- **Interactive charts.** Legend chips show or hide a series (the axis rescales). With a mouse, drag across the PMC, CP & W′ history, EF, resting HR / HRV or balance chart to zoom into those dates; double-click or *Reset zoom* to go back. The expand button on a chart card opens it full-window (Esc closes); the pin button puts it on Summary.
 - **Plain English everywhere.** Every acronym and metric in the app has a short plain-English line under its name (*TSS - workout load score*, *CP - your long-effort limit*, *W′ - burst energy reserve*) and its full name on hover. They come from one shared glossary (`js/velo-glossary.js`) that matches *Settings › Training terms explained*.
-- **Today strip:** readiness, form (TSB) with its zone, fitness (CTL) and fatigue (ATL), **ramp rate** (CTL gained in 7 days - above ~7/week is flagged as injury/illness risk) and FTP with W/kg.
-- **Progression tiles** - value, trend sparkline over the range and change vs 6 weeks ago (green = the good direction): FTP, fitness (CTL), **efficiency factor**, 20-min peak (best in 90 days), resting HR and HRV (30-day averages).
-- **Fitness & load:** the PMC (coloured form bands, daily TSS bars, tooltips and a form badge: Fresh, Productive, Optimal, High Fatigue or Overtraining) and weekly TSS / hours / kJ / rides with a 4-week average and KPIs vs the previous period, or **Zones**: hours per power zone each week, stacked; click a week to list its rides.
-- **Power & critical power:**
+- **Fitness strip:** fitness (CTL) and fatigue (ATL), form (TSB) with its zone, and **ramp rate** (CTL gained in 7 days - above ~7/week is flagged as injury/illness risk).
+- **Fitness:** the PMC (coloured form bands, daily TSS bars, tooltips and a form badge: Fresh, Productive, Optimal, High Fatigue or Overtraining) and weekly TSS / hours / kJ / rides with a 4-week average and KPIs vs the previous period, or **Zones**: hours per power zone each week, stacked; click a week to list its rides.
+- **Power:**
   - **Power duration curve** on a log-time axis from 1 s to 4 h: your best for every duration in the page range, the all-time best (HealthFit archive included), the same-length period before (dashed) and the **CP model** (dashed amber); during or after a ride also *This session*. Point at the curve or drag the slider to read any duration: this period (W, W/kg and the ride that set it - click to open it), all-time, the change vs the previous period, the model's value and this session as % of your PR. **W | W/kg** toggle, and *Show the curve as a table*.
   - **Critical power model** from the best efforts of the last 90 days: **CP**, **W′** (kJ and J/kg) and **Pmax**, CP vs your FTP, an **estimated VO2max** from your best 5 min, the fit error, and *how long W′ lasts* at 105-150% of CP. It tells you when the window lacks all-out efforts (W′ then reads low) and, without a model, exactly what it needs.
   - **CP & W′ over time:** the model refitted along the range (each point uses the 90 days before it) in two lanes, with the FTP in use for comparison.
   - **Left / right balance per ride:** average left-leg % per ride, measured by the pedals, with the usual 48-52 % band shaded and a 10-ride average line.
-- **Intensity distribution:** time in each power zone over the range (from second-by-second power, each ride against the FTP it was ridden with), the 3-zone split (low < 75 %, moderate 75-105 %, high > 105 % FTP), the **polarization index** and whether the period was polarized, pyramidal, threshold-heavy or high-intensity heavy.
-- **Aerobic engine:** **efficiency factor** (NP / average HR) of steady aerobic rides only (Z2 to tempo, VI <= 1.06, 20 min+) with a 30-day average line - rising = more watts per heartbeat; and the **Pw:HR decoupling trend**. Resting HR and HRV are in *Health*.
-- **Power profile** (Power & CP): 5 s, 1 min, 5 min, 20 min - best of the last 90 days vs the 90 days before, W/kg, and a **PR** badge only when it beats everything before (HealthFit archive included).
-- **FTP:** **FTP history & monthly peak NP** (bars: highest-NP ride per month; amber line: the FTP in use and your logged FTP changes; green triangles: months where a ride proved an FTP within 5 % of yours or above) with the implied FTP of every method beside it, and **FTP over time** (the experimental Power + Heart Rate estimate, see `docs/FTP-HISTORY.md`).
-- **Intensity** also holds the **intensity mix** (hours by ride IF) and every ride as NP vs duration (click a dot to review it).
+- **Intensity distribution** (Fitness › More detail): time in each power zone over the range (from second-by-second power, each ride against the FTP it was ridden with), the 3-zone split (low < 75 %, moderate 75-105 %, high > 105 % FTP), the **polarization index** and whether the period was polarized, pyramidal, threshold-heavy or high-intensity heavy.
+- **Aerobic efficiency** (Fitness › More detail): **efficiency factor** (NP / average HR) of steady aerobic rides only (Z2 to tempo, VI <= 1.06, 20 min+) with a 30-day average line - rising = more watts per heartbeat; and the **Pw:HR decoupling trend**. Resting HR and HRV are in *Health*.
+- **Power profile** (Power): 5 s, 1 min, 5 min, 20 min - best of the last 90 days vs the 90 days before, W/kg, and a **PR** badge only when it beats everything before (HealthFit archive included).
+- **FTP** (Power): **FTP history & monthly peak NP** (bars: highest-NP ride per month; amber line: the FTP in use and your logged FTP changes; green triangles: months where a ride proved an FTP within 5 % of yours or above) with the implied FTP of every method beside it, and **FTP over time** (the experimental Power + Heart Rate estimate, see `docs/FTP-HISTORY.md`).
+- Fitness › More detail also holds the **intensity mix** (hours by ride IF) and every ride as NP vs duration (click a dot to review it).
 - **Health:** every daily health value with data (Apple Health on the PC; intervals.icu in the Android app): tiles with the 30-day average against the 30 days before, resting and sleeping HR, HRV against its rolling normal range, sleep and its stages, a sleep timeline, the sync app's scores, stress index, breathing, SpO2 and weight, how next-morning HRV, resting HR and sleep follow the previous day's TSS, and a correlation explorer for any two measures.
 - **Ride review.** Each ride opens in a modal with a completion banner, comparisons against the last 90 days, peaks versus PRs, time in zone, interval execution and prev/next navigation. Rides with second-by-second power also get:
   - **Power analysis:** variability index, efficiency factor, **work and time above CP**, **W′ low point** (the deepest dip: kJ, % and when), **matches** (W′ drops of 2 kJ or more) and **TRIMP** (Edwards). W′ uses the CP model on the ride's date; if the ride beat the model, it says so.
@@ -353,18 +385,20 @@ js/
   velo-sound.js, velo-pip.js, velo-folder-sync.js
   app.js              Orchestrator: state, tick loop, cockpit, Zen, BLE events, calibration
   app-analytics.js    PMC, MMP, FTP and weekly progression charts, page range (mixin)
-  app-dashboard.js    Analytics dashboard: today strip, tiles, power profile, CP model card, CP history, intensity distribution, EF / recovery / balance charts (mixin)
+  app-dashboard.js    Analytics dashboard: key numbers, fitness strip, power profile, CP model card, CP history, intensity distribution, EF / recovery / balance charts (mixin)
   app-ana-studio.js   Analytics modules: dock with live values, panels, drill-down, What changed feed, legend toggles, drag-to-zoom, expanded charts (mixin)
   app-power.js        Per-ride power cache, CP model at any date (memoised), live W' balance in the cockpit (mixin)
   app-ride-analysis.js Ride review power analysis: ride plot lanes, W' metrics, zones, ride curve, distribution, quadrants (mixin)
   velo-glossary.js    Plain-English meaning of every acronym / metric, shown under labels and as tooltips
-  velo-ask.js         Ask: period windows and the training-data summary the AI answers from (pure)
-  app-ask.js          Ask page: period picker, chat thread, /api/ask calls, saved chat (mixin)
+  velo-ask.js         Questions: period windows and the training-data summary the AI answers from (pure)
+  velo-coach-chat.js  Coach chat: the three modes, options from the rider's words, workout lines, the chat as context and as API turns (pure)
+  app-coach-chat.js   Coach chat: one thread for questions, workouts and plans, the message box, workout and plan cards, ways in (mixin)
+  app-ask.js          Questions: period picker, the data summary, the engine warning (mixin)
   app-health.js       Apple Health pickup, storage, readiness chips, calendar helpers, Settings panel (mixin)
   app-settings.js     Settings screen (mixin)
   app-history.js      History, ride review, exports, calendar (mixin)
-  app-coach.js        Coach UI and markdown renderer (mixin)
-  app-block.js        Training block UI and planned sessions on the calendar (mixin)
+  app-coach.js        AI engine settings and switchers, the coach's live numbers, evidence list, markdown renderer (mixin)
+  app-block.js        Training plan options, the plan beside the chat and planned sessions on the calendar (mixin)
   app-strava.js       Send to Strava: upload, status per ride, workout image (mixin)
   velo-dedupe.js      Fuzzy duplicate detection (start, overlap, duration, distance, energy)
   velo-strava-sync.js Sync from Strava: range, 3-layer dedupe, power streams, refresh plan, validation (pure logic)

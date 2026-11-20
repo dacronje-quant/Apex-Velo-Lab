@@ -38,9 +38,38 @@ body:not([data-av-prog="power"]) #avProgFtp { display: none !important; }
 .av-prog-ftp small { display: block; color: var(--text-3); margin-top: 2px; }
 .av-prog-ftp .btn-row { display: flex; flex-direction: column; gap: 6px; }
 
-/* Fitness: the overview without readiness and records */
+/* Fitness: the week in words, today's fitness / form / ramp, the two main charts, then what else moved.
+   The four key numbers are on the Progress page itself; readiness and records have their own pages. */
 body[data-av-prog="fitness"] #anaCardReady,
-body[data-av-prog="fitness"] #anaCardRecords { display: none !important; }
+body[data-av-prog="fitness"] #anaCardRecords,
+body[data-av-prog="fitness"] #anaTiles,
+body[data-av-prog="fitness"] #anaPinned[hidden],
+body[data-av-prog="fitness"] #anaMore-load .ana-more-body > :not(#anaCardYear),
+body[data-av-prog="fitness"] #anaMore-load .ana-more-txt small { display: none !important; }
+body[data-av-prog="fitness"] :is(#ana-panel-overview, #ana-panel-load):not([hidden]) { display: contents; }
+body[data-av-prog="fitness"] #anaStage > .ana-panel > * { margin-bottom: 0; min-width: 0; }
+body[data-av-prog="fitness"] #anaHero { order: 1; grid-template-columns: minmax(0, 1fr); }
+body[data-av-prog="fitness"] #anaTodayStrip { order: 2; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; }
+body[data-av-prog="fitness"] #anaTodayStrip .pmc-stat-pill { padding: 12px; border-radius: 18px; }
+body[data-av-prog="fitness"] #anaTodayStrip .pmc-stat-pill .val { font-size: 24px; }
+body[data-av-prog="fitness"] #anaTodayStrip .pmc-stat-pill :is(.plain, .desc) { font-size: 11.5px; }
+body[data-av-prog="fitness"] #anaTodayStrip .pmc-stat-pill .plain { display: none; }
+body[data-av-prog="fitness"] #anaTodayStrip .pmc-stat-pill::before { display: none; }
+body[data-av-prog="fitness"] #anaTodayStrip .pmc-stat-pill .title { letter-spacing: .04em; overflow-wrap: anywhere; }
+body[data-av-prog="fitness"] #anaCardPmc { order: 3; }
+body[data-av-prog="fitness"] #anaCardWeekly { order: 4; }
+body[data-av-prog="fitness"] #anaPinned { order: 5; }
+body[data-av-prog="fitness"] #ana-panel-overview > .ana-grid { order: 6; }
+body[data-av-prog="fitness"] #anaMore-load { order: 7; margin: 0; }
+/* Intensity: the Fitness panel's fold, opened by the page (native-progress.js), without the rest of the panel */
+body[data-av-prog="intensity"] #ana-panel-load > :not(#anaMore-load),
+body[data-av-prog="intensity"] #anaMore-load > summary,
+body[data-av-prog="intensity"] #anaCardYear { display: none !important; }
+body[data-av-prog="intensity"] #anaMore-load { margin: 0; }
+/* "More detail" folds on every topic page */
+body[data-av-prog] .ana-more > summary { padding: 12px 16px; border-radius: 18px; }
+body[data-av-prog] .ana-more-body { display: flex; flex-direction: column; gap: var(--gap, 12px); }
+body[data-av-prog] .ana-more-body > * { margin-bottom: 0; min-width: 0; }
 /* Health: readiness from the overview, then the Health panel with the HRV trend first */
 body[data-av-prog="health"] #ana-panel-overview > :not(#anaHero),
 body[data-av-prog="health"] #anaCardStory { display: none !important; }
@@ -52,7 +81,7 @@ body[data-av-prog="health"] #anaHero { order: -1; }
 /* Records: all-time bests and the power profile only */
 body[data-av-prog="records"] #ana-panel-overview > :not(.ana-grid),
 body[data-av-prog="records"] #anaCardInsights,
-body[data-av-prog="records"] #ana-panel-power .ana-grid > :not(#anaCardProfile) { display: none !important; }
+body[data-av-prog="records"] #ana-panel-power > :not(#anaCardProfile) { display: none !important; }
 
 /* --- 44 px touch targets on the topic pages: hit areas through ::after (same look), or taller rows --- */
 body[data-av-prog] #view-analytics :is(.lg-toggle, .segmented > button) { position: relative; }
@@ -76,30 +105,19 @@ body[data-av-prog] .ftp-metrics-controls label:has(input:checked) { border-color
 body[data-av-prog] .ftp-metrics-controls label:has(input:checked)::before { background: var(--cyan); border-color: var(--cyan); }
 body[data-av-prog] .ftp-metrics-controls label:has(input:focus-visible) { outline: 2px solid var(--cyan); outline-offset: 2px; }
 
-/* Power & FTP: the two Analytics panels are flattened so their cards can be ordered as one page:
-   summary, best efforts, FTP history, then the expert models. */
-#avPowerSummary, .av-pow-section { display: none; }
+/* Power & FTP: the Analytics panel is flattened so its cards can be ordered as one page: FTP suggestion,
+   the summary (FTP and best efforts), the power curve, FTP history, then the expert models under "More detail". */
+#avPowerSummary { display: none; }
 body[data-av-prog="power"] #anaStage { display: flex; flex-direction: column; gap: 12px; }
-body[data-av-prog="power"] #anaStage > .ana-panel:not([hidden]),
-body[data-av-prog="power"] #ana-panel-power .ana-grid { display: contents; }
-body[data-av-prog="power"] #anaStage .ana-panel-head { display: none; }
-body[data-av-prog="power"] #avPowerSummary { display: block; }
-body[data-av-prog="power"] .av-pow-section { display: block; padding: 18px 4px 0; }
+body[data-av-prog="power"] #anaStage > .ana-panel:not([hidden]) { display: contents; }
+body[data-av-prog="power"] #anaStage > .ana-panel > * { margin-bottom: 0; }
+body[data-av-prog="power"] #avPowerSummary { display: block; order: 1; }
+body[data-av-prog="power"] #anaCardProfile { display: none !important; } /* the summary has the same four bests; the card is on Records */
 body[data-av-prog="power"] #avProgFtp { order: 0; }
-body[data-av-prog="power"] #avPowerSummary { order: 1; }
-body[data-av-prog="power"] #avPowSecBests { order: 2; }
 body[data-av-prog="power"] #anaCardPdc { order: 3; }
-body[data-av-prog="power"] #anaCardProfile { order: 4; }
-body[data-av-prog="power"] #avPowSecFtp { order: 5; }
 body[data-av-prog="power"] #anaCardFtpHistory { order: 6; }
-body[data-av-prog="power"] #avPowSecExpert { order: 7; }
-body[data-av-prog="power"] #cpModelCard { order: 8; }
-body[data-av-prog="power"] #anaCardCpHistory { order: 9; }
-body[data-av-prog="power"] #ftpMetricsHistoryCard { order: 10; }
-body[data-av-prog="power"] #anaCardBalance { order: 11; }
+body[data-av-prog="power"] #anaMore-power { order: 7; margin: 0; }
 body[data-av-prog="power"] #anaStage > * { min-width: 0; }
-.av-pow-section h3 { margin: 0; font-size: 19px; font-weight: 700; letter-spacing: -.01em; }
-.av-pow-section p { margin: 2px 0 0; font-size: 14px; color: var(--text-2); }
 .av-pow-summary .eyebrow { display: block; margin-bottom: 6px; }
 .av-pow-ftp { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
 .av-pow-ftp b { display: block; font-size: 44px; line-height: 1.05; font-weight: 700; color: var(--amber); }

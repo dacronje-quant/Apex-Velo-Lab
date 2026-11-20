@@ -21,7 +21,7 @@ const { fixture } = require('./sqlite-fixture.cjs');
     await page.goto(f.base);
     await page.waitForFunction(() => window.app && VeloStorage.enabled && app.ftpMetricsChart);
     await page.locator('[data-tab="analytics"]').click();
-    await page.locator('#anaTab-ftp').click();
+    await page.evaluate(()=>app.showAnalyticsPanel('power',{instant:true,spot:'ftpMetricsHistoryCard'}));
     await page.waitForFunction(() => document.getElementById('ftpMetricsStatus').textContent.includes('No rides with power yet'));
     const file = path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'ftp-live-')), 'history.json'); fs.writeFileSync(file, JSON.stringify(bundle));
     await page.locator('#ftpMetricsFile').setInputFiles(file);

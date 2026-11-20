@@ -130,8 +130,7 @@
           this._ftpMetricProfile = id; this._ftpMetricLoading = null; this.updateFtpMetricsChart();
           if (location.hash === '#ftp-metrics' && !this._ftpMetricsOpened) {
             this._ftpMetricsOpened = true; this.switchTab('analytics');
-            if (this.showAnalyticsPanel) this.showAnalyticsPanel('ftp', { instant: true, remember: false });
-            requestAnimationFrame(() => document.getElementById('ftpMetricsHistoryCard').scrollIntoView({ block: 'start' }));
+            if (this.showAnalyticsPanel) this.showAnalyticsPanel('power', { instant: true, remember: false, spot: 'ftpMetricsHistoryCard' });
           }
         }
       }

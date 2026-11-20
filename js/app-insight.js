@@ -325,7 +325,7 @@
         <form class="ride-coach-form" data-ride-form="${esc(record.id)}">
           <textarea class="input-field ride-coach-input" rows="2" maxlength="4000" placeholder="Ask anything about this ride, e.g. why did my heart rate climb in set 2?" aria-label="Your question about this ride" ${busy ? 'disabled' : ''}></textarea>
           <div class="ride-coach-actions">
-            ${chat.length ? `<button type="button" class="link-btn" data-ride-clear="${esc(record.id)}">Clear chat</button>` : '<span></span>'}
+            <span class="ride-coach-left">${chat.length ? `<button type="button" class="link-btn" data-ride-clear="${esc(record.id)}">Clear chat</button>` : ''}${this.aiPickerHtml ? ` ${this.aiPickerHtml('breakdown')}` : ''}</span>
             <button type="submit" class="btn btn-sm btn-ai" ${busy ? 'disabled' : ''}><svg class="ic"><use href="#i-sparkles"/></svg>Ask</button>
           </div>
         </form>`;

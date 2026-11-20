@@ -46,7 +46,7 @@ class VeloAiCoach {
   static LOOKBACK_OPTIONS = [7, 14, 28, 42, 90];
   static DEFAULT_LOOKBACK = 28;
   static MAX_LISTED_RIDES = 30;
-  static MAX_NOTES = 1500;  // the rider's own words for the coach (a short paragraph, not a one-liner)
+  static MAX_NOTES = 4000;  // the rider's own words for the coach, with the coach chat so far (js/velo-coach-chat.js)
   static STATUS_URL = 'api/coach/status';
   static COACH_URL = 'api/coach';
 
@@ -169,7 +169,8 @@ class VeloAiCoach {
   /** Saves the per-browser engine choice. Empty strings mean "server default". */
   saveConfig({ provider = this.providerOverride, model = this.modelOverride, effort = this.effortOverride } = {}) {
     this.providerOverride = VeloAiCoach.PROVIDERS[provider] ? provider : '';
-    this.modelOverride = VeloAiCoach.MODEL_LABELS[model] ? model : '';
+    // Built-in models, or one from the live list (newer models appear there first).
+    this.modelOverride = VeloAiCoach.MODEL_LABELS[model] || VeloAiCoach.SERVER_MODELS[model] ? model : '';
     // A model from the other provider makes no sense: drop it.
     if (this.providerOverride && this.modelOverride && VeloAiCoach.providerOf(this.modelOverride) !== this.providerOverride) this.modelOverride = '';
     this.effortOverride = ['low', 'medium', 'high'].includes(effort) ? effort : '';

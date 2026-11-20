@@ -76,7 +76,7 @@
         if (month) { this.jumpToCalendarMonth(parseInt(month.dataset.year, 10), parseInt(month.dataset.month, 10)); return; }
         const loadPlanned = e.target.closest('[data-block-load-cal]');
         if (loadPlanned && this.loadBlockSession) { e.stopPropagation(); this.loadBlockSession(loadPlanned.dataset.blockLoadCal); return; }
-        if (e.target.closest('[data-planned]')) { this.switchTab('ai-coach'); document.getElementById('trainingBlockCard')?.scrollIntoView({ behavior: 'smooth', block: 'start' }); return; }
+        if (e.target.closest('[data-planned]')) { if (this.openTrainingPlan) this.openTrainingPlan(); else this.switchTab('ai-coach'); return; }
         const card = e.target.closest('[data-ride]');
         if (card) this.showRideSummaryById(card.dataset.ride);
       });
@@ -377,6 +377,12 @@
       if (nextBtn) nextBtn.disabled = idx <= 0;
 
       const isAutoSaved = isNaturalEnd || (record.source === 'APEX VELO Cockpit' && record.completedAt && Date.now() - record.completedAt < 25000);
+      const shareCard = !!(this.canShareCard && this.canShareCard(record));
+      const shareBtn = document.getElementById('btnRideShareCard');
+      if (shareBtn) {
+        shareBtn.hidden = !shareCard;
+        shareBtn.onclick = shareCard ? () => this.openShareCard(record) : null;
+      }
       const catBadge = document.getElementById('modalRideCategoryBadge');
       if (catBadge) {
         catBadge.className = isAutoSaved ? 'eyebrow eyebrow-lime' : 'eyebrow';
@@ -427,6 +433,7 @@
           <div class="btn-row btn-row-tight">
             ${record.compliancePct > 0 ? `<span class="chip chip-accent num" title="Execution fidelity vs interval targets">${record.compliancePct}% Execution</span>` : ''}
             <span class="chip chip-lime">AUTOSAVED</span>
+            ${shareCard ? '<button type="button" class="btn btn-sm btn-share-card wcb-share" data-share-card><svg class="ic"><use href="#i-share"/></svg>Share to Strava</button>' : ''}
           </div>
         </div>` : '';
 
@@ -517,6 +524,7 @@
         ${banner}
         ${record.rampTest ? `<p class="wcb-sub">${VeloApp.esc(record.rampTest.message || 'Ramp test complete.')}</p>` : ''}
         ${this.rideInsightHtml ? this.rideInsightHtml(record) : ''}
+        ${VeloMetrics.isCycling(record) && this.discussRideWithCoach ? `<div class="coach-ride-link"><svg class="ic"><use href="#i-sparkles"/></svg><span>Questions about this ride? The AI coach sees it with the rest of your training.</span><button type="button" class="btn btn-sm btn-ai" data-coach-discuss="${VeloApp.esc(record.id)}"><svg class="ic"><use href="#i-chat"/></svg>Discuss with the coach</button></div>` : ''}
         <div class="inspector-header-stats">
           <div class="metric-cell"><span class="metric-cell-lbl">Duration${VeloGlossary.html('gap')}</span><span class="metric-cell-val num">${this.fmtTime(record.duration)}</span>${cmp(record.duration, avgOf(r => r.duration))}</div>
           <div class="metric-cell" data-accent="violet"><span class="metric-cell-lbl">Distance${VeloGlossary.html('gap')}</span><span class="metric-cell-val num">${dist}</span></div>
@@ -559,6 +567,7 @@
         if (st.state === 'processing' && st.uploadId && !this.stravaPolls.has(record.id)) this.pollStravaUpload(record.id);
         else if (st.state === 'none' && this.canSendToStrava(record)) this.autoCheckRideOnStrava(record);
       }
+      details.querySelector('[data-share-card]')?.addEventListener('click', () => this.openShareCard(record));
       this.openModal('rideSummaryModal');
       if (hasSamples) {
         clearTimeout(this._scrubTimer);

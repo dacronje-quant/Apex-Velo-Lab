@@ -108,7 +108,7 @@ const ASK_SYSTEM_PROMPT = 'You are the rider\'s personal cycling coach and data 
   'Do real analysis: look for patterns, trends, outliers and links across rides, weeks and recovery, do the arithmetic, and commit to a conclusion with the numbers and dates behind it. Say how sure you are when the data is thin. ' +
   'Match the answer to the question: a quick question gets a couple of sentences, a request for analysis gets a thorough one. Lead with the answer, then the reasoning. ' +
   'When the rider asks what to do next, tell them: describe sessions with real targets (duration, intervals, percent of FTP or watts, cadence), sketch a week, or adjust their plan. ' +
-  'You may add that the Coach tab can turn a session into a workout for the trainer, but answer the question yourself first. ' +
+  'You may add that ticking Create a workout in this chat (or pressing Make it a workout under your answer) turns a session into a workout for the trainer, but answer the question yourself first. ' +
   'Write plain, direct English. The first time you use an acronym, add its plain meaning in brackets, ' +
   'for example TSS (workout load score), CTL (fitness), ATL (fatigue), TSB (form), NP (surge-weighted average power), ' +
   'CP (long-effort limit) or W\' (burst energy reserve). ' +
@@ -898,12 +898,17 @@ const LIVE_HOLD_MS = 2500;
 const LIVE_CMD_HOLD_MS = 20000;
 const LIVE_MAX_WAITERS = 8;
 const LIVE_CMD_TTL_MS = 10000;
-const live = { snapshot: null, at: 0, seq: 0, cmds: [], cmdId: Date.now(), waiters: [], cmdWaiter: null, fit: null }; // ids keep rising across restarts
+const live = { snapshot: null, at: 0, seq: 0, cmds: [], cmdId: Date.now(), waiters: [], cmdWaiter: null, fit: null, cards: null }; // ids keep rising across restarts
 const LIVE_FIT_MAX_BYTES = 16 * 1024 * 1024;
+const LIVE_CARD_MAX_BYTES = 12 * 1024 * 1024;
+const LIVE_CARD_STYLES = new Set(['full', 'minimal']);
+const PNG_SIGNATURE = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]);
+const JPEG_SIGNATURE = Buffer.from([0xff, 0xd8, 0xff]);
 
 function liveState() {
   const fit = live.fit ? { id: live.fit.id, filename: live.fit.filename, url: '/api/live/fit?id=' + encodeURIComponent(live.fit.id) } : null;
-  return { snapshot: live.snapshot, ageMs: live.at ? Date.now() - live.at : null, pending: live.cmds.length, seq: live.seq, fit };
+  const cards = live.cards ? { id: live.cards.id, styles: Object.keys(live.cards.images) } : null;
+  return { snapshot: live.snapshot, ageMs: live.at ? Date.now() - live.at : null, pending: live.cmds.length, seq: live.seq, fit, cards };
 }
 function releaseLiveWaiters() {
   const ws = live.waiters; live.waiters = [];
@@ -1156,7 +1161,7 @@ async function handleLive(req, res, urlPath) {
   const query = new URL(req.url, 'http://localhost').searchParams;
   // Publishing the live screen and collecting commands is for the PC app; reading it and sending commands
   // needs the PC or a paired phone.
-  const pcOnly = (urlPath === '/api/live' && req.method === 'POST') || urlPath === '/api/live/cmds' || (urlPath === '/api/live/fit' && req.method === 'POST');
+  const pcOnly = (urlPath === '/api/live' && req.method === 'POST') || urlPath === '/api/live/cmds' || ((urlPath === '/api/live/fit' || urlPath === '/api/live/card') && req.method === 'POST');
   if (pcOnly ? !isPcRequest(req) : !isPairedPhone(req, query)) {
     return pcOnly ? sendJson(res, 403, { error: 'Only the app on this PC can do this.' })
       : sendJson(res, 401, { error: 'This phone is not paired. Open the address from Settings > Phone view on the PC.', needsPairing: true });
@@ -1186,6 +1191,36 @@ async function handleLive(req, res, urlPath) {
     releaseLiveWaiters();
     return;
   }
+  if (urlPath === '/api/live/card') {
+    // The ride's share card (JPEG or PNG) drawn by the PC app, so the phone can save or share it.
+    const id = query.get('id'), style = query.get('style');
+    if (req.method === 'GET' || req.method === 'HEAD') {
+      const img = live.cards && live.cards.id === id ? live.cards.images[style] : null;
+      if (!img) return sendJson(res, 404, { error: 'This ride card is no longer available. Keep the PC app open until saved.' });
+      res.writeHead(200, {
+        'Content-Type': img.type, 'Content-Length': img.bytes.length,
+        'Content-Disposition': `${query.get('download') === '1' ? 'attachment' : 'inline'}; filename="${img.filename}"`,
+        'Cache-Control': 'no-store', 'X-Content-Type-Options': 'nosniff',
+      });
+      return res.end(req.method === 'HEAD' ? undefined : img.bytes);
+    }
+    if (req.method !== 'POST') return sendJson(res, 405, { error: 'Method not allowed' });
+    const filename = query.get('filename');
+    if (!/^[a-zA-Z0-9_-]{1,80}$/.test(id || '') || !LIVE_CARD_STYLES.has(style) || !/^[a-zA-Z0-9_-]{1,120}\.(png|jpg)$/.test(filename || '')) return sendJson(res, 400, { error: 'Invalid card name, style or ride id.' });
+    if (Number(req.headers['content-length']) > LIVE_CARD_MAX_BYTES) return sendJson(res, 413, { error: 'Card image too large' });
+    let bytes;
+    try { bytes = await readRaw(req, LIVE_CARD_MAX_BYTES); }
+    catch (e) { return sendJson(res, e.status || 400, { error: e.status === 413 ? 'Card image too large' : 'Could not read the card image.' }); }
+    const type = filename.endsWith('.png') ? 'image/png' : 'image/jpeg';
+    const sig = type === 'image/png' ? PNG_SIGNATURE : JPEG_SIGNATURE;
+    if (bytes.length < 64 || !bytes.subarray(0, sig.length).equals(sig)) return sendJson(res, 400, { error: 'Invalid card image.' });
+    if (!live.cards || live.cards.id !== id) live.cards = { id, images: {} };
+    live.cards.images[style] = { filename, type, bytes };
+    live.seq++;
+    sendJson(res, 200, { ok: true });
+    releaseLiveWaiters();
+    return;
+  }
   if (urlPath === '/api/live') {
     if (req.method === 'GET') {
       const after = query.get('after');
@@ -1209,7 +1244,7 @@ async function handleLive(req, res, urlPath) {
       const ack = body && Number.isFinite(body.cmdAck) ? body.cmdAck : null;
       if (ack !== null) live.cmds = live.cmds.filter(c => c.id > ack);
       const cmds = ack !== null ? pendingLiveCmds(ack) : live.cmds.splice(0); // no ack: an older app, hand over once
-      sendJson(res, 200, { cmds, fitId: live.fit ? live.fit.id : null });
+      sendJson(res, 200, { cmds, fitId: live.fit ? live.fit.id : null, cards: live.cards ? { id: live.cards.id, styles: Object.keys(live.cards.images) } : null });
       releaseLiveWaiters();
       return;
     }
@@ -1270,7 +1305,7 @@ function createServer() {
       const query = new URL(req.url, 'http://localhost').searchParams;
       return handleHealth(req, res, urlPath, query).catch((e) => { if (!res.headersSent) sendJson(res, 500, { error: e.message }); });
     }
-    if (urlPath === '/api/live' || urlPath === '/api/live/cmd' || urlPath === '/api/live/cmds' || urlPath === '/api/live/fit') {
+    if (urlPath === '/api/live' || urlPath === '/api/live/cmd' || urlPath === '/api/live/cmds' || urlPath === '/api/live/fit' || urlPath === '/api/live/card') {
       return handleLive(req, res, urlPath).catch((e) => { if (!res.headersSent) sendJson(res, 500, { error: e.message }); });
     }
     if (urlPath === '/api/coach/status') {

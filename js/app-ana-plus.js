@@ -174,9 +174,7 @@
     },
 
     renderAnaOverview(...args) {
-      const r = baseOverview ? baseOverview.apply(this, args) : undefined;
-      document.querySelectorAll('#anaSectionNav .ana-mod-stat.skel').forEach(el => el.classList.remove('skel'));
-      return r;
+      return baseOverview ? baseOverview.apply(this, args) : undefined;
     },
 
     renderHealthTiles(...args) {
@@ -286,6 +284,9 @@
       if (!ring || !parts || typeof VeloWellness === 'undefined') return;
       const r = this.healthReadiness ? this.healthReadiness() : null;
       const sc = VeloWellness.readinessScore(r);
+      // No health data set up: no empty ring on Summary (the Health tab says how to set it up).
+      const cardEl = document.getElementById('anaCardReady');
+      if (cardEl) cardEl.hidden = !r || r.level === 'none';
       if (!sc) {
         ring.innerHTML = `<span class="ring-empty"><svg class="ic"><use href="#i-heart"/></svg></span>`;
         const msg = !r || r.level === 'none' ? (document.documentElement.classList.contains('apex-native') ? `Add your intervals.icu API key in ${this.settingsLabel('health', 'Settings > Health')} to see your readiness.` : 'Set up Apple Health in Settings to see your readiness.')
@@ -664,8 +665,8 @@ FACTS (JSON): ${JSON.stringify(facts)}`;
         const title = card.querySelector('.card-title');
         if (!title || title.querySelector('.ana-pin-btn') || !card.id) return;
         const b = document.createElement('button');
-        b.type = 'button'; b.className = 'ana-pin-btn'; b.title = 'Pin to Overview';
-        b.setAttribute('aria-pressed', 'false'); b.setAttribute('aria-label', 'Pin to Overview');
+        b.type = 'button'; b.className = 'ana-pin-btn'; b.title = 'Pin to Summary';
+        b.setAttribute('aria-pressed', 'false'); b.setAttribute('aria-label', 'Pin to Summary');
         b.innerHTML = '<svg class="ic"><use href="#i-pin"/></svg>';
         const expand = title.querySelector('.ana-expand-btn');
         expand ? expand.before(b) : title.appendChild(b);
@@ -683,7 +684,7 @@ FACTS (JSON): ${JSON.stringify(facts)}`;
       const pinned = this.pinnedIds();
       if (pinned.includes(id)) this.unpinAnaCard(id);
       else if (pinned.length >= MAX_PINS) { this.showToast(`Up to ${MAX_PINS} charts can be pinned. Unpin one first.`, 'info'); return; }
-      else { this.pinAnaCard(id, true); this.showToast('Pinned to Overview.', 'success'); }
+      else { this.pinAnaCard(id, true); this.showToast('Pinned to Summary.', 'success'); }
       try { localStorage.setItem(PIN_KEY, JSON.stringify(this.pinnedIds())); } catch (e) { /* not kept */ }
       this.updatePinnedRow();
     },
@@ -697,7 +698,7 @@ FACTS (JSON): ${JSON.stringify(facts)}`;
       grid.appendChild(card);
       card.classList.add('is-pinned');
       const b = card.querySelector('.ana-pin-btn');
-      if (b) { b.setAttribute('aria-pressed', 'true'); b.title = 'Unpin from Overview'; b.setAttribute('aria-label', 'Unpin from Overview'); }
+      if (b) { b.setAttribute('aria-pressed', 'true'); b.title = 'Unpin from Summary'; b.setAttribute('aria-label', 'Unpin from Summary'); }
       if (resize) requestAnimationFrame(() => this.anaChartsIn(card).forEach(c => c.resize()));
     },
 
@@ -707,7 +708,7 @@ FACTS (JSON): ${JSON.stringify(facts)}`;
       home.replaceWith(card);
       card.classList.remove('is-pinned');
       const b = card.querySelector('.ana-pin-btn');
-      if (b) { b.setAttribute('aria-pressed', 'false'); b.title = 'Pin to Overview'; b.setAttribute('aria-label', 'Pin to Overview'); }
+      if (b) { b.setAttribute('aria-pressed', 'false'); b.title = 'Pin to Summary'; b.setAttribute('aria-label', 'Pin to Summary'); }
       requestAnimationFrame(() => this.anaChartsIn(card).forEach(c => c.resize()));
     },
 

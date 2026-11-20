@@ -253,7 +253,7 @@ export function installRideTab({ shell, win = window }) {
       const before = new Set((this.completedWorkouts || []).map((r) => r.id));
       const r = finish.apply(this, args);
       const cur = shell.current && shell.current.route;
-      if (this.isWorkoutCompleted && (cur === 'ride/live' || cur === 'ride/cockpit')) {
+      if (this.isWorkoutCompleted && cur === 'ride/live') {
         // The phone's own summary (mock-up h) instead of the desktop's deep-dive dialog.
         const saved = (this.completedWorkouts || []).find((x) => !before.has(x.id));
         if (saved) {

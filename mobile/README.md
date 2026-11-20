@@ -11,16 +11,19 @@ It is the same web app as the desktop version, wrapped with [Capacitor](https://
 | **Trainer control** | Bluetooth FTMS smart trainers in ERG mode (Wahoo KICKR, Tacx, Elite, Zwift Hub, Saris...), with the same ERG logic, power-range limits and auto-reconnect as the desktop app |
 | **Sensors** | Bluetooth power meters (Cycling Power Service, incl. calibration), heart-rate straps, KICKR HEADWIND |
 | **You and first run** | Settings live in the **You** tab: Profile, Devices, Connections, Your data, App settings and Help & about (simulator, API keys and training-load options under **Advanced**). A new install opens a three-step setup (about you, devices, connect or import) that can be skipped at any step, with **Explore a demo** on the first step |
-| **Workouts** | The full workout library, the custom interval builder, saved workouts, ramp tests, Zen cockpit, audio cues and the offline coach (workouts and multi-week plans) |
+| **Ride screen** | One screen: power against target, the step countdown, a live graph and the tiles you pick in **Metrics**. Tap the power number to step its averaging (now, 3 s, 5 s, 10 s; kept for the next ride). **Controls** has every ride control, and two switches that put **Intensity** (−5% / +5%) and **Interval length** (−30 s / +30 s) buttons on the ride screen itself |
+| **Progress** | Four key numbers (fitness, fatigue, form, FTP), then one short page per topic: each shows its two or three main charts, with the rest under **More detail** |
+| **Workouts** | The full workout library, the custom interval builder, saved workouts, ramp tests, audio cues and the offline coach (workouts and multi-week plans) |
 | **Storage** | Rides, profiles and settings are saved in a SQLite database in the app on the phone (ride samples compressed), as the desktop app saves them on the PC, and survive restarts and app updates. The first start after updating from a version that kept them in the app's web storage moves them in a ride at a time ("Moving your rides into the phone database", with progress), checks each one and keeps a snapshot of the earlier data; if that start is interrupted nothing is half-moved and the next start goes on where it stopped. Verified snapshots are kept in the app's private storage (not in Android cloud backup): a minute after each change, when the app goes to the background and at least daily, with daily, weekly and monthly copies kept for a year and the newest three always kept, within about 500 MB (or more if the newest copies need it). **You > Your data > Backups** lists them, backs up now and restores one (asking first, after a safety copy); **Back up everything** saves a copy outside the app. The app starts with each ride's summary rather than its per-second samples, so a long history starts quickly: a ride's samples load when you open it, export it or send it, and the power curve, FTP history and other analytics read the summaries (`js/velo-ride-summary.js`, made when a ride is saved; rides saved before get theirs in the background after the first start). You > Help & about lists the open-source licences |
 | **Strava** | Connect your account and send rides (FIT upload): per ride, or automatically when a ride finishes. Upload only: the app never reads your Strava activities |
 | **Ride files** | Every ride recorded on the phone is also saved as a FIT file in **Documents/ApexVelo** (switch: You > Your data > Ride files), ready for any file manager, Garmin Connect, TrainingPeaks or intervals.icu. History > Export (FIT, TCX, CSV, full JSON backup) saves there too; the workout image opens the share sheet. FIT/TCX/CSV import works in History, and **History > Import history** takes many files or whole archives at once (.fit/.tcx/.gpx/.csv, .gz, .zip, a Garmin data export or Strava's "Download your data" zip), with a sport filter (all cycling incl. indoor/virtual by default), duplicate detection and a progress panel; rides from a Strava export are never uploaded back to Strava |
+| **Share card** | Every ride with recorded power gets a picture for Strava or Instagram (Full or Minimal, 4:5): **Share to Strava** on the finished-ride banner or **Share card** on any ride page. **Share** opens Android's share sheet (choose Strava to add it to the ride); **Download image** saves it to Documents/ApexVelo. See *Share card* in [the feature reference](../docs/FEATURES.md) |
 | **Import folder and sharing** | Pick a folder in **You > Your data > Watch a folder** (a Dropbox or Drive folder, or where a Garmin, Wahoo or Karoo export lands) and new ride files there are imported when the app opens, when it comes back to the screen and once a day; or share .fit/.tcx/.gpx/.zip/.gz files to Apex Velo from Garmin Connect, Wahoo, Files or email. See [Import rides automatically](#import-rides-automatically) |
-| **Health** | Resting HR, HRV and sleep read from **Health Connect** (Samsung Health, Fitbit, Google Fit, Garmin, Oura...) and/or **intervals.icu**, for the readiness score, the calendar recovery strip and the recovery trends. When both have a day, You > Connections > Health Connect picks which comes first per value (Health Connect by default). One-time backfill of two years, then only changes |
+| **Health** | Resting HR, HRV and sleep read from **Health Connect** (Samsung Health, Fitbit, Google Fit, Garmin, Oura...) and/or **intervals.icu**, for the readiness score, the calendar recovery strip and the recovery trends. When both have a day, You > Connections > Health Connect picks which comes first per value (Health Connect by default). One-time backfill of two years, then only changes. intervals.icu is read every time the app opens or comes back to the screen (a minute apart at least) |
 | **Health Connect rides** | Cycling sessions other apps write to Health Connect (Zwift, Samsung Health, Garmin...) join your history with their power, heart rate, cadence, speed and distance; duplicates of rides you already have are skipped (the copy with power is kept). Rides recorded in Apex Velo can be saved to Health Connect |
 | **Analytics** | History, calendar, PMC (fitness/fatigue/form), power curve, CP, FTP history, and **Health**: every intervals.icu wellness value over time (resting and sleeping HR, HRV rMSSD and SDNN with your normal range, sleep stages, sleep and readiness scores, Baevsky stress index, breathing, SpO2, weight, blood pressure, glucose) and how your next-morning HRV, resting HR and sleep answer the previous day's training |
 | **History tab** | Rides grouped by month (title, date, duration, NP, TSS, a tick when on Strava), with search (title, notes, source) and filters (rides, other activities, with power, not on Strava). Tap a ride for its page: the full ride summary (Strava send and status, AI breakdown, power analysis, zones, intervals, previous/next) with its samples loaded on demand, and ⋯ for Edit title and notes, Export FIT/TCX/CSV and Delete. **+** opens Add rides (files, Import history with its progress, Watch a folder). The ⋯ next to the ride count has Check Strava, the full JSON backup, current-session exports, training-load options (opens You › Your data) and Clear all history (`src/native-history.js`) |
-| **AI** | **Ask** (questions about your own training), the **AI coach** (sessions and multi-week plans) and ride **interval breakdowns**, with Claude, Gemini or ChatGPT and your own API key. Without a key the built-in offline coach is used |
+| **AI** | One **AI coach** chat (the Train tab's home) for questions about your own training, workouts and multi-week plans, plus ride **interval breakdowns**, with Claude, Gemini or ChatGPT and your own API key. Switch the model on the spot with the ✦ engine switcher at the top of the chat or on ride breakdowns (it changes it everywhere, the same as You > Connections > AI coach). Without a key, questions are off and the built-in offline coach builds workouts and plans |
 
 ## Not in this first version
 
@@ -142,7 +145,7 @@ Play reviews every app that asks for health permissions. Before the first releas
 
 ## Add an AI key
 
-Ask, the AI coach and the interval breakdowns call the AI provider straight from the phone. No PC is involved.
+The AI coach chat (questions, workouts and plans) and the interval breakdowns call the AI provider straight from the phone. No PC is involved.
 
 1. Create an API key: Anthropic at [platform.claude.com/settings/keys](https://platform.claude.com/settings/keys), Google Gemini at [aistudio.google.com/apikey](https://aistudio.google.com/apikey) or OpenAI at [platform.openai.com/api-keys](https://platform.openai.com/api-keys). One is enough.
 2. In the app: **You > Connections > AI coach**, paste the key under **Advanced · API keys** and press **Save keys**. The app reads that provider's model list, and the status line says **Ready**.
@@ -224,24 +227,42 @@ Android back closes a sheet, then goes back a page, then to the tab's first scre
 - **Ride** opens on **Today**: your readiness, today's planned or loaded workout with **Start ride**, *Change workout*
   and *Free ride*, your last ride and this week. The devices chip at the top opens the devices sheet: each device,
   its state and Connect. Tap a device for its details (calibration, PowerMatch, power and cadence source, fan).
-- **The ride screen** is full screen. It shows power against target, the step countdown (it pulses before a step
-  change), the next step, your tiles, and **End**, **Pause** and **Skip**. End asks before it saves, and so does
-  back. ⚙ opens **Controls** (intensity, ERG, shorten or extend the step, Stand, smoothing, ERG response, audio,
-  devices, simulator, rider) and **Show all metrics** (the full cockpit: live graph, L/R, W′ balance, time in zone,
-  the interval queue).
-- **Customise this screen** (in Controls) switches every panel, tile and graph line on or off and moves them up or
-  down, in both views. It is saved for each rider. *Minimal*, *Standard* and *Everything* are presets, and *Reset*
-  goes back to Standard.
-- **Train** has three parts at the top: **Plan**, **Workouts** and **Ask coach**.
-  - *Plan* shows this week day by day (planned and ridden days are marked), the selected day's session with
-    **Ride it today** and *Swap*, and your training block with **Re-plan** and *Open plan*. From here, *Coach* builds
-    one workout for today or a 4-12 week plan, and *Calendar* shows the week, month, year or all time, with load and
-    recovery.
+- **The ride screen** is one full screen, with no other views to switch between. It always shows power against
+  target, the step countdown (it pulses before a step change), elapsed time and time left, and **End**, **Pause**
+  and **Next interval** fixed at the bottom. End asks before it saves, and so does back.
+- **Live graph**: your power, heart rate and cadence over the targets you have ridden and the ones still to come.
+  Tap the graph to step its zoom: whole ride, 10 min, 3 min, 1 min, then back (the corner shows which). A zoomed
+  graph follows the ride, with the next target in view. A tap does nothing else: it can never move the workout
+  back or forward. **Next interval** takes two taps (*Tap again to skip*), so a stray touch does not skip a step.
+- **Metrics** (top of the ride screen) is a sheet of switches, each with its live value: the graph, the next step
+  and coach tips, the graph's lines, and every tile (heart rate, cadence, 1 / 3 / 30 s power, average, NP, W/kg,
+  W′ balance, L/R balance, HR drift, IF, TSS, distance, speed, intensity, ERG, power source, PowerMatch). A tap
+  shows or hides it at once, the sheet stays open for the next one, and the choice is saved for each rider.
+  With more tiles on, they go three to a row and the big numbers shrink so the screen still fits.
+  *Restore the default screen* goes back to the graph, the next step, heart rate and cadence.
+- **Controls** (next to Metrics) has what you change during a ride: intensity, ERG, shorten or extend the step,
+  Stand, restart, power smoothing, ERG response, audio, devices, simulator and rider.
+- **Train** opens on the AI coach chat: everything to do with training starts here. *Workouts* and *Plan* are
+  in the top bar.
+  - Above the chat, one line says what today is: the session from your plan or the workout the coach built
+    today, with **Ride**; the ride under way (**Back to ride**); today's ride (**See ride**); or **Workout for
+    today**, which asks the coach at once. Tap the line for the plan.
+  - The chat: pick **Ask** (questions about your riding), **Workout** (one session to ride) or **Plan** (a 4-12
+    week plan) above the message box and type in your own words; lengths, weeks and days off you name set the
+    options, and the gear beside the switch has the rest, the AI engine included. Answers, workout cards
+    (**Ride now** opens the ride screen, *Save*, *Change it*, *Another one*) and plan cards all stay in one
+    conversation, and each turn sees the chat so far (*Make it a workout* under an answer builds the session it
+    describes). An empty chat shows examples for the picked mode. A ride's **Discuss with the coach** opens it
+    too. It keeps your conversation.
+  - *Plan* is the schedule on one page: this week day by day (planned and ridden days are marked; *Calendar* in
+    its header shows the week, month, year or all time, with load and recovery), the selected day's session with
+    **Start ride** and *Change workout*, then your training plan (its weeks, suggested changes, *Re-plan from
+    today*, *Delete*, or **Plan my training** to build one in the chat) and what the coach reads (readiness,
+    form, fitness, fatigue, volume, intensity mix, power profile).
   - *Workouts* is the library as a short list with type chips (Endurance, Sweet spot, Threshold, VO2, Hard-start,
     Saved, Tests with the ramp test) and search. Tap a workout for its profile, then **Ride it**, which opens the
-    ride screen and starts it. *Fine-tune* opens the step table (change or add steps, Save as preset).
-    *Describe a workout* turns your words into a workout.
-  - *Ask coach* is the chat about your training. It keeps your conversation.
+    ride screen and starts it. *Fine-tune* opens the step table (change or add steps, Save as preset); *Build
+    your own* starts from the loaded workout.
 - **Progress** answers *Am I getting fitter?* in one card: the fitness trend over 6 weeks, fitness, fatigue, form
   and FTP. Below it are five topics, each a page with the charts of the PC's Analytics:
   - *Fitness & load*: performance management chart, weekly load, training year, your week, what changed, pinned charts.
@@ -259,7 +280,7 @@ Android back closes a sheet, then goes back a page, then to the tab's first scre
 ```bash
 npm test               # unit tests: ride handoff, merging and recovery (screen off), Bluetooth shim, Strava upload client and token exchangers (own application, broker, switching), upload queue and ledger, AI engine vs server.js, intervals.icu wellness (Node, no browser)
 npm run test:browser   # the built app in Chromium with a simulated FTMS trainer, HR strap, Strava, Claude and intervals.icu
-npm run test:phone     # phone layout at 393x852 with touch: tabs, back, deep links, taps to reach, no sideways scroll, 44 px targets, ride parity, customisation; History (U3); Train parity (workouts, coach, calendar, ask)
+npm run test:phone     # phone layout at 393x852 with touch: tabs, back, deep links, taps to reach, no sideways scroll, 44 px targets, ride parity, the one ride screen (tap-to-zoom graph, two-tap skip, Metrics switches); History (U3); Train parity (workouts, coach, calendar, ask)
 ```
 
 The browser test pairs the trainer through the in-app chooser and rides an ERG workout. It checks the trainer gets its targets, drops and reconnects the link, saves the ride, signs in to Strava, uploads the FIT file and records it in the ledger, checks that no Strava activity is ever read, signs in through a token broker in a second app (no secret on the phone, own application under Advanced), queues an auto-upload while offline and sends it on resume, saves an AI key, asks a question in Ask, gets an AI interval breakdown, backfills health data from intervals.icu and reloads the app. The **Android app** GitHub workflow runs both, then builds the APK. For riding with the screen off it halts the page mid-ride while a fake native recorder in the test runner keeps recording and moves ERG to the next step, checks every second is merged back once on resume, then reloads the page mid-ride (the live ride is taken back), then kills the app in the background and recovers the ride from the journal. `cd android && ./gradlew testDebugUnitTest` runs the JVM tests of the native recorder (parsers, takeover, ramp test, journal).

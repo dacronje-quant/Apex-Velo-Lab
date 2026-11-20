@@ -92,7 +92,7 @@ const FLOWS = [
     assert.equal(await route(page), 'ride');
     const tabs = await page.locator('.av-tabbar [data-av-tab]').allTextContents();
     assert.deepEqual(tabs.map((t) => t.trim()), ['Ride', 'Train', 'History', 'Progress', 'You']);
-    for (const [tab, root] of [['train', 'train/plan'], ['history', 'history'], ['progress', 'progress'], ['you', 'you']]) {
+    for (const [tab, root] of [['train', 'train/coach'], ['history', 'history'], ['progress', 'progress'], ['you', 'you']]) {
       await tap(page, `.av-tabbar [data-av-tab="${tab}"]`);
       assert.equal(await route(page), root);
       assert.ok(await page.locator('.av-tabbar').isVisible(), `bottom bar on ${root}`);
@@ -108,9 +108,9 @@ const FLOWS = [
     const page = await openPhone(browser, { route: 'train/workouts' });
     assert.equal(await route(page), 'train/workouts');
     assert.ok(await page.locator('#avWorkoutList').isVisible()); // the Train tab's library (U2)
-    await tap(page, '.av-subnav [data-av-seg="train/ask"]');
-    assert.equal(await route(page), 'train/ask');
-    assert.ok(await page.locator('#view-ask').isVisible());
+    await tap(page, '.av-tabbar [data-av-tab="train"]');
+    assert.equal(await route(page), 'train/coach');
+    assert.ok(await page.locator('#view-ai-coach #askThread').isVisible());
     await page.evaluate(() => app.switchTab('history'));
     assert.equal(await route(page), 'history');
     await page.evaluate(() => { const d = document.createElement('div'); d.id = 'sheetProbe'; d.textContent = 'probe'; ApexNative.shell.openSheet(d, { title: 'Probe' }); });
@@ -421,39 +421,25 @@ const FLOWS = [
 
 
 // ------------------------------------------------------------------------------------------ ride parity --
-// Every control and output of today's cockpit, Zen view and Devices panel, and where the phone ride screen has it.
-// [feature, where, selector]: where is simple (ride/live), full (ride/cockpit, all metrics), controls (the Controls
-// sheet), devices (the devices sheet) or details (the app's Devices panel, opened from Controls).
+// Everything the phone's one ride screen offers, and where. [feature, where, selector]: where is screen (ride/live),
+// metrics (the Metrics sheet), controls (the Controls sheet), devices (the devices sheet) or details (the app's
+// Devices panel, opened from Controls). The PC's Zen, Focus, Mini-HUD and all-metrics cockpit are not on the phone.
+const RIDE_TILES = ['hr', 'cadence', 'p1s', 'p3s', 'p30s', 'avg', 'np', 'wkg', 'wbal', 'lr', 'hrDrift', 'if', 'tss', 'distance', 'speed', 'intensity', 'erg', 'source', 'powermatch'];
 const PARITY = [
-  ['current power (smoothed)', 'simple', '#avRidePower'], ['target power and % FTP', 'simple', '#avRideTarget'],
-  ['power vs target deviation', 'simple', '#avRideDev'], ['step countdown (pulses before a change)', 'simple', '#avRideCountdown'],
-  ['step name, number, zone', 'simple', '#avRideStep'], ['total elapsed', 'simple', '#avRideClock'], ['workout progress', 'simple', '#avRideProgress'],
-  ['workout profile with position', 'simple', '.av-ride-profile #intervalCanvas'], ['up next (Zen)', 'simple', '#avRideNext'],
-  ['coach / pedalling insight', 'simple', '#avRideCoach'], ['End (stop & save)', 'simple', '#avRideEnd'], ['Start / Pause / Resume', 'simple', '#avRidePause'], ['Skip step', 'simple', '#avRideSkip'],
-  ...['power', 'p1s', 'p3s', 'p30s', 'target', 'wkg', 'hr', 'cadence', 'wbal', 'lr', 'speed', 'distance', 'avg', 'np', 'if', 'tss', 'elapsed', 'stepLeft', 'zone', 'deviation', 'intensity', 'erg', 'source', 'powermatch', 'readiness', 'zoneTime', 'hrDrift']
-    .map((t) => [`tile: ${t}`, 'simple', `[data-av-item="tile:${t}"]`]),
-  ['in-cockpit Zen / Mini-HUD / Focus buttons', 'full', '#btnToggleFocusMode'], ['fine ERG bias ±1 % and reset (cockpit)', 'full', '#btnBiasReset'],
-  ['ERG response (cockpit)', 'full', '#ergResponse'],
-  ['interval strip (step, target, time left, next)', 'full', '#avIstripLeft'], ['ride graph over the workout profile', 'full', '#avRideGraph'],
-  ['all-metrics tiles', 'full', '[data-av-full="ftile:np"]'],
-  ['interval name and countdown', 'full', '#hudIntervalName'], ['status pill', 'full', '#hudWorkoutStatusPill'], ['target and cadence target tags', 'full', '#hudCadenceTargetTag'],
-  ['compliance pill', 'full', '#hudCompliancePill'], ['rider badge', 'full', '#cockpitRiderBadge'], ['power ring', 'full', '#valInstantPower'],
-  ['power source badge', 'full', '#hudPowerSourceBadge'], ['ERG status pill (toggles ERG)', 'full', '#hudErgStatusPill'],
-  ['1s / 3s / 30s / target / W/kg', 'full', '#valWkg'], ['intensity ±5 (dock)', 'full', '#btnBiasPlus5'], ['heart rate + zone', 'full', '#valHrZone'],
-  ['cadence + target', 'full', '#valCadenceSub'], ['W′ balance card', 'full', '#wbalCard'], ['workout title, duration, expected avg', 'full', '#hudWorkoutAvgPower'],
-  ['distance, speed', 'full', '#valDistance'], ['avg power, NP, IF, TSS, kJ', 'full', '#valTotalKj'], ['interval queue (tap to jump)', 'full', '#upcomingIntervalsStrip .upcoming-card'],
-  ['live graph (power, target, cadence, HR)', 'full', '#liveTelemetryChart'], ['left / right balance and leg power', 'full', '#valLeftWatts'],
-  ['time in zone', 'full', '#zTime4'], ['in-cockpit step controls (reset, stand, ±30 s, ±1 %)', 'full', '#btnStand'],
+  ['current power (smoothed)', 'screen', '#avRidePower'], ['tap power to change its averaging', 'screen', '#avPowerView'], ['target power and % FTP', 'screen', '#avRideTarget'],
+  ['power vs target deviation', 'screen', '#avRideDev'], ['step countdown (pulses before a change)', 'screen', '#avRideCountdown'],
+  ['step name and number', 'screen', '#avRideStep'], ['total elapsed', 'screen', '#avRideClock'], ['workout time left', 'screen', '#avRideRemain'], ['workout progress', 'screen', '#avRideProgress'],
+  ['live graph (power, HR, cadence over the targets)', 'screen', '#avRideGraph'], ['graph zoom (tap the graph)', 'screen', '#avGraphZoomLabel'], ['up next', 'screen', '#avRideNext'],
+  ['coach / pedalling insight', 'screen', '#avRideCoach'], ['End (stop & save)', 'screen', '#avRideEnd'], ['Start / Pause / Resume', 'screen', '#avRidePause'], ['Skip step', 'screen', '#avRideSkip'],
+  ...RIDE_TILES.map((t) => [`tile: ${t}`, 'screen', `[data-av-item="tile:${t}"]`]),
+  ['panel switches', 'metrics', '#avMetricsSheet [data-item="panel:graph"]'], ['graph line switches', 'metrics', '#avMetricsSheet [data-line="cadence"]'],
+  ...RIDE_TILES.map((t) => [`tile switch: ${t}`, 'metrics', `#avMetricsSheet [data-item="tile:${t}"]`]), ['restore the default screen', 'metrics', '#avMetricsReset'],
   ['intensity ±1 / ±5', 'controls', '#avIntensityRow [data-av-press="btnBiasPlus1"]'], ['intensity reset', 'controls', '#avBiasReset'],
   ['ERG on / off', 'controls', '#avErgSwitch'], ['shorten / extend step', 'controls', '[data-av-press="btnExtendInterval"]'], ['stand 30 s', 'controls', '#avStand'],
-  ['reset workout', 'controls', '#avResetWorkout'], ['power smoothing 1s-1m', 'controls', '#avControlsSheet .smooth-pill[data-sec="60"]'],
-  ['ERG response', 'controls', '#avControlsSheet #ergResponse'], ['all metrics / simple view', 'controls', '#avToggleFull'], ['Zen cockpit', 'controls', '#avZen'], ['Focus mode', 'controls', '#avFocusSwitch'],
-  ['customise screen', 'controls', '#avCustomise'], ['audio cues', 'controls', '#avAudioSwitch'], ['simulator', 'controls', '#avSimSwitch'],
+  ['reset workout', 'controls', '#avResetWorkout'], ['power shown: now / 3 s / 5 s / 10 s', 'controls', '#avPowerViews [data-sec="10"]'],
+  ['intensity buttons on the screen (switch)', 'controls', '#avQuickIntensitySwitch'], ['interval length buttons on the screen (switch)', 'controls', '#avQuickLengthSwitch'],
+  ['ERG response', 'controls', '#avControlsSheet #ergResponse'], ['audio cues', 'controls', '#avAudioSwitch'], ['simulator', 'controls', '#avSimSwitch'],
   ['devices', 'controls', '#avControlsDevices'], ['rider profile', 'controls', '#avRider'], ['device details', 'controls', '#avDeviceDetails'],
-  ['Zen: power and target', 'zen', '#zenInstantPower'], ['Zen: step countdown', 'zen', '#zenCountdown'], ['Zen: cadence halo toggle', 'zen', '#btnZenCadenceHalo'],
-  ['Zen: cadence halo', 'zen', '#zenCadenceHalo'], ['Zen: HR gauge', 'zen', '#zenHrGauge'], ['Zen: bias −1', 'zen', '#btnZenBiasMinus1'], ['Zen: bias +5', 'zen', '#btnZenBiasPlus5'],
-  ['Zen: smoothing', 'zen', '.zen-smooth-pills .smooth-pill'], ['Zen: play / skip', 'zen', '#btnZenSkipStep'], ['Zen: up next', 'zen', '#zenUpNextBanner'],
-  ['Zen: interval profile', 'zen', '#zenIntervalCanvas'], ['Zen: exit', 'zen', '#btnCloseZenCockpit'],
   ['device list, state, connect', 'devices', '#avDevicesSheet'], ['pair a new device', 'devices', '#avPairDevice'],
   ['calibration (zero offset)', 'details', '#btnCalibratePedalsModal'], ['PowerMatch', 'details', '#chkEnablePowerMatch'],
   ['power / cadence source', 'details', '#devicePowerSource'], ['fan (KICKR HEADWIND)', 'details', '#fanModeSelect'],
@@ -461,18 +447,20 @@ const PARITY = [
 ];
 
 async function openWhere(page, where) {
-  await page.evaluate(() => { if (app.isZenMode) app.toggleZenMode(); while (ApexNative.shell.sheets.length) ApexNative.shell.closeSheet(); const m = document.getElementById('hardwareModal'); if (m && !m.hidden) app.closeDevicesFocus(); });
-  if (where === 'simple' || where === 'controls' || where === 'details' || where === 'zen') await page.evaluate(() => ApexNative.shell.go('ride/live'));
-  if (where === 'full') await page.evaluate(() => ApexNative.shell.go('ride/cockpit'));
+  await page.evaluate(() => { while (ApexNative.shell.sheets.length) ApexNative.shell.closeSheet(); const m = document.getElementById('hardwareModal'); if (m && !m.hidden) app.closeDevicesFocus(); });
+  if (where !== 'devices') await page.evaluate(() => ApexNative.shell.go('ride/live'));
   if (where === 'devices') { await page.evaluate(() => ApexNative.shell.go('ride')); await tap(page, '#avDevicesChip'); }
-  if (where === 'controls' || where === 'details' || where === 'zen') await tap(page, '#avRideControls');
-  if (where === 'zen') { await page.locator('#avZen').scrollIntoViewIfNeeded(); await tap(page, '#avZen'); await page.waitForTimeout(300); }
+  if (where === 'metrics') await tap(page, '#avRideMetrics');
+  if (where === 'controls' || where === 'details') await tap(page, '#avRideControls');
   if (where === 'details') { await page.locator('#avDeviceDetails').scrollIntoViewIfNeeded(); await tap(page, '#avDeviceDetails'); await page.evaluate(() => document.querySelectorAll('#hardwareModal details').forEach((d) => { d.open = true; })); }
 }
 
-FLOWS.push(['ride parity: every cockpit, Zen and Devices feature is reachable from the ride screen (Everything preset)', async (browser) => {
+/** Switches every panel, tile and graph line of the ride screen on. */
+const allMetricsOn = (page) => page.evaluate(() => { const r = ApexNative.rideTab.ride, l = r.layout(); l.items.forEach((x) => { x.on = true; }); Object.keys(l.lines).forEach((k) => { l.lines[k] = true; }); r.saveLayout(l); r.applyLayout(); });
+
+FLOWS.push(['ride parity: every ride feature is on the one ride screen, its Metrics sheet, Controls or Devices (all metrics on)', async (browser) => {
   const page = await openPhone(browser);
-  await page.evaluate(() => { const r = ApexNative.rideTab.ride; r.layouts.preset(app.activeProfileId, 'everything'); });
+  await allMetricsOn(page);
   await tap(page, '#avStartRide');
   await page.waitForTimeout(2500);
   const missing = [];
@@ -507,26 +495,46 @@ FLOWS.push(['ride: taps from launch (start 1, devices sheet 1, last ride 2), no 
   assert.equal(c.taps, 1); assert.equal(await route(page), 'ride/live');
   await page.waitForFunction(() => app.isPlaying);
   assert.equal(await page.locator('.av-tabbar').isVisible(), false, 'no tab bar while riding');
-  for (const r of ['ride/live', 'ride/cockpit']) {
-    await page.evaluate((r) => ApexNative.shell.go(r), r);
-    await page.waitForTimeout(300);
-    sw = await sweep(page);
-    assert.deepEqual(sw.small, [], `small targets on ${r}`); assert.ok(sw.overflowX <= 0, `${r} scrolls sideways (${sw.overflowX})`);
-  }
-  await screenshot(page, 'ride-cockpit');
-  await page.evaluate(() => ApexNative.shell.go('ride/live'));
+  await page.waitForTimeout(300);
+  sw = await sweep(page);
+  assert.deepEqual(sw.small, [], 'small targets on the ride screen'); assert.ok(sw.overflowX <= 0, `the ride screen scrolls sideways (${sw.overflowX})`);
+  assert.ok((await page.evaluate(() => document.documentElement.scrollHeight)) <= 852, 'the default ride screen fits without scrolling');
+  await screenshot(page, 'ride-live');
+  // A tap on the power number steps its averaging; intensity and interval-length buttons can sit on the screen and it still fits.
+  const views = [];
+  for (let k = 0; k < 4; k++) { await tap(page, '#avRidePower'); views.push(await page.locator('#avPowerView').innerText()); }
+  assert.deepEqual(views, ['5 s avg', '10 s avg', 'Now', '3 s avg'], 'tap power: 3 s > 5 s > 10 s > now > 3 s');
+  assert.equal(await page.locator('.av-quick').first().isVisible(), false, 'no control buttons on the screen by default');
+  await tap(page, '#avRideControls'); await tap(page, '#avQuickIntensitySwitch'); await tap(page, '#avQuickLengthSwitch');
+  await page.evaluate(() => ApexNative.shell.closeSheet()); await page.waitForTimeout(400);
+  const was = await page.evaluate(() => [app.ergBiasMultiplier, app.intervalSecondsRemaining]);
+  await tap(page, '[data-av-quick="btnBiasPlus5"]'); await tap(page, '[data-av-quick="btnExtendInterval"]');
+  const now = await page.evaluate(() => [app.ergBiasMultiplier, app.intervalSecondsRemaining]);
+  assert.equal(now[0], 1.05, '+5% on the screen'); assert.ok(now[1] >= was[1] + 28, '+30 s on the screen');
+  await tap(page, '[data-av-quick="btnBiasMinus5"]'); await tap(page, '[data-av-quick="btnShortenInterval"]');
+  sw = await sweep(page);
+  assert.deepEqual(sw.small, [], 'small targets with the control buttons on'); assert.ok(sw.overflowX <= 0);
+  assert.ok((await page.evaluate(() => document.documentElement.scrollHeight)) <= 852, 'the ride screen with both control rows fits without scrolling');
+  await tap(page, '#avRideControls'); await tap(page, '#avQuickIntensitySwitch'); await tap(page, '#avQuickLengthSwitch');
+  await page.evaluate(() => ApexNative.shell.closeSheet()); await page.waitForTimeout(400);
+  await allMetricsOn(page);
+  await page.waitForTimeout(300);
+  sw = await sweep(page);
+  assert.deepEqual(sw.small, [], 'small targets with every metric on'); assert.ok(sw.overflowX <= 0, 'every metric on scrolls sideways');
+  const ctrl = await page.locator('.av-ride-ctrl').boundingBox();
+  assert.ok(ctrl.y + ctrl.height <= 852 + 1, 'End / Pause / Next stay on screen with every metric on');
+  await tap(page, '#avRideMetrics');
+  sw = await sweep(page); assert.deepEqual(sw.small, [], 'small targets on Metrics'); assert.ok(sw.overflowX <= 0);
+  await back(page);
   await tap(page, '#avRideControls');
   sw = await sweep(page); assert.deepEqual(sw.small, [], 'small targets on Controls'); assert.ok(sw.overflowX <= 0);
   await page.context().close();
 }]);
 
-FLOWS.push(['ride: back asks before ending, End saves and returns to Today, all metrics back to simple', async (browser) => {
+FLOWS.push(['ride: back asks before ending, End saves and returns to Today', async (browser) => {
   const page = await openPhone(browser);
   await tap(page, '#avStartRide');
   await page.waitForFunction(() => app.totalElapsedSeconds >= 2, null, { timeout: 15000 });
-  await page.evaluate(() => ApexNative.shell.go('ride/cockpit'));
-  await back(page);
-  assert.equal(await route(page), 'ride/live');
   await back(page);
   assert.ok(await page.locator('#avEndConfirm').isVisible(), 'back mid-ride asks first');
   await tap(page, '#avEndCancel');
@@ -634,97 +642,137 @@ FLOWS.push(['ride polish: HR-only hero and banner without a power source; deviat
   await page.context().close();
 }]);
 
-FLOWS.push(['ride: Zen from Today before Start (deep link to the ride screen); Zen START starts the ride, Exit returns to it running', async (browser) => {
-  const page = await openPhone(browser);
-  await page.evaluate(() => ApexNative.shell.go('ride/live'));
-  assert.equal(await page.evaluate(() => app.isPlaying), false);
-  await tap(page, '#avRideControls'); await page.locator('#avZen').scrollIntoViewIfNeeded(); await tap(page, '#avZen');
-  await page.waitForTimeout(300);
-  assert.ok(await page.locator('#zenCockpitOverlay').isVisible());
-  assert.equal(await page.evaluate(() => app.isPlaying), false, 'opening Zen does not start the ride');
-  await tap(page, '#btnZenPlayPause');
-  await page.waitForFunction(() => app.isPlaying);
-  await tap(page, '#btnCloseZenCockpit');
-  assert.equal(await route(page), 'ride/live');
-  await page.waitForTimeout(300);
-  assert.match(await page.locator('#avRidePause').textContent(), /Pause/);
-  await page.context().close();
-}]);
-
-FLOWS.push(['ride: Zen cockpit and Focus from Controls; Zen sits above the shell, its Exit and Android back return to the ride', async (browser) => {
+FLOWS.push(['ride: one screen only - Controls offers no other view (Detailed, Zen, Focus, Mini-HUD); the retired all-metrics link opens Today', async (browser) => {
   const page = await openPhone(browser);
   await tap(page, '#avStartRide');
-  await tap(page, '#avRideControls'); await page.locator('#avZen').scrollIntoViewIfNeeded(); await tap(page, '#avZen');
-  await page.waitForTimeout(300);
-  assert.ok(await page.locator('#zenCockpitOverlay').isVisible());
-  const top = await page.evaluate(() => { const r = document.getElementById('btnCloseZenCockpit').getBoundingClientRect(); return document.elementFromPoint(r.x + r.width / 2, r.y + r.height / 2).closest('#zenCockpitOverlay') !== null; });
-  assert.ok(top, 'Zen is on top');
-  const sw = await sweep(page); assert.deepEqual(sw.small, [], 'small targets in Zen'); assert.ok(sw.overflowX <= 0, 'Zen scrolls sideways');
-  await screenshot(page, 'zen');
+  await page.waitForFunction(() => app.isPlaying);
+  await tap(page, '#avRideControls');
+  for (const id of ['#avToggleFull', '#avZen', '#avFocusSwitch', '#avCustomise', '#avPip']) assert.equal(await page.locator(id).count(), 0, `${id} is gone`);
   await back(page);
-  assert.equal(await page.locator('#zenCockpitOverlay').isVisible(), false); assert.equal(await route(page), 'ride/live');
-  await tap(page, '#avRideControls'); await page.locator('#avZen').scrollIntoViewIfNeeded(); await tap(page, '#avZen'); await tap(page, '#btnCloseZenCockpit');
-  assert.equal(await page.locator('#zenCockpitOverlay').isVisible(), false); assert.equal(await route(page), 'ride/live');
-  await tap(page, '#avRideControls'); await page.locator('#avFocusSwitch').scrollIntoViewIfNeeded(); await tap(page, '#avFocusSwitch');
-  assert.equal(await route(page), 'ride/cockpit'); assert.ok(await page.evaluate(() => document.body.classList.contains('focus-mode')));
-  assert.equal(await page.locator('#upcomingIntervalsStrip').isVisible(), false, 'Focus hides the queue');
-  await tap(page, '#avFullControls'); await page.locator('#avFocusSwitch').scrollIntoViewIfNeeded(); await tap(page, '#avFocusSwitch');
-  assert.equal(await page.evaluate(() => document.body.classList.contains('focus-mode')), false);
+  await page.evaluate(() => ApexNative.shell.go('ride/cockpit'));
+  assert.equal(await route(page), 'ride');
+  assert.equal(await page.locator('#view-cockpit').isVisible(), false, 'the PC cockpit is not shown');
+  await tap(page, '#avStartRide'); // "Return to ride"
+  assert.equal(await route(page), 'ride/live'); assert.ok(await page.evaluate(() => app.isPlaying), 'the ride went on');
   await page.context().close();
 }]);
 
-FLOWS.push(['ride: customise tiles, panels and graph lines per rider, presets and reset; kept after a restart', async (browser) => {
+FLOWS.push(['ride graph: drawn from the ride; a tap steps the zoom (whole ride, 10 min, 3 min, 1 min), saved for the rider, and never moves the workout; Next interval takes two taps', async (browser) => {
   let page = await openPhone(browser, { demo: false }); // the demo keeps its storage in memory
   await tap(page, '#avStartRide');
-  await tap(page, '#avRideControls'); await page.locator('#avCustomise').scrollIntoViewIfNeeded(); await tap(page, '#avCustomise');
-  await tap(page, '[data-av-cust="tile:hr"] [data-toggle]');
-  assert.equal(await page.locator('#avRide [data-av-item="tile:hr"]').isHidden(), true, 'tile switched off');
-  await tap(page, '[data-av-cust="panel:next"] [data-move="-1"]');
-  const order = await page.evaluate(() => [...document.querySelectorAll('[data-av-cust]')].map((n) => n.dataset.avCust).slice(0, 3));
-  assert.deepEqual(order, ['panel:hero', 'panel:next', 'panel:profile']);
-  await tap(page, '.av-customise [data-which="full"]');
-  for (const id of ['stepControls', 'biasControls', 'views', 'ergResponse']) assert.equal(await page.locator(`[data-av-cust="${id}"] [data-toggle]`).getAttribute('aria-checked'), 'true', `${id} on by default`);
-  await tap(page, '[data-av-cust="stepControls"] [data-toggle]');
-  await tap(page, '[data-av-cust="stepControls"] [data-move="-1"]');
-  await page.evaluate(() => { ApexNative.shell.closeSheet(); ApexNative.shell.go('ride/cockpit'); });
-  assert.equal(await page.locator('#btnStand').isVisible(), false, 'step controls switched off');
-  await page.evaluate(() => ApexNative.shell.go('ride/live'));
-  await tap(page, '#avRideControls'); await page.locator('#avCustomise').scrollIntoViewIfNeeded(); await tap(page, '#avCustomise');
-  await tap(page, '.av-customise [data-which="full"]');
-  await tap(page, '[data-av-cust="rideGraph"] [data-toggle]');
-  await tap(page, '[data-line="hr"]');
-  assert.equal(await page.evaluate(() => app.telemetryChart.data.datasets.find((d) => /^Heart rate/.test(d.label)).hidden), true, 'HR line hidden');
+  await page.waitForFunction(() => app.totalElapsedSeconds >= 2, null, { timeout: 15000 });
+  await page.evaluate(() => { for (let k = 0; k < 400; k++) app.tick1Hz(); }); // some minutes of riding, into the second step
+  await tap(page, '#avRidePause');
+  await page.waitForTimeout(600);
+  const picture = () => page.evaluate(() => { const c = document.getElementById('avRideGraph'), d = c.getContext('2d').getImageData(0, 0, c.width, c.height).data; let ink = 0, sum = 0; for (let i = 3; i < d.length; i += 4) if (d[i]) { ink++; sum = (sum + d[i - 3] * 3 + d[i - 2] * 5 + d[i - 1] * 7 + i) % 1000003; } return { ink, sum }; });
+  const all = await picture();
+  assert.ok(all.ink > 2000, 'the graph is drawn');
+  const state = () => page.evaluate(() => ({ step: app.intervalIndex, left: app.intervalSecondsRemaining, elapsed: app.totalElapsedSeconds, playing: app.isPlaying }));
+  const before = await state();
+  assert.ok(before.step >= 1, 'riding the second step');
+  assert.equal(await page.locator('#avRide #intervalCanvas').count(), 0, 'the tap-to-jump workout profile is not on the ride screen');
+  assert.equal(await page.locator('.av-zoom, #avGraphZoom [data-zoom]').count(), 0, 'no separate zoom bar');
+  // Taps anywhere on the graph step the zoom, whole ride > 10 min > 3 min > 1 min > whole ride, and nothing else.
+  const zoom = () => page.evaluate(() => ApexNative.rideTab.ride.layout().zoom);
+  assert.equal(await zoom(), 'all');
+  assert.match(await page.locator('#avGraphZoomLabel').textContent(), /Whole ride/);
+  const box = await page.locator('#avRideGraph').boundingBox();
+  const seen = [];
+  for (const [fx, fy] of [[0.04, 0.2], [0.5, 0.8], [0.95, 0.5], [0.3, 0.5], [0.7, 0.3]]) {
+    await page.touchscreen.tap(box.x + box.width * fx, box.y + box.height * fy);
+    seen.push(await zoom());
+    assert.deepEqual(await state(), before, 'a tap on the graph does not seek, skip, pause or resume');
+  }
+  assert.deepEqual(seen, ['10m', '3m', '1m', 'all', '10m']);
+  await tap(page, '#avGraphZoom'); await tap(page, '#avGraphZoom'); // 3 min, 1 min
+  await page.waitForTimeout(400);
+  assert.match(await page.locator('#avGraphZoomLabel').textContent(), /^1 min/);
+  const zoomed = await picture();
+  assert.ok(zoomed.ink > 2000 && zoomed.sum !== all.sum, 'zooming in redraws the graph');
+  await tap(page, '#avGraphZoom'); await tap(page, '#avGraphZoom'); await tap(page, '#avGraphZoom'); // whole ride, 10 min, 3 min
+  assert.equal(await zoom(), '3m');
+  // Next interval: one tap only arms it, a second one skips; left alone it disarms.
+  await tap(page, '#avRideSkip');
+  assert.match(await page.locator('#avRideSkip').textContent(), /Tap again to skip/);
+  assert.deepEqual(await state(), before, 'one tap does not skip');
+  await page.waitForTimeout(3300);
+  assert.match(await page.locator('#avRideSkip').textContent(), /Next interval/, 'disarmed after 3 s');
+  await tap(page, '#avRideSkip'); await tap(page, '#avRideSkip');
+  assert.equal((await state()).step, before.step + 1, 'two taps skip one step');
+  assert.match(await page.locator('#avRideSkip').textContent(), /Next interval/);
+  const sw = await sweep(page); assert.deepEqual(sw.small, [], 'small targets with the zoom buttons'); assert.ok(sw.overflowX <= 0);
+  await screenshot(page, 'ride-graph-zoom');
   await page.reload();
   await page.waitForFunction(() => window.app && ApexNative.shell.current);
-  const l = await page.evaluate(() => ApexNative.rideTab.ride.layout());
-  assert.equal(l.simple.find((x) => x.id === 'tile:hr').on, false);
-  assert.equal(l.full.find((x) => x.id === 'rideGraph').on, false);
-  assert.equal(l.lines.hr, false);
+  assert.equal(await page.evaluate(() => ApexNative.rideTab.ride.layout().zoom), '3m', 'zoom kept after a restart');
+  assert.equal(await page.evaluate(() => ApexNative.rideTab.ride.layouts.get('someone-else').zoom), 'all', 'per rider');
+  await page.context().close();
+}]);
+
+FLOWS.push(['ride metrics: one tap shows or hides a tile, a panel or a graph line; saved per rider, kept after a restart; restore defaults; an earlier layout keeps its tiles', async (browser) => {
+  let page = await openPhone(browser, { demo: false }); // the demo keeps its storage in memory
+  await tap(page, '#avStartRide');
+  const shown = async (item) => !(await page.locator(`#avRide [data-av-item="${item}"]`).isHidden());
+  assert.deepEqual([await shown('panel:graph'), await shown('panel:next'), await shown('tile:hr'), await shown('tile:cadence'), await shown('tile:np'), await shown('panel:coach')], [true, true, true, true, false, false], 'the default screen');
+  await tap(page, '#avRideMetrics');
+  await tap(page, '#avMetricsSheet [data-item="tile:np"]');
+  assert.equal(await page.locator('#avMetricsSheet [data-item="tile:np"]').getAttribute('aria-checked'), 'true');
+  assert.ok(await shown('tile:np'), 'NP shows at once');
+  assert.ok(await page.locator('#avMetricsSheet').isVisible(), 'the sheet stays open for the next switch');
+  await tap(page, '#avMetricsSheet [data-item="tile:hr"]');
+  assert.equal(await shown('tile:hr'), false, 'heart rate switched off');
+  await tap(page, '#avMetricsSheet [data-item="panel:graph"]');
+  assert.equal(await shown('panel:graph'), false, 'graph switched off');
+  await tap(page, '#avMetricsSheet [data-line="cadence"]');
+  assert.equal(await page.locator('#avMetricsSheet [data-line="cadence"]').getAttribute('aria-checked'), 'true');
+  assert.match(await page.locator('#avMetricsSheet [data-item="tile:cadence"] .av-mchip-val').textContent(), /rpm|--/, 'switches show their live value');
+  await page.reload();
+  await page.waitForFunction(() => window.app && ApexNative.shell.current);
+  const on = (l, id) => l.items.find((x) => x.id === id).on;
+  let l = await page.evaluate(() => ApexNative.rideTab.ride.layout());
+  assert.deepEqual([on(l, 'tile:np'), on(l, 'tile:hr'), on(l, 'panel:graph'), l.lines.cadence], [true, false, false, true], 'kept after a restart');
   const other = await page.evaluate(() => ApexNative.rideTab.ride.layouts.get('someone-else'));
-  assert.equal(other.simple.find((x) => x.id === 'tile:hr').on, true, 'per rider');
+  assert.deepEqual([on(other, 'tile:np'), on(other, 'tile:hr'), on(other, 'panel:graph'), other.lines.cadence], [false, true, true, false], 'per rider');
   await page.evaluate(() => ApexNative.shell.go('ride/live'));
-  await tap(page, '#avRideControls'); await page.locator('#avCustomise').scrollIntoViewIfNeeded(); await tap(page, '#avCustomise');
-  await tap(page, '[data-preset="minimal"]');
-  assert.equal(await page.locator('#avRide [data-av-item="panel:profile"]').isHidden(), true, 'Minimal hides the profile');
-  await tap(page, '[data-preset="everything"]');
-  assert.equal(await page.locator('#avRide [data-av-item="tile:np"]').isHidden(), false, 'Everything shows NP');
-  page.once('dialog', (d) => d.accept());
-  await tap(page, '[data-preset="reset"]');
-  assert.equal(await page.locator('#avRide [data-av-item="tile:np"]').isHidden(), true, 'Reset is Standard');
-  assert.equal(await page.locator('#avRide [data-av-item="tile:hr"]').isHidden(), false);
+  await tap(page, '#avRideMetrics');
+  await page.locator('#avMetricsReset').scrollIntoViewIfNeeded(); await tap(page, '#avMetricsReset');
+  assert.deepEqual([await shown('panel:graph'), await shown('tile:hr'), await shown('tile:np')], [true, true, false], 'Restore is the default screen');
+  assert.equal(await page.locator('#avMetricsSheet [data-item="tile:np"]').getAttribute('aria-checked'), 'false');
+  // More tiles: three to a row, and a tighter hero.
+  await back(page);
+  await allMetricsOn(page);
+  assert.equal(await page.locator('#avRide').getAttribute('data-cols'), '3');
+  assert.equal(await page.locator('#avRide').getAttribute('data-density'), 'packed');
+  // A layout saved by the earlier two-view screen: its tiles stay, its workout profile becomes the live graph.
+  l = await page.evaluate(() => {
+    localStorage.setItem('apex_ride_layout_v1', JSON.stringify({ [app.activeProfileId]: {
+      simple: [{ id: 'panel:hero', on: true }, { id: 'panel:profile', on: true }, { id: 'panel:next', on: false }, { id: 'tile:tss', on: true }, { id: 'tile:power', on: true }, { id: 'tile:hr', on: false }],
+      full: [{ id: 'rideGraph', on: true }], lines: { power: true, target: true, cadence: true, hr: false }
+    } }));
+    ApexNative.rideTab.ride.applyLayout();
+    return ApexNative.rideTab.ride.layout();
+  });
+  assert.deepEqual(l.items.filter((x) => x.on).map((x) => x.id), ['panel:graph', 'tile:tss'], 'earlier layout carried over');
+  assert.deepEqual([l.lines.hr, l.lines.cadence, l.zoom], [false, true, 'all']);
+  assert.deepEqual([await shown('panel:graph'), await shown('panel:next'), await shown('tile:tss'), await shown('tile:hr')], [true, false, true, false]);
   await page.context().close();
 }]);
 
 
 // ------------------------------------------------------------------------------------------ train parity --
-// Every feature of today's Workouts, Coach, Calendar and Ask views, and where the Train tab has it.
-// [feature, route, selector, setup?]: setup runs on the route before the check (opens a sheet or a mode).
+// Every feature of the Workouts, Calendar and AI Coach views (questions, workouts and plans now share one chat),
+// and where the Train tab has it. [feature, route, selector, setup?]: setup runs on the route before the check.
 const sheetOf = (id) => async (page) => { await page.evaluate((id) => ApexNative.trainTab.openWorkout(id), id); };
+/** Ticks `intent` in the coach chat and opens its options. */
+const trayOf = (intent) => async (page) => { await page.evaluate((i) => { app.setCoachIntent(i); app.toggleCoachOptions(true); }, intent); };
 const TRAIN_PARITY = [
   ['week strip with planned and ridden days', 'train/plan', '.av-week-strip [data-av-day]'],
   ['the day\'s session: find a workout', 'train/plan', '#avPlanAskCoach'],
-  ['training block: build, re-plan, open', 'train/plan', '#avPlanBuild'],
-  ['coach and calendar', 'train/plan', '#avOpenCalendar'],
+  ['training block: build (or re-plan, delete), open', 'train/plan', '#planWelcomeCard [data-coach-open="plan"]'],
+  ['calendar', 'train/plan', '#avOpenCalendar'],
+  ['today: the planned session or coach workout (Ride), or Workout for today', 'train/coach', '#avToday #avTodayGo'],
+  ['top bar: Workouts and Plan from the coach', 'train/coach', '#avTopWorkouts'],
+  ['top bar: Plan', 'train/coach', '#avTopPlan'],
   ['library list (name, duration, TSS)', 'train/workouts', '#avWorkoutList [data-av-workout]'],
   ...['all', 'endurance', 'sweetspot', 'threshold', 'vo2', 'hardstart', 'custom', 'assessment'].map((c) => [`filter: ${c}`, 'train/workouts', `[data-av-cat="${c}"]`]),
   ['search', 'train/workouts', '#avWorkoutSearch'],
@@ -732,34 +780,33 @@ const TRAIN_PARITY = [
   ['workout sheet: profile, ride it', 'train/workouts', '#avWorkoutSheet #avWorkoutRide', sheetOf('carson')],
   ['workout sheet: fine-tune', 'train/workouts', '#avWorkoutSheet #avWorkoutEdit', sheetOf('carson')],
   ['ramp test (Tests)', 'train/workouts', '#avWorkoutList [data-av-workout]', async (page) => { await tap(page, '[data-av-cat="assessment"]'); }],
-  ['Describe a workout (examples, create)', 'train/workouts', '.av-sheet #describeInput', async (page) => { await tap(page, '#avDescribe'); }],
-  ['describe: create', 'train/workouts', '.av-sheet #btnDescribeCreate', async (page) => { await tap(page, '#avDescribe'); }],
   ['custom interval builder: steps table', 'train/builder', '#customIntervalTableBody tr'],
   ['custom interval builder: add step', 'train/builder', '#btnAddIntervalRow'],
   ['save as preset (saved workouts)', 'train/builder', '#btnSaveCustomAsPreset'],
   ['ride the fine-tuned workout', 'train/builder', '#avBuilderRide'],
-  ['coach: one workout or plan', 'train/coach', '#coachModePills [data-coach-mode="plan"]'],
-  ['coach: goal', 'train/coach', '#aiCoachGoalPills [data-goal="vo2"]'],
-  ['coach: focus, time available', 'train/coach', '#selectAiCoachFocus'],
-  ['coach: notes, look-back', 'train/coach', '#inputAiCoachNotes'],
-  ['coach: form, fitness, fatigue, readiness', 'train/coach', '#coachReadinessChip'],
-  ['coach: insights', 'train/coach', '#aiCoachInsights'], // shown open below the builder
-  ['coach: prescribe / build (top bar too)', 'train/coach', '#btnGenerateAiCoachRecommendation'],
-  ['coach: training terms explained', 'train/coach', '#view-ai-coach [data-training-guide]'],
-  ['plan: weeks, days, long day, start, hours', 'train/coach', '#blockDays [data-dow="5"]', async (page) => { await page.evaluate(() => ApexNative.trainTab.openCoach('plan')); }],
-  ['plan: block weeks', 'train/coach', '#selectBlockWeeks + .chip-select, #selectBlockWeeks', async (page) => { await page.evaluate(() => ApexNative.trainTab.openCoach('plan')); }],
+  ['coach chat: what to do (ask, workout, plan)', 'train/coach', '#coachIntents [data-intent="plan"]'],
+  ['coach chat: message box and send', 'train/coach', '#askInput'],
+  ['coach chat: thread (examples, history)', 'train/coach', '#askThread'],
+  ['coach chat: AI engine (in the options)', 'train/coach', '#coachTray #btnAskEngine', trayOf('chat')],
+  ['plan: form, fitness, fatigue, readiness (what the coach sees)', 'train/plan', '#coachReadinessChip'],
+  ['plan: training terms explained', 'train/plan', '#coachSide [data-training-guide]'],
+  ['ask: period', 'train/coach', '#askPeriodPills .ask-period', trayOf('chat')],
+  ['ask: what the AI sees', 'train/coach', '#askDataPeek > summary', trayOf('chat')],
+  ['workout: goal', 'train/coach', '#aiCoachGoalPills [data-goal="vo2"]', trayOf('workout')],
+  ['workout: time available', 'train/coach', '#selectAiCoachDuration + .chip-select', trayOf('workout')],
+  ['workout: focus, look-back', 'train/coach', '#selectAiCoachFocus', trayOf('workout')],
+  ['plan: weeks', 'train/coach', '#selectBlockWeeks + .chip-select', trayOf('plan')],
+  ['plan: days, long day, start', 'train/coach', '#blockDays [data-dow="5"]', trayOf('plan')],
+  ['plan: hours per week', 'train/coach', '#inputBlockHours', trayOf('plan')],
+  ['plan: the block (or how to build one)', 'train/plan', '#planWelcomeCard'],
+  ['plan: what the coach reads', 'train/plan', '#aiCoachInsights'],
   ['calendar: week / month / year / all time', 'train/calendar', '#calPresetPills [data-preset="ytd"]'],
   ['calendar: prev / next / current', 'train/calendar', '#btnCalNextWeek'],
   ['calendar: load rollup', 'train/calendar', '#calWeeklyTss'],
-  ['calendar: days', 'train/calendar', '#calendarContentArea > *'],
-  ['ask: question box and send', 'train/ask', '#askInput'],
-  ['ask: period', 'train/ask', '#askPeriodPills .ask-period'],
-  ['ask: what the AI sees', 'train/ask', '#askDataPeek > summary'],
-  ['ask: AI engine', 'train/ask', '#btnAskEngine'],
-  ['ask: thread (suggestions, history)', 'train/ask', '#askThread']
+  ['calendar: days', 'train/calendar', '#calendarContentArea > *']
 ];
 
-FLOWS.push(['train parity: every Workouts, Coach, Calendar and Ask feature is reachable from the Train tab', async (browser) => {
+FLOWS.push(['train parity: every Workouts, Calendar and AI Coach feature (questions, workouts, plans) is reachable from the Train tab', async (browser) => {
   const page = await openPhone(browser);
   const missing = [];
   for (const [feature, r, sel, setup] of TRAIN_PARITY) {
@@ -777,12 +824,12 @@ FLOWS.push(['train parity: every Workouts, Coach, Calendar and Ask feature is re
   await page.context().close();
 }]);
 
-FLOWS.push(['train: taps from launch (library workout 4 → ride screen, ask 2), roots ≤ 1.5 screens, no sideways scroll, 44 px targets', async (browser) => {
+FLOWS.push(['train: taps from launch (library workout 4 → ride screen, coach chat 1), the home ≤ 1.5 screens, no sideways scroll, 44 px targets', async (browser) => {
   let page = await openPhone(browser);
   const c = { taps: 0 };
   await tap(page, '.av-tabbar [data-av-tab="train"]', c);
-  assert.equal(await route(page), 'train/plan');
-  await tap(page, '.av-subnav [data-av-seg="train/workouts"]', c);
+  assert.equal(await route(page), 'train/coach', 'Train opens on the coach chat');
+  await tap(page, '#avTopWorkouts', c);
   await tap(page, '#avWorkoutList [data-av-workout]:nth-child(3)', c);
   const id = await page.evaluate(() => document.querySelector('#avWorkoutList [data-av-workout]:nth-child(3)').dataset.avWorkout);
   await tap(page, '#avWorkoutRide', c);
@@ -794,43 +841,57 @@ FLOWS.push(['train: taps from launch (library workout 4 → ride screen, ask 2),
   page = await openPhone(browser);
   c.taps = 0;
   await tap(page, '.av-tabbar [data-av-tab="train"]', c);
-  await tap(page, '.av-subnav [data-av-seg="train/ask"]', c);
-  assert.equal(c.taps, 2); assert.equal(await route(page), 'train/ask');
+  assert.equal(c.taps, 1); assert.equal(await route(page), 'train/coach');
+  assert.equal(await page.locator('.av-subnav').isVisible(), false, 'no segmented control: the library and the plan are in the top bar');
   const box = await page.locator('#askInput').boundingBox();
-  assert.ok(box && box.y + box.height <= 852 - 76, 'question box above the fold and the tab bar');
-  for (const r of ['train/plan', 'train/workouts', 'train/ask', 'train/coach', 'train/calendar', 'train/builder']) {
+  assert.ok(box && box.y + box.height <= 852 - 76, 'message box above the fold and the tab bar');
+  for (const r of ['train/coach', 'train/plan', 'train/workouts', 'train/calendar', 'train/builder']) {
     await page.evaluate((r) => ApexNative.shell.go(r), r);
     await page.waitForTimeout(300);
     const sw = await sweep(page, { ignore: '.sr-only' });
     assert.deepEqual(sw.small, [], `small targets on ${r}`); assert.ok(sw.overflowX <= 0, `${r} scrolls sideways (${sw.overflowX})`);
     assert.ok(await page.locator('.av-tabbar').isVisible(), `bottom bar on ${r}`);
-    if (['train/plan', 'train/ask'].includes(r)) assert.ok((await page.evaluate(() => document.documentElement.scrollHeight)) <= 852 * 1.5 + 80, `${r} fits 1.5 screens`);
+    if (r === 'train/coach') assert.ok((await page.evaluate(() => document.documentElement.scrollHeight)) <= 852 * 1.5 + 80, `${r} fits 1.5 screens`);
     if (r === 'train/workouts') assert.ok(await page.locator('.av-workout-card svg.av-workout-profile').first().isVisible(), 'workout browsing uses visual cards');
     await screenshot(page, r.replace('/', '-'));
   }
-  // Detail pages keep their main action above the fold.
+  // The chat keeps its send button above the fold, and each tick's options are all 44 px targets.
   await page.evaluate(() => ApexNative.shell.go('train/coach'));
-  assert.ok(await page.locator('#avCoachGo').isVisible());
+  assert.ok(await page.locator('#btnAskSend').isVisible());
+  for (const intent of ['chat', 'workout', 'plan']) {
+    await page.evaluate((i) => { app.setCoachIntent(i); app.toggleCoachOptions(true); }, intent);
+    const st = await sweep(page, { ignore: '.sr-only' });
+    assert.deepEqual(st.small, [], `small targets in the ${intent} options`); assert.ok(st.overflowX <= 0, `${intent} options scroll sideways`);
+    await screenshot(page, `train-coach-${intent}-options`);
+  }
+  await page.evaluate(() => { app.toggleCoachOptions(false); app.setCoachIntent('chat'); });
   await page.evaluate(() => ApexNative.trainTab.openWorkout('carson'));
   const sw = await sweep(page, { ignore: '.sr-only' }); assert.deepEqual(sw.small, [], 'small targets on the workout sheet');
   await page.evaluate(() => ApexNative.shell.closeSheet());
-  await page.evaluate(() => ApexNative.shell.go('train/workouts'));
-  await tap(page, '#avDescribe');
-  const sd = await sweep(page, { ignore: '.sr-only' }); assert.deepEqual(sd.small, [], 'small targets on Describe');
   assert.deepEqual(page.errors, []);
   await page.context().close();
 }]);
 
-FLOWS.push(['train: back follows the stack; the app\'s own switches land on Train; ramp test and Fine-tune ride; Ask history kept', async (browser) => {
-  let page = await openPhone(browser, { route: 'train/plan' });
+FLOWS.push(['train: back follows the stack; the app\'s own switches land on Train; ramp test and Fine-tune ride; the coach chat kept', async (browser) => {
+  let page = await openPhone(browser, { route: 'train/coach' });
+  await tap(page, '#avTopPlan'); assert.equal(await route(page), 'train/plan');
   await tap(page, '#avOpenCalendar'); assert.equal(await route(page), 'train/calendar');
   await back(page); assert.equal(await route(page), 'train/plan');
-  await tap(page, '#avOpenCoach'); assert.equal(await route(page), 'train/coach');
-  await back(page); assert.equal(await route(page), 'train/plan');
-  await back(page); assert.equal(await route(page), 'ride', 'a Train root goes back to Ride');
+  await back(page); assert.equal(await route(page), 'train/coach', 'Plan goes back to the coach');
+  await tap(page, '#avTodayOpen'); assert.equal(await route(page), 'train/plan', 'the Today line opens the plan');
+  await back(page);
+  await page.evaluate(() => app.openTrainingPlan()); assert.equal(await route(page), 'train/plan', 'the chat\'s View full plan opens Plan');
+  await page.evaluate(() => ApexNative.shell.go('train/block')); await page.waitForFunction(() => ApexNative.shell.current.route === 'train/plan');
+  await back(page); assert.equal(await route(page), 'train/coach');
+  await back(page); assert.equal(await route(page), 'ride', 'the Train home goes back to Ride');
   await page.evaluate(() => app.switchTab('calendar')); assert.equal(await route(page), 'train/calendar');
   await page.evaluate(() => app.switchTab('ai-coach')); assert.equal(await route(page), 'train/coach');
   await page.evaluate(() => app.switchTab('workouts')); assert.equal(await route(page), 'train/workouts');
+  await page.evaluate(() => app.switchTab('ask')); assert.equal(await route(page), 'train/coach', 'the old Ask lands on the coach chat');
+  assert.equal(await page.locator('#coachIntents [data-intent="chat"]').getAttribute('aria-checked'), 'true');
+  await page.evaluate(() => app.switchTab('workouts'));
+  await back(page); assert.equal(await route(page), 'train/coach', 'Workouts goes back to the coach');
+  await page.evaluate(() => app.switchTab('workouts'));
   // Fine-tune: the builder edits the loaded workout; back returns to Workouts.
   await page.evaluate(() => ApexNative.trainTab.openWorkout('carson'));
   await tap(page, '#avWorkoutEdit'); assert.equal(await route(page), 'train/builder');
@@ -847,21 +908,25 @@ FLOWS.push(['train: back follows the stack; the app\'s own switches land on Trai
   assert.equal(await route(page), 'ride/live');
   assert.ok(await page.evaluate(() => !!app.rampTestConfig(app.currentWorkout)), 'ramp test loaded');
   await page.context().close();
-  // Coach: today's workout from the built-in engine, Load into cockpit opens the Ride tab with it.
+  // Coach chat: Workout for today from the built-in engine, Ride now opens the ride screen with it.
   page = await openPhone(browser, { route: 'train/coach' });
-  await tap(page, '#avCoachGo');
-  await page.waitForSelector('#btnLoadAiCoachWorkout', { state: 'visible', timeout: 30000 });
-  const title = (await page.locator('#aiCoachWorkoutTitle').textContent()).trim();
-  await page.locator('#btnLoadAiCoachWorkout').scrollIntoViewIfNeeded(); await tap(page, '#btnLoadAiCoachWorkout');
-  assert.equal(await route(page), 'ride');
+  await tap(page, '#avToday #avTodayGo'); // nothing planned: Workout for today asks the coach at once
+  await page.waitForSelector('#askThread .coach-workout', { state: 'visible', timeout: 30000 });
+  assert.equal(await route(page), 'train/coach');
+  const title = (await page.locator('#askThread .coach-workout .cc-title').textContent()).trim();
+  await page.locator('#askThread .coach-workout [data-coach-act="ride"]').scrollIntoViewIfNeeded(); await tap(page, '#askThread .coach-workout [data-coach-act="ride"]');
+  assert.equal(await route(page), 'ride/live');
   assert.equal(await page.evaluate(() => app.currentWorkout.title), title);
-  // Plan: a block from the built-in engine shows on Plan with Re-plan; a planned day rides from Plan.
+  await page.evaluate(() => app.resetWorkout(false));
+  // Plan: a block from the built-in engine, built from the chat, shows on Plan with Re-plan; a planned day rides from Plan.
   await page.evaluate(() => ApexNative.trainTab.openCoach('plan'));
   await page.evaluate(() => document.querySelectorAll('#blockDays [data-dow]').forEach((b) => { if (!b.classList.contains('active')) b.click(); }));
-  await tap(page, '#avCoachGo');
+  await tap(page, '#btnAskSend');
   await page.waitForFunction(() => app.blockPlanner.block, null, { timeout: 30000 });
+  await page.waitForSelector('#askThread .coach-plan', { timeout: 10000 });
+  await screenshot(page, 'train-coach-plan-card');
   await page.evaluate(() => ApexNative.shell.go('train/plan'));
-  assert.ok(await page.locator('#avPlanReplan').isVisible(), 'block on Plan');
+  assert.ok(await page.locator('#btnReplanBlock').isVisible(), 'the block with Re-plan on Plan');
   const day = await page.evaluate(() => { const m = app.blockPlanner.sessionsByDate(); const d = [...document.querySelectorAll('[data-av-day]')].find((b) => (m.get(b.dataset.avDay) || []).some((s) => s.status === 'planned')); return d && d.dataset.avDay; });
   assert.ok(day, 'a planned day this week');
   await tap(page, `[data-av-day="${day}"]`);
@@ -879,13 +944,18 @@ FLOWS.push(['train: back follows the stack; the app\'s own switches land on Trai
   assert.equal(await route(page), 'ride/live');
   assert.equal(await page.evaluate(() => app.currentWorkout.id), riding, 'the ride kept its workout');
   await page.context().close();
-  // Ask history: the saved chat comes back after a restart.
-  page = await openPhone(browser, { route: 'train/ask', demo: false });
-  await page.evaluate(() => { app.askMessages.push({ role: 'user', content: 'Parity probe question' }, { role: 'assistant', content: 'Parity probe answer' }); app.saveAsk(); });
+  // The coach chat: the saved conversation, workout cards included, comes back after a restart.
+  page = await openPhone(browser, { route: 'train/coach', demo: false });
+  await page.evaluate(() => {
+    app.askMessages.push({ role: 'user', content: 'Parity probe question' }, { role: 'assistant', content: 'Parity probe answer' });
+    app.askMessages.push(app.coachWorkoutMessage({ workout: { id: 'probe', title: 'Probe Workout', durationMin: 30, tss: 20, if: 0.6, intervals: [{ duration: 600, pctFtp: 55 }, { duration: 600, pctFtp: 70 }, { duration: 600, pctFtp: 50 }] } }));
+    app.saveAsk();
+  });
   await page.reload();
   await page.waitForFunction(() => window.app && ApexNative.shell.current);
-  assert.equal(await route(page), 'train/ask');
+  assert.equal(await route(page), 'train/coach');
   assert.match(await page.locator('#askThread').textContent(), /Parity probe answer/);
+  assert.match(await page.locator('#askThread .coach-workout').textContent(), /Probe Workout/);
   await page.evaluate(() => app.newAskChat());
   await page.context().close();
 }]);
@@ -917,10 +987,10 @@ module.exports.PARITY = PARITY;
 // and the Analytics+ / studio parts) and the Progress topic that shows it. [feature, topic, selector]
 const PROGRESS_PARITY = [
   ['readiness ring (tap a day)', 'health', '#anaCardReady'], ['your week (AI story)', 'fitness', '#anaCardStory'],
-  ['today strip: form, fitness, ramp, FTP', 'fitness', '#anaTodayStrip'], ['progression tiles (drill down)', 'fitness', '#anaTiles'],
+  ['today strip: fitness, form, ramp', 'fitness', '#anaTodayStrip'], ['key numbers: fitness, fatigue, form, FTP', '', '#avProgAnswer'],
   ['pinned charts', 'fitness', '#anaPinned'], ['what changed (insights)', 'fitness', '#anaCardInsights'], ['records', 'records', '#anaCardRecords'],
   ['performance management chart', 'fitness', '#anaCardPmc'], ['weekly load, KPIs, week rides', 'fitness', '#anaCardWeekly'], ['training year heatmap', 'fitness', '#anaCardYear'],
-  ['power duration curve, scrubber, table', 'power', '#anaCardPdc'], ['critical power model', 'power', '#cpModelCard'], ['power profile', 'power', '#anaCardProfile'],
+  ['power duration curve, scrubber, table', 'power', '#anaCardPdc'], ['critical power model', 'power', '#cpModelCard'], ['best efforts (5 s to 20 min)', 'power', '#avPowerSummary'],
   ['power profile (PRs)', 'records', '#anaCardProfile'], ['CP & W′ over time', 'power', '#anaCardCpHistory'], ['left / right balance', 'power', '#anaCardBalance'],
   ['FTP history & monthly peak NP, implied FTP', 'power', '#anaCardFtpHistory'], ['FTP over time (estimates, import, table)', 'power', '#ftpMetricsHistoryCard'],
   ['time in zones, polarisation', 'intensity', '#anaCardZones'], ['intensity mix', 'intensity', '#anaCardMix'], ['every ride: duration vs NP', 'intensity', '#anaCardScatter'],
@@ -979,9 +1049,11 @@ FLOWS.push(['progress parity: every Analytics, Analytics+, Studio, Health and FT
   await seedHealth(page);
   const missing = [];
   for (const [feature, topic, sel] of PROGRESS_PARITY) {
-    await page.evaluate((t) => ApexNative.shell.go('progress/' + t), topic);
+    await page.evaluate((t) => ApexNative.shell.go(t ? 'progress/' + t : 'progress'), topic);
     // Cards without data hide themselves ([hidden]); the check is that the topic page shows the card when it has data.
+    // Secondary cards sit in the page's "More detail" fold: opened here, as a rider would.
     const ok = await page.evaluate((sel) => {
+      document.querySelectorAll('#view-analytics details.ana-more').forEach((d) => { d.open = true; });
       const el = document.querySelector(sel); if (!el) return false;
       const was = el.hidden; el.hidden = false;
       const r = el.getBoundingClientRect(); const vis = r.width > 0 && r.height > 0 && getComputedStyle(el).visibility !== 'hidden';

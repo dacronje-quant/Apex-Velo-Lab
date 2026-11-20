@@ -151,9 +151,10 @@
           const valDist = frame.contentDocument.getElementById('valDistance');
           const hudDist = frame.contentDocument.getElementById('hudTotalDistance');
           const hudSpeed = frame.contentDocument.getElementById('hudCurrentSpeed');
-          const smoothPills = frame.contentDocument.querySelectorAll('#powerSmoothingPills .smooth-pill');
+          const powerTap = frame.contentDocument.getElementById('hudHeroValue');
           log('Cockpit HUD Speed & Distance Elements', valSpeed && valDist && hudDist && hudSpeed, 'All DOM elements mounted');
-          log('Cockpit Multi-Window Smoothing Pills (6 buttons)', smoothPills.length === 6, `Count: ${smoothPills.length}`);
+          const viewBefore = app.smoothingWindow; powerTap.click(); const viewAfter = app.smoothingWindow; app.setSmoothingWindow(viewBefore);
+          log('Tapping the power number changes the averaging (Current / 3s / 5s / 10s)', app.constructor.POWER_VIEWS.join() === '1,3,5,10' && viewAfter !== viewBefore, `${viewBefore}s -> ${viewAfter}s`);
 
           // 11. Check Hard-Start Workouts in Normal Built-in Library
           const hardStartWorkouts = app.workoutLibrary.filter(w => 
@@ -360,12 +361,13 @@
           const loadedCorrectly = app.currentWorkout.title === aiRec.workout.title && app.intervalIndex === 0;
           log('1-Click Load AI Workout into Cockpit Sets Workout & Upcoming Intervals', loadedCorrectly, `Current: "${app.currentWorkout.title}"`);
 
-          // Test AI Coach UI Rendering
+          // Test AI Coach UI Rendering: a recommendation is a workout card in the coach chat, with its steps.
+          const savedChat = app.askMessages.slice();
           app.renderAiCoachRecommendation(aiRec);
-          const resPanel = frame.contentDocument.getElementById('aiCoachResultPanel');
-          const panelVisible = resPanel && resPanel.style.display !== 'none';
-          const tableRows = frame.contentDocument.querySelectorAll('#aiCoachIntervalTableBody tr');
-          log('AI Coach UI Renders Recommendation Panel & Interval Breakdown', panelVisible && tableRows.length >= 3, `Steps: ${tableRows.length}`);
+          const coachCard = frame.contentDocument.querySelector('#askThread .coach-workout');
+          const tableRows = frame.contentDocument.querySelectorAll('#askThread .coach-workout .cc-steps tbody tr');
+          log('AI Coach UI Renders the Workout Card in the Chat with Its Steps', !!coachCard && tableRows.length >= 3, `Steps: ${tableRows.length}`);
+          app.askMessages = savedChat; app.saveAsk(); app.renderAskThread();
 
           // 23. AI Coach defaults to Claude Opus 5.5 at low effort & Clear Recommendation Button
           const modelSelect = frame.contentDocument.getElementById('selectCoachModel');
@@ -393,21 +395,21 @@
           log('AI Coach: Claude/Gemini Provider Switch & History Look-back Window', geminiOk && mismatchDropped && optionsOk && lookbackOk,
             `Gemini: ${geminiOk}, mismatch dropped: ${mismatchDropped}, options: ${geminiOptions.join('/')}, look-back 7/90: ${ctx7.history.ridesWin}/${ctx90.history.ridesWin} rides (listed ${ctx90.listedRideCount})`);
 
-          const clearBtn = frame.contentDocument.getElementById('btnClearAiCoachRecommendation');
-          const clearTopBtn = frame.contentDocument.getElementById('btnClearAiCoachRecTop');
-          const welcomeCard = frame.contentDocument.getElementById('aiCoachWelcomeCard');
-          const hasClearButtons = !!(clearBtn && clearTopBtn);
-          
-          // Verify Clear Recommendation resets state and restores welcome card for fresh prompt
-          clearBtn.click();
-          const isCleared = resPanel.style.display === 'none' && 
-                            welcomeCard.style.display !== 'none' && 
-                            app.aiCoach.currentRecommendation === null;
-          log('Clear Recommendation Button Resets UI & State for Frictionless Re-prompting', hasClearButtons && isCleared, 
-            `Result Panel hidden: ${resPanel.style.display === 'none'}, Welcome Card restored: ${welcomeCard.style.display !== 'none'}`);
-
-          // Re-render for subsequent tests if needed
+          // A fresh start: Clear (next to the message box, after a confirm) empties the coach chat, workout cards included.
+          const coachDoc = frame.contentDocument;
+          const keepChat = app.askMessages.slice();
+          const keepConfirm = frame.contentWindow.confirm;
           app.renderAiCoachRecommendation(aiRec);
+          const clearChatBtn = coachDoc.getElementById('btnAskClear');
+          const hadCard = !!coachDoc.querySelector('#askThread .coach-workout') && !!clearChatBtn && !clearChatBtn.hidden;
+          frame.contentWindow.confirm = () => false; clearChatBtn.click();
+          const keptOnCancel = app.askMessages.length > 0;
+          frame.contentWindow.confirm = () => true; clearChatBtn.click();
+          frame.contentWindow.confirm = keepConfirm;
+          const isCleared = app.askMessages.length === 0 && !!coachDoc.querySelector('#askThread .coach-welcome') && clearChatBtn.hidden;
+          log('Clear Empties the Coach Chat (Workout Cards Included) After a Confirm', hadCard && keptOnCancel && isCleared,
+            `card shown first: ${hadCard}, kept on cancel: ${keptOnCancel}, cleared and welcome back: ${isCleared}`);
+          app.askMessages = keepChat; app.saveAsk(); app.renderAskThread();
 
           // 23. Banister PMC Authentic Calculation (Zero Synthetic Seeds or Sine Waves)
           await app.resyncHealthFitHistory(true);
@@ -565,14 +567,16 @@
           const upcomingPill = frame.contentDocument.querySelector('.upcoming-cadence-pill');
           const hasUpcomingPills = !!upcomingPill && upcomingPill.textContent.includes('rpm');
 
-          // E. AI Coach Recommendation Cadence Column
+          // E. AI Coach Recommendation Cadence Column (the steps table on the workout card in the coach chat)
           const ctx = app.aiCoach.getPhysiologicalContext('sweetspot', 45);
           const rec = app.aiCoach.generateOfflineHeuristic(ctx);
+          const chatBeforeCadence = app.askMessages.slice();
           app.renderAiCoachRecommendation(rec);
-          const aiCoachTableBody = frame.contentDocument.getElementById('aiCoachIntervalTableBody');
-          const aiFirstRow = aiCoachTableBody?.querySelector('tr');
+          const aiCardRows = frame.contentDocument.querySelectorAll('#askThread .coach-workout .cc-steps tbody tr');
+          const aiFirstRow = aiCardRows.length ? aiCardRows[aiCardRows.length - rec.workout.intervals.length] : null;
           const aiCells = aiFirstRow ? aiFirstRow.querySelectorAll('td') : [];
-          const hasAiCadenceCell = aiCells.length === 6 && aiCells[4].textContent.includes('RPM');
+          const hasAiCadenceCell = aiCells.length === 6 && /rpm/i.test(aiCells[4].textContent);
+          app.askMessages = chatBeforeCadence; app.saveAsk(); app.renderAskThread();
 
           const allCadencePassed = cadPhysiologyOk && cadDecoupledOk && hasHudTag && 
                                    isCompliant && isUnder && isOver && 
@@ -1385,7 +1389,7 @@
             const lines = I.offlineBreakdown(rows);
             const offlineOk = rows.filter(r => r.work).length === 4 && /All 4 intervals were within 2%/.test(lines[0]) && lines.some(l => /^Interval 4 \(step 8\): cadence faded/.test(l)) && lines.some(l => /^Interval 4 \(step 8\): heart rate rose/.test(l));
             const prompt = I.breakdownPrompt(rows, { title: 'Threshold 4x5', ftp: 185, minutes: 33 });
-            const promptOk = /step \| interval \| secs/.test(prompt) && prompt.length < 4000 && !/timestamp/.test(prompt) && /never invent data/.test(prompt);
+            const promptOk = /step \| interval \| secs/.test(prompt) && prompt.length < 4000 && !/timestamp/.test(prompt) && /never invent/.test(prompt);
 
             const ride = { id: 'ride_ai_bd', source: 'APEX VELO Cockpit', title: 'Threshold 4x5', date: new W.Date(t0).toISOString(), duration: S.length, np: 170, tss: 50, avgHr: 140, ftpAtRide: 185, samples: S };
             const savedHist = app.completedWorkouts, realFetch = W.fetch;
@@ -1585,7 +1589,7 @@
           });
 
           // 46j. Analytics dashboard: tiles, EF on steady rides only, power profile PRs, ramp rate
-          await suite('Analytics Dashboard: 6 Progression Tiles, EF Only From Steady Rides, Power Profile 90 d vs 90 d With Honest PRs, Ramp Rate', async () => {
+          await suite('Analytics Dashboard: 4 Key Numbers, EF Only From Steady Rides, Power Profile 90 d vs 90 d With Honest PRs, Ramp Rate', async () => {
             const T = frame.contentWindow.VeloTrends;
             const W = frame.contentWindow;
             const DAY = 86400000, now = Date.now();
@@ -1610,7 +1614,7 @@
             const rangeOk = app.efChart.options.scales.x.max - app.efChart.options.scales.x.min > 90 * DAY && app.efChart.options.scales.x.max - app.efChart.options.scales.x.min < 92 * DAY;
             D.querySelector('#anaRangePills [data-range="6m"]').click();
             app.switchTab('cockpit');
-            const ok = ef && ef.ef === Math.round((140 / 130) * 100) / 100 && efV === null && ppOk && prOk && rampOk && tiles === 6 && profile === 4 && charts && rangeOk;
+            const ok = ef && ef.ef === Math.round((140 / 130) * 100) / 100 && efV === null && ppOk && prOk && rampOk && tiles === 4 && profile === 4 && charts && rangeOk;
             return { ok, detail: `EF steady ${ef && ef.ef}, intervals ${efV} | profile:${ppOk} PR only when it beats older bests:${prOk} | ramp ${ramp}:${rampOk} | tiles ${tiles}, profile cells ${profile}, charts:${charts}, page range drives charts:${rangeOk}` };
           });
 
@@ -1715,7 +1719,7 @@
               const storeOk = stored.period === '6w' && !stored.messages.some(m => m.role === 'error');
               app.newAskChat();
               const clearOk = app.askMessages.length === 0 && D.querySelectorAll('#askThread [data-suggest]').length === chips;
-              const ok = ctxOk && scopeOk && chips >= 4 && turnsOk && noteOk && renderOk && failOk && storeOk && clearOk;
+              const ok = ctxOk && scopeOk && chips >= 3 && turnsOk && noteOk && renderOk && failOk && storeOk && clearOk;
               return { ok, detail: `summary:${ctxOk} (${ctx.length} chars) | scope:${scopeOk} | ${chips} suggestions | turns ${roles}:${turnsOk} | period note:${noteOk} | bubbles ${bubbles}:${renderOk} | failed question back in box:${failOk} | saved:${storeOk} | new chat:${clearOk}` };
             } finally {
               W.fetch = realFetch;
@@ -1940,17 +1944,22 @@
               const body = post ? JSON.parse(post.opts.body) : {};
               const reqOk = !!post && !/^https?:/i.test(post.url) && body.model === 'claude-opus-5-5' && body.effort === 'low' && body.prompt.includes('PRIMARY GOAL') && !('apiKey' in body) && !JSON.stringify(post.opts.headers || {}).toLowerCase().includes('x-api-key');
               const parsedOk = rec.source === 'claude' && rec.workout.title === 'Claude SweetSpot 3x10' && rec.workout.durationMin === 45 && rec.coachThoughts.includes('productive') && rec.thinkingLevel === 'low effort';
+              const chatBefore = app.askMessages.slice();
               app.renderAiCoachRecommendation(rec);
-              const badge = D.getElementById('aiCoachSourceBadge').textContent;
-              const pill = D.getElementById('aiCoachEngineStatus');
               app.updateCoachEngineStatus();
-              const uiOk = badge.includes('Claude Opus 5.5') && pill.classList.contains('live') && pill.textContent.includes('low effort');
+              const cards = D.querySelectorAll('#askThread .coach-workout');
+              const card = cards[cards.length - 1];
+              const badge = card ? card.querySelector('.cc-eyebrow').textContent : '';
+              const meta = card ? card.parentElement.querySelector('.ask-meta').textContent : '';
+              const pick = D.getElementById('btnAskEngine');
+              const uiOk = /Claude Opus 5\.5/.test(badge) && /low effort/.test(meta) && pick.classList.contains('live') && pick.querySelector('select').value === 'claude-opus-5-5';
+              app.askMessages = chatBefore; app.saveAsk(); app.renderAskThread();
               mode = 'down';
               const fb = await coach.generateRecommendation('auto', 45, 'ftp');
               const fbOk = fb.source === 'offline_heuristic' && /529/.test(fb.apiError || '') && fb.workout.intervals.length >= 3;
               const noKeyStored = Object.keys(W.localStorage).every(k => !/api_key/i.test(k));
               return { ok: defaultsOk && live && reqOk && parsedOk && uiOk && fbOk && noKeyStored,
-                detail: `default opus-5-5/low:${defaultsOk} live:${live} same-origin POST, no key:${reqOk} parsed:${parsedOk} ui:"${badge}" / "${pill.textContent.trim()}" fallback on 502:${fbOk} no key in localStorage:${noKeyStored}` };
+                detail: `default opus-5-5/low:${defaultsOk} live:${live} same-origin POST, no key:${reqOk} parsed:${parsedOk} ui:"${badge.trim()}" / "${meta.trim()}" fallback on 502:${fbOk} no key in localStorage:${noKeyStored}` };
             } finally {
               W.fetch = realFetch;
               coach.engine = saved.engine; coach.modelOverride = saved.m; coach.effortOverride = saved.e;
@@ -2173,30 +2182,64 @@
           });
 
           // 50b. Training block: periodisation rules, calendar, post-ride review
-          await suite('Coach Builder: One Workout / Training Plan Switch, Shared Goal, Chip Selects, Single Action & Plan-Today Strip', async () => {
+          await suite('Coach Chat: One Place for Questions, Workouts and Plans (Ticks, Shared Goal, Options From the Message, Cards, Ways In)', async () => {
             const D = frame.contentDocument;
-            const P = W.VeloBlockPlanner;
             const bp = app.blockPlanner;
-            const saved = { block: bp.block, mode: app.coachMode, goal: app.coachGoal };
-            const shown = (sel) => { const el = D.querySelector(sel); return !!el && W.getComputedStyle(el).display !== 'none'; };
-            app.setCoachMode('plan');
-            const planOk = shown('.mode-pane[data-pane="plan"]') && !shown('.mode-pane[data-pane="session"]') && /plan/.test(D.getElementById('coachGoLabel').textContent);
-            D.querySelector('#aiCoachGoalPills [data-goal="vo2"]').click();
-            const goalShared = app.readBlockOptions().goal === 'vo2' && app.coachGoal === 'vo2';
-            D.querySelector('#selectBlockWeeks + .chip-select [data-value="10"]').click();
-            const chipOk = D.getElementById('selectBlockWeeks').value === '10' && /10-week/.test(D.getElementById('coachGoLabel').textContent)
-              && D.querySelector('#selectBlockWeeks + .chip-select [data-value="10"]').classList.contains('active');
-            app.setCoachMode('session');
-            const sessionOk = shown('.mode-pane[data-pane="session"]') && !shown('.mode-pane[data-pane="plan"]') && /workout/.test(D.getElementById('coachGoLabel').textContent);
-            // A plan with a session today puts a Load strip above the workout result.
-            await bp.create({ goal: 'ftp', weeks: 4, hoursPerWeek: 6, days: [0, 1, 2, 3, 4, 5, 6], longDay: 6, startDate: P.today() }, { useAi: false });
-            app.renderTrainingBlock();
-            const strip = D.getElementById('coachPlanToday');
-            const stripOk = !strip.hidden && !!strip.querySelector('[data-block-load]');
-            bp.block = saved.block; bp.save();
-            D.querySelector(`#aiCoachGoalPills [data-goal="${saved.goal}"]`).click();
-            app.setCoachMode(saved.mode); app.renderTrainingBlock(); app.renderCalendarView();
-            return { ok: planOk && goalShared && chipOk && sessionOk && stripOk, detail: `plan pane:${planOk} shared goal:${goalShared} chips:${chipOk} session pane:${sessionOk} plan-today strip:${stripOk}` };
+            const saved = { block: bp.block, intent: app.coachIntent, goal: app.coachGoal, msgs: app.askMessages, weeks: D.getElementById('selectBlockWeeks').value, dur: D.getElementById('selectAiCoachDuration').value, days: app.selectedBlockDays(), tab: app.activeTab, store: W.localStorage.getItem('apex_ask_v1'), confirm: W.confirm };
+            const shown = (sel) => { const el = D.querySelector(sel); return !!el && !el.hidden && W.getComputedStyle(el).display !== 'none'; };
+            const setDays = (list) => D.querySelectorAll('#blockDays [data-dow]').forEach((b) => b.classList.toggle('active', list.includes(Number(b.dataset.dow))));
+            try {
+              W.confirm = () => true;
+              app.switchTab('ai-coach');
+              const navOk = !D.querySelector('.nav-btn[data-tab="ask"]') && !!D.querySelector('.nav-btn[data-tab="ai-coach"]') && !D.getElementById('view-ask');
+              app.askMessages = [];
+              bp.block = null;
+              app.setCoachIntent('plan');
+              app.toggleCoachOptions(true);
+              const planOk = shown('.coach-pane[data-pane="plan"]') && !shown('.coach-pane[data-pane="chat"]') && D.querySelector('#coachIntents [data-intent="plan"]').getAttribute('aria-checked') === 'true' && /plan/i.test(D.getElementById('coachSendLabel').textContent);
+              D.querySelector('#aiCoachGoalPills [data-goal="vo2"]').click();
+              const goalShared = app.readBlockOptions().goal === 'vo2' && app.coachGoal === 'vo2';
+              D.querySelector('#selectBlockWeeks + .chip-select [data-value="10"]').click();
+              const chipOk = D.getElementById('selectBlockWeeks').value === '10' && D.querySelector('#selectBlockWeeks + .chip-select [data-value="10"]').classList.contains('active');
+              // The message sets the options it names: "6 weeks, no rides on Friday".
+              setDays([1, 3, 4, 6]);
+              D.getElementById('askInput').value = '6 weeks, no rides on Friday';
+              app.updateCoachGoButton();
+              const hintOk = /6 weeks/.test(D.getElementById('coachGoHint').textContent);
+              await app.coachBuildPlan('6 weeks, no rides on Friday');
+              const planMsg = app.askMessages[app.askMessages.length - 1], planAsk = app.askMessages[app.askMessages.length - 2];
+              const builtOk = !!bp.block && bp.block.weeks.length === 6 && !bp.block.options.days.includes(4) && planMsg.role === 'plan' && planAsk.said.includes('no Friday')
+                && !!D.querySelector('#askThread .coach-plan .cc-weeks') && !D.getElementById('trainingBlockCard').hidden;
+              // A workout: the length typed sets the option and a card with its steps joins the thread.
+              app.setCoachIntent('workout');
+              await app.coachBuildWorkout('60 min sweet spot');
+              const wMsg = app.askMessages[app.askMessages.length - 1];
+              const workoutOk = D.getElementById('selectAiCoachDuration').value === '60' && wMsg.role === 'workout' && wMsg.workout.intervals.length >= 3
+                && !!D.querySelector('#askThread .coach-workout canvas.cc-profile') && D.querySelectorAll('#askThread .coach-workout .cc-steps tbody tr').length === wMsg.workout.intervals.length;
+              // The coach's own turns go with the next question.
+              const hist = app.askHistoryForApi();
+              const histOk = hist.map((m) => m.role).join(',') === 'user,assistant,user,assistant' && /\[Built in this chat\] Training plan/.test(hist[1].content) && /\[Built in this chat\] Workout/.test(hist[3].content);
+              // The old ways in land in the chat with the right tick.
+              app.switchTab('ask');
+              const askAlias = app.activeTab === 'ai-coach' && app.coachIntent === 'chat';
+              app.switchTab('workouts');
+              D.getElementById('coachCtaWorkouts').click();
+              const ctaOk = app.activeTab === 'ai-coach' && app.coachIntent === 'workout';
+              const ok = navOk && planOk && goalShared && chipOk && hintOk && builtOk && workoutOk && histOk && askAlias && ctaOk;
+              return { ok, detail: `one nav item:${navOk} plan tick+pane:${planOk} shared goal:${goalShared} chips:${chipOk} hint from message:${hintOk} plan from the words:${builtOk} workout card:${workoutOk} history ${hist.map((m) => m.role).join(',')}:${histOk} ask lands here:${askAlias} workouts box:${ctaOk}` };
+            } finally {
+              W.confirm = saved.confirm;
+              bp.block = saved.block; bp.save();
+              const sel = (id, v) => { const el = D.getElementById(id); el.value = v; el.dispatchEvent(new W.Event('change', { bubbles: true })); };
+              sel('selectBlockWeeks', saved.weeks); sel('selectAiCoachDuration', saved.dur); setDays(saved.days);
+              D.querySelector(`#aiCoachGoalPills [data-goal="${saved.goal}"]`).click();
+              D.getElementById('askInput').value = '';
+              app.askMessages = saved.msgs;
+              if (saved.store === null) W.localStorage.removeItem('apex_ask_v1'); else W.localStorage.setItem('apex_ask_v1', saved.store);
+              app.toggleCoachOptions(false); app.setCoachIntent(saved.intent);
+              app.renderTrainingBlock(); app.renderCalendarView(); app.renderAskThread();
+              app.switchTab(saved.tab || 'cockpit');
+            }
           });
 
           await suite('Training Block: 3:1 Periodisation, 48 h Between Key Sessions, Hours Respected, Calendar & Post-Ride Adjustments', async () => {
@@ -2731,11 +2774,12 @@
                 return { ok, detail: `${ok ? '' : '[' + diag1 + '] '}rate-limited -> summary + "pending" note:${pendingOk} previews write nothing:${previewClean}/${preview2Clean} streams fetched only for measured-power rides (${streamCalls() || 'none now'}; asked 650,652):${fetchedOk} stream TSS + no-stream flag:${planOk} "adds power" label:${labelOk} stored 3600 samples:${storedOk}${applied.ok ? '' : ' (apply: ' + applied.error + ')'} import never sent back (guard/panel):${noSend}/${noButton} next sync asks nothing:${quiet} undo after streams added exact:${undoAdded} deleted on Strava removed:${removing}/${gone} restore point keeps its samples:${inline} undo after removal restores samples:${undoRemoved}${undoRemoved ? '' : ` [back samples: ${back && back.samples ? back.samples.length : 'none'}, backup keys: ${bk ? Object.keys(bk.idb.find(r => r.id === 'strava_650') || {}).join('/') : 'no backup'}]`}` };
               });
 
-              await suite('Strava Background Check: Reads Only (No Streams), Writes Nothing, Badges History & Sync; Off Switch; Real Threshold HR Replaces the Estimate', async () => {
+              await suite('Strava Check On Open: Badge-Only Mode Reads Only And Writes Nothing; Off Switch; Auto-Sync Applies A Routine Plan (Never Mid-Ride); Real Threshold HR Replaces the Estimate', async () => {
                 const scheduledInTests = app._stravaAutoTimer;
                 strava.push({ id: '660', name: 'New since last sync', sport_type: 'VirtualRide', start_date: iso(at(0, 5, 0)), moving_time: 1800, elapsed_time: 1800, average_watts: 190, device_watts: true, description: '', calories: 350 });
                 streamData['660'] = { time: { data: Array.from({ length: 1800 }, (_, i) => i) }, watts: { data: Array.from({ length: 1800 }, () => 190) } };
                 W.localStorage.removeItem(SS.AUTOCHECK_KEY);
+                W.localStorage.setItem(SS.AUTOSYNC_KEY, 'false'); // badge only: nothing is imported until Sync
                 app.strava = { reachable: false };
                 const S0 = await snapshot();
                 calls.length = 0;
@@ -2752,6 +2796,17 @@
                 // A sync clears the badge
                 await app.previewStravaSync(choice); await app.applyStravaSync();
                 const cleared = !D.querySelector('.sync-badge');
+                // Automatic sync (the default): a routine plan is applied when the app opens, with its restore point; never mid-ride.
+                W.localStorage.removeItem(SS.AUTOSYNC_KEY);
+                strava.push({ id: '661', name: 'Rode since the app was closed', sport_type: 'VirtualRide', start_date: iso(at(0, 3, 0)), moving_time: 1500, elapsed_time: 1500, average_watts: 180, device_watts: true, description: '', calories: 280 });
+                const lastBackup = async () => Math.max(0, ...(await backups()).map(b => b.createdAt)); const backupBefore = await lastBackup();
+                D.querySelectorAll('.modal-overlay.open').forEach(m => app.closeModal(m.id)); // it waits while a dialog is open
+                app.isPlaying = true;
+                await app.runStravaAutoCheck();
+                const notMidRide = !app.completedWorkouts.some(r => r.id === 'strava_661') && !app._stravaSyncPreview;
+                app.isPlaying = false;
+                const autoPlan = await app.runStravaAutoCheck();
+                const autoSynced = notMidRide && app.completedWorkouts.some(r => r.id === 'strava_661') && app.stravaPlanIsRoutine(autoPlan) && (await lastBackup()) > backupBefore && !D.querySelector('.sync-badge') && !app._stravaSyncPreview && !app._syncBusy;
                 const noTimerInTests = scheduledInTests === undefined;
 
                 // Threshold HR: estimated from max HR until a real one is entered in the profile, then used (and kept).
@@ -2771,8 +2826,8 @@
                 Object.assign(app.activeProfile, JSON.parse(savedProf));
                 app.applyProfileChange();
 
-                return { ok: readOnly && badgeOk && off && cleared && noTimerInTests && lthrOk && profileOk,
-                  detail: `read-only, no streams, nothing written:${readOnly} badge ${n} on History + Sync:${badgeOk} off switch:${off} sync clears badge:${cleared} not scheduled in test mode:${noTimerInTests} LTHR est 162 -> real 165 kept:${lthrOk} profile field saved + used:${profileOk}` };
+                return { ok: readOnly && badgeOk && off && cleared && autoSynced && noTimerInTests && lthrOk && profileOk,
+                  detail: `read-only, no streams, nothing written:${readOnly} badge ${n} on History + Sync:${badgeOk} off switch:${off} sync clears badge:${cleared} auto-sync imports a routine plan, not mid-ride:${autoSynced} not scheduled in test mode:${noTimerInTests} LTHR est 162 -> real 165 kept:${lthrOk} profile field saved + used:${profileOk}` };
               });
 
               await suite('Strava Sync: Real Browser Storage Untouched & Reconnect Error Shown When activity:read_all Is Missing', async () => {

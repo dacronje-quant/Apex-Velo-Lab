@@ -1,6 +1,6 @@
 // APEX VELO // LAB service worker - network-first for app files so updates are never
 // masked by a stale cache; the cache is only a fallback when offline.
-const CACHE_NAME = 'apex-velo-cache-v61';
+const CACHE_NAME = 'apex-velo-cache-v64';
 const CORE = [
   './css/ftp-history.css', './js/velo-ftp-history.js', './js/velo-ftp-model.js', './js/velo-ride-summary.js', './js/app-ftp-history.js',
   './js/phone-zen.js',
@@ -9,14 +9,14 @@ const CORE = [
   './css/phone-layout.css',
   './js/app-devices.js',
   './', './index.html', './live.html', './manifest.json', './apex-velo-icon.png', './apex-velo-icon-192.png', './apex-velo-icon.ico', './css/style.css', './css/fonts.css', './css/analytics-studio.css', './vendor/chart.umd.min.js', './vendor/qrcode.js',
-  './vendor/fonts/inter-latin-400-normal.woff2', './vendor/fonts/inter-latin-500-normal.woff2', './vendor/fonts/inter-latin-600-normal.woff2', './vendor/fonts/inter-latin-700-normal.woff2', './vendor/fonts/inter-latin-800-normal.woff2',
+  './vendor/fonts/inter-latin-400-normal.woff2', './vendor/fonts/inter-latin-500-normal.woff2', './vendor/fonts/inter-latin-600-normal.woff2', './vendor/fonts/inter-latin-700-normal.woff2', './vendor/fonts/inter-latin-800-normal.woff2', './vendor/fonts/inter-latin-wght-normal.woff2',
   './vendor/fonts/jetbrains-mono-latin-400-normal.woff2', './vendor/fonts/jetbrains-mono-latin-500-normal.woff2', './vendor/fonts/jetbrains-mono-latin-600-normal.woff2', './vendor/fonts/jetbrains-mono-latin-700-normal.woff2', './vendor/fonts/jetbrains-mono-latin-800-normal.woff2',
   './vendor/fonts/unbounded-latin-300-normal.woff2', './vendor/fonts/unbounded-latin-400-normal.woff2', './vendor/fonts/unbounded-latin-500-normal.woff2', './vendor/fonts/unbounded-latin-600-normal.woff2', './vendor/fonts/unbounded-latin-700-normal.woff2', './vendor/fonts/figtree-latin-400-normal.woff2', './vendor/fonts/figtree-latin-500-normal.woff2', './vendor/fonts/figtree-latin-600-normal.woff2', './vendor/fonts/figtree-latin-700-normal.woff2', './vendor/fonts/figtree-latin-800-normal.woff2',
   './js/velo-demo.js', './js/velo-local-history.js',
   './js/velo-metrics.js', './js/velo-glossary.js', './js/velo-db.js', './js/velo-sound.js', './js/velo-pip.js', './js/velo-folder-sync.js',
   './js/velo-biomech.js', './js/velo-live-graph.js', './js/velo-analytics.js', './js/velo-workouts.js',
-  './js/velo-sport-science.js', './js/velo-ai-coach.js', './js/velo-block-planner.js', './js/velo-sim.js', './js/velo-ble.js', './js/velo-erg.js', './js/velo-insight.js', './js/velo-ride-brief.js', './js/velo-importer.js', './js/velo-export.js',
-  './js/velo-clock.js', './js/velo-progress.js', './js/velo-dedupe.js', './js/velo-strava-sync.js', './js/velo-health.js', './js/velo-wellness.js', './js/velo-trends.js', './js/velo-power.js', './js/velo-ask.js', './js/velo-describe.js', './js/app.js', './js/app-analytics.js', './js/app-power.js', './js/app-ride-analysis.js', './js/app-ask.js', './js/app-dashboard.js', './js/app-health-ana.js', './js/app-ana-studio.js', './js/app-ana-plus.js', './js/app-history.js', './js/app-coach.js', './js/app-describe.js', './js/app-block.js', './js/app-strava.js', './js/app-strava-sync.js', './js/app-insight.js', './js/app-backup.js', './js/app-remote.js', './js/app-health.js', './js/app-settings.js', './js/app-slipstream.js'
+  './js/velo-sport-science.js', './js/velo-ai-coach.js', './js/velo-block-planner.js', './js/velo-sim.js', './js/velo-ble.js', './js/velo-erg.js', './js/velo-insight.js', './js/velo-ride-brief.js', './js/velo-importer.js', './js/velo-export.js', './js/velo-share-card.js',
+  './js/velo-clock.js', './js/velo-progress.js', './js/velo-dedupe.js', './js/velo-strava-sync.js', './js/velo-health.js', './js/velo-wellness.js', './js/velo-trends.js', './js/velo-power.js', './js/velo-ask.js', './js/velo-coach-chat.js', './js/app.js', './js/app-analytics.js', './js/app-power.js', './js/app-ride-analysis.js', './js/app-ask.js', './js/app-dashboard.js', './js/app-health-ana.js', './js/app-ana-studio.js', './js/app-ana-plus.js', './js/app-history.js', './js/app-share-card.js', './js/app-coach.js', './js/app-coach-chat.js', './js/app-block.js', './js/app-strava.js', './js/app-strava-sync.js', './js/app-insight.js', './js/app-backup.js', './js/app-remote.js', './js/app-health.js', './js/app-settings.js', './js/app-slipstream.js'
 ];
 
 self.addEventListener('install', (e) => {

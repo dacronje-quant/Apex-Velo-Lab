@@ -791,6 +791,7 @@ async function brokerFlow(browser, errors) {
 
     await page.evaluate(() => app.closeModal('settingsModal'));
     await page.evaluate(() => ApexNative.shell.go('train/ask'));
+    await page.waitForFunction(() => ApexNative.shell.current.route === 'train/coach'); // the old Ask page is the coach chat
     assert.equal(await page.locator('#askEngineWarn').isVisible(), false);
     await page.locator('#askInput').fill('How many rides did I do this week?');
     await page.locator('#askForm').evaluate((f) => f.requestSubmit());
@@ -801,13 +802,13 @@ async function brokerFlow(browser, errors) {
     assert.equal(askCall.data.messages.at(-1).content, 'How many rides did I do this week?');
     assert.match(askCall.data.system[1].text, /^TRAINING DATA\n/);
     await page.screenshot({ path: path.join(__dirname, '..', 'test-output', 'native-ask.png') }).catch(() => {});
-    step('Ask: the question and the period summary go from the phone to Claude, and the answer shows in the thread');
+    step('Coach chat (Ask ticked): the question and the period summary go from the phone to Claude, and the answer shows in the thread');
     assert.equal(await page.locator('#btnAskClear').isVisible(), true, 'Clear sits next to the question box once there is a chat');
     await page.locator('#btnAskClear').click();
-    await page.locator('#askThread .ask-empty').waitFor();
+    await page.locator('#askThread .coach-welcome').waitFor();
     assert.equal(await page.evaluate(() => JSON.parse(localStorage.getItem('apex_ask_v1')).messages.length), 0, 'the cleared chat is not kept');
     assert.equal(await page.locator('#btnAskClear').isVisible(), false);
-    step('Ask: Clear empties the chat on the phone');
+    step('Coach chat: Clear empties the chat on the phone');
 
     const chat = await page.evaluate((id) => app.sendRideAsk(id, 'Why did my heart rate climb?'), rideId);
     assert.ok(chat && chat.at(-1).role === 'assistant' && /test answer/.test(chat.at(-1).content), 'the coach answered the question about the ride');
@@ -817,26 +818,61 @@ async function brokerFlow(browser, errors) {
     assert.match(coachCall.data.system[1].text, /RECORDING \(5 s averages\)/, 'the recording itself goes with the question');
     step('Ride coach: a question about one ride goes with its recording through /api/ask on the phone');
 
-    await page.evaluate(() => ApexNative.shell.go('train/workouts'));
-    await page.locator('#avDescribe').click(); // Train > Workouts > Describe a workout (a sheet)
-    assert.match(await page.locator('#describeEngine').innerText(), /Claude Opus 5\.5 · only your request and FTP/);
-    await page.locator('#describeExamples [data-example]').first().click();
-    assert.equal(await page.locator('#describeInput').inputValue(), '45 min sweet spot');
-    await page.locator('#describeInput').fill('50 min, 5x3 min at 115% with 3 min easy, high cadence');
-    await page.locator('#btnDescribeCreate').click();
-    await page.locator('#describeResult .describe-card', { hasText: 'Five by Three at 115%' }).waitFor({ timeout: 15000 });
-    const describeCall = await page.evaluate(() => __nativeLog.http.filter((r) => r.url === 'https://api.anthropic.com/v1/messages').at(-1));
-    const sent = describeCall.data.messages[0].content;
-    assert.match(sent, /5x3 min at 115% with 3 min easy/);
-    assert.doesNotMatch(sent, /RIDES IN THE LAST|Native ERG test/, 'no ride history is sent');
-    assert.deepEqual(describeCall.data.output_config, { effort: 'low' });
-    assert.match(await page.locator('#describeResult .w-card-meta').innerText(), /42\s*m/, 'duration computed from the steps (10 + 15 + 12 + 5 min)');
-    await page.locator('#describeResult [data-describe="save"]').click();
-    assert.ok(await page.evaluate(() => app.loadSavedWorkouts().some((w) => w.title === 'Five by Three at 115%')), 'saved to the library');
-    await page.locator('#describeResult [data-describe="ride"]').click();
-    await page.waitForFunction(() => app.currentWorkout.title === 'Five by Three at 115%' && ApexNative.shell.current.route === 'ride/live' && app.isPlaying);
-    assert.equal(await page.evaluate(() => app.currentWorkout.intervals.filter((i) => i.pctFtp === 115).length), 5);
-    step('Describe a workout: built from the request only (no history sent), saved to the library, loaded and started on the ride screen');
+    // The coach chat: a question, then a workout from a message, with the engine switched in the chat itself.
+    await page.evaluate(() => ApexNative.shell.go('train/coach'));
+    await page.locator('#askInput').fill('How many rides did I do this week?');
+    await page.locator('#askForm').evaluate((f) => f.requestSubmit());
+    await page.locator('#askThread .ask-ai', { hasText: 'You rode 1 ride this week' }).waitFor({ timeout: 15000 });
+    const pick = page.locator('#btnAskEngine select[data-ai-pick]');
+    await page.locator('#btnCoachOptions').click(); // on the phone the engine is with the other options (the gear)
+    assert.ok(await page.locator('#coachTray #btnAskEngine').isVisible(), 'the engine switcher is in the options');
+    assert.equal(await pick.inputValue(), 'claude-opus-5-5');
+    assert.ok(await pick.evaluate((s) => [...s.options].some((o) => o.value === 'claude-haiku-5-5')), 'the switcher lists the live models');
+    await pick.selectOption('claude-haiku-5-5');
+    assert.equal(await page.evaluate(() => app.aiCoach.model), 'claude-haiku-5-5', 'a live-only model is kept, not reset to the default');
+    assert.equal(await page.evaluate(() => localStorage.getItem('apex_coach_model')), 'claude-haiku-5-5');
+    assert.deepEqual(await page.evaluate(() => [...document.querySelectorAll('select[data-ai-pick]')].map((s) => s.value).filter((v) => v !== 'claude-haiku-5-5')), [], 'every switcher follows');
+    assert.equal(await page.locator('#selectCoachModel').inputValue(), 'claude-haiku-5-5', 'Settings > AI engine follows');
+    await page.locator('#btnCoachOptions').click();
+    await page.locator('#coachIntents [data-intent="workout"]').click();
+    assert.equal(await page.locator('#coachIntents [data-intent="workout"]').getAttribute('aria-checked'), 'true');
+    await page.locator('#askInput').fill('30 min tempo, legs a bit tired');
+    await page.locator('#askForm').evaluate((f) => f.requestSubmit());
+    await page.locator('#askThread .coach-workout', { hasText: 'Quick Tempo Thirty' }).waitFor({ timeout: 15000 });
+    const workoutCall = await page.evaluate(() => __nativeLog.http.filter((r) => r.url === 'https://api.anthropic.com/v1/messages').at(-1));
+    const prompt = workoutCall.data.messages[0].content;
+    assert.equal(workoutCall.data.model, 'claude-haiku-5-5');
+    assert.match(prompt, /Time available: 30 minutes/, 'the length typed in the message sets the option');
+    assert.match(prompt, /RIDER'S OWN WORDS[^\n]*\n"""\n30 min tempo, legs a bit tired/, "the rider's words lead the request");
+    assert.match(prompt, /EARLIER IN THIS CHAT[\s\S]*You rode \*\*1 ride\*\* this week/, 'the chat so far goes with it');
+    assert.match(await page.locator('#askThread .coach-workout').innerText(), /35 min[\s\S]*Keep it smooth/);
+    assert.match(await page.locator('#askThread .coach-workout .cc-eyebrow').innerText(), /claude haiku 5\.5/i);
+    await page.screenshot({ path: path.join(__dirname, '..', 'test-output', 'native-coach-chat.png') }).catch(() => {});
+    await page.locator('#askThread .coach-workout [data-coach-act="save"]').click();
+    assert.ok(await page.evaluate(() => app.loadSavedWorkouts().some((w) => w.title === 'Quick Tempo Thirty')), 'saved to the library');
+    assert.equal(await page.locator('#askThread .coach-workout [data-coach-act="save"]').isDisabled(), true);
+    assert.match(await page.locator('#avToday').innerText(), /today's coach workout[\s\S]*Quick Tempo Thirty[\s\S]*Ride/i, "today's coach workout is one tap from the ride, above the chat");
+    await page.locator('#askThread .coach-workout [data-coach-act="ride"]').click();
+    await page.waitForFunction(() => app.currentWorkout.title === 'Quick Tempo Thirty' && ApexNative.shell.current.route === 'ride/live' && app.isPlaying);
+    await page.evaluate(() => app.resetWorkout(false)); // discard it: the check below builds another
+    step('Coach chat: a workout from the rider\'s message, with the engine switched in place (all switchers and Settings follow); the length and the chat so far reach the coach; saved, shown as today\'s, started from Ride now');
+
+    // A fresh chat, after riding today: the Today line points at today's ride (the phone UX checks cover Workout for
+    // today on a day with nothing yet); the empty chat's first workout example asks the coach from the form alone.
+    await page.evaluate(() => { app.newAskChat(); app.setCoachIntent('workout'); ApexNative.shell.go('train/coach'); });
+    assert.match(await page.locator('#avToday').innerText(), /Ridden today[\s\S]*See ride/i);
+    const calls = await page.evaluate(() => __nativeLog.http.length);
+    await page.locator('#askThread [data-example="workout"][data-text=""]').click();
+    await page.waitForFunction(() => ApexNative.shell.current.route === 'train/coach' && document.querySelectorAll('#askThread .coach-workout').length === 1, null, { timeout: 15000 });
+    const todayCall = await page.evaluate((n) => __nativeLog.http.slice(n).filter((r) => r.url === 'https://api.anthropic.com/v1/messages').at(-1), calls);
+    assert.doesNotMatch(todayCall.data.messages[0].content, /RIDER'S OWN WORDS|EARLIER IN THIS CHAT/, 'leaving it to the coach sends no words and no chat');
+    assert.match(await page.locator('#askThread .ask-user').last().innerText(), /Create today's workout from my form and history/);
+    await page.locator('#btnCoachOptions').click();
+    await pick.selectOption('claude-opus-5-5');
+    await page.locator('#btnCoachOptions').click();
+    assert.equal(await page.evaluate(() => app.aiCoach.model), 'claude-opus-5-5', 'switched back in the chat');
+    assert.match(await page.locator('#avToday').innerText(), /Quick Tempo Thirty[\s\S]*Ride/, 'the new workout becomes today\'s');
+    step('Coach chat: today\'s workout from the form alone in one tap from the empty chat; it becomes today\'s above the chat');
 
     // ------------------------------------------------------------- health (intervals.icu) --
     const icuKey = 'abc123def456ghi789jkl0';
@@ -880,6 +916,7 @@ async function brokerFlow(browser, errors) {
     await page.evaluate(() => app.closeModal('settingsModal'));
     await page.evaluate(() => ApexNative.shell.go('progress'));
     await page.evaluate(() => app.showAnalyticsPanel('health', { instant: true }));
+    await page.evaluate(() => { document.getElementById('anaMore-health').open = true; }); // the secondary health cards are under "More detail"
     await page.locator('#anaHealthTiles .tile', { hasText: 'Sleeping HR' }).waitFor();
     assert.equal(await page.locator('#anaHealthTiles .tile').count(), 14, 'a tile for every metric with data');
     assert.equal(await page.locator('#anaHealthTiles .tile', { hasText: /Steps|VO2max|Body fat/ }).count(), 0, 'steps, body fat and VO2max are not shown');
@@ -889,7 +926,6 @@ async function brokerFlow(browser, errors) {
     assert.equal(await page.locator('#anaCardHealthVitals').isVisible(), false, 'no blood pressure, glucose or food data: the card stays hidden');
     assert.equal(await page.locator('.hl-legend[data-hl="healthSleepCanvas"] .lg-toggle').count(), 3, 'deep, light and REM');
     assert.match(await page.locator('#healthSleepMix').innerText(), /DEEP\s*1:00/i);
-    assert.match(await page.locator('#anaModStat-health').innerText(), /\d+ ms/);
     await page.locator('.hl-legend[data-hl="healthHrCanvas"] .lg-toggle', { hasText: 'Sleeping HR' }).click();
     assert.equal(await page.evaluate(() => { const c = app._healthCharts.healthHrCanvas; return c.data.datasets.filter((d, i) => d.hlKey === 'sleepHr' && c.isDatasetVisible(i)).length; }), 0, 'the legend hides a metric');
     // Linked crosshair: hovering one date chart marks the same day on the others.
@@ -923,19 +959,21 @@ async function brokerFlow(browser, errors) {
     assert.match(await page.locator('#anaStoryNote').innerText(), /Written by Claude Opus 5\.5/);
     const storyCall = await page.evaluate(() => __nativeLog.http.filter((r) => r.url === 'https://api.anthropic.com/v1/messages').at(-1));
     assert.match(storyCall.data.messages[0].content, /WEEKLY STORY/);
-    assert.equal(await page.locator('#anaSectionNav .ana-mod-stat.skel').count(), 0, 'skeletons are gone once the numbers are in');
+    assert.equal(await page.locator('#anaTiles .skel-tile').count(), 0, 'skeletons are gone once the numbers are in');
     // Pin the heart-rate chart to Overview.
     await page.evaluate(() => app.showAnalyticsPanel('health', { instant: true }));
     await page.locator('#anaCardHealthHr .ana-pin-btn').click();
     assert.equal(await page.evaluate(() => !!document.querySelector('#anaPinnedGrid #anaCardHealthHr')), true);
     // Training year heatmap: today's cell opens the day with the ride.
     await page.evaluate(() => app.showAnalyticsPanel('load', { instant: true }));
+    await page.evaluate(() => { document.getElementById('anaMore-load').open = true; });
     const todayKey = await page.evaluate(() => app.localDayKey(new Date()));
     await page.locator(`#anaYearGrid [data-day="${todayKey}"]`).click();
     await page.locator('#anaDayBody .ride-chip', { hasText: 'Native ERG test' }).waitFor();
     await page.locator('#btnAnaDayClose').click();
     // FTP over time is calculated on the phone (no imported research history needed).
     await page.evaluate(() => app.showAnalyticsPanel('ftp', { instant: true }));
+    await page.evaluate(() => { document.getElementById('anaMore-power').open = true; });
     await page.locator('#ftpMetricsStatus', { hasText: 'Calculated in the app from' }).waitFor();
     assert.equal(await page.locator('#ftpMetricsSourceWrap').isVisible(), false);
     step('Analytics: readiness ring, the week in three sentences (offline, then by Claude), skeletons cleared, pin to Overview, training year heatmap opens a day, FTP over time calculated on the phone');
@@ -1027,6 +1065,26 @@ async function brokerFlow(browser, errors) {
     await page.evaluate(() => __fireNative('backButton'));
     assert.equal(await page.evaluate(() => document.getElementById('settingsModal').classList.contains('open')), false);
     step('exports save to Documents/ApexVelo (a name an old install left gets _2), the image goes to the share sheet, auto-save can be turned off; Settings > About shows the open-source licences (SQLCipher in full); back closes the open dialog');
+
+    // ------------------------------------------------------------------ share card --
+    const cardRide = await page.evaluate(async (id) => {
+      const r = app.completedWorkouts.find((x) => x.id === id);
+      await app.showRideSummary(r);
+      return { can: app.canShareCard(r), samples: (r.samples || []).length };
+    }, rideId);
+    assert.equal(cardRide.can, true, `the recorded ride (${cardRide.samples} samples) gets a share card`);
+    await page.locator('#btnRideShareCard').click();
+    await page.waitForFunction(() => document.getElementById('shareCardImg').src.startsWith('blob:') && !document.getElementById('shareCardPreview').classList.contains('busy'));
+    assert.equal(await page.locator('#btnShareCard').isVisible(), true, 'the app always offers the share sheet');
+    await page.locator('#btnShareCard').click();
+    await page.waitForFunction(() => __nativeLog.shared.length === 2);
+    assert.match(await page.evaluate(() => __nativeLog.shared[1].files[0]), /apex-velo-.*\.jpg$/);
+    await page.locator('#shareCardModal [data-card-style="minimal"]').click();
+    await page.waitForFunction(() => /-minimal\.jpg$/.test(document.getElementById('btnDownloadCard').download) && !document.getElementById('shareCardPreview').classList.contains('busy'));
+    await page.locator('#btnDownloadCard').click();
+    await page.waitForFunction(() => __nativeLog.files.some((f) => f.directory === 'DOCUMENTS' && /^ApexVelo\/apex-velo-.*-minimal\.jpg$/.test(f.path) && /^\/9j\//.test(f.data)));
+    await page.evaluate(() => { app.closeShareCard(); app.closeModal('rideSummaryModal'); });
+    step('share card: drawn from the recorded ride, Share hands the JPEG to the Android share sheet, Download saves the minimal style to Documents/ApexVelo');
 
     // ------------------------------------------------------------------ bulk history import --
     const workerRequests = [];
