@@ -1315,7 +1315,7 @@ body.focus-mode #valInstantPower { font-size: clamp(120px, 14vw, 220px); }
 .ride-coach .sub-title { flex-wrap: wrap; gap: 4px 10px; }
 .ride-coach-thread { display: flex; flex-direction: column; gap: 10px; }
 .ride-coach-chips { display: flex; flex-wrap: wrap; gap: 8px; }
-.ride-coach-chips .ask-chip { padding: 8px 12px; font-size: 12.5px; }
+.ride-coach-chips .ask-chip { padding: 8px 12px; font-size: 12.5px; min-height: 44px; }
 .ride-coach-form { display: flex; flex-direction: column; gap: 6px; }
 .ride-coach-input { width: 100%; min-height: 56px; resize: vertical; font: inherit; font-size: 14px; }
 .ride-coach-left { display: inline-flex; align-items: center; gap: 10px; flex-wrap: wrap; }

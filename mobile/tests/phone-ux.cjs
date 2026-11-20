@@ -225,6 +225,7 @@ const FLOWS = [
     assert.match(await page.locator('.av-ride-detail #aiBreakdownArea .ask-ai').textContent(), /Steady repeats/, 'an earlier AI review is shown in the ride chat');
     assert.ok(await page.locator('.av-ride-detail [data-ride-ask]').count(), 'suggested questions');
     assert.ok(await page.locator('.av-ride-detail .ride-coach-input').isVisible(), 'a box to ask your own question');
+    await page.locator('.av-ride-detail #intervalDiagnosis').screenshot({ path: path.join(__dirname, '..', 'test-output', 'phone-ride-coach.png') }).catch(() => {});
     const s = await sweep(page);
     assert.deepEqual(s.small, []); assert.ok(s.overflowX <= 0);
     await screenshot(page, 'history-recorded');
