@@ -2332,32 +2332,32 @@ a.btn, a.btn:hover { text-decoration: none; }
 .coach-plan { border-color: rgba(177, 153, 255, 0.35); }
 .cc-eyebrow { display: flex; align-items: center; gap: 6px; font-size: 11px; font-weight: 700; letter-spacing: .08em; text-transform: uppercase; color: var(--coach-muted); }
 .cc-title { margin: 0; font-family: var(--font-display); font-weight: 500; font-size: 20px; line-height: 1.2; color: var(--text-1); }
-.cc-chips { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
+.cc-meta { margin: -4px 0 0; font-size: 13px; color: var(--text-2); }
+.cc-meta b { color: var(--text-1); font-weight: 600; }
 .cc-profile { display: block; width: 100%; height: 84px; border-radius: 12px; background: rgba(0, 0, 0, 0.18); }
-.cc-desc { margin: 0; font-size: 14px; line-height: 1.55; color: var(--text-2); }
-.cc-advice { padding: 10px 12px; border-radius: 14px; background: rgba(255, 255, 255, 0.04); border: 1px solid rgba(255, 255, 255, 0.06); }
-.cc-advice p { margin: 4px 0 0; font-size: 13.5px; line-height: 1.55; color: var(--text-1); }
-.cc-warn, .cc-info { margin: 0; padding: 8px 12px; border-radius: 12px; font-size: 12.5px; line-height: 1.5; }
-.cc-warn { background: var(--amber-soft); border: 1px solid rgba(255, 190, 74, 0.3); color: var(--text-1); }
-.cc-info { background: rgba(255, 255, 255, 0.04); border: 1px solid rgba(255, 255, 255, 0.08); color: var(--text-2); }
+.cc-lead { margin: 0; font-size: 14px; line-height: 1.55; color: var(--text-1); }
+.cc-clamp { display: -webkit-box; -webkit-line-clamp: 3; line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; color: var(--text-2); }
+.cc-warn { margin: 0; padding: 8px 12px; border-radius: 12px; font-size: 12.5px; line-height: 1.5; background: var(--amber-soft); border: 1px solid rgba(255, 190, 74, 0.3); color: var(--text-1); }
 .cc-note { margin: 0; font-size: 12.5px; color: var(--coach-muted); }
 .cc-more { font-size: 13px; color: var(--text-2); border-top: 1px solid rgba(255, 255, 255, 0.06); padding-top: 2px; }
 .cc-more > summary { cursor: pointer; font-weight: 600; color: var(--text-2); padding: 6px 0; }
 .cc-more > summary:hover { color: var(--text-1); }
 .cc-more[open] > summary { margin-bottom: 4px; }
 .cc-more p { margin: 0 0 8px; line-height: 1.55; }
+.cc-more h4 { margin: 14px 0 6px; font-size: 11px; font-weight: 700; letter-spacing: .08em; text-transform: uppercase; color: var(--coach-muted); }
+.cc-more h4:first-of-type { margin-top: 6px; }
 .cc-more .evidence-list { margin-top: 4px; }
 .cc-steps { font-size: 12.5px; }
 .cc-actions { margin: 4px 0 0; flex-wrap: wrap; }
 .cc-actions .btn-start { flex: 1 1 auto; justify-content: center; }
+.cc-actions .cc-icon-btn { flex: 0 0 auto; width: 44px; min-width: 44px; padding: 0; justify-content: center; }
+.cc-actions .cc-icon-btn .ic { margin: 0; }
 .cc-weeks { display: flex; align-items: flex-end; gap: 4px; height: 64px; }
 .cc-wk { flex: 1; display: flex; flex-direction: column; justify-content: flex-end; align-items: center; gap: 3px; height: 100%; min-width: 0; }
 .cc-wk i { display: block; width: 100%; border-radius: 6px 6px 3px 3px; background: linear-gradient(180deg, var(--violet), color-mix(in srgb, var(--violet) 45%, transparent)); }
 .cc-wk.recovery i { background: rgba(125, 211, 252, 0.4); }
 .cc-wk.test i { background: linear-gradient(180deg, var(--amber, #ffbe4a), rgba(255, 190, 74, 0.4)); }
 .cc-wk small { font-size: 9.5px; color: var(--coach-muted); }
-.cc-week { display: flex; flex-direction: column; gap: 6px; }
-.cc-week .block-sessions { margin: 0; }
 .coach-result .ask-body { max-width: 720px; }
 
 /* The rail: today's session, the plan, and the numbers the coach reads. */
@@ -2412,7 +2412,9 @@ a.btn, a.btn:hover { text-decoration: none; }
   .coach-intent { padding: 4px 6px; gap: 6px; }
   .coach-user-col { max-width: 88%; }
   .coach-card { padding: 14px; border-radius: 20px; }
-  .cc-actions .btn { flex: 1 1 calc(50% - 6px); justify-content: center; }
+  .cc-actions .btn { flex: 1 1 0; justify-content: center; }
+  .cc-actions .btn-start { flex-basis: 100%; }
+  .cc-actions .cc-icon-btn { flex: 0 0 44px; }
   .coach-cta { flex-wrap: wrap; }
   .coach-cta-go { width: 100%; justify-content: center; }
 }

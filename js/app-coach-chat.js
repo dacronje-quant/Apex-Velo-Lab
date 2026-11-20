@@ -540,7 +540,8 @@
         this.coachBuildWorkout(text);
       } else if (act === 'to-workout') {
         this.coachBuildWorkout('Build the session you just described as a workout for the trainer.', { focusIndex: i });
-      } else if (act === 'plan') this.openTrainingPlan();
+      } else if (act === 'settings') { if (this.openSettings) this.openSettings('ai'); }
+      else if (act === 'plan') this.openTrainingPlan();
       else if (act === 'calendar') { const b = $('btnBlockToCalendar'); if (b) b.click(); }
     },
 
@@ -649,56 +650,54 @@
         </div>`;
     },
 
+    /**
+     * A workout as a short card: what it is (title, time, load, peak, profile) and how to ride it, then the actions.
+     * The description, steps, why, the evidence and the reasoning are all under one Details.
+     */
     coachWorkoutCardHtml(m, i) {
       const w = m.workout;
       const a = m.assessment || {};
       const ftp = (this.activeProfile && this.activeProfile.ftp) || 200;
       const ivs = w.intervals || [];
       const peak = Math.max(0, ...ivs.map((iv) => Number(iv.pctFtp) || 0));
-      const goal = VeloAiCoach.GOALS[m.goal] ? VeloAiCoach.GOALS[m.goal].label : '';
-      const who = m.source && m.source !== 'offline_heuristic' ? (m.modelLabel || VeloAiCoach.labelFor(m.model)) : 'Built-in coach';
-      const zone = String(a.formZone || '');
-      const zoneKey = /fresh/i.test(zone) ? 'fresh' : /optimal/i.test(zone) ? 'optimal' : /overtrain|overreach/i.test(zone) ? 'overtraining' : /fatigue/i.test(zone) ? 'fatigue' : 'productive';
+      const live = m.source && m.source !== 'offline_heuristic';
+      const who = live ? (m.modelLabel || VeloAiCoach.labelFor(m.model)) : 'Built-in coach';
+      const title = String(w.title || 'Workout').replace(/^AI Coach:\s*/i, '');
       const rows = ivs.map((iv, n) => {
         const z = VeloMetrics.zoneForPct(iv.pctFtp);
         const cad = iv.cadence || (this.getCurrentTargetCadence ? this.getCurrentTargetCadence(iv) : '');
         return `<tr><td class="num">${n + 1}</td><td>${esc(iv.name || 'Step')}</td><td><span class="zone-dot" style="--zc:${z.color}"></span><span class="num">${iv.pctFtp}%</span> <small>${esc(z.short)}</small></td><td class="num">${Math.round((ftp * iv.pctFtp) / 100)} W</td><td class="num">${cad ? `${cad} rpm` : '-'}</td><td class="num">${this.fmtTime(iv.duration)}</td></tr>`;
       }).join('');
-      const why = a.fitnessDiagnosis || a.fatigueStatus
-        ? `<details class="cc-more"><summary>Why this workout</summary>${a.fitnessDiagnosis ? `<p><b>Fitness &amp; load.</b> ${esc(a.fitnessDiagnosis)}</p>` : ''}${a.fatigueStatus ? `<p><b>Fatigue &amp; recovery.</b> ${esc(a.fatigueStatus)}</p>` : ''}</details>` : '';
+      const lead = a.trainingAdvice || w.desc || '';
       const evidence = this.evidenceHtml ? this.evidenceHtml(m.evidence) : '';
-      const warn = m.apiError ? `<p class="cc-warn">${esc(m.apiError)}</p>`
-        : m.wordsUnread ? `<p class="cc-info">Built by the built-in coach from your form and the options; it cannot read your words. Add an AI key (${esc(this.settingsLabel ? this.settingsLabel('ai') : 'Settings > AI engine')}) for workouts built from what you ask.</p>` : '';
-      const title = String(w.title || 'Workout').replace(/^AI Coach:\s*/i, '');
-      const live = m.source && m.source !== 'offline_heuristic';
+      const why = [a.formZone ? `<p><b>Form today.</b> ${esc(a.formZone)}.</p>` : '', a.fitnessDiagnosis ? `<p><b>Fitness &amp; load.</b> ${esc(a.fitnessDiagnosis)}</p>` : '', a.fatigueStatus ? `<p><b>Fatigue &amp; recovery.</b> ${esc(a.fatigueStatus)}</p>` : ''].join('');
+      const details = [
+        a.trainingAdvice && w.desc ? `<p>${esc(w.desc)}</p>` : '',
+        `<h4>Steps (${ivs.length}) · IF ${esc(w.if)}</h4><div class="table-scroll"><table class="data-table cc-steps"><thead><tr><th>#</th><th>Step</th><th>Intensity</th><th>Target</th><th>Cadence</th><th>Time</th></tr></thead><tbody>${rows}</tbody></table></div>`,
+        why ? `<h4>Why this workout</h4>${why}` : '',
+        evidence ? `<h4>The science behind this</h4>${evidence}` : '',
+        m.thoughts ? `<h4>Coach reasoning</h4><div class="thinking-trace-body md">${md(m.thoughts)}</div>` : ''
+      ].join('');
+      const unread = m.wordsUnread ? ` · from your form and options · <button type="button" class="link-btn" data-coach-act="settings" data-i="${i}">Add an AI key</button> to use your own words` : '';
       return `<article class="coach-card coach-workout">
-          <div class="cc-eyebrow">${icon('i-bolt', 'ic ic-xs')}Workout${goal ? ` · ${esc(goal)}` : ''} · ${esc(who)}</div>
+          <div class="cc-eyebrow">${icon('i-bolt', 'ic ic-xs')}Workout · ${esc(who)}</div>
           <h3 class="cc-title">${esc(title)}</h3>
-          <div class="cc-chips num">
-            <span class="chip chip-accent">${esc(w.durationMin)} min</span>
-            <span class="chip chip-violet" data-term-tip="tss">${esc(w.tss)} TSS</span>
-            <span class="chip chip-amber" data-term-tip="if">IF ${esc(w.if)}</span>
-            <span class="chip chip-ghost">peak ${Math.round((ftp * peak) / 100)} W</span>
-            ${zone ? `<span class="ai-coach-status-badge form-badge form-${zoneKey}">${esc(zone)}</span>` : ''}
-          </div>
+          <p class="cc-meta num"><b>${esc(w.durationMin)} min</b> · <span data-term-tip="tss">${esc(w.tss)} TSS</span> · peak ${Math.round((ftp * peak) / 100)} W</p>
           <canvas class="cc-profile" data-coach-profile="${i}" aria-hidden="true"></canvas>
-          ${w.desc ? `<p class="cc-desc">${esc(w.desc)}</p>` : ''}
-          ${a.trainingAdvice ? `<div class="cc-advice"><span class="ctrl-label ctrl-label-accent">How to ride it</span><p>${esc(a.trainingAdvice)}</p></div>` : ''}
-          ${warn}
-          <details class="cc-more"><summary>Steps (${ivs.length})</summary><div class="table-scroll"><table class="data-table cc-steps"><thead><tr><th>#</th><th>Step</th><th>Intensity</th><th>Target</th><th>Cadence</th><th>Time</th></tr></thead><tbody>${rows}</tbody></table></div></details>
-          ${why}
-          ${evidence ? `<details class="cc-more evidence-box"><summary>The science behind this</summary>${evidence}</details>` : ''}
-          ${m.thoughts ? `<details class="cc-more"><summary>Coach reasoning</summary><div class="thinking-trace-body md">${md(m.thoughts)}</div></details>` : ''}
+          ${lead ? `<p class="cc-lead">${esc(lead)}</p>` : ''}
+          ${m.apiError ? `<p class="cc-warn">${esc(m.apiError)}</p>` : ''}
+          <details class="cc-more"><summary>Details</summary>${details}</details>
           <div class="btn-row cc-actions">
             <button type="button" class="btn btn-start" data-coach-act="ride" data-i="${i}">${icon('i-play')}Ride now</button>
             <button type="button" class="btn" data-coach-act="save" data-i="${i}"${m.saved ? ' disabled' : ''}>${icon('i-save')}${m.saved ? 'Saved' : 'Save'}</button>
             <button type="button" class="btn btn-ghost" data-coach-act="change" data-i="${i}">${icon('i-edit')}Change it</button>
-            <button type="button" class="btn btn-ghost" data-coach-act="again" data-i="${i}">${icon('i-refresh')}Another one</button>
+            <button type="button" class="btn btn-ghost cc-icon-btn" data-coach-act="again" data-i="${i}" aria-label="Another one" title="Another one">${icon('i-refresh')}</button>
           </div>
         </article>
-        <div class="ask-meta"><span>${esc(who)}${live && m.thinkingLevel ? ` · ${esc(m.thinkingLevel)}` : ''}${live && m.elapsedMs ? ` · ${(m.elapsedMs / 1000).toFixed(1)} s` : ''}${m.lookbackDays ? ` · ${esc(m.lookbackDays)} days of history` : ''}</span></div>`;
+        <div class="ask-meta"><span>${esc(who)}${live && m.thinkingLevel ? ` · ${esc(m.thinkingLevel)}` : ''}${live && m.elapsedMs ? ` · ${(m.elapsedMs / 1000).toFixed(1)} s` : ''}${m.lookbackDays ? ` · ${esc(m.lookbackDays)} days of history` : ''}${unread}</span></div>`;
     },
 
+    /** A plan as a short card: what it is, its weeks at a glance and the summary; the sessions are on the plan itself. */
     coachPlanCardHtml(m, i) {
       const p = m.plan || {};
       const bp = this.blockPlanner;
@@ -706,32 +705,19 @@
       const weeks = Array.isArray(p.weeks) ? p.weeks : [];
       const maxT = Math.max(1, ...weeks.map((w) => Number(w.plannedTss) || 0));
       const bars = weeks.map((w) => `<span class="cc-wk ${esc(w.type)}" title="Week ${esc(w.index)}: ${esc(w.phase || w.type)} - ${esc(w.plannedTss)} TSS"><i style="height:${Math.max(8, ((Number(w.plannedTss) || 0) / maxT) * 100)}%"></i><small class="num">W${esc(w.index)}</small></span>`).join('');
-      let week = '';
-      if (live) {
-        const today = VeloBlockPlanner.today();
-        const cur = bp.weekOf(today) || bp.block.weeks.find((w) => w.start > today) || bp.block.weeks[0];
-        if (cur && cur.sessions.length && this.blockSessionRow) week = `<div class="cc-week"><span class="ctrl-label">Week ${esc(cur.index)} · ${esc(cur.phase)}</span><div class="block-sessions">${cur.sessions.map((s) => this.blockSessionRow(s, today)).join('')}</div></div>`;
-      }
-      const warn = m.apiError ? `<p class="cc-warn">${esc(m.apiError)}</p>`
-        : m.wordsUnread ? `<p class="cc-info">Built by the built-in periodisation engine from the options; it cannot read your words. Add an AI key (${esc(this.settingsLabel ? this.settingsLabel('ai') : 'Settings > AI engine')}) for plans shaped by what you ask.</p>` : '';
+      const unread = m.wordsUnread ? `<div class="ask-meta"><span>Built from the options · <button type="button" class="link-btn" data-coach-act="settings" data-i="${i}">Add an AI key</button> to use your own words</span></div>` : '';
       return `<article class="coach-card coach-plan">
           <div class="cc-eyebrow">${icon('i-calendar', 'ic ic-xs')}Training plan · ${esc(p.by || '')}</div>
           <h3 class="cc-title">${esc(p.title || 'Training plan')}</h3>
-          <div class="cc-chips num">
-            <span class="chip chip-accent">${esc(p.weekCount)} weeks</span>
-            <span class="chip chip-ghost">${esc(fmtDay(p.startDate))} - ${esc(fmtDay(p.endDate))}</span>
-            <span class="chip chip-ghost">${esc(p.hours || '')}</span>
-            ${live ? '' : '<span class="chip chip-ghost">Replaced</span>'}
-          </div>
+          <p class="cc-meta num"><b>${esc(p.weekCount)} weeks</b> · ${esc(fmtDay(p.startDate))} - ${esc(fmtDay(p.endDate))}${p.hours ? ` · ${esc(p.hours)}` : ''}</p>
           <div class="cc-weeks" aria-hidden="true">${bars}</div>
-          ${p.summary ? `<p class="cc-desc">${esc(p.summary)}</p>` : ''}
-          ${warn}
-          ${week}
+          ${p.summary ? `<p class="cc-lead cc-clamp">${esc(p.summary)}</p>` : ''}
+          ${m.apiError ? `<p class="cc-warn">${esc(m.apiError)}</p>` : ''}
           ${live ? `<div class="btn-row cc-actions">
-            <button type="button" class="btn btn-primary" data-coach-act="plan" data-i="${i}">${icon('i-calendar')}View full plan</button>
-            <button type="button" class="btn" data-coach-act="calendar" data-i="${i}">Calendar</button>
+            <button type="button" class="btn btn-primary" data-coach-act="plan" data-i="${i}">${icon('i-calendar')}View plan</button>
+            <button type="button" class="btn btn-ghost" data-coach-act="calendar" data-i="${i}">Calendar</button>
           </div>` : '<p class="cc-note">A newer plan replaced this one.</p>'}
-        </article>`;
+        </article>${unread}`;
     }
   });
 })();
