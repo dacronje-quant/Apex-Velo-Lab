@@ -111,7 +111,7 @@ Your Apple Watch's **resting heart rate**, **HRV** (Apple's SDNN, in ms) and **s
 
 ## Training blocks (periodised plans)
 
-Tick **Plan my training** in the coach chat and say what you want in your own words ("gran fondo in 10 weeks, no rides on Friday"); weeks, weekly hours, ride days and a long-ride day you name set the options, and the line under the ticks says what will be built (goal, weeks, days, hours, engine) and warns when a new plan replaces the current one.
+Pick **Plan my training** in the coach chat and say what you want in your own words ("gran fondo in 10 weeks, no rides on Friday"); weeks, weekly hours, ride days and a long-ride day you name set the options, and the line under the ticks says what will be built (goal, weeks, days, hours, engine) and warns when a new plan replaces the current one.
 
 Under **Options**, pick a goal, a length (4-12 weeks), the days you can ride, a long-ride day, a start date and your hours per week. The coach builds a periodised block, shown as a plan card in the chat and in full beside it:
 
@@ -283,7 +283,7 @@ A thin zone-coloured bar of the whole workout sits above the controls on every s
 - **Keyboard.** Space start/pause, Tab or -> next step, `S` stand break, `Z` Zen, `F` fullscreen, `P` mini-HUD, `M` mute; the full list is behind the keyboard icon.
 
 ### AI Coach: one chat for questions, workouts and plans
-Everything AI happens in one conversation on the **Coach** tab (on the phone, **Train > Coach**). Above the message box are three ticks; one is always picked:
+Everything AI happens in one conversation on the **Coach** tab (on the phone, **Train > Coach**). Above the message box is a three-way switch; one is always picked, and it shows a tick:
 
 - **Ask about my riding** - questions, analysis and advice from your own data (see *Questions about your training* below).
 - **Create a workout** - one session for the trainer, from your form, history and your own words.
@@ -294,21 +294,22 @@ Type in your own words and press the button (Ask / Create workout / Build plan).
 - **Results land in the thread.** A workout is a card with its profile, duration, TSS, IF and peak watts, *How to ride it*, and under it the steps, *Why this workout* (fitness and fatigue), *The science behind this* and the coach's reasoning. **Ride now** loads it into the cockpit (on the phone it opens the ride screen and starts), **Save** adds it to your library, **Change it** ticks Create a workout so your next message ("shorter", "no VO2") changes it, and **Another one** builds a fresh one from the same request. A plan is a card with its weeks, summary and this week's sessions (each with **Load**), and **View full plan** / **Calendar**.
 - **Everything connects.** Each turn sees the chat so far: a question can follow a workout ("why that one?"), **Make it a workout** under an answer that describes a session builds it, and "make it shorter" after a workout changes that one. Workouts and plans the coach built count as its turns when you ask the next question.
 - **Your words set the options.** A session length in the message ("60 min", "1.5 h"; never an interval such as "2x20 min") sets the workout length; weeks ("10 weeks"), weekly hours ("6 hours a week"), rides a week ("4 rides a week"), days off ("no rides on Friday", "except Tuesday and Thursday") and a long-ride day ("long ride on Saturday") set the plan. The line under the ticks shows what will be built, with what came from your message in bold, and your message says *Set from your message* afterwards.
-- **Options** (the line under the ticks) hold the rest: the period the coach reads for questions and *What the AI sees*; the goal (FTP, Longevity, VO2max or Balanced, shared by workouts and plans), length, focus and history look-back for a workout; the weeks, ride days, long-ride day, start and weekly hours for a plan.
+- **Options** (the line under the switch; on the phone, the gear beside it) hold the rest: the period the coach reads for questions and *What the AI sees*; the goal (FTP, Longevity, VO2max or Balanced, shared by workouts and plans), length, focus and history look-back for a workout; the weeks, ride days, long-ride day, start and weekly hours for a plan.
 - **Without an AI key** questions need one, but workouts and plans are still built by the offline engine from your form and the options (it cannot read your words, and the card says so).
 - **Ways in.** The Workouts tab's **Create with the coach**, a ride's **Discuss with the coach** (the question is ready, the period covers the ride), the plan card beside the chat and, on the phone, Train > Plan's **AI coach** card (**Workout for today** builds one in a tap) all open this chat. Clicking a planned session on the Calendar opens the plan.
-- **Beside the chat** (below it on narrow screens; **Your plan** on the phone) are today's session from your plan, the plan itself with its suggestions, re-plan and delete, and the numbers the coach reads (volume, intensity mix, last hard and long ride, power profile).
+- **Beside the chat** (below it on narrow screens; **Your plan** on the phone) are today's session from your plan, the plan itself with its suggestions, re-plan and delete, and **What the coach sees**: readiness, form, fitness, fatigue, the last 7 days, FTP, volume, intensity mix, last hard and long ride and power profile.
 - **Goals:** FTP, Longevity (Z2/durability, a weekly 4 x 4 and strength work), VO2max and Balanced.
 - **Context from your real history.** 28-day hours per week, intensity mix, CTL/ATL/TSB, days since the last hard and last long ride, and a power-profile type from your all-time MMP curve. Your words come first (up to 4,000 characters with the chat so far): what you ask for is built, and the coach says so when your data argues against it.
 - **Claude, Gemini or ChatGPT (Claude Opus 5.5, low effort by default).** The summarised reasoning trace is under each workout. The assessment speaks to you directly and quotes the rides and numbers behind each point.
 - **Offline engine.** Builds a workout sized to the requested duration: sweet-spot blocks, threshold under/overs, 4×4 VO2 (heart-rate guided for Longevity) or Rønnestad 30/15. IF and TSS are computed from the intervals, not estimated. See *Evidence-based sport scientist* above.
 - **Recent ride insight in the prompt.** From rides with recorded power, the coach (Claude/Gemini, and the offline engine's advice) gets: the last hard session's interval diagnosis (and its saved AI breakdown), the Pw:HR drift of recent steady rides, new power bests over an earlier best (5 min and longer), and an FTP suggestion you have not applied yet - so a session type that faded is re-paced, aerobic work stays steady while drift is high, and targets reflect a proven FTP.
-- The chat (questions, answers, workout and plan cards) is kept on this device; **New chat** or **Clear** starts over (a plan stays on your Calendar).
+- **Made for keyboards and screen readers.** The switch is a radio group (arrow keys move it), Esc closes the options, the send button waits for a question, and a status line announces answers and finished workouts and plans instead of the whole thread being read again.
+- The chat (questions, answers, workout and plan cards) is kept on this device; **Clear** next to the message box starts over after asking (a plan stays on your Calendar).
 
 ### Questions about your training (Ask about my riding)
 - **Pick a period** under Options (7 days, 4 weeks, 6 weeks, 3 months, 6 months, 1 year, all history or custom dates) and **ask in your own words** - or tap a suggested question such as *Am I recovering well enough?* Follow-up questions keep the conversation; changing the period mid-chat applies from the next question and the thread notes it.
 - **What the AI sees** is a compact text summary of that period, built on your PC from measured data only: rider settings, today's fitness / strain / freshness, the CP model, period totals against the period before, a week-by-week table, power bests (period and all-time), time in power zones, efficiency and heart-rate drift, pedal balance, FTP changes, weekly resting HR / HRV / sleep from Apple Health, other activities, and one line per ride. Open **What the AI sees** under the period to read the exact text. Very long periods list fewer of the oldest rides (the totals still include them).
-- **Answers** are short and plain-English, with the numbers that back them; they are not medical advice. Copy any answer with one click; **New chat** starts over. The chat is kept in this browser only.
+- **Answers** are short and plain-English, with the numbers that back them; they are not medical advice. Copy any answer with one click; **Clear** starts over. The chat is kept in this browser only.
 - **Engine:** the same Claude or Gemini model and effort chosen in **Settings > AI engine**; the key stays on the local server. The summary is sent as a cached block, so follow-up questions about the same period cost less. On Claude Opus 5.5, if the safety system declines a request, the server lets Claude answer with the default fallback model instead of failing (the request carries `fallbacks: "default"`); older API versions that reject this are retried without it.
 
 ### Analytics - progression dashboard
@@ -390,7 +391,7 @@ js/
   app-ride-analysis.js Ride review power analysis: ride plot lanes, W' metrics, zones, ride curve, distribution, quadrants (mixin)
   velo-glossary.js    Plain-English meaning of every acronym / metric, shown under labels and as tooltips
   velo-ask.js         Questions: period windows and the training-data summary the AI answers from (pure)
-  velo-coach-chat.js  Coach chat: the ticks, options from the rider's words, workout lines, the chat as context and as API turns (pure)
+  velo-coach-chat.js  Coach chat: the three modes, options from the rider's words, workout lines, the chat as context and as API turns (pure)
   app-coach-chat.js   Coach chat: one thread for questions, workouts and plans, the message box, workout and plan cards, ways in (mixin)
   app-ask.js          Questions: period picker, the data summary, the engine warning (mixin)
   app-health.js       Apple Health pickup, storage, readiness chips, calendar helpers, Settings panel (mixin)

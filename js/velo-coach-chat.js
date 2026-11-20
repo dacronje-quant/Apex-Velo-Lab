@@ -23,12 +23,12 @@
     },
     workout: {
       label: 'Create a workout', short: 'Workout', icon: 'i-bolt', send: 'Create workout', sendShort: 'Create',
-      placeholder: 'Describe it, or leave it to the coach: e.g. 45 min sweet spot, legs tired', placeholderShort: 'e.g. 45 min sweet spot, or leave blank',
+      placeholder: 'Describe it, or leave it to the coach: e.g. 45 min sweet spot, legs tired', placeholderShort: 'e.g. 45 min sweet spot',
       help: 'One session for the trainer, built from your form and your own words.'
     },
     plan: {
       label: 'Plan my training', short: 'Plan', icon: 'i-calendar', send: 'Build plan', sendShort: 'Build',
-      placeholder: 'Your goal and limits: e.g. gran fondo in 10 weeks, no rides on Friday', placeholderShort: 'e.g. 10 weeks, no rides on Friday',
+      placeholder: 'Your goal and limits: e.g. gran fondo in 10 weeks, no rides on Friday', placeholderShort: 'e.g. 10 weeks, Fridays off',
       help: 'A 4-12 week plan, placed on your Calendar and checked after every ride.'
     }
   };

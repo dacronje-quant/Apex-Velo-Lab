@@ -58,7 +58,15 @@
       this._coachReady = true;
 
       const form = $('askForm'), input = $('askInput');
-      if (form) this.on(form, 'submit', (e) => { e.preventDefault(); this.sendCoachMessage(input ? input.value : ''); });
+      if (form) {
+        this.on(form, 'submit', (e) => { e.preventDefault(); this.sendCoachMessage(input ? input.value : ''); });
+        this.on(form, 'keydown', (e) => {
+          if (e.key !== 'Escape' || $('coachTray')?.hidden) return;
+          e.preventDefault();
+          this.toggleCoachOptions(false);
+          $('btnCoachOptions')?.focus();
+        });
+      }
       if (input) {
         this.on(input, 'keydown', (e) => { if (e.key === 'Enter' && !e.shiftKey && !e.isComposing) { e.preventDefault(); this.sendCoachMessage(input.value); } });
         this.on(input, 'input', () => { this.sizeAskInput(); this.updateCoachGoButton(); });
@@ -81,10 +89,10 @@
       if (tray) {
         this.on(tray, 'change', () => this.updateCoachGoButton());
         this.on(tray, 'input', () => this.updateCoachGoButton());
-        this.on(tray, 'click', (e) => { if (e.target.closest('[data-dow], .goal-pill')) requestAnimationFrame(() => this.updateCoachGoButton()); });
+        // The day and goal buttons have their own handlers (deeper in the tray), so their state is already toggled here.
+        this.on(tray, 'click', (e) => { if (e.target.closest('[data-dow], .goal-pill')) { this.syncCoachOptionStates(); this.updateCoachGoButton(); } });
       }
       this.on($('btnAskStop'), 'click', () => this.stopCoach());
-      this.on($('btnAskNew'), 'click', () => this.newAskChat());
       this.on($('btnAskClear'), 'click', () => {
         if (this.askMessages.length && confirm('Clear this chat? The questions, answers, workouts and plan cards are removed from this device (a plan stays on your Calendar).')) this.newAskChat();
       });
@@ -98,8 +106,24 @@
         const ride = e.target.closest && e.target.closest('[data-coach-discuss]');
         if (ride) { e.preventDefault(); this.discussRideWithCoach(ride.dataset.coachDiscuss); }
       });
+      this.syncCoachOptionStates();
+      this._coachShown = this.askMessages.length;  // a saved chat appears as it was; only new turns ease in
       this.setCoachIntent(this.coachIntent, { persist: false });
       this.renderAskThread();
+    },
+
+    /** Ride days are toggle buttons and the goals a radio group: their ARIA state follows what is picked. */
+    syncCoachOptionStates() {
+      document.querySelectorAll('#blockDays [data-dow]').forEach((b) => b.setAttribute('aria-pressed', String(b.classList.contains('active'))));
+      document.querySelectorAll('#aiCoachGoalPills .goal-pill').forEach((b) => { b.setAttribute('role', 'radio'); b.setAttribute('aria-checked', String(b.classList.contains('active'))); });
+    },
+
+    /** One short line for screen readers (the thread itself is redrawn, so it is not a live region). */
+    coachAnnounce(text) {
+      const el = $('coachStatus');
+      if (!el) return;
+      el.textContent = '';
+      requestAnimationFrame(() => { el.textContent = text; });
     },
 
     /** The Coach tab opened: fresh numbers, the cards drawn at their size, the message box ready on a desktop. */
@@ -129,6 +153,7 @@
         b.tabIndex = on ? 0 : -1;
       });
       document.querySelectorAll('#coachTray .coach-pane').forEach((p) => { p.hidden = !String(p.dataset.pane || '').split(/\s+/).includes(intent); });
+      this.syncCoachOptionStates();
       const input = $('askInput');
       const narrow = window.matchMedia && window.matchMedia('(max-width: 640px)').matches;
       if (input) input.placeholder = (narrow && I[intent].placeholderShort) || I[intent].placeholder;
@@ -175,6 +200,7 @@
       const tray = $('coachTray'), btn = $('btnCoachOptions');
       if (!tray) return;
       const show = open === null ? tray.hidden : !!open;
+      if (show) this.syncCoachOptionStates();
       tray.hidden = !show;
       if (btn) btn.setAttribute('aria-expanded', String(show));
       const view = $('view-ai-coach');
@@ -219,7 +245,12 @@
       }
       const el = $('coachGoHint');
       if (el) el.innerHTML = hint;
+      const trayHint = $('coachTrayHint');
+      if (trayHint) trayHint.innerHTML = hint;
       this.setText('coachSendLabel', send);
+      // A question needs words; a workout or plan can be left to the coach.
+      const btn = $('btnAskSend');
+      if (btn && !this._askBusy) btn.disabled = intent === 'chat' && !String(input ? input.value : '').trim();
       this.setText('coachTrayHelp', intent === 'chat'
         ? 'Pick the period the coach reads. It sees the summary below, not your raw files.'
         : c.isLive
@@ -240,7 +271,7 @@
       if (intent === 'plan') {
         if (parsed.weeks) setSel('selectBlockWeeks', parsed.weeks);
         if (parsed.hoursPerWeek) { const h = $('inputBlockHours'); if (h) h.value = String(parsed.hoursPerWeek); }
-        if (parsed.days) document.querySelectorAll('#blockDays [data-dow]').forEach((b) => { const on = parsed.days.includes(Number(b.dataset.dow)); b.classList.toggle('active', on); b.setAttribute('aria-pressed', String(on)); });
+        if (parsed.days) { document.querySelectorAll('#blockDays [data-dow]').forEach((b) => b.classList.toggle('active', parsed.days.includes(Number(b.dataset.dow)))); this.syncCoachOptionStates(); }
         if (parsed.longDay !== undefined) setSel('selectBlockLongDay', parsed.longDay);
       }
       return parsed;
@@ -249,6 +280,7 @@
     // ------------------------------------------------------------------------------------------ sending --
 
     sendCoachMessage(raw) {
+      this.toggleCoachOptions(false);
       if (this.coachIntent === 'workout') return this.coachBuildWorkout(raw);
       if (this.coachIntent === 'plan') return this.coachBuildPlan(raw);
       return this.sendAsk(raw);
@@ -270,6 +302,7 @@
       this._askTick = setInterval(() => this.setText('askElapsed', `${Math.round((performance.now() - this._askStarted) / 1000)} s`), 1000);
       this.setAskBusyUi(true);
       this.renderAskThread();
+      this.coachAnnounce(`${label}...`);
     },
 
     coachIdle() {
@@ -278,6 +311,9 @@
       this._askBusyInfo = null;
       this._askAbort = null;
       this.setAskBusyUi(false);
+      this.updateCoachGoButton();
+      const last = (this.askMessages || [])[this.askMessages.length - 1];
+      if (last) this.coachAnnounce(last.role === 'workout' ? `Workout ready: ${String(last.workout.title || '').replace(/^AI Coach:\s*/i, '')}` : last.role === 'plan' ? `Plan ready: ${last.plan.title}` : last.role === 'error' ? last.content : last.role === 'assistant' ? 'The coach answered.' : '');
     },
 
     /** Stop: a question is cancelled; a workout being built is left behind (a plan cannot be stopped half-way). */
@@ -510,8 +546,7 @@
     setAskBusyUi(busy) {
       const send = $('btnAskSend'), stop = $('btnAskStop');
       const stoppable = !!(this._askBusyInfo && this._askBusyInfo.stoppable);
-      if (send) send.hidden = busy && stoppable;
-      if (send) send.disabled = busy;
+      if (send) { send.hidden = busy && stoppable; send.disabled = busy; }
       if (stop) stop.hidden = !(busy && stoppable);
       const input = $('askInput');
       if (input) input.setAttribute('aria-busy', String(busy));
@@ -550,17 +585,20 @@
       const thread = $('askThread');
       if (!thread || !this._coachReady) return;
       const has = this.askMessages.length > 0;
-      const newBtn = $('btnAskNew'), clearBtn = $('btnAskClear');
-      if (newBtn) newBtn.hidden = !has;
+      const clearBtn = $('btnAskClear');
       if (clearBtn) clearBtn.hidden = !has;
       const view = $('view-ai-coach');
       if (view) view.classList.toggle('coach-has-chat', has);
-      if (!has && !this._askBusy) { thread.innerHTML = this.coachWelcomeHtml(); return; }
+      if (!has && !this._askBusy) { thread.innerHTML = this.coachWelcomeHtml(); this._coachShown = 0; return; }
       thread.innerHTML = this.askMessages.map((m, i) => this.coachMessageHtml(m, i)).join('') + (this._askBusy ? `
           <div class="ask-msg ask-ai pending">
             <div class="ask-avatar" aria-hidden="true">${icon('i-sparkles')}</div>
             <div class="ask-body"><div class="ask-bubble"><span class="ask-dots" aria-hidden="true"><i></i><i></i><i></i></span> ${esc((this._askBusyInfo && this._askBusyInfo.label) || 'Thinking')}<span class="ask-elapsed num" id="askElapsed">${Math.round((performance.now() - (this._askStarted || performance.now())) / 1000)} s</span></div></div>
           </div>` : '');
+      const before = this._coachShown || 0;
+      this._coachShown = this.askMessages.length;
+      if (this.askMessages.length > before) [...thread.children].slice(before - this.askMessages.length - (this._askBusy ? 1 : 0)).forEach((n) => n.classList.add('coach-enter'));
+      else if (this._askBusy && thread.lastElementChild) thread.lastElementChild.classList.add('coach-enter');
       thread.querySelectorAll('canvas[data-coach-profile]').forEach((cv) => {
         const m = this.askMessages[Number(cv.dataset.coachProfile)];
         if (m && m.workout) requestAnimationFrame(() => this.drawMiniProfile(cv, m.workout.intervals, { height: 84 }));
@@ -574,9 +612,9 @@
 
     coachWelcomeHtml() {
       const I = CC().INTENTS;
-      const ask = ASK_EXAMPLES.map((n) => VeloAsk.SUGGESTIONS[n]).filter(Boolean)
+      const ask = ASK_EXAMPLES.slice(0, 3).map((n) => VeloAsk.SUGGESTIONS[n]).filter(Boolean)
         .map((s) => `<button type="button" class="ask-chip" data-suggest="${esc(s)}">${esc(s)}</button>`).join('');
-      const work = WORKOUT_EXAMPLES.map((x) => `<button type="button" class="ask-chip" data-example="workout" data-text="${esc(x.text)}">${esc(x.label)}</button>`).join('');
+      const work = WORKOUT_EXAMPLES.slice(0, 3).map((x) => `<button type="button" class="ask-chip" data-example="workout" data-text="${esc(x.text)}">${esc(x.label)}</button>`).join('');
       const plan = PLAN_EXAMPLES.map((x) => `<button type="button" class="ask-chip" data-example="plan" data-text="${esc(x)}">${esc(x)}</button>`).join('');
       const card = (k, chips) => `<section class="coach-start-card${k === this.coachIntent ? ' active' : ''}" data-intent-card="${k}">
           <button type="button" class="coach-start-head" data-coach-pick="${k}">${icon(I[k].icon)}<span><b>${esc(I[k].label)}</b><small>${esc(I[k].help)}</small></span></button>
@@ -584,7 +622,7 @@
       return `<div class="coach-welcome">
           <div class="ask-empty-icon" aria-hidden="true">${icon('i-sparkles')}</div>
           <h3>What shall we work on?</h3>
-          <p>Tick what you want under the chat, then say it in your own words. Answers, workouts and plans all happen here, from your own rides, power, heart rate and recovery.</p>
+          <p>Choose <b>Ask</b>, <b>Workout</b> or <b>Plan</b> below and say it in your own words, or start from an example.</p>
           <div class="coach-start">${card('chat', ask)}${card('workout', work)}${card('plan', plan)}</div>
         </div>`;
     },
@@ -603,7 +641,7 @@
       const body = m.role === 'workout' ? this.coachWorkoutCardHtml(m, i)
         : m.role === 'plan' ? this.coachPlanCardHtml(m, i)
           : `<div class="ask-bubble md">${md(m.content)}</div>
-             <div class="ask-meta"><span>${esc(m.meta || '')}</span><button type="button" class="link-btn" data-copy="${i}">Copy</button>${CC().looksLikeSession(m.content) ? `<button type="button" class="link-btn coach-to-workout" data-coach-act="to-workout" data-i="${i}">${icon('i-bolt', 'ic ic-xs')}Make it a workout</button>` : ''}</div>`;
+             <div class="ask-meta"><span>${esc(m.meta || '')}</span><button type="button" class="link-btn" data-copy="${i}">Copy</button>${CC().looksLikeSession(m.content) ? `<button type="button" class="coach-chip-action coach-to-workout" data-coach-act="to-workout" data-i="${i}">${icon('i-bolt', 'ic ic-xs')}Make it a workout</button>` : ''}</div>`;
       return `<div class="ask-msg ask-ai${m.role === 'assistant' ? '' : ' coach-result'}">
           <div class="ask-avatar" aria-hidden="true">${icon('i-sparkles')}</div>
           <div class="ask-body">${body}</div>
@@ -629,10 +667,12 @@
         ? `<details class="cc-more"><summary>Why this workout</summary>${a.fitnessDiagnosis ? `<p><b>Fitness &amp; load.</b> ${esc(a.fitnessDiagnosis)}</p>` : ''}${a.fatigueStatus ? `<p><b>Fatigue &amp; recovery.</b> ${esc(a.fatigueStatus)}</p>` : ''}</details>` : '';
       const evidence = this.evidenceHtml ? this.evidenceHtml(m.evidence) : '';
       const warn = m.apiError ? `<p class="cc-warn">${esc(m.apiError)}</p>`
-        : m.wordsUnread ? `<p class="cc-warn">Built by the built-in coach from your form and the options: it cannot read your words. Add an AI key (${esc(this.settingsLabel ? this.settingsLabel('ai') : 'Settings > AI engine')}) for workouts built from what you ask.</p>` : '';
+        : m.wordsUnread ? `<p class="cc-info">Built by the built-in coach from your form and the options; it cannot read your words. Add an AI key (${esc(this.settingsLabel ? this.settingsLabel('ai') : 'Settings > AI engine')}) for workouts built from what you ask.</p>` : '';
+      const title = String(w.title || 'Workout').replace(/^AI Coach:\s*/i, '');
+      const live = m.source && m.source !== 'offline_heuristic';
       return `<article class="coach-card coach-workout">
           <div class="cc-eyebrow">${icon('i-bolt', 'ic ic-xs')}Workout${goal ? ` · ${esc(goal)}` : ''} · ${esc(who)}</div>
-          <h3 class="cc-title">${esc(w.title || 'Workout')}</h3>
+          <h3 class="cc-title">${esc(title)}</h3>
           <div class="cc-chips num">
             <span class="chip chip-accent">${esc(w.durationMin)} min</span>
             <span class="chip chip-violet" data-term-tip="tss">${esc(w.tss)} TSS</span>
@@ -655,7 +695,7 @@
             <button type="button" class="btn btn-ghost" data-coach-act="again" data-i="${i}">${icon('i-refresh')}Another one</button>
           </div>
         </article>
-        <div class="ask-meta"><span>${esc(who)}${m.thinkingLevel && m.source !== 'offline_heuristic' ? ` · ${esc(m.thinkingLevel)}` : ''}${m.elapsedMs ? ` · ${(m.elapsedMs / 1000).toFixed(1)} s` : ''}${m.lookbackDays ? ` · ${esc(m.lookbackDays)} days of history` : ''}</span></div>`;
+        <div class="ask-meta"><span>${esc(who)}${live && m.thinkingLevel ? ` · ${esc(m.thinkingLevel)}` : ''}${live && m.elapsedMs ? ` · ${(m.elapsedMs / 1000).toFixed(1)} s` : ''}${m.lookbackDays ? ` · ${esc(m.lookbackDays)} days of history` : ''}</span></div>`;
     },
 
     coachPlanCardHtml(m, i) {
@@ -672,7 +712,7 @@
         if (cur && cur.sessions.length && this.blockSessionRow) week = `<div class="cc-week"><span class="ctrl-label">Week ${esc(cur.index)} · ${esc(cur.phase)}</span><div class="block-sessions">${cur.sessions.map((s) => this.blockSessionRow(s, today)).join('')}</div></div>`;
       }
       const warn = m.apiError ? `<p class="cc-warn">${esc(m.apiError)}</p>`
-        : m.wordsUnread ? `<p class="cc-warn">Built by the built-in periodisation engine from the options: it cannot read your words. Add an AI key (${esc(this.settingsLabel ? this.settingsLabel('ai') : 'Settings > AI engine')}) for plans shaped by what you ask.</p>` : '';
+        : m.wordsUnread ? `<p class="cc-info">Built by the built-in periodisation engine from the options; it cannot read your words. Add an AI key (${esc(this.settingsLabel ? this.settingsLabel('ai') : 'Settings > AI engine')}) for plans shaped by what you ask.</p>` : '';
       return `<article class="coach-card coach-plan">
           <div class="cc-eyebrow">${icon('i-calendar', 'ic ic-xs')}Training plan · ${esc(p.by || '')}</div>
           <h3 class="cc-title">${esc(p.title || 'Training plan')}</h3>

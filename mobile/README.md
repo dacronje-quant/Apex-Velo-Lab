@@ -252,9 +252,9 @@ Android back closes a sheet, then goes back a page, then to the tab's first scre
     Saved, Tests with the ramp test) and search. Tap a workout for its profile, then **Ride it**, which opens the
     ride screen and starts it. *Fine-tune* opens the step table (change or add steps, Save as preset).
     **Create with the coach** opens the chat with *Create a workout* ticked.
-  - *Coach* is the one AI chat. Tick **Ask** (questions about your riding), **Workout** (one session to ride) or
+  - *Coach* is the one AI chat. Pick **Ask** (questions about your riding), **Workout** (one session to ride) or
     **Plan** (a 4-12 week plan) above the message box and type in your own words; lengths, weeks and days off you
-    name set the options (the line under the ticks; *Options* has the rest). Answers, workout cards (**Ride now**
+    name set the options (the gear beside the switch has the rest). Answers, workout cards (**Ride now**
     opens the ride screen, *Save*, *Change it*, *Another one*) and plan cards all stay in one conversation, and
     each turn sees the chat so far (*Make it a workout* under an answer builds the session it describes). A ride's
     **Discuss with the coach** opens it too. It keeps your conversation.

@@ -395,16 +395,20 @@
           log('AI Coach: Claude/Gemini Provider Switch & History Look-back Window', geminiOk && mismatchDropped && optionsOk && lookbackOk,
             `Gemini: ${geminiOk}, mismatch dropped: ${mismatchDropped}, options: ${geminiOptions.join('/')}, look-back 7/90: ${ctx7.history.ridesWin}/${ctx90.history.ridesWin} rides (listed ${ctx90.listedRideCount})`);
 
-          // A fresh start: New chat empties the coach chat (workout cards included) and the welcome comes back.
+          // A fresh start: Clear (next to the message box, after a confirm) empties the coach chat, workout cards included.
           const coachDoc = frame.contentDocument;
           const keepChat = app.askMessages.slice();
+          const keepConfirm = frame.contentWindow.confirm;
           app.renderAiCoachRecommendation(aiRec);
-          const newChatBtn = coachDoc.getElementById('btnAskNew');
-          const hadCard = !!coachDoc.querySelector('#askThread .coach-workout') && !!newChatBtn && !newChatBtn.hidden;
-          newChatBtn.click();
-          const isCleared = app.askMessages.length === 0 && !!coachDoc.querySelector('#askThread .coach-welcome') && newChatBtn.hidden;
-          log('New Chat Clears the Coach Chat (Workout Cards Included) for a Fresh Start', hadCard && isCleared,
-            `card shown first: ${hadCard}, chat cleared and welcome back: ${isCleared}`);
+          const clearChatBtn = coachDoc.getElementById('btnAskClear');
+          const hadCard = !!coachDoc.querySelector('#askThread .coach-workout') && !!clearChatBtn && !clearChatBtn.hidden;
+          frame.contentWindow.confirm = () => false; clearChatBtn.click();
+          const keptOnCancel = app.askMessages.length > 0;
+          frame.contentWindow.confirm = () => true; clearChatBtn.click();
+          frame.contentWindow.confirm = keepConfirm;
+          const isCleared = app.askMessages.length === 0 && !!coachDoc.querySelector('#askThread .coach-welcome') && clearChatBtn.hidden;
+          log('Clear Empties the Coach Chat (Workout Cards Included) After a Confirm', hadCard && keptOnCancel && isCleared,
+            `card shown first: ${hadCard}, kept on cancel: ${keptOnCancel}, cleared and welcome back: ${isCleared}`);
           app.askMessages = keepChat; app.saveAsk(); app.renderAskThread();
 
           // 23. Banister PMC Authentic Calculation (Zero Synthetic Seeds or Sine Waves)
@@ -1714,7 +1718,7 @@
               const storeOk = stored.period === '6w' && !stored.messages.some(m => m.role === 'error');
               app.newAskChat();
               const clearOk = app.askMessages.length === 0 && D.querySelectorAll('#askThread [data-suggest]').length === chips;
-              const ok = ctxOk && scopeOk && chips >= 4 && turnsOk && noteOk && renderOk && failOk && storeOk && clearOk;
+              const ok = ctxOk && scopeOk && chips >= 3 && turnsOk && noteOk && renderOk && failOk && storeOk && clearOk;
               return { ok, detail: `summary:${ctxOk} (${ctx.length} chars) | scope:${scopeOk} | ${chips} suggestions | turns ${roles}:${turnsOk} | period note:${noteOk} | bubbles ${bubbles}:${renderOk} | failed question back in box:${failOk} | saved:${storeOk} | new chat:${clearOk}` };
             } finally {
               W.fetch = realFetch;

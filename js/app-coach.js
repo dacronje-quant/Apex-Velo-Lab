@@ -96,7 +96,6 @@
       this.on(document.getElementById('coachPlanToday'), 'click', (e) => {
         const load = e.target.closest('[data-block-load]');
         if (load) this.loadBlockSession(load.dataset.blockLoad);
-        else if (e.target.closest('[data-show-plan]')) this.openTrainingPlan();
       });
       this.on(document.getElementById('btnSaveAiCoachConfig'), 'click', () => {
         this.aiCoach.saveConfig({
@@ -231,19 +230,17 @@
       });
     },
 
-    /** Beside the chat: today's session from the active plan, ready to load. */
+    /** Beside the chat: today's session from the active plan, ready to load (nothing when the plan has none today). */
     renderCoachPlanToday() {
       const el = document.getElementById('coachPlanToday');
       if (!el) return;
       const bp = this.blockPlanner;
       const today = bp && bp.block ? VeloBlockPlanner.today() : null;
       const s = today ? (bp.sessionsByDate().get(today) || []).find(x => x.status === 'planned') : null;
-      if (!bp || !bp.block) { el.hidden = true; return; }
-      el.hidden = false;
-      el.innerHTML = s
-        ? `<svg class="ic"><use href="#i-calendar"/></svg><div><small>Today in your plan</small><b>${esc(s.title)}</b> <span class="num">${s.durationMin} min</span></div>
-           <div class="btn-row btn-row-tight"><button type="button" class="btn btn-sm btn-primary" data-block-load="${esc(s.id)}"><svg class="ic"><use href="#i-play"/></svg>Load</button><button type="button" class="btn btn-sm" data-show-plan>View plan</button></div>`
-        : `<svg class="ic"><use href="#i-calendar"/></svg><div><small>Your plan</small><b>Nothing scheduled today</b></div><div class="btn-row btn-row-tight"><button type="button" class="btn btn-sm" data-show-plan>View plan</button></div>`;
+      el.hidden = !s;
+      if (!s) { el.innerHTML = ''; return; }
+      el.innerHTML = `<svg class="ic"><use href="#i-calendar"/></svg><div><small>Today in your plan</small><b>${esc(s.title)}</b> <span class="num">${s.durationMin} min</span></div>
+        <div class="btn-row btn-row-tight"><button type="button" class="btn btn-sm btn-primary" data-block-load="${esc(s.id)}"><svg class="ic"><use href="#i-play"/></svg>Load</button></div>`;
     },
 
     updateCoachEngineStatus() {
@@ -283,6 +280,7 @@
       if (tsbEl) {
         tsbEl.textContent = `${pmc.currentTsb > 0 ? '+' : ''}${pmc.currentTsb.toFixed(1)}`;
         tsbEl.dataset.form = VeloMetrics.formZone(pmc.currentTsb).key;
+        tsbEl.title = `Form: ${VeloMetrics.formZone(pmc.currentTsb).label}`;
       }
       const since = Date.now() - 7 * 86400000;
       const tss7 = Math.round(this.cyclingRides().filter(w => new Date(w.date).getTime() >= since).reduce((s, w) => s + (w.tss || 0), 0));
@@ -293,7 +291,6 @@
       if (ins) {
         const chip = (label, val) => `<span class="insight"><small>${label}</small><b class="num">${val}</b></span>`;
         ins.innerHTML = [
-          chip('Form', VeloMetrics.formZone(pmc.currentTsb).label),
           chip('4-week volume', `${h.hoursPerWeek4w} h/wk`),
           chip('Rides (28 d)', h.rides28),
           chip('Easy / mid / hard', h.lowIntensityPct === null ? 'n/a' : `${h.lowIntensityPct}/${h.midIntensityPct}/${h.highIntensityPct}%`),

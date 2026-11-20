@@ -55,7 +55,7 @@
 
 /* --- The app's views under Train --- */
 body[data-av-tab="train"] main > .tab-view .section-head { gap: 10px; }
-body[data-av-tab="train"] :is(#view-ai-coach, #view-calendar, #coachSide) :is(.btn, .preset-pill, .goal-pill, .day-chip, .ask-period, .ask-chip, .engine-chip, .chip-select > button, .coach-intent, .coach-opt-toggle, .coach-start-head, select, input, textarea, summary):not(.sr-only) { min-height: 44px; }
+body[data-av-tab="train"] :is(#view-ai-coach, #view-calendar, #coachSide) :is(.btn, .preset-pill, .goal-pill, .day-chip, .ask-period, .ask-chip, .engine-chip, .chip-select > button, .coach-intent, .coach-opt-toggle, .coach-start-head, .coach-chip-action, select, input, textarea, summary):not(.sr-only) { min-height: 44px; }
 body[data-av-tab="train"] #view-ai-coach :is(.ask-period, .chip-select > button, .day-chip) { min-width: 44px; }
 body[data-av-tab="train"] #view-ai-coach .chip-select { flex-wrap: wrap; }
 body[data-av-tab="train"] :is(#view-ai-coach, #view-calendar, #coachSide) .link-btn { min-height: 44px; display: inline-flex; align-items: center; }
@@ -65,37 +65,44 @@ body[data-av-tab="train"] #view-calendar .calendar-week-nav .btn { min-width: 44
 /* The top bar names the screen: the views' own headings go, their controls stay. */
 body[data-av-tab="train"] #view-calendar .ss-page-head { display: none; }
 
-/* --- Coach: the one chat. The message box (ticks, options, text) stays above the tab bar; the thread scrolls above it. --- */
+/* --- Coach: the one chat. The message box stays above the tab bar: the mode switch and an Options button share a
+   row, then the text; the thread scrolls above it. The plan and today's numbers are on Your plan (train/block). --- */
 body[data-av-tab="train"] #view-ai-coach { animation: none; } /* its entry transform would anchor the fixed composer */
 body[data-av-tab="train"] #view-ai-coach .coach-shell { display: block; }
-body[data-av-tab="train"] #view-ai-coach .coach-main { min-height: 0; padding-bottom: 214px; }
-body[data-av-tab="train"] #view-ai-coach.coach-tray-open .coach-main { padding-bottom: min(62vh, 520px); }
+body[data-av-tab="train"] #view-ai-coach .coach-main { min-height: 0; max-width: none; padding-bottom: 168px; }
+body[data-av-tab="train"] #view-ai-coach.coach-tray-open .coach-main { padding-bottom: min(64vh, 540px); }
 body[data-av-route="train/coach"] #coachSide { display: none; }
-body[data-av-tab="train"] #view-ai-coach .coach-head { margin: 0 0 8px; align-items: center; }
-body[data-av-tab="train"] #view-ai-coach .coach-head > div:first-child { display: none; }
+/* Header: Your plan and the engine on one row (the top bar names the screen). */
+body[data-av-tab="train"] #view-ai-coach .coach-head { margin: 0 0 10px; align-items: center; }
+body[data-av-tab="train"] #view-ai-coach .coach-head-text { display: none; }
 body[data-av-tab="train"] #view-ai-coach .coach-head-tools { flex: 1; flex-wrap: nowrap; min-width: 0; }
-body[data-av-tab="train"] #view-ai-coach .coach-head-tools .ai-pick { flex: 1 1 auto; min-width: 0; }
-body[data-av-tab="train"] #view-ai-coach .coach-head-tools .btn { flex: none; }
-body[data-av-tab="train"] #view-ai-coach .coach-status-line { flex-wrap: nowrap; overflow-x: auto; scrollbar-width: none; margin: 0 -16px 10px; padding: 0 16px 2px; }
-body[data-av-tab="train"] #view-ai-coach .coach-status-line::-webkit-scrollbar { display: none; }
-body[data-av-tab="train"] #view-ai-coach .coach-status-line > * { flex: none; white-space: nowrap; }
-body[data-av-tab="train"] #view-ai-coach .coach-status-line > span { display: inline-flex; align-items: center; min-height: 44px; }
-body[data-av-tab="train"] #view-ai-coach .coach-plan-link { display: inline-flex; order: -1; color: var(--violet); font-weight: 700; }
-body[data-av-tab="train"] #view-ai-coach .ask-engine-warn { margin-bottom: 10px; }
+body[data-av-tab="train"] #view-ai-coach .coach-head-tools .ai-pick { flex: 1 1 auto; min-width: 0; order: 1; }
+body[data-av-tab="train"] #view-ai-coach .coach-plan-link { display: inline-flex; flex: none; order: 2; min-height: 46px; padding: 0 14px; }
+/* The message box */
 body[data-av-tab="train"] #view-ai-coach .coach-composer { position: fixed; left: 10px; right: 10px; bottom: calc(80px + env(safe-area-inset-bottom, 0px)); z-index: 65;
-  margin: 0; padding: 6px; gap: 4px; border-radius: 24px; background: rgba(10, 13, 28, .96); border: 1px solid var(--line); backdrop-filter: blur(14px); -webkit-backdrop-filter: blur(14px); }
-body[data-av-tab="train"] #view-ai-coach .coach-intent { padding: 4px 6px; font-size: 14px; border-radius: 16px; }
-body[data-av-tab="train"] #view-ai-coach .coach-opt-toggle { padding: 0 10px; }
-body[data-av-tab="train"] #view-ai-coach .coach-tray { max-height: 42vh; padding: 8px 10px 2px; }
+  display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 6px; margin: 0; padding: 6px; border-radius: 24px; background: rgba(10, 13, 28, .97); border: 1px solid var(--line);
+  backdrop-filter: blur(14px); -webkit-backdrop-filter: blur(14px); }
+body[data-av-tab="train"] #view-ai-coach .coach-composer > .coach-intents { grid-column: 1; grid-row: 1; }
+body[data-av-tab="train"] #view-ai-coach .coach-composer > :is(.coach-notice, .coach-tray, .coach-input-row) { grid-column: 1 / -1; }
+body[data-av-tab="train"] #view-ai-coach .coach-intent { padding: 4px 6px; font-size: 14px; border-radius: 13px; }
+body[data-av-tab="train"] #view-ai-coach #btnCoachOptions { grid-column: 2; grid-row: 1; width: 46px; min-height: 46px; padding: 0; justify-content: center; border-radius: 16px;
+  background: rgba(255, 255, 255, .04); border: 1px solid rgba(255, 255, 255, .07); color: var(--text-2); }
+body[data-av-tab="train"] #view-ai-coach #btnCoachOptions[aria-expanded="true"] { color: #fff; background: color-mix(in srgb, var(--zone-a) 24%, transparent); border-color: color-mix(in srgb, var(--zone-a) 55%, transparent); }
+body[data-av-tab="train"] #view-ai-coach #btnCoachOptions :is(.coach-go-hint, .coach-opt-caret) { display: none; }
+body[data-av-tab="train"] #view-ai-coach #btnCoachOptions .coach-opt-label { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+body[data-av-tab="train"] #view-ai-coach #btnCoachOptions .coach-opt-gear { width: 19px; height: 19px; }
+body[data-av-tab="train"] #view-ai-coach .coach-tray-hint { display: block; }
+body[data-av-tab="train"] #view-ai-coach .coach-tray { max-height: 44vh; padding: 10px 10px 2px; }
 body[data-av-tab="train"] #view-ai-coach .coach-tray .goal-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 body[data-av-tab="train"] #view-ai-coach .coach-tray :is(.chip-select, .day-toggle) { display: grid; grid-auto-flow: column; grid-auto-columns: minmax(44px, 1fr); flex-wrap: nowrap; gap: 4px; }
 body[data-av-tab="train"] #view-ai-coach .coach-tray :is(.chip-select > button, .day-chip) { padding: 0; font-size: 13px; }
 body[data-av-tab="train"] #view-ai-coach #askPeriodPills { flex-wrap: nowrap; overflow-x: auto; scrollbar-width: none; max-width: 100%; }
 body[data-av-tab="train"] #view-ai-coach #askPeriodPills > button { flex: none; }
-body[data-av-tab="train"] #view-ai-coach .coach-input-row { padding-left: 4px; }
-body[data-av-tab="train"] #view-ai-coach .coach-input-row .ask-clear { width: 44px; padding: 0; justify-content: center; flex: none; }
-body[data-av-tab="train"] #view-ai-coach .coach-input-row textarea { min-height: 44px; font-size: 16px; padding: 10px 4px; resize: none !important; }
-body[data-av-tab="train"] #view-ai-coach .coach-input-row .btn { height: 44px; padding: 0 14px; }
+body[data-av-tab="train"] #view-ai-coach .coach-notice { margin: 0; }
+body[data-av-tab="train"] #view-ai-coach .coach-input-row { padding-left: 0; }
+body[data-av-tab="train"] #view-ai-coach .coach-input-row .ask-clear { width: 46px; padding: 0; justify-content: center; flex: none; }
+body[data-av-tab="train"] #view-ai-coach .coach-input-row textarea { min-height: 46px; font-size: 16px; padding: 11px 8px; resize: none !important; }
+body[data-av-tab="train"] #view-ai-coach .coach-input-row .btn { height: 46px; padding: 0 14px; }
 body[data-av-tab="train"] #view-ai-coach .ask-privacy { margin-top: 12px; }
 /* The empty chat: three short rows of examples rather than three tall cards. */
 body[data-av-tab="train"] #view-ai-coach .coach-welcome { padding: 2px 0 0; }
@@ -105,7 +112,6 @@ body[data-av-tab="train"] #view-ai-coach .coach-welcome > p { font-size: 13px; m
 body[data-av-tab="train"] #view-ai-coach .coach-start { gap: 8px; }
 body[data-av-tab="train"] #view-ai-coach .coach-start-card { padding: 10px 12px; gap: 8px; border-radius: 18px; }
 body[data-av-tab="train"] #view-ai-coach .coach-start-head { align-items: center; }
-body[data-av-tab="train"] #view-ai-coach .coach-start-head > .ic { width: 30px; height: 30px; padding: 7px; }
 body[data-av-tab="train"] #view-ai-coach .coach-start-head small { display: none; }
 body[data-av-tab="train"] #view-ai-coach .coach-start-chips { flex-direction: row; flex-wrap: nowrap; overflow-x: auto; scrollbar-width: none; margin: 0 -12px; padding: 0 12px; }
 body[data-av-tab="train"] #view-ai-coach .coach-start-chips::-webkit-scrollbar { display: none; }
@@ -116,7 +122,9 @@ body[data-av-tab="train"] #view-ai-coach .coach-card { padding: 14px; }
 body[data-av-tab="train"] #view-ai-coach .cc-title { font-size: 18px; }
 body[data-av-tab="train"] #view-ai-coach .cc-actions .btn { flex: 1 1 calc(50% - 6px); justify-content: center; min-height: 48px; }
 body[data-av-tab="train"] #view-ai-coach .cc-actions .btn-start { flex-basis: 100%; }
+body[data-av-tab="train"] #view-ai-coach .ask-meta { gap: 4px 12px; }
 body[data-av-tab="train"] #view-ai-coach .ask-meta .link-btn { font-size: 13px; padding: 0 4px; }
+body[data-av-tab="train"] #view-ai-coach .coach-chip-action { min-height: 44px; padding: 0 14px; font-size: 13px; }
 body[data-av-tab="train"] #view-ai-coach .bs-row { grid-template-columns: 1fr auto; row-gap: 2px; }
 body[data-av-tab="train"] #view-ai-coach .cc-steps th:nth-child(5), body[data-av-tab="train"] #view-ai-coach .cc-steps td:nth-child(5) { display: none; }
 

@@ -527,38 +527,30 @@
       <div class="coach-shell">
         <div class="coach-main">
           <div class="coach-head">
-            <div>
+            <div class="coach-head-text">
               <span class="eyebrow">Your AI coach</span>
               <h2 class="section-title">AI Coach</h2>
-              <p class="section-sub">One conversation for everything: ask about your riding, create a workout or plan your training, from your own rides, power, heart rate and recovery.</p>
+              <p class="section-sub">Ask about your riding, create a workout or plan your training, in your own words.</p>
             </div>
             <div class="coach-head-tools">
+              <button type="button" class="btn btn-sm btn-ghost coach-plan-link" id="btnCoachShowPlan"><svg class="ic"><use href="#i-calendar"/></svg>Your plan</button>
               <label class="ai-pick engine-chip" id="btnAskEngine" title="AI engine for the coach chat and ride breakdowns"><svg class="ic ic-xs" aria-hidden="true"><use href="#i-sparkles"/></svg><span class="sr-only">AI engine</span><select class="ai-pick-select" data-ai-pick="coach"></select></label>
-              <button type="button" class="btn btn-sm" id="btnAskNew" hidden><svg class="ic"><use href="#i-plus"/></svg>New chat</button>
             </div>
           </div>
-          <div class="coach-status-line">
-            <span class="readiness-chip" id="coachReadinessChip" data-level="none" title="Readiness from resting HR, HRV and sleep (Apple Health)">Readiness --</span>
-            <span>Form <b class="num" id="aiCoachTsbVal">--</b></span>
-            <span>Fitness <b class="num" id="aiCoachCtlVal">--</b></span>
-            <span>Fatigue <b class="num" id="aiCoachAtlVal">--</b></span>
-            <span>7-day <b class="num" id="aiCoach7DayTssVal">-- TSS</b></span>
-            <span>FTP <b class="num" id="aiCoachFtpVal">--</b></span>
-            <button type="button" class="link-btn coach-terms" data-training-guide>Training terms explained</button>
-            <button type="button" class="link-btn coach-plan-link" id="btnCoachShowPlan">Your plan</button>
-          </div>
-          <div class="ask-engine-warn" id="askEngineWarn" hidden role="status"><span id="askEngineWarnText"></span><button type="button" class="btn btn-sm" id="btnAskEngineWarn">AI settings</button></div>
 
-          <div class="ask-thread coach-thread" id="askThread" aria-live="polite"></div>
+          <div class="ask-thread coach-thread" id="askThread"></div>
+          <p class="sr-only" id="coachStatus" role="status" aria-live="polite"></p>
 
           <form class="coach-composer" id="askForm" autocomplete="off">
             <div class="coach-intents" id="coachIntents" role="radiogroup" aria-label="What should the coach do?">
-              <button type="button" class="coach-intent active" role="radio" data-intent="chat" aria-checked="true"><span class="ci-tick" aria-hidden="true"><svg class="ic"><use href="#i-check"/></svg></span><svg class="ic ci-icon" aria-hidden="true"><use href="#i-chat"/></svg><span class="ci-long">Ask about my riding</span><span class="ci-short" aria-hidden="true">Ask</span></button>
-              <button type="button" class="coach-intent" role="radio" data-intent="workout" aria-checked="false"><span class="ci-tick" aria-hidden="true"><svg class="ic"><use href="#i-check"/></svg></span><svg class="ic ci-icon" aria-hidden="true"><use href="#i-bolt"/></svg><span class="ci-long">Create a workout</span><span class="ci-short" aria-hidden="true">Workout</span></button>
-              <button type="button" class="coach-intent" role="radio" data-intent="plan" aria-checked="false"><span class="ci-tick" aria-hidden="true"><svg class="ic"><use href="#i-check"/></svg></span><svg class="ic ci-icon" aria-hidden="true"><use href="#i-calendar"/></svg><span class="ci-long">Plan my training</span><span class="ci-short" aria-hidden="true">Plan</span></button>
+              <button type="button" class="coach-intent active" role="radio" data-intent="chat" aria-label="Ask about my riding" aria-checked="true"><svg class="ic ci-icon" aria-hidden="true"><use href="#i-chat"/></svg><svg class="ic ci-check" aria-hidden="true"><use href="#i-check"/></svg><span class="ci-long">Ask about my riding</span><span class="ci-short" aria-hidden="true">Ask</span></button>
+              <button type="button" class="coach-intent" role="radio" data-intent="workout" aria-label="Create a workout" aria-checked="false" tabindex="-1"><svg class="ic ci-icon" aria-hidden="true"><use href="#i-bolt"/></svg><svg class="ic ci-check" aria-hidden="true"><use href="#i-check"/></svg><span class="ci-long">Create a workout</span><span class="ci-short" aria-hidden="true">Workout</span></button>
+              <button type="button" class="coach-intent" role="radio" data-intent="plan" aria-label="Plan my training" aria-checked="false" tabindex="-1"><svg class="ic ci-icon" aria-hidden="true"><use href="#i-calendar"/></svg><svg class="ic ci-check" aria-hidden="true"><use href="#i-check"/></svg><span class="ci-long">Plan my training</span><span class="ci-short" aria-hidden="true">Plan</span></button>
             </div>
-            <button type="button" class="coach-opt-toggle" id="btnCoachOptions" aria-expanded="false" aria-controls="coachTray"><svg class="ic ic-xs" aria-hidden="true"><use href="#i-gear"/></svg><span class="coach-go-hint" id="coachGoHint"></span><span class="coach-opt-label">Options</span><svg class="ic ic-xs coach-opt-caret" aria-hidden="true"><use href="#i-chevron"/></svg></button>
+            <button type="button" class="coach-opt-toggle" id="btnCoachOptions" aria-expanded="false" aria-controls="coachTray"><svg class="ic ic-xs coach-opt-gear" aria-hidden="true"><use href="#i-gear"/></svg><span class="coach-go-hint" id="coachGoHint"></span><span class="coach-opt-label">Options</span><svg class="ic ic-xs coach-opt-caret" aria-hidden="true"><use href="#i-chevron"/></svg></button>
+            <div class="coach-notice" id="askEngineWarn" hidden role="note"><span class="coach-notice-dot" aria-hidden="true"></span><span id="askEngineWarnText"></span><button type="button" class="link-btn" id="btnAskEngineWarn">AI settings</button></div>
             <div class="coach-tray" id="coachTray" hidden>
+              <p class="coach-tray-hint" id="coachTrayHint" aria-hidden="true"></p>
               <div class="coach-pane" data-pane="chat">
                 <div class="ask-period-row">
                   <span class="ctrl-label">Look at</span>
@@ -642,13 +634,13 @@
                 <label class="field"><span>Start</span><input type="date" id="inputBlockStart" class="input-field"></label>
               </div>
               <label class="field"><span>Hours per week</span><input type="number" id="inputBlockHours" class="input-field" min="2" max="25" step="0.5" value="6" placeholder="Blank = coach chooses" aria-describedby="blockHoursHelp"></label>
-              <p class="field-help" id="blockHoursHelp">Your weekly limit. Leave it blank and the AI coach picks weekly time from your recent riding and recovery (needs a connected AI coach).</p>
+              <p class="field-help" id="blockHoursHelp">Your weekly limit. Leave it blank for the AI coach to choose from your recent riding (needs an AI key).</p>
             </div>
               </div>
               <p class="field-help coach-tray-help" id="coachTrayHelp">Your own words come first: the coach builds what you ask for and says so if your data argues against it.</p>
             </div>
             <div class="coach-input-row">
-              <button type="button" class="btn btn-ghost ask-clear" id="btnAskClear" hidden title="Clear this chat" aria-label="Clear this chat"><svg class="ic"><use href="#i-trash"/></svg><span>Clear</span></button>
+              <button type="button" class="btn btn-ghost ask-clear" id="btnAskClear" hidden title="Clear this chat" aria-label="Clear this chat"><svg class="ic"><use href="#i-trash"/></svg></button>
               <label for="askInput" class="sr-only">Message to your coach</label>
               <textarea id="askInput" rows="1" maxlength="4000" placeholder="Ask about your rides, fitness, power or recovery..."></textarea>
               <button type="submit" class="btn btn-primary" id="btnAskSend"><svg class="ic"><use href="#i-chat" id="coachSendIcon"/></svg><span id="coachSendLabel">Ask</span></button>
@@ -694,7 +686,15 @@
               </div>
             </div>
           <div class="card ai-coach-card coach-numbers">
-            <div class="ai-coach-card-title"><span>What the coach sees</span></div>
+            <div class="ai-coach-card-title"><span>What the coach sees</span><button type="button" class="link-btn coach-terms" data-training-guide>Terms explained</button></div>
+            <div class="coach-status-line">
+              <span class="readiness-chip" id="coachReadinessChip" data-level="none" title="Readiness from resting HR, HRV and sleep (Apple Health)">Readiness --</span>
+              <span>Form <b class="num" id="aiCoachTsbVal">--</b></span>
+              <span>Fitness <b class="num" id="aiCoachCtlVal">--</b></span>
+              <span>Fatigue <b class="num" id="aiCoachAtlVal">--</b></span>
+              <span>7-day <b class="num" id="aiCoach7DayTssVal">-- TSS</b></span>
+              <span>FTP <b class="num" id="aiCoachFtpVal">--</b></span>
+            </div>
             <div class="insight-strip" id="aiCoachInsights"></div>
           </div>
         </aside>

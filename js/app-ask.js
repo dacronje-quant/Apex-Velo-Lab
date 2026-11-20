@@ -105,7 +105,7 @@
       this.setText('askDataSize', `about ${Math.round(text.length / 4).toLocaleString()} tokens`);
     },
 
-    /** The warning above the thread: questions need an AI key (workouts and plans fall back to the built-in engine). */
+    /** The note in the message box while Ask is picked: questions need an AI key (workouts and plans fall back to the built-in engine). */
     updateAskEngine() {
       const c = this.aiCoach;
       if (!c) return;
@@ -114,8 +114,8 @@
       const asking = (this.coachIntent || 'chat') === 'chat';
       warn.hidden = c.isLive || !asking;
       this.setText('askEngineWarnText', c.engine.reachable
-        ? `Questions need a ${c.providerLabel} API key: add ${VeloAiCoach.PROVIDERS[c.provider].keyName} to the .env file and restart Launch-Apex-Velo.bat. Workouts and plans still work with the built-in coach.`
-        : 'Questions use Claude, Gemini or ChatGPT through the local server: open the app with Launch-Apex-Velo.bat (your API key stays on this PC). Workouts and plans still work with the built-in coach.');
+        ? `Questions need a ${c.providerLabel} key: add ${VeloAiCoach.PROVIDERS[c.provider].keyName} to .env and restart Launch-Apex-Velo.bat. Workouts and plans work without one.`
+        : 'Questions need the local server: open the app with Launch-Apex-Velo.bat. Workouts and plans work without it.');
     },
 
     /** The text summary of the chosen period the AI answers from (memoised until the data changes). */
