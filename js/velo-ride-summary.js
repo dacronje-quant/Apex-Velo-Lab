@@ -9,7 +9,7 @@
  * On the desktop every ride has its samples in memory and nothing here is used for its data.
  */
 class VeloRideSummary {
-  static VERSION = 1;
+  static VERSION = 2; // 2: Pw:HR decoupling on 1 Hz samples (smart-recorded imports, HR dropouts)
 
   /** The summary of a ride with samples (5 or more), else null. */
   static of(ride) {

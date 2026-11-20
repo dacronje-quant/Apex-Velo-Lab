@@ -26,14 +26,20 @@ class VeloInsight {
    * Returns { status: 'ok', pct, label, level, minutes } or { status: <reason> }.
    */
   static decoupling(samples) {
-    if (!Array.isArray(samples) || samples.length < 1200) return { status: 'too-short' };
-    const warm = samples.length >= 2400 ? 600 : 300;
-    const win = samples.slice(warm).filter(s => Number(s.power) > 0 && Number(s.hr) > 0);
-    if (win.length < 1200) return { status: samples.slice(warm).some(s => Number(s.hr) > 0) ? 'too-short' : 'no-hr' };
+    // One sample per second first: imports with smart recording (a point every few seconds) are
+    // otherwise "too short", and NP's 30 s windows never fill, which let any ride pass as steady.
+    const one = Array.isArray(samples) ? VeloMetrics.toOneHz(samples) : [];
+    if (one.length < 1200) return { status: 'too-short' };
+    const warm = one.length >= 2400 ? 600 : 300;
+    const rest = one.slice(warm);
+    const win = rest.filter(s => Number(s.power) > 0 && Number(s.hr) > 0);
+    if (win.length < 1200) return { status: rest.some(s => Number(s.hr) > 0) ? 'too-short' : 'no-hr' };
     const powers = win.map(s => Number(s.power));
     const avg = powers.reduce((a, b) => a + b, 0) / powers.length;
-    const np = VeloMetrics.normalizedPower(win) || avg;
-    const vi = np / avg;
+    // Variability on the continuous ride (HR dropouts must not break NP's windows); no full window = not measurable.
+    const np = VeloMetrics.normalizedPower(rest);
+    if (!np) return { status: 'not-steady', vi: null };
+    const vi = np / Math.max(1, VeloMetrics.avgPower(rest.map(s => s.power)));
     // Steady = variability index <= 1.05 and at least 80% of the time within +/-20% of the average.
     const near = powers.filter(w => Math.abs(w - avg) <= avg * 0.2).length / powers.length;
     if (vi > 1.05 || near < 0.8) return { status: 'not-steady', vi: Math.round(vi * 100) / 100 };

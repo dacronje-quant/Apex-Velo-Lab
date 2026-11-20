@@ -130,7 +130,7 @@ test('the split analytics give exactly what they gave before', () => {
 
 // What each summary version holds, as a hash of the fixtures' summaries. A summary saved on a phone is reused until
 // VERSION changes, so a change to what a summary holds (or to an analytic it keeps) must come with a new VERSION.
-const PINNED = { 1: '91edd242cf9a0fd8ea74ec17197d345741d4666674f04b1bbebedfe6ecb824aa' };
+const PINNED = { 1: '91edd242cf9a0fd8ea74ec17197d345741d4666674f04b1bbebedfe6ecb824aa', 2: 'e7d02de3d2451102848fc8d4fd95f4e03105d3d738f179fc53cb31cf0aa32be7' };
 test('a change to the summaries comes with a new VeloRideSummary.VERSION', () => {
   const hash = require('node:crypto').createHash('sha256').update(JSON.stringify(RIDES.map((r) => S.of(r)))).digest('hex');
   assert.ok(Object.hasOwn(PINNED, S.VERSION), `pin version ${S.VERSION}: add ${S.VERSION}: '${hash}' to PINNED`);

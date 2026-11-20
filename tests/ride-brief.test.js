@@ -65,3 +65,17 @@ test('answers wrapped in JSON or code fences come back as plain markdown', () =>
   assert.equal(B.cleanAiText('**Plain** answer'), '**Plain** answer');
   assert.equal(B.cleanAiText('{not json'), '{not json');
 });
+
+test('Pw:HR drift: smart-recorded imports are measured, HR dropouts do not make an interval ride look steady', () => {
+  const I = vm.runInContext('VeloInsight', ctx);
+  const N = 3600;
+  const steady = Array.from({ length: N }, (_, t) => ({ time: t, timestamp: 1.7e12 + t * 1000, power: 180 + ((t * 7) % 9) - 4, hr: Math.round(130 + 13 * t / N) }));
+  const full = I.decoupling(steady);
+  assert.equal(full.status, 'ok');
+  const sparse = I.decoupling(steady.filter(s => s.time % 3 === 0));
+  assert.equal(sparse.status, 'ok', 'a point every 3 s (Garmin smart recording) is still a 60-min ride');
+  assert.ok(Math.abs(sparse.pct - full.pct) <= 0.3, `${sparse.pct} vs ${full.pct}`);
+  const overUnder = Array.from({ length: N }, (_, t) => ({ time: t, timestamp: 1.7e12 + t * 1000, power: (t % 240) < 120 ? 230 : 150, hr: (t % 7) ? 150 : 0 }));
+  const d = I.decoupling(overUnder);
+  assert.ok(d.vi > 1.02, `VI is measured across HR dropouts (${d.vi})`);
+});
