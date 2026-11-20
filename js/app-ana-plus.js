@@ -288,7 +288,7 @@
       const sc = VeloWellness.readinessScore(r);
       if (!sc) {
         ring.innerHTML = `<span class="ring-empty"><svg class="ic"><use href="#i-heart"/></svg></span>`;
-        const msg = !r || r.level === 'none' ? (document.documentElement.classList.contains('apex-native') ? 'Add your intervals.icu API key in Settings > Health to see your readiness.' : 'Set up Apple Health in Settings to see your readiness.')
+        const msg = !r || r.level === 'none' ? (document.documentElement.classList.contains('apex-native') ? `Add your intervals.icu API key in ${this.settingsLabel('health', 'Settings > Health')} to see your readiness.` : 'Set up Apple Health in Settings to see your readiness.')
           : r.level === 'baseline' ? `${r.label}: readiness needs a week of HRV to know your normal.` : 'No health data from the last two days.';
         parts.innerHTML = `<p class="ready-empty">${esc(msg)}</p>`;
         return;
@@ -336,7 +336,7 @@
       if (f.hrv) body.push(f.hrv.avg7 < f.hrv.normalLow ? `your HRV (${f.hrv.avg7} ms) is below your normal ${f.hrv.normalLow}-${f.hrv.normalHigh} ms` : f.hrv.avg7 > f.hrv.normalHigh ? `your HRV (${f.hrv.avg7} ms) is above your normal range` : `your HRV is inside your normal range (${f.hrv.avg7} ms)`);
       if (f.rhr) body.push(Math.abs(f.rhr.delta) < 3 ? `resting HR is at your usual ${f.rhr.base} bpm` : `resting HR is ${f.rhr.delta > 0 ? 'up' : 'down'} ${Math.abs(f.rhr.delta)} bpm on your normal`);
       if (f.sleep7 !== null) body.push(`sleep averaged ${W.fmt('sleepH', f.sleep7)} a night`);
-      const s2 = body.length ? `${body[0][0].toUpperCase()}${body.join(', ').slice(1)}${f.tsb ? `, and form (TSB) is ${f.tsb}` : ''}.` : f.tsb && f.tsb !== '--' ? `Form (TSB) is ${f.tsb}${f.form && f.form !== '--' ? ` (${f.form.toLowerCase()})` : ''}.` : 'Add health data in Settings to see how your body is handling it.';
+      const s2 = body.length ? `${body[0][0].toUpperCase()}${body.join(', ').slice(1)}${f.tsb ? `, and form (TSB) is ${f.tsb}` : ''}.` : f.tsb && f.tsb !== '--' ? `Form (TSB) is ${f.tsb}${f.form && f.form !== '--' ? ` (${f.form.toLowerCase()})` : ''}.` : `Add health data in ${this.settingsLabel('health')} to see how your body is handling it.`;
       const tsb = parseFloat(f.tsb);
       const lvl = f.readiness && f.readiness.level;
       const s3 = lvl === 'red' ? 'Next: keep the next day or two to easy spinning in Z1-Z2 and sleep more before the next key session.'
@@ -373,7 +373,7 @@
       const c = this.aiCoach;
       if (!box || !c || this._storyBusy) return;
       if (!c.isLive) await c.detectEngine();
-      if (!c.isLive) { this.showToast('Writing the week with AI needs an API key (Settings > AI engine).', 'warning'); return; }
+      if (!c.isLive) { this.showToast(`Writing the week with AI needs an API key (${this.settingsLabel('ai')}).`, 'warning'); return; }
       this._storyBusy = true;
       if (btn) { btn.disabled = true; btn.classList.add('is-loading'); }
       box.innerHTML = '<span class="skel skel-line"></span><span class="skel skel-line"></span><span class="skel skel-line short"></span>';

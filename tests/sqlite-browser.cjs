@@ -120,6 +120,12 @@ const {fixture}=require('./sqlite-fixture.cjs');
     await third.reload();await ready(third);assert.equal((await disk()).rides.length,2);
     // Real ride delete persists; no browser copy resurrects it on restart.
     third.once('dialog',d=>d.accept());await third.evaluate(()=>app.deleteCompletedRide('legacy_ride'));assert.equal((await disk()).rides.length,1);await third.reload();await ready(third);assert.equal(await third.evaluate(()=>app.completedWorkouts.length),1);
+    // Bulk import commits in batches and drops samples from memory after each save: SQLite keeps every ride's samples.
+    const stravaZip=[...fs.readFileSync(path.join(__dirname,'fixtures/bulk-import/strava-export.zip'))];
+    const bulk=await third.evaluate(async bytes=>{const r=await app.startBulkImport([new File([new Uint8Array(bytes)],'strava-export.zip')],{commitEvery:1});await VeloStorage.flush();return r;},stravaZip);
+    assert.equal(bulk.imported,3);const onDisk=(await disk()).rides.filter(r=>r.source?.startsWith('import:'));
+    assert.equal(onDisk.length,3);assert.ok(onDisk.every(r=>r.samples?.length>=60&&r.origin==='strava'),'samples and origin stored in SQLite');
+    await third.reload();await ready(third);assert.equal(await third.evaluate(()=>app.completedWorkouts.filter(r=>r.source?.startsWith('import:')&&r.samples?.length).length),3);
     const beforeDemo=await disk();const demo=await cleared.newPage();await demo.goto(f.base+'/?apexDemo=1');await demo.waitForFunction(()=>window.app);assert.equal(await demo.evaluate(()=>VeloStorage.enabled),false);assert.equal(await demo.evaluate(()=>app.completedWorkouts.length),104);assert.deepEqual(await disk(),beforeDemo);
     // Selecting an exported gzip file validates it and asks for a reviewed restore.
     await third.evaluate(()=>app.openSettings('backups'));const uploadReload=third.waitForEvent('domcontentloaded');third.once('dialog',d=>d.accept());

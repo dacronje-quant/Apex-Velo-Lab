@@ -8,6 +8,12 @@
   const esc = (v) => String(v ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 
   Object.assign(VeloApp.prototype, {
+    // Where a setting lives, for messages that point to it. The Android app replaces the map (its settings
+    // are in a different place). Without an entry, the message keeps its own desktop text (`fallback`).
+    // appleHealth is the whole "set it up" phrase, since the phone's source is not Apple Health.
+    settingsLabels: { ai: 'Settings > AI engine', appleHealth: 'Set up Apple Health in Settings' },
+    settingsLabel(sec, fallback = 'Settings') { return (this.settingsLabels && this.settingsLabels[sec]) || fallback; },
+
     initSettings() {
       const on = (id, fn) => this.on(document.getElementById(id), 'click', fn);
       const welcome = document.getElementById('firstRunHelp');

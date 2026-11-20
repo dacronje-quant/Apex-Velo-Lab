@@ -1,0 +1,6 @@
+<?xml version='1.0' encoding='utf-8'?>
+<!-- Debug builds install next to the release app (applicationIdSuffix ".debug"), so they get their own name -->
+<resources>
+    <string name="app_name">Apex Velo (dev)</string>
+    <string name="title_activity_main">Apex Velo (dev)</string>
+</resources>

@@ -207,7 +207,7 @@
         return `<div class="tile${goto ? ' ana-link' : ''}" data-tile="${t.key}"${goto ? ` data-goto="${goto}" data-spot="${spot}" role="button" tabindex="0"` : ''}>
           <div class="tile-lbl" title="${esc(VeloGlossary.tip(TILE_TERMS[t.key]))}">${esc(t.label)}${VeloGlossary.html(TILE_TERMS[t.key])}</div>
           <div class="tile-row"><div class="tile-val num">${fmt(t.now, t.dec)}${has && t.unit ? `<small>${t.unit}</small>` : ''}</div>${VeloTrends.sparkline(t.spark, { color: 'currentColor' })}</div>
-          <div class="tile-delta ${has ? cls : 'flat'} num">${has ? dTxt : (t.key === 'rhr' || t.key === 'hrv' ? 'Set up Apple Health in Settings' : 'Not enough data yet')}</div>
+          <div class="tile-delta ${has ? cls : 'flat'} num">${has ? dTxt : (t.key === 'rhr' || t.key === 'hrv' ? esc(this.settingsLabel('appleHealth')) : 'Not enough data yet')}</div>
           <div class="tile-sub">${esc(t.sub || '')}</div>
         </div>`;
       }).join('');
@@ -218,7 +218,7 @@
       if (rampEl) { rampEl.textContent = d.ramp === null ? '--' : `${d.ramp > 0 ? '+' : ''}${d.ramp}`; rampEl.dataset.ramp = v.key; }
       this.setText('anaRampNote', d.ramp === null ? 'CTL change per week' : v.label);
       const r = this.healthReadiness ? this.healthReadiness() : null;
-      this.setText('anaReadinessNote', r ? (r.advice || (r.level === 'baseline' ? 'Needs 7 nights of HRV' : r.level === 'none' ? 'Set up Apple Health in Settings' : 'No data from the last 2 days')) : '--');
+      this.setText('anaReadinessNote', r ? (r.advice || (r.level === 'baseline' ? 'Needs 7 nights of HRV' : r.level === 'none' ? this.settingsLabel('appleHealth') : 'No data from the last 2 days')) : '--');
 
       this.renderPowerProfile(d);
       this.updateDashboardCharts(d);
