@@ -218,9 +218,6 @@ html.apex-native {
 /* Open by default: short option groups show their content without a disclosure row. */
 .apex-native details.av-open > summary { display: none; }
 .apex-native details.av-open { border: 0; padding: 0; }
-/* The coach header: the page title already says Coach, so keep the live numbers and one line of context. */
-.apex-native .ai-coach-header :is(.eyebrow, .section-title) { display: none; }
-.apex-native #coachBuilderChip { display: none; }
 .apex-native #aiCoachInsights { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; margin-top: 0; }
 .apex-native #aiCoachInsights .insight { display: flex; flex-direction: column; align-items: flex-start; gap: 2px; height: auto; min-width: 0; padding: 10px 12px; border-radius: 14px; line-height: 1.3; }
 .apex-native #aiCoachInsights .insight small { font-size: 11px; letter-spacing: .04em; }

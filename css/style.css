@@ -596,17 +596,6 @@ main { padding: 18px clamp(12px, 2vw, 28px) 48px; max-width: 1760px; margin: 0 a
 .tag-ai { color: var(--violet); background: var(--violet-soft); }
 
 /* Workouts tab: "Describe a workout" (js/app-describe.js) */
-.describe-box { display: flex; flex-direction: column; gap: 10px; margin-bottom: 16px; border-color: rgba(177, 153, 255, 0.35); }
-.describe-title { display: flex; align-items: center; gap: 8px; font-weight: 700; font-size: 16px; }
-.describe-title label { cursor: text; }
-.describe-input { width: 100%; min-height: 72px; resize: vertical; font-family: var(--font-sans); font-size: 15px; line-height: 1.4; }
-.describe-examples { display: flex; flex-wrap: wrap; gap: 6px; }
-.describe-examples .chip { cursor: pointer; font: inherit; font-size: 12px; padding: 5px 10px; border-radius: var(--radius-full); border: 1px solid var(--line); background: var(--surface-2); color: var(--text-2); }
-.describe-examples .chip:hover { color: var(--text-1); border-color: var(--line-strong); }
-.describe-engine { margin: 0; }
-.describe-note { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; font-size: 14px; color: var(--text-2); }
-.describe-error { color: var(--rose); }
-.describe-card { margin-top: 4px; }
 .tag-hardstart { color: var(--amber); background: var(--amber-soft); }
 .w-card-title { font-size: 15px; font-weight: 700; letter-spacing: -0.01em; }
 .w-card-profile { width: 100%; height: 42px; display: block; border-radius: 6px; background: var(--surface-sunk); }
@@ -787,7 +776,6 @@ button.cal-ytd-card:hover { border-color: rgba(124, 200, 255, 0.45); transform: 
 .insight { display: inline-flex; align-items: baseline; gap: 8px; height: 30px; padding: 0 12px; border-radius: var(--radius-sm); background: var(--surface-sunk); border: 1px solid var(--line); line-height: 28px; }
 .insight small { font-size: 10.5px; font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase; color: var(--text-3); }
 .insight b { font-size: 12.5px; }
-.ai-coach-grid { display: grid; grid-template-columns: minmax(300px, 380px) minmax(0, 1fr); gap: var(--gap); align-items: start; }
 .ai-coach-card-title { display: flex; justify-content: space-between; align-items: center; gap: 10px; flex-wrap: wrap; font-size: 13px; font-weight: 700; margin-bottom: 12px; }
 .field { display: flex; flex-direction: column; gap: 6px; margin-bottom: 12px; font-size: 11px; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase; color: var(--text-3); }
 .field-help { font-size: 12px; color: var(--text-3); margin-bottom: 10px; }
@@ -837,12 +825,6 @@ textarea.input-field { height: auto; min-height: 76px; padding: 9px 12px; line-h
 .rx-desc { font-size: 13px; color: var(--text-2); line-height: 1.55; margin-bottom: 12px; }
 .ai-coach-canvas-wrap { height: 150px; padding: 8px; border-radius: var(--radius-md); background: var(--surface-sunk); border: 1px solid var(--line); margin-bottom: 12px; }
 .ai-coach-preview-canvas { width: 100%; height: 100%; display: block; }
-.phase-cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(190px, 1fr)); gap: 8px; margin-bottom: 14px; }
-.phase-card { padding: 10px 12px; border-radius: var(--radius-md); background: var(--surface-2); border: 1px solid var(--line); }
-.phase-head { display: flex; justify-content: space-between; gap: 8px; font-size: 13px; }
-.phase-head span { font-size: 11.5px; color: var(--text-2); }
-.phase-meta { font-size: 11.5px; color: var(--text-3); margin: 3px 0 6px; }
-.phase-zones { display: flex; flex-wrap: wrap; gap: 4px; }
 .ai-coach-card .btn-row { margin-bottom: 14px; }
 
 /* ------------------------------------------------------------------ modals */
@@ -1092,7 +1074,6 @@ body.focus-mode #valInstantPower { font-size: clamp(120px, 14vw, 220px); }
   .pmc-status-row { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .healthfit-stats-grid, .calendar-tss-rollup, .alltime-hero-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); }
   .prog-grid { grid-template-columns: 1fr; }
-  .ai-coach-grid { grid-template-columns: 1fr; }
   .ai-coach-telemetry-banner { grid-template-columns: repeat(3, minmax(0, 1fr)); }
   .calendar-grid { grid-template-columns: repeat(4, minmax(0, 1fr)); }
 }
@@ -1226,30 +1207,13 @@ body.focus-mode #valInstantPower { font-size: clamp(120px, 14vw, 220px); }
 .block-thinking summary { cursor: pointer; color: var(--violet); font-weight: 600; }
 .block-thinking div { margin-top: 6px; line-height: 1.5; max-height: 240px; overflow: auto; }
 /* Coach builder: one card for a single workout or a multi-week plan */
-.mode-switch { position: relative; display: grid; grid-template-columns: 1fr 1fr; gap: 4px; padding: 4px; margin-bottom: 14px; border-radius: 20px; background: var(--surface-sunk); border: 1px solid var(--line); }
-.mode-switch-glider { position: absolute; top: 4px; bottom: 4px; left: 4px; width: calc(50% - 6px); border-radius: 16px; background: linear-gradient(135deg, rgba(177, 153, 255, 0.28), rgba(124, 200, 255, 0.16)); border: 1px solid rgba(177, 153, 255, 0.5); box-shadow: 0 8px 24px -12px rgba(177, 153, 255, 0.8); transition: transform .45s var(--spring); pointer-events: none; }
-#view-ai-coach[data-coach-mode="plan"] .mode-switch-glider { transform: translateX(calc(100% + 4px)); }
-.mode-tile { position: relative; z-index: 1; display: grid; grid-template-columns: auto 1fr; grid-template-rows: auto auto; column-gap: 10px; align-items: center; padding: 12px; min-height: 64px; border: 0; border-radius: 16px; background: transparent; color: var(--text-2); text-align: left; letter-spacing: 0; text-transform: none; cursor: pointer; transition: color .2s; }
-.mode-tile .ic { grid-row: 1 / 3; width: 22px; height: 22px; color: var(--text-3); transition: color .2s, transform .35s var(--spring); }
-.mode-tile strong { font-size: 14px; color: inherit; }
-.mode-tile small { font-size: 11px; font-weight: 500; color: var(--text-3); line-height: 1.35; }
-.mode-tile:hover { color: var(--text-1); }
-.mode-tile.active { color: var(--text-1); }
-.mode-tile.active .ic { color: var(--violet); transform: scale(1.08); }
-.mode-tile:focus-visible { outline: 2px solid var(--violet); outline-offset: 2px; }
-#view-ai-coach:not([data-coach-mode="plan"]) .mode-pane[data-pane="plan"],
-#view-ai-coach[data-coach-mode="plan"] .mode-pane[data-pane="session"] { display: none; }
-.mode-pane { animation: pane-in .35s var(--ease, ease) both; }
 @keyframes pane-in { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: none; } }
-@media (prefers-reduced-motion: reduce) { .mode-pane { animation: none; } .mode-switch-glider { transition: none; } }
 .chip-select { display: flex; flex-wrap: wrap; gap: 6px; }
 .chip-select > button { min-width: 52px; height: 34px; padding: 0 12px; border-radius: 999px; border: 1px solid var(--line); background: var(--surface-sunk); color: var(--text-2); font-weight: 700; font-size: 12px; letter-spacing: 0; text-transform: none; cursor: pointer; transition: all .15s; }
 .chip-select > button:hover { border-color: var(--line-strong); color: var(--text-1); }
 .chip-select > button.active { border-color: rgba(177, 153, 255, 0.6); background: var(--violet-soft); color: var(--violet); }
 .field-pair { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
 /* In the narrow builder, chip rows and ride days sit on one evenly spaced line. */
-.coach-builder .chip-select, .coach-builder .day-toggle { display: grid; grid-auto-flow: column; grid-auto-columns: minmax(0, 1fr); gap: 5px; }
-.coach-builder .chip-select > button, .coach-builder .day-chip { min-width: 0; padding: 0 2px; font-size: 11.5px; }
 .coach-more { margin: -2px 0 12px; font-size: 12px; color: var(--text-3); }
 .coach-more summary { cursor: pointer; font-weight: 600; color: var(--text-2); margin-bottom: 8px; }
 .coach-go-hint { margin: 8px 0 0; font-size: 11.5px; line-height: 1.45; color: var(--text-3); text-align: center; }
@@ -1259,7 +1223,7 @@ body.focus-mode #valInstantPower { font-size: clamp(120px, 14vw, 220px); }
 .plan-today > div:first-of-type { flex: 1; min-width: 160px; font-size: 13px; color: var(--text-1); }
 .plan-today small { display: block; font-size: 10.5px; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase; color: var(--text-3); }
 .plan-today .btn-row { margin: 0; }
-@media (max-width: 380px) { .field-pair { grid-template-columns: 1fr; } .mode-tile small { display: none; } }
+@media (max-width: 380px) { .field-pair { grid-template-columns: 1fr; } }
 .evidence-box { margin-top: 10px; font-size: 12.5px; color: var(--text-2); }
 .evidence-box summary { cursor: pointer; color: var(--lime); font-weight: 600; }
 .evidence-list { list-style: none; margin: 8px 0 0; padding: 0; display: grid; gap: 8px; }
@@ -1698,10 +1662,6 @@ details.menu > summary::-webkit-details-marker { display: none; }
 
 /* ------------------------------------------------------------------- Ask */
 .sr-only { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0, 0, 0, 0); white-space: nowrap; border: 0; }
-.ask-shell { max-width: 940px; margin: 0 auto; display: flex; flex-direction: column; min-height: calc(100vh - var(--header-h) - 70px); }
-.ask-head { display: flex; justify-content: space-between; align-items: flex-end; gap: 16px; flex-wrap: wrap; margin-bottom: 14px; }
-.ask-head .section-sub { margin-top: 4px; }
-.ask-head-tools { display: flex; gap: 8px; align-items: center; }
 .engine-chip { display: inline-flex; align-items: center; gap: 6px; height: 30px; padding: 0 12px; border-radius: var(--radius-full); border: 1px solid var(--line-strong); background: var(--surface-sunk); color: var(--text-2); font-size: 12px; font-weight: 600; }
 .engine-chip:hover { color: var(--text-1); border-color: rgba(124, 200, 255, 0.4); }
 .engine-chip .ic { color: var(--violet); }
@@ -1713,10 +1673,8 @@ details.menu > summary::-webkit-details-marker { display: none; }
 .ai-pick:hover, .ai-pick:focus-within { color: var(--text-1); border-color: rgba(124, 200, 255, 0.4); }
 .ai-pick-select { appearance: none; -webkit-appearance: none; min-width: 0; max-width: 100%; height: 100%; margin: 0; padding: 0; border: 0; outline: none; background: transparent; color: inherit; font: inherit; text-overflow: ellipsis; cursor: pointer; }
 .ai-pick-select option, .ai-pick-select optgroup { background: var(--bg-2); color: var(--text-1); }
-.ai-pick-row { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin: 4px 0 10px; }
-.describe-box .btn-row .ai-pick, .ai-breakdown-area .ai-pick { margin-left: 4px; }
+.ai-breakdown-area .ai-pick { margin-left: 4px; }
 .ask-engine-warn { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; padding: 10px 14px; margin-bottom: 12px; border-radius: var(--radius-md); background: var(--amber-soft); border: 1px solid rgba(255, 190, 74, 0.3); color: var(--text-1); font-size: 13px; }
-.ask-period-card { padding: 14px 16px; }
 .ask-period-row { display: flex; align-items: center; gap: 10px 14px; flex-wrap: wrap; }
 .ask-period-row .segmented > button { font-family: var(--font-sans); }
 .ask-custom { display: flex; align-items: center; gap: 8px; }
@@ -1780,7 +1738,6 @@ details.menu > summary::-webkit-details-marker { display: none; }
 @media (max-width: 560px) { .ask-composer .ask-clear span { display: none; } .ask-composer .ask-clear { padding: 0 10px; } }
 .ask-privacy { text-align: center; font-size: 11px; color: var(--text-3); margin: 8px 0 4px; }
 @media (max-width: 560px) {
-  .ask-head .section-title { font-size: 18px; }
   .ask-user .ask-bubble { max-width: 88%; }
   .ask-avatar { display: none; }
   .ask-error .ask-bubble { margin-left: 0; }
@@ -2079,7 +2036,7 @@ body::before {
 
 /* Glass tiles inside glass panels */
 .kpi, .tile, .pp-cell, .cp-stat, .cp-pace-cell, .scrub-cell, .hf-stat-box, .alltime-tile, .cal-ytd-card, .insight,
-.phase-card, .goal-pill, .hw-card, .sync-method-item, .record-row, .leg-stat-box, .profile-item-row,
+.goal-pill, .hw-card, .sync-method-item, .record-row, .leg-stat-box, .profile-item-row,
 .calendar-stat-group, .import-row, .prog-card, .qa-quad, .analysis-item, .strava-panel, .zen-up-next-banner {
   background: rgba(255, 255, 255, 0.045); border: 1px solid rgba(255, 255, 255, 0.08); border-radius: 18px;
 }
@@ -2137,7 +2094,6 @@ select.input-field option, .header-profile-dropdown option { background: #10142a
 .md pre.code { border-radius: 14px; background: rgba(3, 5, 14, 0.6); }
 
 /* Ask: a calm chat */
-.ask-shell { max-width: 980px; margin-inline: auto; }
 .ask-thread { gap: 18px; }
 .ask-bubble { border-radius: 22px; }
 .ask-user .ask-bubble { background: linear-gradient(135deg, color-mix(in srgb, var(--zone-a) 55%, transparent), color-mix(in srgb, var(--zone-b) 40%, transparent)); border-color: transparent; border-radius: 22px 22px 6px 22px; color: #fff; }
@@ -2251,3 +2207,176 @@ select.input-field option, .header-profile-dropdown option { background: #10142a
 .wcb-share { margin-left: 4px; }
 a.btn, a.btn:hover { text-decoration: none; }
 .share-card-styles .btn[aria-pressed="true"] { background: rgba(148, 163, 184, 0.2); border-color: rgba(148, 163, 184, 0.5); color: #fff; }
+
+/* ============================== AI Coach chat (js/app-coach-chat.js) ==============================
+   One conversation for questions, workouts and plans. The thread fills the main column; the message box
+   is sticky at the bottom with the "what to do" ticks above it; the plan sits in a rail on wide screens. */
+.coach-shell { display: grid; grid-template-columns: minmax(0, 1fr) minmax(300px, 360px); gap: 24px; max-width: 1380px; margin: 0 auto; align-items: start; }
+.coach-main { display: flex; flex-direction: column; min-width: 0; min-height: calc(100vh - var(--header-h) - 70px); }
+.coach-side { position: sticky; top: calc(var(--header-h) + 14px); display: flex; flex-direction: column; gap: 14px; max-height: calc(100vh - var(--header-h) - 28px); overflow: auto; overscroll-behavior: contain; scrollbar-width: thin; padding-bottom: 4px; }
+.coach-head { display: flex; justify-content: space-between; align-items: flex-end; gap: 12px 16px; flex-wrap: wrap; margin-bottom: 10px; }
+.coach-head > div:first-child { min-width: 0; max-width: 640px; }
+.coach-head .section-sub { margin-top: 4px; }
+.coach-head-tools { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+.coach-head + .coach-status-line { margin: 0 0 12px; }
+.coach-status-line .link-btn { font-size: 12.5px; }
+.coach-plan-link { display: none; }
+.coach-thread { flex: 1; padding-top: 4px; }
+
+/* What to do: three ticks, one picked. */
+.coach-composer { position: sticky; bottom: 12px; z-index: 5; display: flex; flex-direction: column; gap: 6px; padding: 8px; border-radius: 26px;
+  background: linear-gradient(160deg, rgba(20, 26, 48, 0.94), rgba(12, 16, 32, 0.94)); border: 1px solid rgba(255, 255, 255, 0.12);
+  box-shadow: 0 24px 50px -26px rgba(0, 0, 0, 0.9); backdrop-filter: blur(18px) saturate(140%); -webkit-backdrop-filter: blur(18px) saturate(140%); }
+.coach-composer:focus-within { border-color: color-mix(in srgb, var(--zone-a) 55%, transparent); }
+.coach-intents { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 6px; }
+.coach-intent { position: relative; display: flex; align-items: center; justify-content: center; gap: 8px; min-height: 42px; padding: 6px 12px; border-radius: 18px;
+  border: 1px solid rgba(255, 255, 255, 0.08); background: rgba(255, 255, 255, 0.03); color: var(--text-2); font: inherit; font-size: 13.5px; font-weight: 600;
+  cursor: pointer; transition: background .2s, border-color .2s, color .2s; }
+.coach-intent:hover { color: var(--text-1); border-color: rgba(255, 255, 255, 0.18); }
+.coach-intent:focus-visible { outline: 2px solid var(--zone-b); outline-offset: 2px; }
+.coach-intent .ci-icon { width: 16px; height: 16px; flex: none; }
+.ci-tick { display: inline-grid; place-items: center; flex: none; width: 18px; height: 18px; border-radius: 6px; border: 1.5px solid rgba(255, 255, 255, 0.28); transition: background .2s, border-color .2s; }
+.ci-tick .ic { width: 12px; height: 12px; opacity: 0; color: #fff; transition: opacity .15s; }
+.coach-intent.active { color: var(--text-1); border-color: color-mix(in srgb, var(--zone-a) 60%, transparent);
+  background: linear-gradient(135deg, color-mix(in srgb, var(--zone-a) 26%, transparent), color-mix(in srgb, var(--zone-b) 18%, transparent)); }
+.coach-intent.active .ci-tick { background: var(--zone-a); border-color: var(--zone-a); }
+.coach-intent.active .ci-tick .ic { opacity: 1; }
+.coach-intent.active .ci-icon { color: #fff; }
+.ci-short { display: none; }
+
+/* The options line and tray. */
+.coach-opt-toggle { display: flex; align-items: center; gap: 8px; min-height: 30px; padding: 4px 10px; border: 0; border-radius: 12px; background: transparent;
+  color: var(--text-3); font: inherit; font-size: 12px; text-align: left; cursor: pointer; }
+.coach-opt-toggle:hover { color: var(--text-2); background: rgba(255, 255, 255, 0.04); }
+.coach-opt-toggle .coach-go-hint { flex: 1; min-width: 0; margin: 0; text-align: left; font-size: 12px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.coach-opt-toggle .coach-go-hint b { color: var(--text-1); font-weight: 700; }
+.coach-opt-label { font-weight: 700; color: var(--text-2); }
+.coach-opt-caret { transform: rotate(-90deg); transition: transform .2s; }
+.coach-opt-toggle[aria-expanded="true"] .coach-opt-caret { transform: rotate(90deg); }
+.coach-tray { max-height: min(52vh, 460px); overflow: auto; overscroll-behavior: contain; padding: 10px 12px 4px; margin: 0 2px; border-radius: 18px;
+  background: rgba(255, 255, 255, 0.035); border: 1px solid rgba(255, 255, 255, 0.07); }
+.coach-tray[hidden], .coach-pane[hidden] { display: none; }
+.coach-pane { display: flex; flex-direction: column; gap: 10px; margin-bottom: 10px; }
+.coach-pane .field { margin: 0; }
+.coach-tray .goal-grid { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+.coach-tray .goal-pill { padding: 8px 10px; }
+.coach-tray .goal-pill small { display: none; }
+.coach-tray .chip-select, .coach-tray .day-toggle { display: grid; grid-auto-flow: column; grid-auto-columns: minmax(0, 1fr); gap: 5px; }
+.coach-tray .chip-select > button, .coach-tray .day-chip { min-width: 0; padding: 0 2px; font-size: 12px; }
+.coach-tray .coach-more { margin: 0; }
+.coach-tray .coach-more[open] { display: flex; flex-direction: column; gap: 10px; }
+.coach-tray .coach-more summary { margin-bottom: 0; }
+.coach-tray-help { margin: 0 0 8px; }
+.coach-tray .ask-scope-row { margin-top: 0; }
+
+.coach-input-row { display: flex; align-items: flex-end; gap: 8px; padding-left: 8px; }
+.coach-input-row textarea { flex: 1; min-height: 42px; max-height: 160px; resize: none; padding: 10px 6px; border: 0; outline: 0; background: transparent; color: var(--text-1); font: inherit; font-size: 15px; line-height: 1.45; }
+.coach-input-row textarea::placeholder { color: var(--text-3); }
+.coach-input-row .btn { height: 42px; border-radius: 16px; white-space: nowrap; }
+.coach-input-row .ask-clear { padding: 0 12px; color: var(--text-2); }
+.coach-input-row .ask-clear[hidden], .coach-input-row .btn[hidden] { display: none; }
+#view-ai-coach .ask-privacy { margin: 8px 0 2px; }
+
+/* Empty thread: the three things the coach does, each with examples. */
+.coach-welcome { text-align: center; padding: 18px 4px 10px; color: var(--text-2); }
+.coach-welcome h3 { font-family: var(--font-display); font-weight: 500; font-size: 22px; color: var(--text-1); letter-spacing: -0.01em; margin: 0 0 6px; }
+.coach-welcome > p { font-size: 13.5px; line-height: 1.55; max-width: 560px; margin: 0 auto 18px; }
+.coach-start { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; text-align: left; }
+.coach-start-card { min-width: 0; display: flex; flex-direction: column; gap: 10px; padding: 14px; border-radius: 22px; border: 1px solid rgba(255, 255, 255, 0.08); background: rgba(255, 255, 255, 0.035); transition: border-color .2s, background .2s; }
+.coach-start-card.active { border-color: color-mix(in srgb, var(--zone-a) 45%, transparent); background: linear-gradient(160deg, color-mix(in srgb, var(--zone-a) 12%, transparent), rgba(255, 255, 255, 0.02)); }
+.coach-start-head { display: flex; gap: 10px; align-items: flex-start; padding: 0; border: 0; background: none; color: inherit; font: inherit; text-align: left; cursor: pointer; }
+.coach-start-head > .ic { flex: none; width: 34px; height: 34px; padding: 8px; border-radius: 12px; color: #fff; background: linear-gradient(135deg, var(--zone-a), var(--zone-b)); }
+.coach-start-head b { display: block; color: var(--text-1); font-size: 14.5px; }
+.coach-start-head small { display: block; margin-top: 2px; font-size: 12px; line-height: 1.4; color: var(--text-3); }
+.coach-start-chips { display: flex; flex-direction: column; gap: 6px; }
+.coach-start-chips .ask-chip { padding: 9px 12px; font-size: 12.5px; }
+
+/* A rider turn with its tick, and what the message set. */
+.coach-user-col { display: flex; flex-direction: column; align-items: flex-end; gap: 4px; max-width: min(78%, 620px); }
+.coach-user-col .ask-bubble { max-width: 100%; }
+.coach-user-tag { display: inline-flex; align-items: center; gap: 5px; font-size: 11px; font-weight: 700; letter-spacing: .06em; text-transform: uppercase; color: var(--text-3); }
+.coach-user-said { font-size: 11px; color: var(--text-3); }
+.coach-to-workout { display: inline-flex; align-items: center; gap: 4px; }
+
+/* Workout and plan cards in the thread. */
+.coach-card { display: flex; flex-direction: column; gap: 10px; padding: 16px 18px; border-radius: 24px; border: 1px solid rgba(255, 255, 255, 0.1);
+  background: linear-gradient(160deg, rgba(255, 255, 255, 0.07), rgba(255, 255, 255, 0.025)); }
+.coach-workout { border-color: color-mix(in srgb, var(--zone-a) 35%, rgba(255, 255, 255, 0.1)); }
+.coach-plan { border-color: rgba(177, 153, 255, 0.35); }
+.cc-eyebrow { display: flex; align-items: center; gap: 6px; font-size: 11px; font-weight: 700; letter-spacing: .08em; text-transform: uppercase; color: var(--text-3); }
+.cc-title { margin: 0; font-family: var(--font-display); font-weight: 500; font-size: 20px; line-height: 1.2; color: var(--text-1); }
+.cc-chips { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
+.cc-profile { display: block; width: 100%; height: 84px; border-radius: 12px; background: rgba(0, 0, 0, 0.18); }
+.cc-desc { margin: 0; font-size: 14px; line-height: 1.55; color: var(--text-2); }
+.cc-advice { padding: 10px 12px; border-radius: 14px; background: rgba(255, 255, 255, 0.04); border: 1px solid rgba(255, 255, 255, 0.06); }
+.cc-advice p { margin: 4px 0 0; font-size: 13.5px; line-height: 1.55; color: var(--text-1); }
+.cc-warn { margin: 0; padding: 8px 12px; border-radius: 12px; background: var(--amber-soft); border: 1px solid rgba(255, 190, 74, 0.3); font-size: 12.5px; line-height: 1.5; color: var(--text-1); }
+.cc-note { margin: 0; font-size: 12.5px; color: var(--text-3); }
+.cc-more { font-size: 13px; color: var(--text-2); }
+.cc-more > summary { cursor: pointer; font-weight: 600; color: var(--text-2); padding: 4px 0; }
+.cc-more > summary:hover { color: var(--text-1); }
+.cc-more[open] > summary { margin-bottom: 6px; }
+.cc-more p { margin: 0 0 8px; line-height: 1.55; }
+.cc-more .evidence-list { margin-top: 4px; }
+.cc-steps { font-size: 12.5px; }
+.cc-actions { margin: 2px 0 0; flex-wrap: wrap; }
+.cc-actions .btn-start { flex: 1 1 auto; justify-content: center; }
+.cc-weeks { display: flex; align-items: flex-end; gap: 4px; height: 64px; }
+.cc-wk { flex: 1; display: flex; flex-direction: column; justify-content: flex-end; align-items: center; gap: 3px; height: 100%; min-width: 0; }
+.cc-wk i { display: block; width: 100%; border-radius: 6px 6px 3px 3px; background: linear-gradient(180deg, var(--violet), color-mix(in srgb, var(--violet) 45%, transparent)); }
+.cc-wk.recovery i { background: rgba(125, 211, 252, 0.4); }
+.cc-wk.test i { background: linear-gradient(180deg, var(--amber, #ffbe4a), rgba(255, 190, 74, 0.4)); }
+.cc-wk small { font-size: 9.5px; color: var(--text-3); }
+.cc-week { display: flex; flex-direction: column; gap: 6px; }
+.cc-week .block-sessions { margin: 0; }
+.coach-result .ask-body { max-width: 720px; }
+
+/* The rail: the plan, today's session and the numbers the coach reads. */
+.coach-side .ai-coach-card { padding: 16px; }
+.coach-side .block-head { flex-direction: column; align-items: flex-start; gap: 8px; }
+.coach-side .block-head .btn-row { flex-wrap: wrap; }
+.coach-side .empty-state { flex-direction: column; text-align: left; align-items: flex-start; gap: 10px; }
+.coach-side .empty-state p { margin: 0; font-size: 13px; line-height: 1.55; }
+.coach-numbers .insight-strip { margin-top: 4px; }
+.coach-flash { animation: coach-flash 1.4s ease; }
+@keyframes coach-flash { 0%, 100% { box-shadow: none; } 25% { box-shadow: 0 0 0 2px var(--violet); } }
+
+/* Workouts tab: the way into the coach that replaced "Describe a workout". */
+.coach-cta { display: flex; align-items: center; gap: 14px; width: 100%; margin-bottom: 16px; padding: 14px 16px; text-align: left; font: inherit; color: inherit; cursor: pointer;
+  border: 1px solid rgba(177, 153, 255, 0.35); transition: border-color .2s, transform .2s var(--spring); }
+.coach-cta:hover { border-color: rgba(177, 153, 255, 0.6); transform: translateY(-1px); }
+.coach-cta-icon { flex: none; display: grid; place-items: center; width: 40px; height: 40px; border-radius: 14px; color: #fff; background: linear-gradient(135deg, var(--zone-a), var(--zone-b)); }
+.coach-cta-text { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+.coach-cta-text b { color: var(--text-1); font-size: 15px; }
+.coach-cta-text small { color: var(--text-3); font-size: 12.5px; line-height: 1.45; }
+.coach-cta-go { flex: none; pointer-events: none; }
+
+/* A ride's summary: one tap to talk it through with the coach. */
+.coach-ride-link { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin: 0 0 14px; padding: 10px 14px; border-radius: 16px; background: var(--violet-soft); border: 1px solid rgba(177, 153, 255, 0.3); font-size: 13px; color: var(--text-2); }
+.coach-ride-link > .ic { color: var(--violet); flex: none; }
+.coach-ride-link > span { flex: 1; min-width: 180px; }
+
+@media (max-width: 1180px) {
+  .coach-shell { grid-template-columns: 1fr; }
+  .coach-side { position: static; max-height: none; overflow: visible; }
+  .coach-plan-link { display: inline-flex; }
+}
+@media (max-width: 820px) {
+  .coach-start { grid-template-columns: minmax(0, 1fr); }
+  .coach-tray .goal-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+@media (max-width: 640px) {
+  .ci-long { display: none; }
+  .ci-short { display: inline; }
+  .coach-intent { padding: 6px 8px; gap: 6px; }
+  .coach-user-col { max-width: 88%; }
+  .coach-card { padding: 14px; border-radius: 20px; }
+  .cc-actions .btn { flex: 1 1 calc(50% - 6px); justify-content: center; }
+  .coach-cta { flex-wrap: wrap; }
+  .coach-cta-go { width: 100%; justify-content: center; }
+  .coach-input-row .ask-clear span { display: none; }
+}
+@media (prefers-reduced-motion: reduce) { .coach-flash { animation: none; } .coach-cta:hover { transform: none; } }
+.coach-thread > .ask-msg, .coach-thread > .ask-note { scroll-margin-top: calc(var(--header-h) + 16px); scroll-margin-bottom: 180px; }
+.coach-numbers .insight { max-width: 100%; height: auto; min-height: 30px; padding: 5px 12px; line-height: 1.4; white-space: normal; flex-wrap: wrap; }
+.coach-numbers .insight b { white-space: normal; overflow-wrap: anywhere; }

@@ -1141,7 +1141,7 @@ export function bootNativeApp({ bluetooth, storage, strava, ai, icu, uploads, pl
         P.updateAskEngine = function () {
           updateAsk.call(this);
           const c = this.aiCoach;
-          if (c && !c.isLive) this.setText('askEngineWarnText', `Ask needs a ${c.providerLabel} API key. Add it in You > Connections > AI coach.`);
+          if (c && !c.isLive) this.setText('askEngineWarnText', `Questions need a ${c.providerLabel} API key. Add it in You > Connections > AI coach. Workouts and plans still work with the built-in coach.`);
         };
       }
       const breakdown = P.intervalBreakdownHtml;

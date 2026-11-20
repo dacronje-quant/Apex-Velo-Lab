@@ -1,6 +1,7 @@
 /**
- * APEX VELO // LAB - Training block UI (mixin): setup form and block overview in the
- * AI Coach tab, planned sessions on the Calendar, and the review after every ride.
+ * APEX VELO // LAB - Training block UI (mixin): the plan options and the plan card beside the AI Coach
+ * chat (a plan is built from the chat's "Plan my training"), planned sessions on the Calendar, and the
+ * review after every ride.
  */
 (function () {
   const esc = (s) => VeloApp.esc(s);
@@ -73,8 +74,17 @@
         hoursPerWeek: String(val('inputBlockHours') || '').trim() === '' ? null : parseFloat(val('inputBlockHours')),
         longDay: val('selectBlockLongDay') === '' ? null : Number(val('selectBlockLongDay')),
         days,
-        notes: (document.getElementById('inputAiCoachNotes') || {}).value || ''
+        notes: ''
       };
+    },
+
+    /** A reason the plan options cannot be used (shown to the rider), or ''. */
+    blockOptionsProblem(opts) {
+      if (!opts || opts.days.length < 2) return 'Pick at least two days you can ride (Options under the message box).';
+      if (opts.hoursPerWeek !== null && (!Number.isFinite(opts.hoursPerWeek) || opts.hoursPerWeek < 2 || opts.hoursPerWeek > 25)) {
+        return 'Enter weekly hours between 2 and 25 in Options, or leave it blank for the coach to choose.';
+      }
+      return '';
     },
 
     async runBlockTask(btn, label, task, timerId = 'blockThinkTimerView') {
@@ -98,24 +108,23 @@
       }
     },
 
-    async buildTrainingBlock() {
-      const opts = this.readBlockOptions();
-      if (opts.days.length < 2) { this.showToast('Pick at least two days you can ride.', 'warning'); return; }
+    /**
+     * Builds a new plan from the options and the rider's own words (the coach chat's "Plan my training").
+     * Returns the planner's { block, apiError }, or null when the rider keeps the current plan; throws with
+     * the reason when the options cannot be used or the plan could not be built.
+     */
+    async buildTrainingBlock(notes = '', { confirmReplace = true } = {}) {
+      const opts = { ...this.readBlockOptions(), notes: String(notes || '') };
+      const problem = this.blockOptionsProblem(opts);
+      if (problem) throw Object.assign(new Error(problem), { options: true });
       const current = this.blockPlanner.block;
-      if (current && !confirm(`Replace your current ${current.weeks.length}-week plan with a new one? Your rides are not affected.`)) return;
-      if (opts.hoursPerWeek !== null && (!Number.isFinite(opts.hoursPerWeek) || opts.hoursPerWeek < 2 || opts.hoursPerWeek > 25)) {
-        this.showToast('Enter weekly hours between 2 and 25, or leave it blank for the coach to choose.', 'warning'); return;
-      }
+      if (current && confirmReplace && !confirm(`Replace your current ${current.weeks.length}-week plan with a new one? Your rides are not affected.`)) return null;
       try { localStorage.setItem(OPTIONS_KEY, JSON.stringify({ goal: opts.goal, weeks: opts.weeks, hoursPerWeek: opts.hoursPerWeek, longDay: opts.longDay, days: opts.days })); } catch (e) { /* ignore */ }
-      const c = this.aiCoach;
-      const label = c.isLive ? `Planning with ${VeloAiCoach.labelFor(c.model)}` : 'Planning';
-      const res = await this.runBlockTask(document.getElementById('btnGenerateAiCoachRecommendation'), label, () => this.blockPlanner.create(opts), 'aiCoachThinkTimer');
-      if (!res) return;
+      const res = await this.blockPlanner.create(opts);
       this.blockPlanner.review(this.completedWorkouts, this.aiCoach.getPhysiologicalContext('auto', 60, opts.goal));
       this.renderTrainingBlock();
       this.renderCalendarView();
-      if (res.apiError) this.showToast(res.apiError, 'warning');
-      else this.showToast(`${res.block.weeks.length}-week block ready - sessions are on your Calendar.`, 'success');
+      return res;
     },
 
     async replanTrainingBlock() {
@@ -144,7 +153,7 @@
         return [];
       }
       if (announce && fresh.some(s => s.changes.length)) {
-        this.showToast(`Training block: ${fresh.length} suggested adjustment${fresh.length === 1 ? '' : 's'} - see AI Coach.`, 'info');
+        this.showToast(`Training block: ${fresh.length} suggested adjustment${fresh.length === 1 ? '' : 's'} - see your plan in the AI Coach.`, 'info');
       }
       if (this.activeTab === 'ai-coach') this.renderTrainingBlock();
       return fresh;

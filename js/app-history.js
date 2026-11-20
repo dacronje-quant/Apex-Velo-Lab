@@ -76,7 +76,7 @@
         if (month) { this.jumpToCalendarMonth(parseInt(month.dataset.year, 10), parseInt(month.dataset.month, 10)); return; }
         const loadPlanned = e.target.closest('[data-block-load-cal]');
         if (loadPlanned && this.loadBlockSession) { e.stopPropagation(); this.loadBlockSession(loadPlanned.dataset.blockLoadCal); return; }
-        if (e.target.closest('[data-planned]')) { this.switchTab('ai-coach'); document.getElementById('trainingBlockCard')?.scrollIntoView({ behavior: 'smooth', block: 'start' }); return; }
+        if (e.target.closest('[data-planned]')) { if (this.openTrainingPlan) this.openTrainingPlan(); else this.switchTab('ai-coach'); return; }
         const card = e.target.closest('[data-ride]');
         if (card) this.showRideSummaryById(card.dataset.ride);
       });
@@ -524,6 +524,7 @@
         ${banner}
         ${record.rampTest ? `<p class="wcb-sub">${VeloApp.esc(record.rampTest.message || 'Ramp test complete.')}</p>` : ''}
         ${this.rideInsightHtml ? this.rideInsightHtml(record) : ''}
+        ${VeloMetrics.isCycling(record) && this.discussRideWithCoach ? `<div class="coach-ride-link"><svg class="ic"><use href="#i-sparkles"/></svg><span>Questions about this ride? The AI coach sees it with the rest of your training.</span><button type="button" class="btn btn-sm btn-ai" data-coach-discuss="${VeloApp.esc(record.id)}"><svg class="ic"><use href="#i-chat"/></svg>Discuss with the coach</button></div>` : ''}
         <div class="inspector-header-stats">
           <div class="metric-cell"><span class="metric-cell-lbl">Duration${VeloGlossary.html('gap')}</span><span class="metric-cell-val num">${this.fmtTime(record.duration)}</span>${cmp(record.duration, avgOf(r => r.duration))}</div>
           <div class="metric-cell" data-accent="violet"><span class="metric-cell-lbl">Distance${VeloGlossary.html('gap')}</span><span class="metric-cell-val num">${dist}</span></div>

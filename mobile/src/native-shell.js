@@ -385,11 +385,11 @@ export class Shell {
 export function registerInterimPages(shell) {
   const app = () => shell.getApp();
   shell.registerPage('ride', { title: 'Ride', view: 'cockpit' });
-  const trainSeg = [{ route: 'train/plan', label: 'Plan' }, { route: 'train/workouts', label: 'Workouts' }, { route: 'train/calendar', label: 'Calendar' }, { route: 'train/ask', label: 'Ask' }];
+  const trainSeg = [{ route: 'train/plan', label: 'Plan' }, { route: 'train/workouts', label: 'Workouts' }, { route: 'train/calendar', label: 'Calendar' }, { route: 'train/coach', label: 'Coach' }];
   shell.registerPage('train/plan', { title: 'Train', view: 'ai-coach', seg: trainSeg, parent: null });
   shell.registerPage('train/workouts', { title: 'Train', view: 'workouts', seg: trainSeg, parent: null });
   shell.registerPage('train/calendar', { title: 'Train', view: 'calendar', seg: trainSeg, parent: null });
-  shell.registerPage('train/ask', { title: 'Train', view: 'ask', seg: trainSeg, parent: null });
+  shell.registerPage('train/coach', { title: 'Train', view: 'ai-coach', seg: trainSeg, parent: null });
   shell.registerPage('history', { title: 'History', view: 'history' });
   shell.registerPage('history/:rideId', {
     title: 'History', view: 'history',

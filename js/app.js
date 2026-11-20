@@ -124,8 +124,8 @@ class VeloApp {
     this.initKeyboardShortcuts();
     this.initCalendarEvents();
     this.initAiCoachUi();
-    if (this.initDescribeUi) this.initDescribeUi();
     if (this.initAskUi) this.initAskUi();
+    if (this.initCoachChat) this.initCoachChat();
     if (this.initStravaUi) this.initStravaUi();
     if (this.initStravaSyncUi) this.initStravaSyncUi();
     if (this.bindInsightActions) this.bindInsightActions(document.getElementById('modalRideDetails'));
@@ -2379,6 +2379,8 @@ class VeloApp {
 
   // ---------------------------------------------------------- navigation --
   switchTab(tabKey) {
+    // Ask is part of the AI Coach chat now: the old tab opens the coach with "Ask about my riding" ticked.
+    if (tabKey === 'ask') { tabKey = 'ai-coach'; if (this.setCoachIntent) this.setCoachIntent('chat'); }
     const btn = document.querySelector(`.nav-btn[data-tab="${tabKey}"]`);
     if (!btn) return;
     document.querySelectorAll('.nav-btn').forEach(b => b.classList.toggle('active', b === btn));
@@ -2389,8 +2391,7 @@ class VeloApp {
 
   handleTabSwitched(tabKey) {
     if (tabKey === 'calendar') this.renderCalendarView();
-    else if (tabKey === 'ai-coach') { this.updateAiCoachTelemetry(); if (this.renderTrainingBlock) this.renderTrainingBlock(); }
-    else if (tabKey === 'ask') { if (this.onAskTab) this.onAskTab(); }
+    else if (tabKey === 'ai-coach') { this.updateAiCoachTelemetry(); if (this.renderTrainingBlock) this.renderTrainingBlock(); if (this.onCoachTab) this.onCoachTab(); }
     else if (tabKey === 'analytics') {
       requestAnimationFrame(() => {
         this.refreshAnalytics();

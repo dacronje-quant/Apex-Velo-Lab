@@ -1,24 +1,27 @@
 /**
- * Train tab (docs/ANDROID-UX.md 2.1, workstream U2): one segmented control, Plan | Workouts | Ask coach.
+ * Train tab (docs/ANDROID-UX.md 2.1, workstream U2): one segmented control, Plan | Workouts | Coach.
  *
- *  train/plan      the week strip, the selected day's session (Ride it, Swap), the training block (Re-plan) and
- *                  rows to the coach and the calendar
- *  train/coach     the app's AI Coach view (one workout or a multi-week plan)
+ *  train/plan      the week strip, the selected day's session (Ride it, Swap), the AI coach card (three ticks into
+ *                  the one chat; "Workout for today" builds one at once), the training block and a row to the calendar
+ *  train/coach     the app's AI Coach chat (js/app-coach-chat.js): questions about the rider's training, workouts
+ *                  and training plans in one conversation. train/ask (the old Ask page) opens it too
+ *  train/block     Your plan: the plan beside the desktop chat (today's session, the block, its weeks, suggested
+ *                  changes, re-plan), moved in from the coach view
  *  train/calendar  the app's Calendar view (week, month, year, all time; the recovery strip)
  *  train/workouts  a short library list with filter chips and search; a workout opens a sheet (Ride it, Fine-tune,
- *                  Delete); Describe a workout opens the app's describe box in a sheet
+ *                  Delete); "Create with the coach" opens the chat with Create a workout ticked
  *  train/builder   the app's custom interval table (fine-tune the loaded workout, add steps, save as preset)
- *  train/ask       the app's Ask view (the chat and its saved history)
  *
  * Everything reads the app's own state and calls its own methods; the existing nodes are moved in (ids and
- * bindings intact), never copied. Starting a workout opens the Ride tab's ride screen (rideTab.today.startRide).
+ * bindings intact), never copied. Starting a workout opens the Ride tab's ride screen (rideTab.today.startRide),
+ * and so does Ride now on a workout the coach built in the chat.
  */
 
 const esc = (s) => String(s == null ? '' : s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 const icon = (id) => `<svg class="ic" aria-hidden="true"><use href="#${id}"/></svg>`;
 import { workoutName, durationText, labelIntervalFields } from './native-ui.js';
 
-export const SEG = [{ route: 'train/plan', label: 'Plan' }, { route: 'train/workouts', label: 'Workouts' }, { route: 'train/ask', label: 'Ask coach' }];
+export const SEG = [{ route: 'train/plan', label: 'Plan' }, { route: 'train/workouts', label: 'Workouts' }, { route: 'train/coach', label: 'Coach' }];
 
 /** Library filters: the desktop's categories, in the phone's words. */
 export const FILTERS = [
@@ -46,9 +49,12 @@ export function workoutProfile(intervals = [], zoneFor) {
   }).join('');
   return `<svg class="av-workout-profile" viewBox="0 0 320 64" preserveAspectRatio="none" aria-hidden="true"><path d="M0 20H320M0 40H320M0 61H320" stroke="currentColor" stroke-width=".5" opacity=".3"/>${blocks}</svg>`;
 }
-/** The quick AI workout's lengths (minutes, or the coach's own choice). */
-export const QUICK_DURATIONS = [{ value: '30', label: '30 min' }, { value: '45', label: '45 min' }, { value: '60', label: '60 min' }, { value: '90', label: '90 min' }, { value: 'auto', label: 'Auto' }];
-const QUICK_DURATION_KEY = 'apex_quick_ai_duration';
+/** The Plan page's way into the coach chat: one tick each (js/velo-coach-chat.js INTENTS). */
+export const COACH_ENTRIES = [
+  { intent: 'workout', icon: 'i-bolt', label: 'Workout for today', send: true },
+  { intent: 'plan', icon: 'i-calendar', label: 'Plan my training' },
+  { intent: 'chat', icon: 'i-chat', label: 'Ask about my riding' }
+];
 /** Rows shown before "Show all", so the Workouts root fits on the screen. */
 export const LIST_CAP = 4;
 
@@ -93,6 +99,7 @@ export class TrainTab {
     this.planEl = this.page('av-train-plan');
     this.workoutsEl = this.page('av-train-workouts');
     this.builderEl = this.page('av-train-builder');
+    this.blockEl = this.page('av-train-block');
     const seg = SEG;
     shell.registerTab('train', { root: 'train/plan' });
     shell.registerPage('train/plan', { title: 'Train', el: this.planEl, seg, parent: null, mount: () => this.renderPlan() });
@@ -100,19 +107,28 @@ export class TrainTab {
       title: 'Train', el: this.workoutsEl, seg, parent: null,
       mount: () => this.renderWorkouts()
     });
-    shell.registerPage('train/ask', { title: 'Train', view: 'ask', seg, parent: null });
-    shell.registerPage('train/coach', { title: 'Coach', view: 'ai-coach', parent: 'train/plan', mount: () => this.foldCoachInsights(),
-      actions: () => { const b = shell.button({ icon: 'i-sparkles', label: 'Create workout or plan', id: 'avCoachGo', onClick: () => this.coachGo() }); b.classList.add('av-labelled-action'); b.insertAdjacentHTML('beforeend', '<span>Create</span>'); return b; } });
+    shell.registerPage('train/coach', { title: 'Train', view: 'ai-coach', seg, parent: null });
+    // The old Ask page is the coach chat now: a saved link or the app's own switchTab('ask') lands there.
+    shell.registerPage('train/ask', { title: 'Train', view: 'ai-coach', seg, parent: null, mount: () => this.win.setTimeout(() => shell.go('train/coach', { replace: true }), 0) });
+    shell.registerPage('train/block', {
+      title: 'Your plan', el: this.blockEl, parent: 'train/plan',
+      mount: () => this.mountBlock(), unmount: () => { if (this._restoreBlock) this._restoreBlock(); this._restoreBlock = null; }
+    });
     shell.registerPage('train/calendar', { title: 'Calendar', view: 'calendar', parent: 'train/plan' });
     shell.registerPage('train/builder', {
       title: 'Custom workout', el: this.builderEl, parent: 'train/workouts',
       mount: () => this.mountBuilder(), unmount: () => { if (this._restoreBuilder) this._restoreBuilder(); this._restoreBuilder = null; }
     });
-    // The app's own tab switches (Calendar button on a block, "View plan", the AI Coach link) land here.
+    // The app's own tab switches (Calendar button on a block, the AI Coach link, "Discuss with the coach") land here.
     shell.mapView('ai-coach', 'train/coach');
     shell.mapView('calendar', 'train/calendar');
     shell.mapView('workouts', 'train/workouts');
-    shell.mapView('ask', 'train/ask');
+    shell.mapView('ask', 'train/coach');
+    shell.whenApp(() => {
+      // "View full plan" in the chat (and the app's other plan links) open the phone's plan page.
+      this.app.onOpenTrainingPlan = () => { this.shell.go('train/block'); return true; };
+    });
+    this.watchCoachRide();
   }
 
   get app() { return this.shell.getApp(); }
@@ -176,15 +192,14 @@ export class TrainTab {
     }).join('');
     el.innerHTML = `<div class="av-week-strip" role="group" aria-label="This week">${days}</div>
       <div class="card av-day-card" id="avPlanDay"></div>
-      <div class="card av-quick-card" id="avQuickAi"></div>
+      <div class="card av-coach-card" id="avCoachCard"></div>
       <div class="card av-block-card" id="avPlanBlock"></div>
       <div class="card av-list av-train-rows"></div>`;
     el.querySelectorAll('[data-av-day]').forEach((b) => b.addEventListener('click', () => { this.day = b.dataset.avDay; this.renderPlan(); }));
     this.renderDay(app, planned.get(this.day) || [], rides.get(this.day) || [], this.day === today);
-    this.renderQuick();
+    this.renderCoachCard();
     this.renderBlock(app, bp);
     const rows = el.querySelector('.av-train-rows');
-    rows.appendChild(this.shell.row({ icon: 'i-sparkles', id: 'avOpenCoach', title: 'More coach options', sub: 'Goal, focus, reasoning and the 7-day outlook', onClick: () => this.openCoach('session') }));
     rows.appendChild(this.shell.row({ icon: 'i-calendar', id: 'avOpenCalendar', title: 'Calendar', sub: 'Planned and completed rides', onClick: () => this.shell.go('train/calendar') }));
   }
 
@@ -216,111 +231,37 @@ export class TrainTab {
     on('#avPlanSwap', () => this.shell.go('train/workouts'));
   }
 
-  // ------------------------------------------------------------------------------------ Quick AI workout --
-  // One tap from Train: pick a length (and optionally say what you want), Generate, then Start ride. It is the
-  // coach's own "One workout" (same goal, history and engine), so the full result also shows on the Coach page.
+  // ------------------------------------------------------------------------------------------- AI coach --
+  // The Plan page's way into the one chat: tick what you want and the chat opens with it ("Workout for today"
+  // builds one at once, as the quick workout did). Today's workout from the chat stays one tap from the ride.
 
-  /** Today's coach result, if there is one (made here or on the Coach page). */
-  quickResult() {
-    const rec = this.app && this.app.aiCoach && this.app.aiCoach.currentRecommendation;
-    if (!rec || !rec.workout || !rec.generatedAt) return null;
-    return dayKeyOf(rec.generatedAt) === dayKeyOf(new Date()) ? rec : null;
+  /** The newest workout the coach built in the chat today, if any. */
+  todaysCoachWorkout() {
+    const list = (this.app && this.app.askMessages) || [];
+    const today = dayKeyOf(new Date());
+    for (let i = list.length - 1; i >= 0; i--) {
+      const m = list[i];
+      if (m && m.role === 'workout' && m.workout && dayKeyOf(m.at) === today) return m.workout;
+    }
+    return null;
   }
 
-  renderQuick() {
+  renderCoachCard() {
     const app = this.app;
-    const el = this.planEl.querySelector('#avQuickAi');
-    if (!el || !app || !app.aiCoach) return;
-    const C = this.win.VeloAiCoach;
-    const goal = (C && C.GOALS && (C.GOALS[app.coachGoal] || C.GOALS.ftp)) || { label: 'Raise FTP' };
-    const dur = this.quickDuration();
-    const chips = QUICK_DURATIONS.map((d) => `<button type="button" class="chip${d.value === dur ? ' chip-accent' : ''}" data-av-quick-dur="${d.value}" aria-pressed="${d.value === dur}">${esc(d.label)}</button>`).join('');
-    const rec = this.quickResult();
-    let result = '';
-    if (rec) {
-      const w = rec.workout;
-      const M = this.win.VeloMetrics;
-      const who = rec.source && rec.source !== 'offline_heuristic' ? (rec.modelLabel || (C ? C.labelFor(rec.model) : rec.model)) : 'Built-in coach';
-      const saved = (app.loadSavedWorkouts ? app.loadSavedWorkouts() : []).some((x) => x.title === w.title && JSON.stringify(x.intervals) === JSON.stringify(w.intervals));
-      result = `<div class="av-quick-result" id="avQuickResult">
-          <h3 class="av-plan-title">${esc(workoutName(w.title))}</h3>
-          <p class="av-note num">${esc(fmtMin(w.durationMin))} · TSS ${esc(w.tss)} · ${esc(who)}</p>
-          ${workoutProfile(w.intervals, M ? (pct) => M.zoneForPct(pct) : null)}
-          ${w.desc ? `<p class="av-quick-desc">${esc(w.desc)}</p>` : ''}
-          <button type="button" class="btn btn-start av-big" id="avQuickRide">${icon('i-play')}Start ride</button>
-          <div class="btn-row av-plan-more">
-            <button type="button" class="btn btn-ghost btn-grow" id="avQuickSave"${saved ? ' disabled' : ''}>${saved ? 'Saved' : 'Save'}</button>
-            <button type="button" class="btn btn-ghost btn-grow" id="avQuickDetails">Why this workout</button>
-          </div>
-        </div>`;
-    }
-    el.innerHTML = `<span class="eyebrow">Quick AI workout</span>
-      <p class="av-note">Built for today from your form and history · goal: ${esc(goal.label)}</p>
-      <div class="av-wk-chips av-quick-durs" role="group" aria-label="Workout length">${chips}</div>
-      <label class="av-quick-notes"><span class="sr-only">Anything specific? (optional)</span><input type="text" class="input-field" id="avQuickNotes" maxlength="300" autocomplete="off" placeholder="Anything specific? e.g. legs tired, short VO2"></label>
-      <div class="av-quick-go">
-        ${app.aiPickerHtml ? app.aiPickerHtml('quick') : ''}
-        <button type="button" class="btn btn-ai btn-grow" id="avQuickGo"${this._quickBusy ? ' disabled' : ''}>${icon('i-sparkles')}${rec ? 'New workout' : 'Generate'}</button>
-      </div>
-      <p class="av-note av-quick-status" id="avQuickStatus" aria-live="polite"${this._quickBusy ? '' : ' hidden'}></p>
-      ${result}`;
-    const notes = el.querySelector('#avQuickNotes');
-    notes.value = this.quickNotes || '';
-    notes.addEventListener('input', () => { this.quickNotes = notes.value; });
-    notes.addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); this.quickGenerate(); } });
-    el.querySelectorAll('[data-av-quick-dur]').forEach((b) => b.addEventListener('click', () => {
-      try { this.win.localStorage.setItem(QUICK_DURATION_KEY, b.dataset.avQuickDur); } catch (e) { /* storage unavailable */ }
-      this.renderQuick();
+    const el = this.planEl.querySelector('#avCoachCard');
+    if (!el || !app) return;
+    const w = this.todaysCoachWorkout();
+    const buttons = COACH_ENTRIES.map((e) => `<button type="button" class="btn ${e.intent === 'workout' ? 'btn-ai' : 'btn-ghost'} av-coach-go" data-av-coach="${e.intent}">${icon(e.icon)}<span>${esc(e.label)}</span></button>`).join('');
+    el.innerHTML = `<span class="eyebrow">AI coach</span>
+      <p class="av-note">Create a workout, plan your training or ask about your riding, all in one chat with your coach.</p>
+      <div class="av-coach-gos">${buttons}</div>
+      ${w ? `<div class="av-coach-today"><div><small>Today's coach workout</small><b>${esc(workoutName(w.title))}</b><span class="av-note num">${esc(fmtMin(w.durationMin))} · TSS ${esc(w.tss)}</span></div>
+        <button type="button" class="btn btn-start" id="avCoachTodayRide">${icon('i-play')}Start ride</button></div>` : ''}`;
+    el.querySelectorAll('[data-av-coach]').forEach((b) => b.addEventListener('click', () => {
+      const entry = COACH_ENTRIES.find((x) => x.intent === b.dataset.avCoach);
+      this.openCoach(entry.intent, { send: !!entry.send });
     }));
-    el.querySelector('#avQuickGo').addEventListener('click', () => this.quickGenerate());
-    if (rec) {
-      el.querySelector('#avQuickRide').addEventListener('click', () => this.ride((a) => { a.loadWorkoutObjectIntoCockpit(rec.workout); }));
-      el.querySelector('#avQuickSave').addEventListener('click', (e) => { app.saveWorkoutPermanently(rec.workout); e.currentTarget.disabled = true; e.currentTarget.textContent = 'Saved'; });
-      el.querySelector('#avQuickDetails').addEventListener('click', () => {
-        this.openCoach('session');
-        this.win.requestAnimationFrame(() => this.doc.getElementById('aiCoachResultPanel')?.scrollIntoView({ block: 'start' }));
-      });
-    }
-    if (this._quickBusy) this.quickTick();
-  }
-
-  /** The chosen length ('30'...'90' or 'auto'); remembered between visits. */
-  quickDuration() {
-    let v = null;
-    try { v = this.win.localStorage.getItem(QUICK_DURATION_KEY); } catch (e) { /* storage unavailable */ }
-    return QUICK_DURATIONS.some((d) => d.value === v) ? v : '45';
-  }
-
-  quickTick() {
-    const s = this.planEl.querySelector('#avQuickStatus');
-    if (!s || !this._quickBusy) return;
-    s.hidden = false;
-    s.innerHTML = `<span class="spinner"></span> ${esc(this._quickLabel)}... ${((Date.now() - this._quickStart) / 1000).toFixed(0)} s`;
-  }
-
-  async quickGenerate() {
-    const app = this.app;
-    if (!app || !app.aiCoach || this._quickBusy) return;
-    const c = app.aiCoach;
-    const C = this.win.VeloAiCoach;
-    const dur = this.quickDuration();
-    this._quickBusy = true;
-    this._quickStart = Date.now();
-    this._quickLabel = c.isLive && C ? `Thinking with ${C.labelFor(c.model)}` : 'Building your workout';
-    this.renderQuick();
-    const timer = this.win.setInterval(() => this.quickTick(), 500);
-    try {
-      const rec = await c.generateRecommendation('auto', dur === 'auto' ? 'auto' : Number(dur), app.coachGoal || 'ftp', (this.quickNotes || '').trim());
-      // The Coach page shows the same result (reasoning, outlook, evidence) under "Why this workout".
-      if (app.renderAiCoachRecommendation) app.renderAiCoachRecommendation(rec);
-      if (rec.apiError) app.showToast(rec.apiError, 'warning');
-    } catch (e) {
-      app.showToast('AI Coach error: ' + e.message, 'error');
-    } finally {
-      this.win.clearInterval(timer);
-      this._quickBusy = false;
-      this.renderQuick();
-    }
+    el.querySelector('#avCoachTodayRide')?.addEventListener('click', () => this.ride((a) => { a.loadWorkoutObjectIntoCockpit(w); }));
   }
 
   renderBlock(app, bp) {
@@ -348,33 +289,51 @@ export class TrainTab {
         <button type="button" class="btn btn-ghost btn-grow" id="avPlanReplan">${icon('i-sparkles')}Adjust plan</button>
         <button type="button" class="btn btn-primary btn-grow" id="avPlanOpen">View plan</button>
       </div>`;
-    el.querySelector('#avPlanReplan').addEventListener('click', () => { this.openCoach('plan'); this.doc.getElementById('btnReplanBlock')?.click(); });
-    el.querySelector('#avPlanOpen').addEventListener('click', () => this.openCoach('plan'));
-    el.querySelector('#avPlanSuggestions')?.addEventListener('click', () => this.openCoach('plan', 'blockSuggestions'));
+    el.querySelector('#avPlanReplan').addEventListener('click', () => { this.shell.go('train/block'); this.doc.getElementById('btnReplanBlock')?.click(); });
+    el.querySelector('#avPlanOpen').addEventListener('click', () => this.shell.go('train/block'));
+    el.querySelector('#avPlanSuggestions')?.addEventListener('click', () => { this.shell.go('train/block'); this.win.requestAnimationFrame(() => this.doc.getElementById('blockSuggestions')?.scrollIntoView({ block: 'start' })); });
   }
 
-  /** The coach's form and readiness header stay visible; the insight chips (volume, intensity mix, power profile) follow the builder. */
-  foldCoachInsights() {
-    const strip = this.doc.getElementById('aiCoachInsights');
-    const build = this.doc.getElementById('coachBuilder');
-    if (strip && build && !strip.dataset.avMoved) { strip.dataset.avMoved = '1'; build.after(strip); }
-  }
-
-  /** The coach's main button (Prescribe today's workout / Build plan), from the top bar; then shows the result. */
-  coachGo() {
-    const go = this.doc.getElementById('btnGenerateAiCoachRecommendation');
-    if (!go || go.disabled) return;
-    go.click();
-    this.doc.querySelector('#view-ai-coach .coach-results')?.scrollIntoView({ block: 'start' });
-  }
-
-  /** Opens the AI Coach view in "One workout" (session) or "Training plan" (plan) mode. */
-  openCoach(mode, scrollTo = '') {
+  /**
+   * Opens the coach chat with `intent` ticked ('chat', 'workout' or 'plan'); `send` sends what is in the box at
+   * once (an empty workout request leaves it to the coach). 'session' is the older name for 'workout'.
+   */
+  openCoach(intent = 'chat', { text = null, send = false } = {}) {
+    const app = this.app;
+    if (intent === 'session') intent = 'workout';
     this.shell.go('train/coach');
-    const tile = this.doc.querySelector(`#coachModePills [data-coach-mode="${mode}"]`);
-    if (tile && !tile.classList.contains('active')) tile.click();
-    const target = this.doc.getElementById(scrollTo || (mode === 'plan' && this.plan() ? 'trainingBlockCard' : ''));
-    if (target) this.win.requestAnimationFrame(() => target.scrollIntoView({ block: 'start' }));
+    if (!app || !app.openCoach) return;
+    // On the phone the keyboard opens only when the rider is about to type.
+    app.openCoach(intent, { text, send, focus: !send });
+  }
+
+  /** Your plan: the coach view's plan rail (today's session, the block, its weeks, suggestions, re-plan) on its own page. */
+  mountBlock() {
+    const app = this.app;
+    const el = this.blockEl;
+    if (!app) { this.shell.whenApp(() => { if (this.shell.current && this.shell.current.route === 'train/block') this.mountBlock(); }); return; }
+    if (!this._restoreBlock) this._restoreBlock = borrow(this.doc.getElementById('coachSide'), el);
+    if (app.renderTrainingBlock) app.renderTrainingBlock();
+    if (app.updateAiCoachTelemetry) app.updateAiCoachTelemetry();
+  }
+
+  /** Ride now on a workout in the chat opens the ride screen, the same as Start ride everywhere else on the phone. */
+  watchCoachRide() {
+    let before;
+    const hit = (e) => e.target.closest && e.target.closest('#view-ai-coach [data-coach-act="ride"]');
+    this.doc.addEventListener('click', (e) => {
+      if (!hit(e)) return;
+      const app = this.app;
+      before = app && app.currentWorkout;
+      // The app itself asks only after 10 s of riding; the phone never swaps a ride in progress without asking.
+      if (app && this.riding() && !(app.totalElapsedSeconds > 10) && !this.win.confirm('Replace the current ride with this workout?')) { e.stopPropagation(); before = undefined; }
+    }, true);
+    this.doc.addEventListener('click', (e) => {
+      if (!hit(e) || before === undefined) return;
+      const app = this.app;
+      if (app && app.currentWorkout !== before) this.startRide();
+      before = undefined;
+    });
   }
 
   // -------------------------------------------------------------------------------------------- Workouts --
@@ -394,16 +353,15 @@ export class TrainTab {
         <label class="av-wk-duration"><span class="sr-only">Maximum duration</span><select class="input-field" id="avWorkoutDuration"><option value="0">Any length</option><option value="30">≤ 30 min</option><option value="45">≤ 45 min</option><option value="60">≤ 1 hour</option></select></label></div>
         <div class="av-wk-chips" role="group" aria-label="Workout type">${FILTERS.map((f) => `<button type="button" class="chip" data-av-cat="${f.cat}">${esc(f.label)}</button>`).join('')}</div>
         <div class="av-workout-grid av-wk-list" id="avWorkoutList"></div>
-        <button type="button" class="btn btn-ai av-big" id="avDescribe">${icon('i-sparkles')}Describe a workout</button>
+        <button type="button" class="btn btn-ai av-big" id="avDescribe">${icon('i-sparkles')}Create with the coach</button>
         <div class="card av-list av-wk-tools"></div>`;
       el.querySelectorAll('[data-av-cat]').forEach((b) => b.addEventListener('click', () => { this.cat = b.dataset.avCat; this.showAll = false; this.renderWorkouts(); }));
       const input = el.querySelector('#avWorkoutSearch');
       el.querySelector('#avWorkoutDuration').addEventListener('change', (e) => { this.maxMinutes = Number(e.target.value); this.showAll = false; this.renderList(); });
       input.addEventListener('input', () => { this.query = input.value; this.showAll = false; this.renderList(); });
-      el.querySelector('#avDescribe').addEventListener('click', () => this.openDescribe());
+      el.querySelector('#avDescribe').addEventListener('click', () => this.openCoach('workout'));
       const tools = el.querySelector('.av-wk-tools');
       tools.appendChild(this.shell.row({ icon: 'i-plus', id: 'avOpenBuilder', title: 'Build your own', sub: 'Fine-tune the loaded workout step by step, save it', onClick: () => this.shell.go('train/builder') }));
-      tools.appendChild(this.shell.row({ icon: 'i-sparkles', id: 'avWorkoutCoach', title: 'Workout from the coach', sub: 'Built for today from your history and form', onClick: () => this.openCoach('session') }));
     }
     const search = el.querySelector('.av-wk-search');
     search.hidden = !this.searching;
@@ -419,7 +377,7 @@ export class TrainTab {
     const list = filterWorkouts(app.workoutLibrary, this.cat, this.query, this.App).filter((w) => !this.maxMinutes || (Number(w.durationMin) || (w.intervals || []).reduce((s, v) => s + Number(v.duration || 0), 0) / 60) <= this.maxMinutes);
     box.innerHTML = '';
     if (!list.length) {
-      box.innerHTML = `<p class="av-note av-empty">${this.cat === 'custom' && !this.query ? 'No saved workouts yet. Save one from the coach, Describe a workout or Build your own.' : 'No workouts match. Try another type, or describe one.'}</p>`;
+      box.innerHTML = `<p class="av-note av-empty">${this.cat === 'custom' && !this.query ? 'No saved workouts yet. Save one from the coach chat or Build your own.' : 'No workouts match. Try another type, or describe one.'}</p>`;
       return;
     }
     const M = this.win.VeloMetrics;
@@ -483,30 +441,6 @@ export class TrainTab {
       app.deleteWorkout(w.id);
       if (app.workoutLibrary.length !== n) { this.shell.closeSheet(); this.renderList(); }
     });
-  }
-
-  /** The app's Describe a workout box (AI or built-in parser), in a sheet; its Ride and Save buttons stay the app's. */
-  openDescribe() {
-    const box = this.doc.getElementById('describeBox');
-    if (!box) return;
-    if (!box.dataset.avRide) {
-      // The app's Ride loads the described workout; then the ride screen opens and starts, as with Ride it.
-      box.dataset.avRide = '1';
-      let before = null;
-      box.addEventListener('click', (e) => {
-        if (!e.target.closest('[data-describe="ride"]')) return;
-        const app = this.app;
-        before = app && app.currentWorkout;
-        if (this.riding() && !(app.totalElapsedSeconds > 10) && !this.win.confirm('Replace the current ride with this workout?')) e.stopPropagation();
-      }, true);
-      box.addEventListener('click', (e) => {
-        if (!e.target.closest('[data-describe="ride"]')) return;
-        const app = this.app;
-        if (app && app.currentWorkout !== before) this.startRide();
-      });
-    }
-    this.shell.openSheet(box, { title: 'Describe a workout', className: 'av-describe-sheet', onClose: () => this.renderList() });
-    this.win.requestAnimationFrame(() => this.doc.getElementById('describeInput')?.focus({ preventScroll: true }));
   }
 
   // --------------------------------------------------------------------------------------------- Builder --

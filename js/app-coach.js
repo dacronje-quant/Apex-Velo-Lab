@@ -1,5 +1,7 @@
 /**
- * APEX VELO // LAB - AI Coach UI + Workout Architect preview mixin.
+ * APEX VELO // LAB - AI Coach: engine settings, the engine switchers, the coach's live numbers and the
+ * evidence list (mixin on VeloApp). The coach chat itself (questions, workouts and plans in one thread)
+ * is js/app-coach-chat.js.
  */
 (function () {
   const esc = (s) => VeloApp.esc(s);
@@ -55,7 +57,6 @@
       const modelSelect = document.getElementById('selectCoachModel');
       const effortSelect = document.getElementById('selectCoachEffort');
       const lookbackSelect = document.getElementById('selectAiCoachLookback');
-      const generateBtn = document.getElementById('btnGenerateAiCoachRecommendation');
       if (providerSelect) providerSelect.value = this.aiCoach.provider;
       this.fillCoachModelOptions();
       if (effortSelect) effortSelect.value = this.aiCoach.effortOverride;
@@ -90,24 +91,13 @@
         });
       });
 
-      // One builder for both: a single workout or a multi-week plan.
+      // The options under the chat's message box: chip rows for the lengths, kept in step with their selects.
       this.enhanceChipSelects();
-      document.querySelectorAll('#coachModePills [data-coach-mode]').forEach(b => this.on(b, 'click', () => this.setCoachMode(b.dataset.coachMode)));
-      const builder = document.getElementById('coachBuilder');
-      if (builder) {
-        this.on(builder, 'change', () => this.updateCoachGoButton());
-        this.on(builder, 'input', () => this.updateCoachGoButton());
-        this.on(builder, 'click', (e) => { if (e.target.closest('[data-dow]')) this.updateCoachGoButton(); });
-      }
       this.on(document.getElementById('coachPlanToday'), 'click', (e) => {
         const load = e.target.closest('[data-block-load]');
         if (load) this.loadBlockSession(load.dataset.blockLoad);
-        else if (e.target.closest('[data-show-plan]')) this.setCoachMode('plan');
+        else if (e.target.closest('[data-show-plan]')) this.openTrainingPlan();
       });
-      let savedMode = null;
-      try { savedMode = localStorage.getItem('apex_coach_mode'); } catch (e) { /* ignore */ }
-      this.setCoachMode(savedMode === 'plan' ? 'plan' : 'session', { persist: false });
-
       this.on(document.getElementById('btnSaveAiCoachConfig'), 'click', () => {
         this.aiCoach.saveConfig({
           provider: providerSelect ? providerSelect.value : this.aiCoach.providerOverride,
@@ -119,56 +109,6 @@
         this.showToast(`Coach set to ${VeloAiCoach.labelFor(m)}${VeloAiCoach.supportsEffort(m) ? `, ${this.aiCoach.effort} effort` : ''}.`, 'success');
       });
       this.on(document.getElementById('btnRecheckAiEngine'), 'click', () => this.refreshCoachEngine(true));
-
-      this.on(generateBtn, 'click', async () => {
-        if (this.coachMode === 'plan') { if (this.buildTrainingBlock) await this.buildTrainingBlock(); return; }
-        const focus = document.getElementById('selectAiCoachFocus')?.value || 'auto';
-        const durVal = document.getElementById('selectAiCoachDuration')?.value || '45';
-        const duration = durVal === 'auto' ? 'auto' : parseInt(durVal, 10);
-        const notes = document.getElementById('inputAiCoachNotes')?.value || '';
-        const timerEl = document.getElementById('aiCoachThinkTimer');
-        generateBtn.disabled = true;
-        generateBtn.classList.add('is-loading');
-        const t0 = performance.now();
-        const label = this.aiCoach.isLive ? `Thinking with ${esc(VeloAiCoach.labelFor(this.aiCoach.model))}` : 'Analysing your history';
-        if (timerEl) { timerEl.hidden = false; timerEl.innerHTML = `<span class="spinner"></span>${label}... 0.0 s`; }
-        const tick = setInterval(() => { if (timerEl) timerEl.innerHTML = `<span class="spinner"></span>${label}... ${((performance.now() - t0) / 1000).toFixed(1)} s`; }, 100);
-        try {
-          const rec = await this.aiCoach.generateRecommendation(focus, duration, this.coachGoal, notes);
-          this.renderAiCoachRecommendation(rec);
-          if (rec.apiError) this.showToast(rec.apiError, 'warning');
-          else this.showToast('Prescription ready.', 'success');
-          if (timerEl) timerEl.textContent = `Done in ${((rec.elapsedMs || 0) / 1000).toFixed(1)} s`;
-        } catch (e) {
-          console.error('AI Coach error', e);
-          this.showToast('AI Coach error: ' + e.message, 'error');
-          if (timerEl) timerEl.hidden = true;
-        } finally {
-          clearInterval(tick);
-          generateBtn.disabled = false;
-          generateBtn.classList.remove('is-loading');
-        }
-      });
-
-      this.on(document.getElementById('btnClearAiCoachRecommendation'), 'click', () => this.clearAiCoachRecommendation());
-      this.on(document.getElementById('btnClearAiCoachRecTop'), 'click', () => this.clearAiCoachRecommendation());
-      this.on(document.getElementById('btnToggleCoachThoughts'), 'click', () => {
-        const content = document.getElementById('aiCoachThoughtsContent');
-        if (!content) return;
-        const show = content.style.display === 'none';
-        content.style.display = show ? 'block' : 'none';
-        this.setText('coachThoughtsToggleIcon', show ? 'Hide reasoning' : 'Show reasoning');
-      });
-      this.on(document.getElementById('btnLoadAiCoachWorkout'), 'click', () => {
-        const wk = this.aiCoach.currentRecommendation?.workout;
-        if (!wk) return;
-        this.loadWorkoutObjectIntoCockpit(wk);
-        this.showToast('Prescribed session loaded - press START when ready.', 'success');
-      });
-      this.on(document.getElementById('btnSaveAiCoachWorkout'), 'click', () => {
-        const wk = this.aiCoach.currentRecommendation?.workout;
-        if (wk) this.saveWorkoutPermanently(wk);
-      });
 
       this.updateCoachEngineStatus();
       if (this.initTrainingBlockUi) this.initTrainingBlockUi();
@@ -190,7 +130,7 @@
     },
 
     // ---------------------------------------------------------------- AI engine picker --
-    // One small switcher wherever AI is used (Coach, quick workout, Ask, Describe, ride breakdowns). It is a native
+    // One small switcher wherever AI is used (the coach chat, ride breakdowns, settings). It is a native
     // <select>, so a phone shows its own picker. Every copy changes the same choice as Settings > AI engine, and
     // updateCoachEngineStatus() keeps them all in step.
 
@@ -214,7 +154,7 @@
 
     /** The switcher's markup (`where` names the place, for tests and styles). */
     aiPickerHtml(where = '') {
-      return `<label class="ai-pick${this.aiCoach && this.aiCoach.isLive ? ' live' : ''}" title="AI engine for the coach, Ask, Describe and ride breakdowns"><svg class="ic ic-xs" aria-hidden="true"><use href="#i-sparkles"/></svg><span class="sr-only">AI engine</span><select class="ai-pick-select" data-ai-pick="${esc(where)}">${this.aiPickerOptions()}</select></label>`;
+      return `<label class="ai-pick${this.aiCoach && this.aiCoach.isLive ? ' live' : ''}" title="AI engine for the coach chat and ride breakdowns"><svg class="ic ic-xs" aria-hidden="true"><use href="#i-sparkles"/></svg><span class="sr-only">AI engine</span><select class="ai-pick-select" data-ai-pick="${esc(where)}">${this.aiPickerOptions()}</select></label>`;
     },
 
     /** Brings every switcher on the page up to date (options, selection, live state). */
@@ -291,56 +231,14 @@
       });
     },
 
-    /** Switches the builder between one workout ('session') and a multi-week plan ('plan'). */
-    setCoachMode(mode, { persist = true } = {}) {
-      this.coachMode = mode === 'plan' ? 'plan' : 'session';
-      const view = document.getElementById('view-ai-coach');
-      if (view) view.dataset.coachMode = this.coachMode;
-      document.querySelectorAll('#coachModePills [data-coach-mode]').forEach(b => {
-        const on = b.dataset.coachMode === this.coachMode;
-        b.classList.toggle('active', on);
-        b.setAttribute('aria-checked', on ? 'true' : 'false');
-      });
-      this.setText('coachBuilderChip', this.coachMode === 'plan' ? 'Training plan' : 'One workout');
-      const notes = document.getElementById('inputAiCoachNotes');
-      if (notes) notes.placeholder = this.coachMode === 'plan' ? 'e.g. gran fondo in 10 weeks, no rides on Friday, keep Tuesdays short' : 'e.g. legs heavy after yesterday, want low cadence work - or describe the exact session you want';
-      if (persist) try { localStorage.setItem('apex_coach_mode', this.coachMode); } catch (e) { /* ignore */ }
-      this.updateCoachGoButton();
-      this.renderCoachPlanToday();
-    },
-
-    /** One action button: its label and a one-line summary of what will be built follow the form. */
-    updateCoachGoButton() {
-      const c = this.aiCoach;
-      if (!c) return;
-      const val = (id) => (document.getElementById(id) || {}).value || '';
-      const goal = (VeloAiCoach.GOALS[this.coachGoal] || VeloAiCoach.GOALS.ftp).label;
-      const engine = c.isLive ? VeloAiCoach.labelFor(c.model) : 'built-in engine';
-      const hint = document.getElementById('coachGoHint');
-      if (this.coachMode === 'plan') {
-        const weeks = parseInt(val('selectBlockWeeks') || '8', 10);
-        const days = document.querySelectorAll('#blockDays [data-dow].active').length;
-        const hours = val('inputBlockHours').trim();
-        const existing = this.blockPlanner && this.blockPlanner.block;
-        this.setText('coachGoLabel', existing ? `Build new ${weeks}-week plan` : `Build ${weeks}-week plan`);
-        if (hint) hint.textContent = `${goal} · ${days} ride day${days === 1 ? '' : 's'} a week · ${hours ? `up to ${hours} h` : 'coach picks the hours'} · ${engine}${existing ? ' · replaces your current plan' : ''}`;
-      } else {
-        const focusSel = document.getElementById('selectAiCoachFocus');
-        const focus = focusSel && focusSel.value !== 'auto' ? focusSel.options[focusSel.selectedIndex].textContent.split(' (')[0] : 'Auto focus';
-        const dur = val('selectAiCoachDuration');
-        this.setText('coachGoLabel', "Prescribe today's workout");
-        if (hint) hint.textContent = `${goal} · ${focus} · ${dur === 'auto' ? 'coach picks the length' : `${dur} min`} · ${engine}`;
-      }
-    },
-
-    /** In workout mode, a strip for today's session from the active plan (load it, or prescribe something else). */
+    /** Beside the chat: today's session from the active plan, ready to load. */
     renderCoachPlanToday() {
       const el = document.getElementById('coachPlanToday');
       if (!el) return;
       const bp = this.blockPlanner;
       const today = bp && bp.block ? VeloBlockPlanner.today() : null;
       const s = today ? (bp.sessionsByDate().get(today) || []).find(x => x.status === 'planned') : null;
-      if (!bp || !bp.block || this.coachMode !== 'session') { el.hidden = true; return; }
+      if (!bp || !bp.block) { el.hidden = true; return; }
       el.hidden = false;
       el.innerHTML = s
         ? `<svg class="ic"><use href="#i-calendar"/></svg><div><small>Today in your plan</small><b>${esc(s.title)}</b> <span class="num">${s.durationMin} min</span></div>
@@ -351,8 +249,7 @@
     updateCoachEngineStatus() {
       this.refreshAiPickers();
       if (this.updateAskEngine) this.updateAskEngine();
-      if (this.updateDescribeEngine) this.updateDescribeEngine();
-      this.updateCoachGoButton();
+      if (this.updateCoachGoButton) this.updateCoachGoButton();
       const el = document.getElementById('aiCoachEngineStatus');
       const detail = document.getElementById('aiCoachEngineDetail');
       const c = this.aiCoach;
@@ -374,25 +271,6 @@
             ? `<strong>No ${esc(pLabel)} API key.</strong> Paste your key after <code>${keyName}=</code> in the <code>.env</code> file, then restart <code>Launch-Apex-Velo.bat</code>. <span style="opacity:.7">(${keys})</span>`
             : '<strong>Local server not running.</strong> Open the app with <code>Launch-Apex-Velo.bat</code> (it serves the app and holds your keys). Until then the offline engine is used.';
       }
-    },
-
-    clearAiCoachRecommendation() {
-      if (this.aiCoach) this.aiCoach.clearRecommendation();
-      const panel = document.getElementById('aiCoachResultPanel');
-      const welcome = document.getElementById('aiCoachWelcomeCard');
-      if (panel) panel.style.display = 'none';
-      if (welcome) welcome.style.display = 'block';
-      ['aiCoachIntervalTableBody', 'aiCoachPhaseCards'].forEach(id => { const el = document.getElementById(id); if (el) el.innerHTML = ''; });
-      const canvas = document.getElementById('aiCoachIntervalCanvas');
-      if (canvas) canvas.getContext('2d').clearRect(0, 0, canvas.width, canvas.height);
-      const wrap = document.getElementById('aiCoachThinkingWrap');
-      const content = document.getElementById('aiCoachThoughtsContent');
-      if (wrap) wrap.style.display = 'none';
-      if (content) { content.innerHTML = ''; content.style.display = 'none'; }
-      this.setText('coachThoughtsToggleIcon', 'Show reasoning');
-      const timer = document.getElementById('aiCoachThinkTimer');
-      if (timer) timer.hidden = true;
-      this.showToast('Recommendation cleared. Ready for a new prompt.');
     },
 
     updateAiCoachTelemetry() {
@@ -441,107 +319,6 @@
       return `<ul class="evidence-list">${items}</ul>${foot}`;
     },
 
-    renderAiCoachRecommendation(rec) {
-      if (!rec || !rec.workout) return;
-      const panel = document.getElementById('aiCoachResultPanel');
-      const welcome = document.getElementById('aiCoachWelcomeCard');
-      if (!panel) return;
-      panel.style.display = 'block';
-      if (welcome) welcome.style.display = 'none';
-      const a = rec.coachAssessment || {};
-      const wk = rec.workout;
-
-      const badge = document.getElementById('aiCoachFormBadge');
-      if (badge) {
-        const zone = String(a.formZone || 'Productive');
-        const key = /fresh/i.test(zone) ? 'fresh' : /optimal/i.test(zone) ? 'optimal' : /overtrain|overreach/i.test(zone) ? 'overtraining' : /fatigue/i.test(zone) ? 'fatigue' : 'productive';
-        badge.textContent = zone;
-        badge.className = `ai-coach-status-badge form-badge form-${key}`;
-      }
-      const src = document.getElementById('aiCoachSourceBadge');
-      if (src) {
-        const goal = VeloAiCoach.GOALS[rec.goal] ? VeloAiCoach.GOALS[rec.goal].label : '';
-        const who = rec.source && rec.source !== 'offline_heuristic' ? (rec.modelLabel || VeloAiCoach.labelFor(rec.model)) : 'Offline engine';
-        src.textContent = `${who}${goal ? ' - ' + goal : ''}${rec.lookbackDays ? ` - ${rec.lookbackDays} d history` : ''}`;
-      }
-      this.setText('aiCoachDiagnosisText', a.fitnessDiagnosis || '--');
-      this.setText('aiCoachFatigueText', a.fatigueStatus || '--');
-      this.setText('aiCoachAdviceText', a.trainingAdvice || '--');
-      const evBox = document.getElementById('aiCoachEvidence');
-      const evList = document.getElementById('aiCoachEvidenceList');
-      if (evBox && evList) {
-        const html = this.evidenceHtml(rec.evidence);
-        evList.innerHTML = html;
-        evBox.hidden = !html;
-      }
-
-      const wrap = document.getElementById('aiCoachThinkingWrap');
-      const content = document.getElementById('aiCoachThoughtsContent');
-      if (wrap && content) {
-        if (rec.coachThoughts) {
-          wrap.style.display = 'block';
-          content.innerHTML = renderMarkdown(rec.coachThoughts);
-          content.style.display = 'none';
-          this.setText('coachThoughtsToggleIcon', 'Show reasoning');
-          const words = rec.coachThoughts.split(/\s+/).length;
-          this.setText('aiCoachThoughtMeta', `${((rec.elapsedMs || 0) / 1000).toFixed(1)} s - ${words} words - ${rec.thinkingLevel || 'thinking'}`);
-        } else {
-          wrap.style.display = 'none';
-          content.innerHTML = '';
-        }
-      }
-
-      this.setText('aiCoachWorkoutTitle', wk.title);
-      this.setText('aiCoachWorkoutDesc', wk.desc || '');
-      this.setText('aiCoachWorkoutDur', `${wk.durationMin} min`);
-      this.setText('aiCoachWorkoutTss', `${wk.tss} TSS`);
-      this.setText('aiCoachWorkoutIf', `${wk.if} IF`);
-      this.renderAiCoachWorkoutCanvas(wk);
-      this.renderPhaseCards(wk);
-
-      const tbody = document.getElementById('aiCoachIntervalTableBody');
-      if (tbody) {
-        const ftp = this.activeProfile.ftp || 185;
-        tbody.innerHTML = wk.intervals.map((iv, i) => {
-          const z = VeloMetrics.zoneForPct(iv.pctFtp);
-          return `<tr><td class="num">${i + 1}</td><td><b>${esc(iv.name)}</b></td><td><span class="zone-dot" style="--zc:${z.color}"></span><span class="num">${iv.pctFtp}% FTP</span> <small>${z.short}</small></td><td class="num strong">${Math.round(ftp * iv.pctFtp / 100)}W</td><td class="num">${iv.cadence || this.getCurrentTargetCadence(iv)} RPM</td><td class="num">${this.fmtTime(iv.duration)}</td></tr>`;
-        }).join('');
-      }
-    },
-
-    /** Groups the prescription into warm-up / main set / recovery / cool-down cards with zone time. */
-    renderPhaseCards(wk) {
-      const el = document.getElementById('aiCoachPhaseCards');
-      if (!el) return;
-      const ivs = wk.intervals;
-      const phaseOf = (iv, i) => {
-        const n = (iv.name || '').toLowerCase();
-        if (i === 0 || n.includes('warm') || n.includes('opener')) return 'Warm-up';
-        if (i === ivs.length - 1 || n.includes('cool')) return 'Cool-down';
-        if (iv.pctFtp <= 60) return 'Recovery';
-        return 'Main set';
-      };
-      const groups = {};
-      ivs.forEach((iv, i) => {
-        const p = phaseOf(iv, i);
-        const g = groups[p] || (groups[p] = { sec: 0, steps: 0, maxPct: 0, zoneSec: {} });
-        g.sec += iv.duration; g.steps++; g.maxPct = Math.max(g.maxPct, iv.pctFtp);
-        const z = VeloMetrics.zoneForPct(iv.pctFtp);
-        g.zoneSec[z.short] = (g.zoneSec[z.short] || 0) + iv.duration;
-      });
-      const total = ivs.reduce((a, b) => a + b.duration, 0) || 1;
-      el.innerHTML = ['Warm-up', 'Main set', 'Recovery', 'Cool-down'].filter(p => groups[p]).map(p => {
-        const g = groups[p];
-        const zones = Object.entries(g.zoneSec).sort((a, b) => b[1] - a[1]).map(([z, s]) => `<span class="zone-chip zone-${z.toLowerCase()}">${z} ${this.fmtTime(s)}</span>`).join('');
-        return `<div class="phase-card"><div class="phase-head"><b>${p}</b><span class="num">${this.fmtTime(g.sec)} - ${Math.round((g.sec / total) * 100)}%</span></div>
-          <div class="phase-meta num">${g.steps} step${g.steps === 1 ? '' : 's'} - peak ${g.maxPct}% (${Math.round(this.activeProfile.ftp * g.maxPct / 100)} W)</div><div class="phase-zones">${zones}</div></div>`;
-      }).join('');
-    },
-
-    renderAiCoachWorkoutCanvas(workout) {
-      const canvas = document.getElementById('aiCoachIntervalCanvas');
-      if (canvas) this.drawMiniProfile(canvas, workout.intervals || [], { width: 600, height: 150 });
-    }
   });
 
   if (typeof window !== 'undefined') window.VeloMarkdown = { render: renderMarkdown };

@@ -23,7 +23,7 @@ It is the same web app as the desktop version, wrapped with [Capacitor](https://
 | **Health Connect rides** | Cycling sessions other apps write to Health Connect (Zwift, Samsung Health, Garmin...) join your history with their power, heart rate, cadence, speed and distance; duplicates of rides you already have are skipped (the copy with power is kept). Rides recorded in Apex Velo can be saved to Health Connect |
 | **Analytics** | History, calendar, PMC (fitness/fatigue/form), power curve, CP, FTP history, and **Health**: every intervals.icu wellness value over time (resting and sleeping HR, HRV rMSSD and SDNN with your normal range, sleep stages, sleep and readiness scores, Baevsky stress index, breathing, SpO2, weight, blood pressure, glucose) and how your next-morning HRV, resting HR and sleep answer the previous day's training |
 | **History tab** | Rides grouped by month (title, date, duration, NP, TSS, a tick when on Strava), with search (title, notes, source) and filters (rides, other activities, with power, not on Strava). Tap a ride for its page: the full ride summary (Strava send and status, AI breakdown, power analysis, zones, intervals, previous/next) with its samples loaded on demand, and ⋯ for Edit title and notes, Export FIT/TCX/CSV and Delete. **+** opens Add rides (files, Import history with its progress, Watch a folder). The ⋯ next to the ride count has Check Strava, the full JSON backup, current-session exports, training-load options (opens You › Your data) and Clear all history (`src/native-history.js`) |
-| **AI** | **Ask** (questions about your own training), the **AI coach** (sessions and multi-week plans) and ride **interval breakdowns**, with Claude, Gemini or ChatGPT and your own API key. Switch the model on the spot with the ✦ engine switcher on the quick workout, the Coach, Ask, Describe and ride breakdowns (it changes it everywhere, the same as You > Connections > AI coach). Without a key the built-in offline coach is used |
+| **AI** | One **AI coach** chat (Train > Coach) for questions about your own training, workouts and multi-week plans, plus ride **interval breakdowns**, with Claude, Gemini or ChatGPT and your own API key. Switch the model on the spot with the ✦ engine switcher at the top of the chat or on ride breakdowns (it changes it everywhere, the same as You > Connections > AI coach). Without a key, questions are off and the built-in offline coach builds workouts and plans |
 
 ## Not in this first version
 
@@ -145,7 +145,7 @@ Play reviews every app that asks for health permissions. Before the first releas
 
 ## Add an AI key
 
-Ask, the AI coach and the interval breakdowns call the AI provider straight from the phone. No PC is involved.
+The AI coach chat (questions, workouts and plans) and the interval breakdowns call the AI provider straight from the phone. No PC is involved.
 
 1. Create an API key: Anthropic at [platform.claude.com/settings/keys](https://platform.claude.com/settings/keys), Google Gemini at [aistudio.google.com/apikey](https://aistudio.google.com/apikey) or OpenAI at [platform.openai.com/api-keys](https://platform.openai.com/api-keys). One is enough.
 2. In the app: **You > Connections > AI coach**, paste the key under **Advanced · API keys** and press **Save keys**. The app reads that provider's model list, and the status line says **Ready**.
@@ -242,18 +242,22 @@ Android back closes a sheet, then goes back a page, then to the tab's first scre
   *Restore the default screen* goes back to the graph, the next step, heart rate and cadence.
 - **Controls** (next to Metrics) has what you change during a ride: intensity, ERG, shorten or extend the step,
   Stand, restart, power smoothing, ERG response, audio, devices, simulator and rider.
-- **Train** has three parts at the top: **Plan**, **Workouts** and **Ask coach**.
+- **Train** has three parts at the top: **Plan**, **Workouts** and **Coach**.
   - *Plan* shows this week day by day (planned and ridden days are marked), the selected day's session with
-    **Ride it today** and *Swap*, a **Quick AI workout** (pick 30-90 min or Auto, optionally say what you want,
-    **Generate**, then **Start ride**, *Save* or *Why this workout*), and your training block with **Re-plan** and
-    *Open plan*. From here, *Coach* builds
-    one workout for today or a 4-12 week plan, and *Calendar* shows the week, month, year or all time, with load and
-    recovery.
+    **Ride it today** and *Swap*, the **AI coach** card (**Workout for today** builds one in a tap; *Plan my
+    training* and *Ask about my riding* open the chat with that ticked; today's coach workout is one **Start ride**
+    away), and your training block with **Adjust plan** and **View plan** (*Your plan*: the block, its weeks,
+    suggested changes, re-plan). *Calendar* shows the week, month, year or all time, with load and recovery.
   - *Workouts* is the library as a short list with type chips (Endurance, Sweet spot, Threshold, VO2, Hard-start,
     Saved, Tests with the ramp test) and search. Tap a workout for its profile, then **Ride it**, which opens the
     ride screen and starts it. *Fine-tune* opens the step table (change or add steps, Save as preset).
-    *Describe a workout* turns your words into a workout.
-  - *Ask coach* is the chat about your training. It keeps your conversation.
+    **Create with the coach** opens the chat with *Create a workout* ticked.
+  - *Coach* is the one AI chat. Tick **Ask** (questions about your riding), **Workout** (one session to ride) or
+    **Plan** (a 4-12 week plan) above the message box and type in your own words; lengths, weeks and days off you
+    name set the options (the line under the ticks; *Options* has the rest). Answers, workout cards (**Ride now**
+    opens the ride screen, *Save*, *Change it*, *Another one*) and plan cards all stay in one conversation, and
+    each turn sees the chat so far (*Make it a workout* under an answer builds the session it describes). A ride's
+    **Discuss with the coach** opens it too. It keeps your conversation.
 - **Progress** answers *Am I getting fitter?* in one card: the fitness trend over 6 weeks, fitness, fatigue, form
   and FTP. Below it are five topics, each a page with the charts of the PC's Analytics:
   - *Fitness & load*: performance management chart, weekly load, training year, your week, what changed, pinned charts.

@@ -123,8 +123,7 @@
     <nav class="header-nav" aria-label="Primary">
       <button type="button" class="nav-btn active" data-tab="cockpit" title="Cockpit HUD"><svg class="ic"><use href="#i-grid"/></svg><span>Cockpit</span></button>
       <button type="button" class="nav-btn" data-tab="workouts" title="Workout Library"><svg class="ic"><use href="#i-book"/></svg><span>Workouts</span></button>
-      <button type="button" class="nav-btn" data-tab="ai-coach" title="AI Coach"><svg class="ic"><use href="#i-sparkles"/></svg><span>Coach</span></button>
-      <button type="button" class="nav-btn" data-tab="ask" title="Ask anything about your training"><svg class="ic"><use href="#i-chat"/></svg><span>Ask</span></button>
+      <button type="button" class="nav-btn" data-tab="ai-coach" title="AI Coach: ask about your riding, create a workout or plan your training"><svg class="ic"><use href="#i-sparkles"/></svg><span>Coach</span></button>
       <button type="button" class="nav-btn" data-tab="analytics" title="Analytics &amp; progression"><svg class="ic"><use href="#i-activity"/></svg><span>Analytics</span></button>
       <button type="button" class="nav-btn" data-tab="calendar" title="Training Calendar"><svg class="ic"><use href="#i-calendar"/></svg><span>Calendar</span></button>
       <button type="button" class="nav-btn" data-tab="history" title="History &amp; Sync"><svg class="ic"><use href="#i-history"/></svg><span>History</span></button>
@@ -472,22 +471,15 @@
         <div>
           <span class="eyebrow eyebrow-violet">Workout library</span>
           <h2 class="section-title">Pick a session, fine-tune it, ride it</h2>
-          <p class="section-sub">Want something built for you from your history and today's form? Ask the <button type="button" class="link-btn" id="btnGoToCoach">AI Coach</button>.</p>
+          <p class="section-sub">Want something built for you from your history and today's form? Ask the <button type="button" class="link-btn" id="btnGoToCoach">AI Coach</button>: workouts, plans and questions about your riding are all in one chat.</p>
         </div>
       </div>
 
-      <div class="card describe-box" id="describeBox">
-        <div class="describe-title"><svg class="ic"><use href="#i-sparkles"/></svg><label for="describeInput">Describe a workout</label></div>
-        <textarea id="describeInput" class="input-field describe-input" rows="3" maxlength="1000" placeholder="e.g. 50 min, 5x3 min at 115% with 3 min easy, high cadence"></textarea>
-        <div class="describe-examples" id="describeExamples">
-          <button type="button" class="chip" data-example="45 min sweet spot">45 min sweet spot</button>
-          <button type="button" class="chip" data-example="2x20 at 250 W with 5 min rest">2x20 at 250 W</button>
-          <button type="button" class="chip" data-example="Hilly group ride, 1 hour, with a few short punchy climbs">Hilly group ride, 1 h</button>
-        </div>
-        <div class="btn-row"><button type="button" class="btn btn-primary" id="btnDescribeCreate"><svg class="ic"><use href="#i-sparkles"/></svg>Create workout</button><label class="ai-pick" title="AI engine for the coach, Ask, Describe and ride breakdowns"><svg class="ic ic-xs" aria-hidden="true"><use href="#i-sparkles"/></svg><span class="sr-only">AI engine</span><select class="ai-pick-select" data-ai-pick="describe"></select></label></div>
-        <p class="field-help describe-engine" id="describeEngine"></p>
-        <div id="describeResult" aria-live="polite"></div>
-      </div>
+      <button type="button" class="card coach-cta" data-coach-open="workout" id="coachCtaWorkouts">
+        <span class="coach-cta-icon" aria-hidden="true"><svg class="ic"><use href="#i-sparkles"/></svg></span>
+        <span class="coach-cta-text"><b>Want a session built for you?</b><small>Describe it in your own words, or let the coach pick from your form. It is built in the coach chat, ready to ride or save.</small></span>
+        <span class="btn btn-ai btn-sm coach-cta-go"><svg class="ic"><use href="#i-bolt"/></svg>Create with the coach</span>
+      </button>
 
       <div class="filter-bar">
         <div class="category-pills segmented segmented-wrap">
@@ -528,75 +520,110 @@
     </section>
 
     <!-- ============================== AI COACH ============================== -->
-    <section class="tab-view" id="view-ai-coach">
-      <div class="card ai-coach-header">
-        <div class="section-head">
-          <div>
-            <span class="eyebrow">Goal-driven coaching</span>
-            <h2 class="section-title">AI Coach</h2>
-            <button type="button" class="link-btn" data-training-guide>Training terms explained</button>
-            <p class="section-sub">One workout for today or a multi-week plan, built from your real history: fitness, fatigue, form, recent volume, intensity mix and power profile. Uses your AI engine when the local server has its API key, otherwise the built-in physiology engine.</p>
+    <!-- ============================== AI COACH ============================== -->
+    <!-- One conversation for everything AI: questions about the rider's training, a workout, or a training plan.
+         What to do is ticked above the message box (js/app-coach-chat.js); results show in the thread. -->
+    <section class="tab-view" id="view-ai-coach" data-intent="chat">
+      <div class="coach-shell">
+        <div class="coach-main">
+          <div class="coach-head">
+            <div>
+              <span class="eyebrow">Your AI coach</span>
+              <h2 class="section-title">AI Coach</h2>
+              <p class="section-sub">One conversation for everything: ask about your riding, create a workout or plan your training, from your own rides, power, heart rate and recovery.</p>
+            </div>
+            <div class="coach-head-tools">
+              <label class="ai-pick engine-chip" id="btnAskEngine" title="AI engine for the coach chat and ride breakdowns"><svg class="ic ic-xs" aria-hidden="true"><use href="#i-sparkles"/></svg><span class="sr-only">AI engine</span><select class="ai-pick-select" data-ai-pick="coach"></select></label>
+              <button type="button" class="btn btn-sm" id="btnAskNew" hidden><svg class="ic"><use href="#i-plus"/></svg>New chat</button>
+            </div>
           </div>
-          <span class="engine-pill" id="aiCoachEngineStatus"><span class="status-indicator-dot"></span>Offline engine</span>
-        </div>
-        <div class="coach-status-line">
-          <span class="readiness-chip" id="coachReadinessChip" data-level="none" title="Readiness from resting HR, HRV and sleep (Apple Health)">Readiness --</span>
-          <span>Form <b class="num" id="aiCoachTsbVal">--</b></span>
-          <span>Fitness <b class="num" id="aiCoachCtlVal">--</b></span>
-          <span>Fatigue <b class="num" id="aiCoachAtlVal">--</b></span>
-          <span>7-day <b class="num" id="aiCoach7DayTssVal">-- TSS</b></span>
-          <span>FTP <b class="num" id="aiCoachFtpVal">--</b></span>
-        </div>
-        <div class="insight-strip" id="aiCoachInsights"></div>
-      </div>
+          <div class="coach-status-line">
+            <span class="readiness-chip" id="coachReadinessChip" data-level="none" title="Readiness from resting HR, HRV and sleep (Apple Health)">Readiness --</span>
+            <span>Form <b class="num" id="aiCoachTsbVal">--</b></span>
+            <span>Fitness <b class="num" id="aiCoachCtlVal">--</b></span>
+            <span>Fatigue <b class="num" id="aiCoachAtlVal">--</b></span>
+            <span>7-day <b class="num" id="aiCoach7DayTssVal">-- TSS</b></span>
+            <span>FTP <b class="num" id="aiCoachFtpVal">--</b></span>
+            <button type="button" class="link-btn coach-terms" data-training-guide>Training terms explained</button>
+            <button type="button" class="link-btn coach-plan-link" id="btnCoachShowPlan">Your plan</button>
+          </div>
+          <div class="ask-engine-warn" id="askEngineWarn" hidden role="status"><span id="askEngineWarnText"></span><button type="button" class="btn btn-sm" id="btnAskEngineWarn">AI settings</button></div>
 
-      <div class="ai-coach-grid">
-        <div class="stack">
-          <div class="card ai-coach-card coach-builder" id="coachBuilder">
-            <div class="ai-coach-card-title"><span>Build</span><span class="chip chip-ghost" id="coachBuilderChip">One workout</span></div>
-            <div class="mode-switch" id="coachModePills" role="radiogroup" aria-label="What to build">
-              <span class="mode-switch-glider" aria-hidden="true"></span>
-              <button type="button" class="mode-tile active" data-coach-mode="session" role="radio" aria-checked="true">
-                <svg class="ic"><use href="#i-bolt"/></svg><strong>One workout</strong><small>Today's session, ready to ride</small>
-              </button>
-              <button type="button" class="mode-tile" data-coach-mode="plan" role="radio" aria-checked="false">
-                <svg class="ic"><use href="#i-calendar"/></svg><strong>Training plan</strong><small>4-12 weeks on your Calendar</small>
-              </button>
+          <div class="ask-thread coach-thread" id="askThread" aria-live="polite"></div>
+
+          <form class="coach-composer" id="askForm" autocomplete="off">
+            <div class="coach-intents" id="coachIntents" role="radiogroup" aria-label="What should the coach do?">
+              <button type="button" class="coach-intent active" role="radio" data-intent="chat" aria-checked="true"><span class="ci-tick" aria-hidden="true"><svg class="ic"><use href="#i-check"/></svg></span><svg class="ic ci-icon" aria-hidden="true"><use href="#i-chat"/></svg><span class="ci-long">Ask about my riding</span><span class="ci-short" aria-hidden="true">Ask</span></button>
+              <button type="button" class="coach-intent" role="radio" data-intent="workout" aria-checked="false"><span class="ci-tick" aria-hidden="true"><svg class="ic"><use href="#i-check"/></svg></span><svg class="ic ci-icon" aria-hidden="true"><use href="#i-bolt"/></svg><span class="ci-long">Create a workout</span><span class="ci-short" aria-hidden="true">Workout</span></button>
+              <button type="button" class="coach-intent" role="radio" data-intent="plan" aria-checked="false"><span class="ci-tick" aria-hidden="true"><svg class="ic"><use href="#i-check"/></svg></span><svg class="ic ci-icon" aria-hidden="true"><use href="#i-calendar"/></svg><span class="ci-long">Plan my training</span><span class="ci-short" aria-hidden="true">Plan</span></button>
             </div>
-
-            <div class="field"><span>Goal</span>
-              <div class="goal-grid" id="aiCoachGoalPills" role="radiogroup" aria-label="Training goal">
-                <button type="button" class="goal-pill active" data-goal="ftp"><strong>Raise FTP</strong><small>Threshold &amp; SweetSpot progression</small></button>
-                <button type="button" class="goal-pill" data-goal="longevity"><strong>Longevity</strong><small>Aerobic fitness, durability, health</small></button>
-                <button type="button" class="goal-pill" data-goal="vo2"><strong>VO2 max</strong><small>Ceiling &amp; repeatability</small></button>
-                <button type="button" class="goal-pill" data-goal="balanced"><strong>Balanced</strong><small>Polarised mix, all systems</small></button>
+            <button type="button" class="coach-opt-toggle" id="btnCoachOptions" aria-expanded="false" aria-controls="coachTray"><svg class="ic ic-xs" aria-hidden="true"><use href="#i-gear"/></svg><span class="coach-go-hint" id="coachGoHint"></span><span class="coach-opt-label">Options</span><svg class="ic ic-xs coach-opt-caret" aria-hidden="true"><use href="#i-chevron"/></svg></button>
+            <div class="coach-tray" id="coachTray" hidden>
+              <div class="coach-pane" data-pane="chat">
+                <div class="ask-period-row">
+                  <span class="ctrl-label">Look at</span>
+                  <div class="segmented segmented-wrap" id="askPeriodPills" role="group" aria-label="Period the AI looks at"></div>
+                  <div class="ask-custom" id="askCustom" hidden>
+                    <label><span class="sr-only">From</span><input type="date" id="askFrom" class="input-field"></label>
+                    <span class="dim">to</span>
+                    <label><span class="sr-only">To</span><input type="date" id="askTo" class="input-field"></label>
+                  </div>
+                </div>
+                <div class="ask-scope-row">
+                  <span class="ask-scope" id="askScope"></span>
+                  <details class="table-view ask-peek" id="askDataPeek"><summary>What the AI sees</summary>
+                    <p class="footnote">This summary of the period is sent with your question (<span id="askDataSize"></span>). Your API key never leaves the app's server.</p>
+                    <pre class="ask-data" id="askDataText"></pre>
+                  </details>
+                </div>
               </div>
-            </div>
-
-            <div class="mode-pane" data-pane="session">
-              <label class="field"><span>Today's focus</span>
-                <select id="selectAiCoachFocus" class="input-field">
-                  <option value="auto" selected>Auto (decide from goal, form &amp; fatigue)</option>
-                  <option value="threshold">Threshold (over-unders, sustained FTP)</option>
-                  <option value="sweetspot">SweetSpot (88-94% FTP)</option>
-                  <option value="vo2max">VO2 max (30/15s, 4-min efforts)</option>
-                  <option value="endurance">Endurance (Z2 durability)</option>
-                  <option value="recovery">Active recovery</option>
-                </select>
-              </label>
-              <div class="field"><span id="lblAiCoachDuration">Time available</span>
-                <select id="selectAiCoachDuration" class="input-field" data-chips aria-labelledby="lblAiCoachDuration">
-                  <option value="auto" data-chip="Auto">Auto (coach picks the optimal length)</option>
-                  <option value="30" data-chip="30m">30 min</option>
-                  <option value="45" data-chip="45m" selected>45 min</option>
-                  <option value="60" data-chip="60m">60 min</option>
-                  <option value="75" data-chip="75m">75 min</option>
-                  <option value="90" data-chip="90m">90 min</option>
-                  <option value="120" data-chip="2h">120 min</option>
-                </select>
+              <div class="coach-pane" data-pane="workout plan">
+                <div class="field"><span>Goal</span>
+                  <div class="goal-grid" id="aiCoachGoalPills" role="radiogroup" aria-label="Training goal">
+                    <button type="button" class="goal-pill active" data-goal="ftp"><strong>Raise FTP</strong><small>Threshold &amp; SweetSpot progression</small></button>
+                    <button type="button" class="goal-pill" data-goal="longevity"><strong>Longevity</strong><small>Aerobic fitness, durability, health</small></button>
+                    <button type="button" class="goal-pill" data-goal="vo2"><strong>VO2 max</strong><small>Ceiling &amp; repeatability</small></button>
+                    <button type="button" class="goal-pill" data-goal="balanced"><strong>Balanced</strong><small>Polarised mix, all systems</small></button>
+                  </div>
+                </div>
               </div>
-            </div>
-
+              <div class="coach-pane" data-pane="workout">
+                <div class="field"><span id="lblAiCoachDuration">Time available</span>
+                  <select id="selectAiCoachDuration" class="input-field" data-chips aria-labelledby="lblAiCoachDuration">
+                    <option value="auto" data-chip="Auto">Auto (coach picks the optimal length)</option>
+                    <option value="30" data-chip="30m">30 min</option>
+                    <option value="45" data-chip="45m" selected>45 min</option>
+                    <option value="60" data-chip="60m">60 min</option>
+                    <option value="75" data-chip="75m">75 min</option>
+                    <option value="90" data-chip="90m">90 min</option>
+                    <option value="120" data-chip="2h">120 min</option>
+                  </select>
+                </div>
+                <details class="coach-more">
+                  <summary>More options</summary>
+                  <label class="field"><span>Today's focus</span>
+                    <select id="selectAiCoachFocus" class="input-field">
+                      <option value="auto" selected>Auto (decide from goal, form &amp; fatigue)</option>
+                      <option value="threshold">Threshold (over-unders, sustained FTP)</option>
+                      <option value="sweetspot">SweetSpot (88-94% FTP)</option>
+                      <option value="vo2max">VO2 max (30/15s, 4-min efforts)</option>
+                      <option value="endurance">Endurance (Z2 durability)</option>
+                      <option value="recovery">Active recovery</option>
+                    </select>
+                  </label>
+                  <label class="field"><span>History look-back</span>
+                    <select id="selectAiCoachLookback" class="input-field">
+                      <option value="7">Last 7 days</option>
+                      <option value="14">Last 14 days</option>
+                      <option value="28" selected>Last 28 days</option>
+                      <option value="42">Last 6 weeks</option>
+                      <option value="90">Last 90 days</option>
+                    </select>
+                  </label>
+                  <p class="field-help">How far back the coach reviews your rides, volume and intensity mix (the 30 most recent rides at most). Fitness, fatigue and form always use your full history.</p>
+                </details>
+              </div>
+              <div class="coach-pane" data-pane="plan">
             <div class="mode-pane" data-pane="plan">
               <div class="field"><span id="lblBlockWeeks">Length</span>
                 <select id="selectBlockWeeks" class="input-field" data-chips aria-labelledby="lblBlockWeeks">
@@ -617,110 +644,30 @@
               <label class="field"><span>Hours per week</span><input type="number" id="inputBlockHours" class="input-field" min="2" max="25" step="0.5" value="6" placeholder="Blank = coach chooses" aria-describedby="blockHoursHelp"></label>
               <p class="field-help" id="blockHoursHelp">Your weekly limit. Leave it blank and the AI coach picks weekly time from your recent riding and recovery (needs a connected AI coach).</p>
             </div>
-
-            <label class="field"><span>Tell the coach what you want (optional)</span>
-              <textarea id="inputAiCoachNotes" class="input-field coach-notes" rows="3" maxlength="1500" placeholder="e.g. legs heavy after yesterday, want low cadence work" aria-describedby="coachNotesHelp"></textarea>
-            </label>
-            <p class="field-help" id="coachNotesHelp">Your own words come first: ask for a session type, a length, particular efforts or how hard, and the AI coach builds that and tells you if your data argues against it.</p>
-            <details class="coach-more">
-              <summary>More options</summary>
-              <label class="field"><span>History look-back</span>
-                <select id="selectAiCoachLookback" class="input-field">
-                  <option value="7">Last 7 days</option>
-                  <option value="14">Last 14 days</option>
-                  <option value="28" selected>Last 28 days</option>
-                  <option value="42">Last 6 weeks</option>
-                  <option value="90">Last 90 days</option>
-                </select>
-              </label>
-              <p class="field-help">How far back the coach reviews your rides, volume and intensity mix (the 30 most recent rides at most). Fitness, fatigue and form always use your full history.</p>
-            </details>
-            <div class="ai-pick-row"><span class="ctrl-label">AI engine</span><label class="ai-pick" title="AI engine for the coach, Ask, Describe and ride breakdowns"><svg class="ic ic-xs" aria-hidden="true"><use href="#i-sparkles"/></svg><span class="sr-only">AI engine</span><select class="ai-pick-select" data-ai-pick="coach"></select></label></div>
-            <button type="button" class="btn btn-ai btn-block" id="btnGenerateAiCoachRecommendation"><svg class="ic"><use href="#i-sparkles"/></svg><span id="coachGoLabel">Prescribe today's workout</span></button>
-            <p class="coach-go-hint" id="coachGoHint"></p>
-            <div class="think-timer num" id="aiCoachThinkTimer" hidden></div>
-          </div>
+              </div>
+              <p class="field-help coach-tray-help" id="coachTrayHelp">Your own words come first: the coach builds what you ask for and says so if your data argues against it.</p>
+            </div>
+            <div class="coach-input-row">
+              <button type="button" class="btn btn-ghost ask-clear" id="btnAskClear" hidden title="Clear this chat" aria-label="Clear this chat"><svg class="ic"><use href="#i-trash"/></svg><span>Clear</span></button>
+              <label for="askInput" class="sr-only">Message to your coach</label>
+              <textarea id="askInput" rows="1" maxlength="4000" placeholder="Ask about your rides, fitness, power or recovery..."></textarea>
+              <button type="submit" class="btn btn-primary" id="btnAskSend"><svg class="ic"><use href="#i-chat" id="coachSendIcon"/></svg><span id="coachSendLabel">Ask</span></button>
+              <button type="button" class="btn" id="btnAskStop" hidden><svg class="ic"><use href="#i-stop"/></svg>Stop</button>
+            </div>
+          </form>
+          <p class="ask-privacy">Enter to send &middot; Shift+Enter for a new line &middot; Answers are estimates from your data, not medical advice.</p>
         </div>
 
-        <div class="stack coach-results">
-          <div class="mode-pane stack" data-pane="session">
-            <div class="plan-today" id="coachPlanToday" hidden></div>
-            <div class="card ai-coach-card" id="aiCoachWelcomeCard">
-              <div class="ai-coach-card-title"><span>One workout</span><span class="ai-coach-status-badge ai-coach-badge-productive">Ready</span></div>
-              <div class="empty-state">
-                <svg class="ic ic-lg"><use href="#i-brain"/></svg>
-                <p>Pick a goal and press <strong>Prescribe today's workout</strong>. The coach reviews your history and current form, then builds today's session scaled to your FTP. Tell it what you want in your own words and it builds that.</p>
-              </div>
+        <aside class="coach-side" id="coachSide" aria-label="Your training plan">
+          <div class="plan-today" id="coachPlanToday" hidden></div>
+          <div class="card ai-coach-card" id="planWelcomeCard">
+            <div class="ai-coach-card-title"><span>Training plan</span><span class="chip chip-ghost">No plan yet</span></div>
+            <div class="empty-state">
+              <svg class="ic ic-lg"><use href="#i-calendar"/></svg>
+              <p>Tick <strong>Plan my training</strong> and tell the coach your goal, for example "8 weeks to raise my FTP, no rides on Friday". You get mostly easy rides, hard sessions at least 48 h apart that progress week by week, an easier week every 3-4 weeks and a test at the end, all on your Calendar.</p>
+              <button type="button" class="btn btn-sm" data-coach-open="plan"><svg class="ic"><use href="#i-calendar"/></svg>Plan my training</button>
             </div>
-
-          <div id="aiCoachResultPanel" class="stack" style="display:none;">
-            <div class="card ai-coach-card">
-              <div class="ai-coach-card-title">
-                <span>Assessment</span>
-                <div class="btn-row btn-row-tight">
-                  <span class="ai-coach-status-badge" id="aiCoachFormBadge">Productive</span>
-                  <span class="chip chip-ghost" id="aiCoachSourceBadge">--</span>
-                  <button type="button" class="btn btn-ghost btn-sm" id="btnClearAiCoachRecTop" title="Clear and prompt again"><svg class="ic"><use href="#i-x"/></svg>Clear</button>
-                </div>
-              </div>
-              <div class="assess-grid">
-                <div><span class="ctrl-label">Fitness &amp; load</span><div id="aiCoachDiagnosisText" class="assess-text">--</div></div>
-                <div><span class="ctrl-label">Fatigue &amp; recovery</span><div id="aiCoachFatigueText" class="assess-text">--</div></div>
-              </div>
-              <div class="ai-coach-advice-box">
-                <span class="ctrl-label ctrl-label-accent">Execution strategy</span>
-                <div id="aiCoachAdviceText">--</div>
-              </div>
-              <details class="evidence-box" id="aiCoachEvidence" hidden>
-                <summary>The science behind this</summary>
-                <div id="aiCoachEvidenceList"></div>
-              </details>
-              <div class="thinking-trace" id="aiCoachThinkingWrap" style="display:none;">
-                <button type="button" class="thinking-trace-head" id="btnToggleCoachThoughts">
-                  <span class="thinking-trace-title"><span class="live-dot"></span>Reasoning trace <span class="chip chip-ghost num" id="aiCoachThoughtMeta">--</span></span>
-                  <span id="coachThoughtsToggleIcon">Show reasoning</span>
-                </button>
-                <div class="thinking-trace-body md" id="aiCoachThoughtsContent" style="display:none;"></div>
-              </div>
-            </div>
-
-            <div class="card ai-coach-card">
-              <div class="ai-coach-card-title">
-                <span>Today's session</span>
-                <div class="btn-row btn-row-tight">
-                  <span class="chip chip-accent num" id="aiCoachWorkoutDur">-- min</span>
-                  <span class="chip chip-violet num" id="aiCoachWorkoutTss" data-term-tip="tss">-- TSS</span>
-                  <span class="chip chip-amber num" id="aiCoachWorkoutIf" data-term-tip="if">-- IF</span>
-                </div>
-              </div>
-              <h3 id="aiCoachWorkoutTitle" class="rx-title">--</h3>
-              <p id="aiCoachWorkoutDesc" class="rx-desc">--</p>
-              <div class="ai-coach-canvas-wrap"><canvas id="aiCoachIntervalCanvas" class="ai-coach-preview-canvas"></canvas></div>
-              <div class="phase-cards" id="aiCoachPhaseCards"></div>
-              <div class="btn-row">
-                <button type="button" class="btn btn-start btn-grow" id="btnLoadAiCoachWorkout"><svg class="ic"><use href="#i-play"/></svg>Load into cockpit</button>
-                <button type="button" class="btn" id="btnSaveAiCoachWorkout"><svg class="ic"><use href="#i-save"/></svg>Save to library</button>
-                <button type="button" class="btn btn-danger" id="btnClearAiCoachRecommendation"><svg class="ic"><use href="#i-x"/></svg>Clear &amp; prompt again</button>
-              </div>
-              <div class="table-scroll">
-                <table class="ai-coach-table data-table">
-                  <thead><tr><th>#</th><th>Phase</th><th>Intensity</th><th>Target</th><th>Cadence</th><th>Duration</th></tr></thead>
-                  <tbody id="aiCoachIntervalTableBody"></tbody>
-                </table>
-              </div>
-            </div>
-
           </div>
-          </div>
-
-          <div class="mode-pane stack" data-pane="plan">
-            <div class="card ai-coach-card" id="planWelcomeCard">
-              <div class="ai-coach-card-title"><span>Training plan</span><span class="chip chip-ghost">No plan yet</span></div>
-              <div class="empty-state">
-                <svg class="ic ic-lg"><use href="#i-calendar"/></svg>
-                <p>Choose a goal, a length and the days you can ride, then press <strong>Build plan</strong>. You get mostly easy rides, hard sessions at least 48 h apart that progress week by week, an easier week every 3-4 weeks and a test at the end. Sessions go on your Calendar and the plan is reviewed after every ride.</p>
-              </div>
-            </div>
             <div class="card ai-coach-card block-card" id="trainingBlockCard" hidden>
               <div class="ai-coach-card-title"><span>Your training plan</span><span class="chip chip-ghost num" id="blockHeaderChip">Periodised plan</span></div>
               <div id="blockView">
@@ -746,53 +693,11 @@
                 <div class="block-sessions" id="blockNextWeek"></div>
               </div>
             </div>
+          <div class="card ai-coach-card coach-numbers">
+            <div class="ai-coach-card-title"><span>What the coach sees</span></div>
+            <div class="insight-strip" id="aiCoachInsights"></div>
           </div>
-        </div>
-      </div>
-    </section>
-
-    <!-- ============================== ASK ============================== -->
-    <section class="tab-view" id="view-ask">
-      <div class="ask-shell">
-        <div class="ask-head">
-          <div>
-            <span class="eyebrow">Ask your data</span>
-            <h2 class="section-title">Ask anything about your training</h2>
-            <p class="section-sub">Plain answers with the numbers behind them, from your own rides, power, heart rate and recovery. Ask for analysis, an opinion or what to do next; the Coach turns a session into a workout for the trainer.</p>
-          </div>
-          <div class="ask-head-tools">
-            <label class="ai-pick engine-chip" id="btnAskEngine" title="AI engine for the coach, Ask, Describe and ride breakdowns"><svg class="ic ic-xs" aria-hidden="true"><use href="#i-sparkles"/></svg><span class="sr-only">AI engine</span><select class="ai-pick-select" data-ai-pick="ask"></select></label>
-            <button type="button" class="btn btn-sm" id="btnAskNew" hidden><svg class="ic"><use href="#i-plus"/></svg>New chat</button>
-          </div>
-        </div>
-        <div class="ask-engine-warn" id="askEngineWarn" hidden role="status"><span id="askEngineWarnText"></span><button type="button" class="btn btn-sm" id="btnAskEngineWarn">AI settings</button></div>
-        <div class="card ask-period-card">
-          <div class="ask-period-row">
-            <span class="ctrl-label">Look at</span>
-            <div class="segmented segmented-wrap" id="askPeriodPills" role="group" aria-label="Period the AI looks at"></div>
-            <div class="ask-custom" id="askCustom" hidden>
-              <label><span class="sr-only">From</span><input type="date" id="askFrom" class="input-field"></label>
-              <span class="dim">to</span>
-              <label><span class="sr-only">To</span><input type="date" id="askTo" class="input-field"></label>
-            </div>
-          </div>
-          <div class="ask-scope-row">
-            <span class="ask-scope" id="askScope"></span>
-            <details class="table-view ask-peek" id="askDataPeek"><summary>What the AI sees</summary>
-              <p class="footnote">This summary of the period is sent with your question (<span id="askDataSize"></span>). Nothing else leaves this PC; the API key stays in the local server.</p>
-              <pre class="ask-data" id="askDataText"></pre>
-            </details>
-          </div>
-        </div>
-        <div class="ask-thread" id="askThread" aria-live="polite"></div>
-        <form class="ask-composer" id="askForm" autocomplete="off">
-          <button type="button" class="btn btn-ghost ask-clear" id="btnAskClear" hidden title="Clear this chat" aria-label="Clear this chat"><svg class="ic"><use href="#i-trash"/></svg><span>Clear</span></button>
-          <label for="askInput" class="sr-only">Your question</label>
-          <textarea id="askInput" rows="1" maxlength="4000" placeholder="Ask about your rides, fitness, power or recovery..."></textarea>
-          <button type="submit" class="btn btn-primary" id="btnAskSend"><svg class="ic"><use href="#i-chat"/></svg>Ask</button>
-          <button type="button" class="btn" id="btnAskStop" hidden><svg class="ic"><use href="#i-stop"/></svg>Stop</button>
-        </form>
-        <p class="ask-privacy">Enter to send &middot; Shift+Enter for a new line &middot; Answers are estimates from your data, not medical advice.</p>
+        </aside>
       </div>
     </section>
 
@@ -1869,7 +1774,7 @@
   <script src="js/velo-ftp-model.js"></script>
   <script src="js/velo-ride-summary.js"></script>
   <script src="js/velo-ask.js"></script>
-  <script src="js/velo-describe.js"></script>
+  <script src="js/velo-coach-chat.js"></script>
   <script src="js/app.js"></script>
   <script src="js/app-analytics.js"></script>
   <script src="js/app-power.js"></script>
@@ -1884,7 +1789,7 @@
   <script src="js/app-bulk-import.js"></script>
   <script src="js/app-share-card.js"></script>
   <script src="js/app-coach.js"></script>
-  <script src="js/app-describe.js"></script>
+  <script src="js/app-coach-chat.js"></script>
   <script src="js/app-block.js"></script>
   <script src="js/app-strava.js"></script>
   <script src="js/app-strava-sync.js"></script>
