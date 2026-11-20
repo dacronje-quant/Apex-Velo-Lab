@@ -2,10 +2,11 @@
  * Internal `pedals` IDs remain compatible with saved devices, rides and phone commands.
  */
 (function () {
-  const KINDS = ['trainer', 'pedals', 'hr', 'fan'];
-  const LABELS = { trainer: 'Trainer / smart bike', pedals: 'Power meter', hr: 'Heart-rate sensor', fan: 'HEADWIND fan' };
-  const BUTTONS = { trainer: 'btnConnectTrainerModal', pedals: 'btnConnectPedalsModal', hr: 'btnConnectHrModal', fan: 'btnConnectFanModal' };
-  const STATUS = { trainer: 'hwTrainerStatusBadge', pedals: 'hwPedalStatusBadge', hr: 'hwHrStatusBadge', fan: 'hwFanStatusBadge' };
+  const KINDS = ['trainer', 'pedals', 'hr', 'fan', 'controller'];
+  const LABELS = { trainer: 'Trainer / smart bike', pedals: 'Power meter', hr: 'Heart-rate sensor', fan: 'HEADWIND fan', controller: 'Ride controller' };
+  const BUTTONS = { trainer: 'btnConnectTrainerModal', pedals: 'btnConnectPedalsModal', hr: 'btnConnectHrModal', fan: 'btnConnectFanModal', controller: 'btnConnectControllerModal' };
+  const STATUS = { trainer: 'hwTrainerStatusBadge', pedals: 'hwPedalStatusBadge', hr: 'hwHrStatusBadge', fan: 'hwFanStatusBadge', controller: 'hwControllerStatusBadge' };
+  const NO_READINGS = ['fan', 'controller']; // devices that are commanded or pressed, not measured
   const FAN_AUTO_POWER_AVG_SEC = 20, FAN_AUTO_HR_AVG_SEC = 10; // trailing average that drives automatic airflow
   const FAN_AUTO_STEP = 5; // airflow moves in 5% steps
   const FAN_AUTO_MIN_INTERVAL_MS = 10000; // at most one automatic change every 10 s
@@ -28,6 +29,7 @@
       this.on(this.$('btnPairDevice'), 'click', () => this.connectDevice(this.$('deviceTypeSelect').value, { replace: true }));
       this.on(this.$('btnPairDeviceBroad'), 'click', () => this.connectDevice(this.$('deviceTypeSelect').value, { acceptAll: true, replace: true }));
       this.on(this.$('btnConnectFanModal'), 'click', () => this.connectSavedDevice('fan'));
+      this.on(this.$('btnConnectControllerModal'), 'click', () => this.connectSavedDevice('controller'));
       KINDS.forEach(kind => {
         this.on(this.$(`deviceStop-${kind}`), 'click', () => { this.disconnectDeviceKind(kind); this.renderDevicesPanel(); });
         this.on(this.$(`deviceReplace-${kind}`), 'click', () => this.connectDevice(kind, { replace: true }));
@@ -189,7 +191,7 @@
         if (remembered) saved++;
         if (linked) connected++;
         if (reading) receiving++;
-        if (['failed', 'reconnecting'].includes(d.state) || (linked && kind !== 'fan' && !reading)) attention = true;
+        if (['failed', 'reconnecting'].includes(d.state) || (linked && !NO_READINGS.includes(kind) && !reading)) attention = true;
         if (linked && kind === 'trainer' && d.controlGranted !== true) attention = true;
         const card = this.$(`deviceCard-${kind}`);
         if (card) card.hidden = !remembered && !linked && !fresh && d.state === 'disconnected';
@@ -201,7 +203,7 @@
           aliasInput.value = known[kind]?.alias || '';
           aliasInput.dataset.deviceId = deviceId;
         }
-        let text = linked ? (kind === 'fan' ? 'Connected' : reading ? 'Receiving data' : 'Connected · waiting for data') : d.state === 'connecting' ? 'Connecting…' : d.state === 'reconnecting' ? 'Reconnecting…' : d.state === 'failed' ? 'Reconnect failed' : remembered ? 'Saved · disconnected' : 'Not paired';
+        let text = linked ? (NO_READINGS.includes(kind) ? 'Connected' : reading ? 'Receiving data' : 'Connected · waiting for data') : d.state === 'connecting' ? 'Connecting…' : d.state === 'reconnecting' ? 'Reconnecting…' : d.state === 'failed' ? 'Reconnect failed' : remembered ? 'Saved · disconnected' : 'Not paired';
         if (linked && kind === 'trainer') text += d.controlGranted === true ? ' · control granted' : d.controlGranted === false ? ' · control refused' : ' · control pending';
         if (linked && kind === 'hr' && fresh && cache.contact === false) text = 'Connected · no skin contact';
         const badge = this.$(STATUS[kind]);
@@ -211,7 +213,7 @@
         const stop = this.$(`deviceStop-${kind}`);
         if (stop) stop.hidden = !['connecting', 'reconnecting'].includes(d.state);
         this.setText(`deviceError-${kind}`, !linked && s.lastError ? `${s.lastError.message}. ${this.deviceWakeHint(kind)}` : d.state === 'reconnecting' ? `Retry ${Math.min(d.attempt + 1, VeloBle.RECONNECT_MAX_ATTEMPTS)} of ${VeloBle.RECONNECT_MAX_ATTEMPTS} · next attempt in ${Math.ceil(d.nextRetryMs / 1000)} s` : '');
-        this.setText(`deviceCapabilities-${kind}`, kind === 'fan' ? 'Airflow control · firmware compatibility must be checked on your fan' : Object.entries(d.capabilities).filter(([,v]) => v).map(([key]) => ({ watts: 'Power', cadence: 'Cadence', speed: 'Speed', distanceMeters: 'Distance', leftPct: 'L/R balance', rightPct: '', hr: 'Heart rate', trainerControl: 'Resistance control', calibration: 'Offset calibration', torque: 'Torque' }[key] || '')).filter(Boolean).join(' · ') || 'Capabilities verified when connected and receiving data');
+        this.setText(`deviceCapabilities-${kind}`, kind === 'fan' ? 'Airflow control · firmware compatibility must be checked on your fan' : kind === 'controller' ? 'OpenBikeControl buttons · ERG target, skip, previous, pause and resume' : Object.entries(d.capabilities).filter(([,v]) => v).map(([key]) => ({ watts: 'Power', cadence: 'Cadence', speed: 'Speed', distanceMeters: 'Distance', leftPct: 'L/R balance', rightPct: '', hr: 'Heart rate', trainerControl: 'Resistance control', calibration: 'Offset calibration', torque: 'Torque' }[key] || '')).filter(Boolean).join(' · ') || 'Capabilities verified when connected and receiving data');
       });
       const status = unsupported ? 'Bluetooth unavailable · open this app in Chrome or Edge on localhost' : this._devicesConnectingAll ? `Connecting ${LABELS[this._devicesBatchKind] || 'saved devices'}…` : !saved && !connected ? 'Add your riding devices' : attention ? 'Your setup needs attention' : connected ? `${connected} device${connected === 1 ? '' : 's'} connected` : 'Your saved setup is disconnected';
       this.setText('devicesSummary', status);
@@ -259,6 +261,37 @@
         this.showToast(this.fanStatus, 'error'); return false;
       }
       finally { this._fanWriteBusy = false; this.renderDevicesPanel(); if (this.publishSoon) this.publishSoon(); }
+    },
+
+    /**
+     * One OpenBikeControl press, already reduced to one action by VeloBle. Applied like the cockpit
+     * keys and the phone remote: ERG target +/-1%, next / previous step, pause and resume.
+     */
+    onControllerAction(action) {
+      const ivs = (this.currentWorkout && this.currentWorkout.intervals) || [];
+      const finished = this.isWorkoutCompleted || this.intervalIndex >= ivs.length;
+      switch (action) {
+        case 'harder': this.setErgBias(0.01); break;
+        case 'easier': this.setErgBias(-0.01); break;
+        case 'skip':
+          if (!this.isPlaying) return;
+          this.skipInterval();
+          break;
+        case 'previous':
+          if (!this.isPlaying || this.intervalIndex < 1) return;
+          this.jumpToInterval(this.intervalIndex - 1);
+          break;
+        case 'pause':
+          if (!this.isPlaying) return;
+          this.togglePlayPause();
+          break;
+        case 'resume':
+          if (this.isPlaying || finished) return; // never restart a finished ride from a button
+          this.togglePlayPause();
+          break;
+        default: return;
+      }
+      if (this.publishSoon) this.publishSoon();
     },
 
     /**

@@ -59,6 +59,7 @@ No account, no cloud service, no subscription. Your rides stay in your browser a
 |---|---|
 | **Power meter** | Bluetooth power pedals/crank/hub (Cycling Power Service, e.g. Favero Assioma, Garmin Rally, Stages, 4iiii). Used as the true power source, with left/right balance where reported; PowerMatch trims the trainer to it |
 | **Fan control** | Wahoo KICKR HEADWIND (Bluetooth) |
+| **Ride controller** | A Bluetooth controller or app that speaks [OpenBikeControl](https://github.com/OpenBikeControl/openbikecontrol-protocol). Its buttons change the ERG target, skip or go back a step, and pause or resume |
 | **Phone remote** | A phone or tablet on the **same home Wi-Fi** as the PC (any modern browser; iPhone Safari works). Shows the ride and controls the workout from another room. On Windows, run `Enable-Phone-View.bat` once |
 | **AI coach / Ask** | Internet plus your own API key from Anthropic (Claude), OpenAI (ChatGPT) or Google (Gemini). Usage is billed by the provider. Without a key the offline coach is used |
 | **Strava API sync** | Internet, a Strava subscription and your own API application (see [setup](docs/LOCAL-SETUP.md#optional-connections)). File imports can be used without API credentials |
