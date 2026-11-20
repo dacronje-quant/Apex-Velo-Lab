@@ -446,7 +446,8 @@
       const w = rec.workout || {};
       return {
         role: 'workout', at: Date.now(),
-        workout: { id: w.id || `ai_rec_${Date.now()}`, title: w.title, category: w.category, desc: w.desc || '', durationMin: w.durationMin, tss: w.tss, if: w.if, intervals: w.intervals || [] },
+        // The card, the cockpit and the library all show the same name (the built-in coach prefixes "AI Coach:").
+        workout: { id: w.id || `ai_rec_${Date.now()}`, title: String(w.title || 'Workout').replace(/^AI Coach:\s*/i, ''), category: w.category, desc: w.desc || '', durationMin: w.durationMin, tss: w.tss, if: w.if, intervals: w.intervals || [] },
         assessment: rec.coachAssessment || {}, evidence: Array.isArray(rec.evidence) ? rec.evidence : [],
         thoughts: String(rec.coachThoughts || '').slice(0, 8000),
         source: rec.source || 'offline_heuristic', model: rec.model || '', modelLabel: rec.modelLabel || '', goal: rec.goal || this.coachGoal,
