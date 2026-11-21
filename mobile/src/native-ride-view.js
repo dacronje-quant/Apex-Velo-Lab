@@ -57,6 +57,23 @@ export const LINES = { power: 'Power', target: 'Target', hr: 'Heart rate', caden
 /** Graph zoom: the whole ride, or a window of this many seconds that follows the ride. */
 export const ZOOMS = [{ id: 'all', label: 'All', secs: 0 }, { id: '10m', label: '10 min', secs: 600 }, { id: '3m', label: '3 min', secs: 180 }, { id: '1m', label: '1 min', secs: 60 }];
 
+/**
+ * The ERG part of the target line under the power number: whether the trainer holds the target and
+ * the ERG style it uses for this step (Steady on Zone 2, Responsive on HIIT, ...). Shown only with a
+ * trainer connected; a free ride says nothing while ERG is off, as that is what a free ride is.
+ */
+export function ergNote(app, free = false) {
+  const ble = app && app.ble;
+  if (!ble || !ble.isTrainerConnected || !ble.isTrainerConnected()) return null;
+  if (!app.ergModeEnabled) return free ? null : { text: 'ERG off', state: 'off' };
+  if (ble.slots && ble.slots.trainer && ble.slots.trainer.controlGranted === false) return { text: 'ERG blocked by another app', state: 'warn' };
+  const live = { 'soft-start': 'ERG soft start', stall: 'ERG eased', stand: 'ERG standing' }[app.erg && app.erg.mode];
+  if (live) return { text: live, state: 'on' };
+  if (free) return { text: 'ERG on', state: 'on' };
+  const profile = app.getErgProfile ? app.getErgProfile() : null;
+  return { text: profile ? `ERG ${profile.label}` : 'ERG on', state: 'on' };
+}
+
 /** Ride controls that can sit on the screen itself (they are always in the Controls sheet). */
 export const QUICK = { intensity: 'Intensity − / +', length: 'Interval length − / +' };
 /** The hero's power: now (1 s) or a rolling average. A tap on the number steps through them. */
@@ -176,7 +193,7 @@ export class RideView {
       <div class="av-ride-banner" id="avRideBanner" hidden role="status"></div>
       <div class="av-ride-grid" id="avRideGrid">
         <div class="av-ride-hero">
-          <small class="av-ride-target" id="avRideTarget"></small>
+          <small class="av-ride-target"><span id="avRideTarget"></span><span class="av-ride-erg" id="avRideErg" hidden></span></small>
           <b class="av-ride-power num" id="avRidePower" role="button" tabindex="0">--</b>
           <small class="av-ride-unit"><button type="button" class="av-power-view" id="avPowerView" aria-label="Power averaging. Tap to change.">3 s avg</button> <span id="avRideUnit">W</span> <span class="av-ride-dev" id="avRideDev"></span></small>
           <div class="av-devbar" id="avDevBar" aria-hidden="true"><i class="av-devbar-ok"></i><i class="av-devbar-mark" id="avDevMark"></i></div>
@@ -332,11 +349,15 @@ export class RideView {
       const hr = Number(this.text('valHeartRate')) || 0;
       const zh = M && M.hrZone ? M.hrZone(hr, (app.activeProfile && app.activeProfile.maxHr) || 0) : { idx: 0, label: '--', pct: 0 };
       this.setText('avRideTarget', 'Heart rate');
+      this.$('avRideErg').hidden = true;
       this.setText('avRidePower', hr ? String(hr) : '--');
       this.setText('avRideUnit', `bpm${zh.idx ? ` · ${zh.label} · ${zh.pct} % of max` : ''}`);
       [...hrz.children].forEach((n, k) => n.classList.toggle('on', k + 1 === zh.idx));
     } else {
       this.setText('avRideTarget', free ? 'Free ride · no target' : target ? `Target ${target} W${iv ? ` · ${Math.round(iv.pctFtp * (app.ergBiasMultiplier || 1))}% FTP` : ''}` : '');
+      const note = ergNote(app, free), erg = this.$('avRideErg');
+      erg.hidden = !note;
+      if (note) { this.setText2(erg, note.text); if (erg.dataset.state !== note.state) erg.dataset.state = note.state; }
       this.setText('avRidePower', started || running ? String(power) : '--');
       this.setText('avRideUnit', `W${z && !free ? ' · ' + z.name : ''}`);
     }
