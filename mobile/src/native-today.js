@@ -22,6 +22,25 @@ const NOTICES = ['interruptedRideRecovery', 'earlierBrowserRecovery', 'unsavedCh
 export const FREE_RIDE = { id: 'free_ride', title: 'Free ride', category: 'free', intervals: [{ name: 'Free ride', duration: 4 * 3600, pctFtp: 55 }] };
 
 /** Connected / saved device counts, from the devices panel the app keeps up to date. */
+/**
+ * Free ride turns ERG off. The next workout loaded (library, plan, coach, builder: all go through
+ * selectWorkout) turns it back on, so a structured session never starts on free resistance by accident.
+ */
+export function ergBackAfterFreeRide(app) {
+  if (!app || app._ergBackAfterFreeRide || typeof app.selectWorkout !== 'function') return;
+  const own = Object.prototype.hasOwnProperty.call(app, 'selectWorkout'), select = app.selectWorkout;
+  app._ergBackAfterFreeRide = true;
+  app.selectWorkout = function (workout, ...rest) {
+    const result = select.call(this, workout, ...rest);
+    if (workout && workout.id !== FREE_RIDE.id && workout.intervals && workout.intervals.length) {
+      if (own) this.selectWorkout = select; else delete this.selectWorkout;
+      this._ergBackAfterFreeRide = false;
+      if (!this.ergModeEnabled && this.toggleErgMode) this.toggleErgMode();
+    }
+    return result;
+  };
+}
+
 export function deviceSummary(doc) {
   let connected = 0, saved = 0, attention = false;
   for (const k of KINDS) {
@@ -150,7 +169,8 @@ export class TodayScreen {
     const app = this.app;
     if (!app) return;
     app.loadWorkoutObjectIntoCockpit(FREE_RIDE);
-    if (app.ergModeEnabled && app.toggleErgMode) app.toggleErgMode();
+    if (!app.currentWorkout || app.currentWorkout.id !== FREE_RIDE.id) return;
+    if (app.ergModeEnabled && app.toggleErgMode) { app.toggleErgMode(); ergBackAfterFreeRide(app); }
     this.startRide();
   }
 

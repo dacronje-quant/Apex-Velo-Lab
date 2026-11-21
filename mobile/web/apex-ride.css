@@ -137,6 +137,9 @@ body.av-shell[data-av-route="ride/live"] main { padding: 0; }
 .av-ride-power { font-size: clamp(110px, 36vw, 170px); font-variant-numeric: tabular-nums; }
 .av-ride-countdown { font-size: clamp(52px, 16vw, 76px); font-variant-numeric: tabular-nums; }
 .av-ride-target { font-size: 15px; color: var(--text-1); opacity: .8; }
+.av-ride-erg::before { content: " · "; }
+.av-ride-erg[data-state="off"] { color: var(--text-3); }
+.av-ride-erg[data-state="warn"] { color: var(--amber); }
 .av-tile-val { font-size: 26px; font-variant-numeric: tabular-nums; }
 .av-tile-lbl { font-size: 11px; color: var(--text-2); }
 .av-tile[data-tile="hr"] .av-tile-val { color: color-mix(in srgb, var(--rose) 70%, #fff); }
