@@ -174,6 +174,7 @@ export class RideView {
         <span class="num" id="avRideRemain" aria-label="Workout time left"></span>
       </div>
       <div class="av-ride-banner" id="avRideBanner" hidden role="status"></div>
+      <div class="gear-view gv-compact" id="avRideGear" role="img" hidden></div>
       <div class="av-ride-grid" id="avRideGrid">
         <div class="av-ride-hero">
           <small class="av-ride-target" id="avRideTarget"></small>
@@ -361,6 +362,7 @@ export class RideView {
       devBar.dataset.dev = dev.dataset.dev;
     }
     this.setText('avRideCountdown', this.text('hudIntervalCountdown'));
+    if (this.win.VeloGearView) this.win.VeloGearView.render(this.$('avRideGear'), app.trainerGear || null, { erg: !!app.ergModeEnabled, compact: true });
     const hero = this.simple.querySelector('.av-ride-hero');
     hero.classList.toggle('av-pulse', running && remaining > 0 && remaining <= 3 && i < ivs.length - 1);
     hero.dataset.state = !running && started ? 'paused' : running ? 'running' : 'ready';

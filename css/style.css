@@ -2423,3 +2423,33 @@ a.btn, a.btn:hover { text-decoration: none; }
   .coach-cta:hover { transform: none; }
   .coach-opt-caret { transition: none; }
 }
+
+/* KICKR BIKE gears (js/velo-gear-view.js): the gear picked on the bike's shifters, in the cockpit and on the phone. */
+.gear-view { display: flex; flex-direction: column; gap: 8px; margin-top: 12px; padding: 12px 14px; border-radius: 18px;
+  border: 1px solid color-mix(in srgb, var(--zone-a, #4f8cff) 35%, rgba(255, 255, 255, 0.08)); background: linear-gradient(160deg, rgba(255, 255, 255, 0.06), rgba(255, 255, 255, 0.02)); }
+.gear-view[hidden] { display: none; }
+.gv-head { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; }
+.gv-title { font-size: 11px; font-weight: 700; letter-spacing: .08em; text-transform: uppercase; color: var(--coach-muted, #8c95b0); }
+.gv-type { font-size: 12px; color: var(--text-2); white-space: nowrap; }
+.gv-body { display: flex; flex-wrap: wrap; align-items: center; gap: 10px 16px; }
+.gv-now { display: flex; align-items: baseline; gap: 6px; font-family: var(--font-display); line-height: 1; color: var(--text-1); }
+.gv-now b { font-size: 44px; font-weight: 600; }
+.gv-now span { font-size: 28px; color: var(--coach-muted, #8c95b0); }
+.gv-parts { flex: 1 1 200px; min-width: 0; display: flex; flex-direction: column; gap: 8px; }
+.gv-rings, .gv-cogs { display: grid; grid-template-columns: 36px minmax(0, 1fr) auto; align-items: center; gap: 8px; }
+.gv-lbl { font-size: 11px; color: var(--coach-muted, #8c95b0); }
+.gv-n { font-size: 12px; color: var(--text-2); text-align: right; }
+.gv-ring-set { display: flex; align-items: center; gap: 6px; height: 22px; }
+.gv-ring-set i { display: block; flex: none; width: calc(22px * var(--s)); height: calc(22px * var(--s)); border-radius: 50%; border: 2px solid rgba(255, 255, 255, 0.22); }
+.gv-ring-set i.on { border-color: var(--zone-b, #22d3ee); background: color-mix(in srgb, var(--zone-b, #22d3ee) 30%, transparent); box-shadow: 0 0 10px color-mix(in srgb, var(--zone-b, #22d3ee) 45%, transparent); }
+.gv-cog-set { display: flex; align-items: flex-end; gap: 3px; height: 26px; }
+.gv-cog-set i { flex: 1; min-width: 3px; border-radius: 3px; background: rgba(255, 255, 255, 0.14); transition: background .2s; }
+.gv-cog-set i.past { background: color-mix(in srgb, var(--zone-a, #4f8cff) 40%, rgba(255, 255, 255, 0.1)); }
+.gv-cog-set i.on { background: linear-gradient(180deg, var(--zone-b, #22d3ee), var(--zone-a, #4f8cff)); box-shadow: 0 0 10px color-mix(in srgb, var(--zone-b, #22d3ee) 50%, transparent); }
+.gv-note { margin: 0; font-size: 12px; color: var(--coach-muted, #8c95b0); }
+.gear-view.gv-erg .gv-now, .gear-view.gv-erg .gv-parts { opacity: .55; }
+.gear-view.gv-flash .gv-now b { animation: gv-flash .5s ease-out; }
+@keyframes gv-flash { from { color: var(--zone-b, #22d3ee); transform: translateY(var(--gv-dy, 0)); } to { color: var(--text-1); transform: none; } }
+.gear-view[data-shift="up"] { --gv-dy: 4px; }
+.gear-view[data-shift="down"] { --gv-dy: -4px; }
+@media (prefers-reduced-motion: reduce) { .gear-view.gv-flash .gv-now b { animation: none; } }

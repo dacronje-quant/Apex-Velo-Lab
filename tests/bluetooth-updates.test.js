@@ -286,3 +286,68 @@ test('a grant that arrives while a control retry is waiting resumes ERG at once'
   await f.ble.setTrainerErgPower(210, true);
   assert.deepEqual(writes.map(w => w[0]), [0x05]);
 });
+
+// KICKR BIKE gears: Wahoo virtual-bike service a026ee0d, characteristic a026e03a (format as decoded by
+// github.com/StephenDone/kickr_bluetooth kickr/chosen_gear.py: op, 0, front idx, rear idx, rings, cogs).
+test('KICKR BIKE gear notifications parse to 1-based gears; anything else is ignored', () => {
+  const f = fixture(), P = f.Ble.parseWahooGear;
+  assert.deepEqual({ ...P(view([0x01, 0x00, 0x01, 0x06, 0x02, 0x0c])) }, { front: 2, rear: 7, frontCount: 2, rearCount: 12 });
+  assert.deepEqual({ ...P(view([0x07, 0x00, 0x00, 0x0b, 0x02, 0x0c, 0, 0, 0, 0, 0])) }, { front: 1, rear: 12, frontCount: 2, rearCount: 12 });
+  assert.equal(P(view([0x02, 0x00, 0x00, 0x00])), null, 'gear configuration updated');
+  assert.equal(P(view([0x01, 0x00, 0x01])), null, 'truncated');
+  assert.equal(P(view([0x01, 0x00, 0x02, 0x00, 0x02, 0x0c])), null, 'front past the chainrings');
+  assert.equal(P(view([0x01, 0x00, 0x00, 0x0c, 0x02, 0x0c])), null, 'rear past the cassette');
+  assert.equal(P(view([0x01, 0x00, 0x00, 0x00, 0x00, 0x00])), null, 'no gearing set up');
+});
+test('a trainer with the Wahoo bike service streams gears; one without it connects as before', async () => {
+  const f = fixture();
+  const gearChar = device('gear'); gearChar.startNotifications = async () => gearChar;
+  const ftms = { getCharacteristic: async id => id === f.Ble.UUID.FTMS_CONTROL ? { startNotifications: async () => {}, addEventListener() {}, removeEventListener() {}, writeValueWithResponse: async () => {} } : Promise.reject(new Error('optional')) };
+  const bike = { getCharacteristic: async id => { assert.equal(id, f.Ble.UUID.WAHOO_GEAR); return gearChar; } };
+  f.Ble.getServiceWithRetry = async () => ftms;
+  link(f, 'trainer');
+  await f.ble._setupTrainer({ getPrimaryService: async id => { assert.equal(id, f.Ble.UUID.WAHOO_BIKE); return bike; } });
+  gearChar.listeners.get('characteristicvaluechanged')({ target: { value: view([0x01, 0x00, 0x00, 0x04, 0x02, 0x0c]) } });
+  assert.deepEqual({ ...f.events.find(e => e.type === 'gear') }, { type: 'gear', front: 1, rear: 5, frontCount: 2, rearCount: 12 });
+  assert.equal(f.ble.slots.trainer.capabilities.gears, true);
+  f.ble._teardown('trainer');
+  assert.equal(f.ble.slots.trainer.gear, null);
+  const g = fixture(); g.Ble.getServiceWithRetry = async () => ftms; link(g, 'trainer');
+  await g.ble._setupTrainer({ getPrimaryService: async () => { throw new Error('No Services matching UUID'); } });
+  assert.equal(g.events.some(e => e.type === 'gear'), false);
+  assert.ok(g.ble.slots.trainer.chars.control, 'the trainer is still set up');
+  const chooser = []; g.ctx.navigator.bluetooth.requestDevice = async o => { chooser.push(o); throw Object.assign(new Error('cancel'), { name: 'NotFoundError' }); };
+  await assert.rejects(g.ble.connectTrainer());
+  assert.ok(chooser[0].optionalServices.includes(g.Ble.UUID.WAHOO_BIKE), 'the browser is allowed to open the gear service');
+});
+test('ERG off puts the trainer in free resistance (FTMS flat-road simulation) and ERG on resends the target', async () => {
+  const f = fixture(), writes = [];
+  link(f, 'trainer', device('trainer'), { control: { async writeValueWithResponse(b) { writes.push([...b]); } } });
+  await f.ble.setTrainerErgPower(200, true);
+  assert.equal(await f.ble.setTrainerSimulation(), true);
+  // 0x11, wind 0, grade 0, Crr 0.004 (40 x 0.0001), Cw 0.51 (51 x 0.01)
+  assert.deepEqual(writes.at(-1), [0x11, 0, 0, 0, 0, 40, 51]);
+  assert.equal(f.ble.lastTargetPowerSent, null);
+  await f.ble.setTrainerErgPower(200);
+  assert.equal(writes.at(-1)[0], 0x05, 'the same target is sent again after free resistance');
+  const app = appFixture(f), sims = [];
+  Object.assign(app, { ergModeEnabled: true, erg: { reset() {} }, renderGear() {} });
+  f.ble.setTrainerSimulation = async () => sims.push('sim');
+  app.toggleErgMode();
+  assert.equal(app.ergModeEnabled, false); assert.deepEqual(sims, ['sim']);
+  app.toggleErgMode();
+  assert.equal(app.ergModeEnabled, true); assert.deepEqual(sims, ['sim'], 'ERG on sends no simulation');
+});
+test('gear view shows the gear, the setup and an ERG note', () => {
+  const G = require('../js/velo-gear-view.js');
+  const g = { front: 2, rear: 7, frontCount: 2, rearCount: 12 };
+  const h = G.html(g);
+  assert.match(h, /Virtual shifting · 2 × 12/);
+  assert.match(h, /<b>2<\/b><span>·<\/span><b>7<\/b>/);
+  assert.equal((h.match(/<i class="on"/g) || []).length, 2, 'one chainring and one cog lit');
+  assert.equal((h.match(/class="past"/g) || []).length, 6);
+  assert.doesNotMatch(h, /gv-note/);
+  assert.match(G.html(g, { erg: true }), /turn ERG off/);
+  assert.equal(G.describe(g), 'Gear 2-7: chainring 2 of 2, cog 7 of 12');
+  assert.equal(G.html(null), '');
+});

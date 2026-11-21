@@ -4,6 +4,7 @@
  *  - Wahoo KICKR SHIFT  : Fitness Machine Service (0x1826) - ERG control point + Indoor Bike Data
  *  - Favero Assioma DUO : Cycling Power Service   (0x1818) - power, L/R balance, crank revs, calibration
  *  - Heart-rate strap   : Heart Rate Service      (0x180D)
+ *  - KICKR BIKE gears   : Wahoo virtual-bike service (a026ee0d-...) - selected front / rear gear, when the bike has it
  *
  * Every device runs a small connection state machine:
  *     disconnected -> connecting -> connected -> (link lost) -> reconnecting -> connected | failed
@@ -22,6 +23,7 @@
  *   { type: 'battery', device, level }
  *   { type: 'calibration_response', success, offset, code }
  *   { type: 'ftms_response', ok, requestOpCode, result }
+ *   { type: 'gear', front, rear, frontCount, rearCount }   (1-based; KICKR BIKE / BIKE SHIFT)
  */
 class VeloBle {
   static UUID = {
@@ -37,13 +39,15 @@ class VeloBle {
     BATTERY: '0000180f-0000-1000-8000-00805f9b34fb',
     BATTERY_LEVEL: '00002a19-0000-1000-8000-00805f9b34fb',
     HEADWIND: 'a026ee0c-0a7d-4ab3-97fa-f1500f9feb8b',
-    HEADWIND_CONTROL: 'a026e038-0a7d-4ab3-97fa-f1500f9feb8b'
+    HEADWIND_CONTROL: 'a026e038-0a7d-4ab3-97fa-f1500f9feb8b',
+    WAHOO_BIKE: 'a026ee0d-0a7d-4ab3-97fa-f1500f9feb8b',
+    WAHOO_GEAR: 'a026e03a-0a7d-4ab3-97fa-f1500f9feb8b'
   };
 
   /** CPS Control Point op codes (Bluetooth SIG Cycling Power Service spec). */
   static CPS_OP = { START_OFFSET_COMPENSATION: 0x0C, START_ENHANCED_OFFSET_COMPENSATION: 0x10, RESPONSE: 0x20 };
   /** FTMS Control Point op codes. */
-  static FTMS_OP = { REQUEST_CONTROL: 0x00, SET_TARGET_POWER: 0x05, START_RESUME: 0x07, STOP_PAUSE: 0x08, RESPONSE: 0x80 };
+  static FTMS_OP = { REQUEST_CONTROL: 0x00, SET_TARGET_POWER: 0x05, START_RESUME: 0x07, STOP_PAUSE: 0x08, SET_SIMULATION: 0x11, RESPONSE: 0x80 };
   /** While another app holds the trainer, ask for control again at most this often. */
   static CONTROL_RETRY_MS = 3000;
 
@@ -112,7 +116,7 @@ class VeloBle {
       battery: null, rssi: null, lastPacket: 0, connectedSince: 0,
       pktWindowStart: 0, pktCount: 0, packetRate: 0, writeChain: Promise.resolve(), onGattDisconnected: null,
       connecting: false, lastError: null, stopScan: null, generation: 0, capabilities: {},
-      controlGranted: null, fanSpeed: null, requestedSpeed: null
+      controlGranted: null, fanSpeed: null, requestedSpeed: null, gear: null
     };
   }
 
@@ -167,7 +171,7 @@ class VeloBle {
       this.lastCrankTime = null;
       this.lastCadence = null;
     }
-    if (kind === 'trainer') this.lastTargetPowerSent = null;
+    if (kind === 'trainer') { this.lastTargetPowerSent = null; slot.gear = null; }
   }
 
   /** Serialises GATT writes for one device. */
@@ -680,7 +684,7 @@ class VeloBle {
         { namePrefix: 'Bike' }
       ];
       await this._request('trainer', filters,
-        [VeloBle.UUID.FTMS, 'fitness_machine', 'cycling_speed_and_cadence', 'battery_service', 'device_information', VeloBle.UUID.CPS, 'cycling_power'],
+        [VeloBle.UUID.FTMS, 'fitness_machine', 'cycling_speed_and_cadence', 'battery_service', 'device_information', VeloBle.UUID.CPS, 'cycling_power', VeloBle.UUID.WAHOO_BIKE],
         !!options.acceptAll);
       return await this._connect('trainer', (server) => this._setupTrainer(server));
     } catch (err) {
@@ -729,6 +733,61 @@ class VeloBle {
     }
     this.lastTargetPowerSent = null;
     this.lastTargetSendTime = 0;
+    await this._setupGears(server);
+  }
+
+  /**
+   * KICKR BIKE / KICKR BIKE SHIFT: the gear the rider has selected on the bike's shifters, from Wahoo's
+   * virtual-bike service. Other trainers do not have it, and the connection never depends on it.
+   */
+  async _setupGears(server) {
+    const slot = this.slots.trainer;
+    try {
+      const svc = await server.getPrimaryService(VeloBle.UUID.WAHOO_BIKE);
+      await VeloBle.delay(100);
+      const gear = await svc.getCharacteristic(VeloBle.UUID.WAHOO_GEAR);
+      await gear.startNotifications();
+      this._listen('trainer', gear, 'characteristicvaluechanged', (e) => {
+        const g = VeloBle.parseWahooGear(e.target.value);
+        if (!g) return;
+        slot.gear = g;
+        slot.capabilities.gears = true;
+        this._emit({ type: 'gear', ...g });
+      });
+      slot.chars.gear = gear;
+    } catch (e) { /* not a KICKR BIKE: no gear display */ }
+  }
+
+  /**
+   * Wahoo gear notification: 0x01 (change) or 0x07 (full state), 0x00, front index, rear index (both
+   * 0-based), number of chainrings, number of cogs. Returns 1-based gears, or null for anything else.
+   */
+  static parseWahooGear(dv) {
+    if (!dv || dv.byteLength < 6) return null;
+    const op = dv.getUint8(0);
+    if ((op !== 0x01 && op !== 0x07) || dv.getUint8(1) !== 0) return null;
+    const frontCount = dv.getUint8(4), rearCount = dv.getUint8(5);
+    const front = dv.getUint8(2) + 1, rear = dv.getUint8(3) + 1;
+    if (!frontCount || !rearCount || frontCount > 3 || rearCount > 15 || front > frontCount || rear > rearCount) return null;
+    return { front, rear, frontCount, rearCount };
+  }
+
+  /**
+   * Free resistance (ERG off): FTMS simulation on a flat road, so the trainer stops holding a wattage
+   * and resistance follows speed and, on a KICKR BIKE, the gear chosen on its shifters.
+   */
+  async setTrainerSimulation({ grade = 0, windMps = 0, crr = 0.004, cw = 0.51 } = {}) {
+    const c = this.slots.trainer.chars.control;
+    if (!c) return false;
+    const buf = new Uint8Array(7);
+    const dv = new DataView(buf.buffer);
+    dv.setUint8(0, VeloBle.FTMS_OP.SET_SIMULATION);
+    dv.setInt16(1, Math.round(windMps * 1000), true);   // 0.001 m/s
+    dv.setInt16(3, Math.round(grade * 100), true);      // 0.01 %
+    dv.setUint8(5, Math.round(crr * 10000));            // 0.0001
+    dv.setUint8(6, Math.round(cw * 100));               // 0.01 kg/m
+    this.lastTargetPowerSent = null;                    // ERG back on re-sends its target at once
+    try { await this._write('trainer', c, buf); return true; } catch (e) { console.warn('FTMS simulation write failed:', e); return false; }
   }
 
   _onFtmsControlResponse(dv) {

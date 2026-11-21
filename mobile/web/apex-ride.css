@@ -195,3 +195,9 @@ body.av-shell[data-av-route^="ride/summary"] main { padding: 0; }
 .av-summary-insight .btn-row { flex-wrap: wrap; }
 .av-summary-insight .btn { min-height: 44px; }
 .av-ramp-result { margin: 0; padding: 12px 14px; border-radius: 16px; border: 1px solid rgba(75, 227, 166, .45); background: rgba(75, 227, 166, .1); font-weight: 600; }
+
+/* KICKR BIKE gears on the ride screen: one compact row under the clock. */
+.av-ride .gear-view.gv-compact { margin-top: 0; padding: 10px 14px; border-radius: 16px; }
+.av-ride .gv-compact .gv-now b { font-size: 34px; }
+.av-ride .gv-compact .gv-now span { font-size: 22px; }
+.av-ride .gv-compact .gv-body { gap: 14px; }

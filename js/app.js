@@ -41,6 +41,7 @@ class VeloApp {
     this.totalElapsedSeconds = 0;
     this.ergBiasMultiplier = 1.0;
     this.ergModeEnabled = true;
+    this.trainerGear = null;        // KICKR BIKE gear from its shifters { front, rear, frontCount, rearCount }
     this.ergResponse = 'auto';
     this.isPlaying = false;
     this.isWorkoutCompleted = false;
@@ -1318,6 +1319,11 @@ class VeloApp {
         if (data.distanceMeters !== undefined && data.distanceMeters !== null) this.bleTrainer.distanceMeters = data.distanceMeters;
         this.bleTrainer.lastTime = now;
         return;
+      case 'gear':
+        this.trainerGear = { front: data.front, rear: data.rear, frontCount: data.frontCount, rearCount: data.rearCount, at: now };
+        this.renderGear();
+        if (this.publishSoon) this.publishSoon();
+        return;
       case 'hr':
         this.bleHr.hr = (typeof data.hr === 'number' && data.hr > 0) ? data.hr : null;
         this.bleHr.contact = data.contact === undefined ? null : data.contact;
@@ -1341,6 +1347,7 @@ class VeloApp {
         this.onHardwareConnected(data.device);
         this.showToast(`${this.deviceLabel(data.device)} reconnected.`, 'success');
         if (data.device === 'trainer') this.trainerOdoLast = null;
+        if (data.device === 'trainer' && !this.ergModeEnabled) this.ble.setTrainerSimulation();
         if (data.device === 'trainer' && this.isPlaying) {
           this.ble.startTrainerWorkout();
           this.ergApplyNow(true);
@@ -1372,6 +1379,7 @@ class VeloApp {
   onDeviceDisconnected(kind, willReconnect) {
     if (kind === 'trainer') {
       this.bleTrainer.watts = null; this.bleTrainer.cadence = null; this.bleTrainer.speed = null; this.bleTrainer.distanceMeters = null;
+      this.trainerGear = null; this.renderGear();
     } else if (kind === 'pedals') {
       this.blePedal.watts = null; this.blePedal.cadence = null; this.blePedal.leftPct = null; this.blePedal.rightPct = null;
       if (this.calibration.phase !== 'idle') this.finishCalibration(false, 'Pedals disconnected during calibration.');
@@ -1445,6 +1453,7 @@ class VeloApp {
     if (ok) {
       this.onHardwareConnected(kind);
       this.showToast(`${this.deviceLabel(kind)} connected.`, 'success');
+      if (kind === 'trainer' && !this.ergModeEnabled) this.ble.setTrainerSimulation();
       if (kind === 'trainer' && this.isPlaying) {
         this.ble.startTrainerWorkout();
         this.ergApplyNow(true);
@@ -2645,9 +2654,17 @@ class VeloApp {
     this.ergModeEnabled = !this.ergModeEnabled;
     this.erg.reset();
     this.powerMatchOffset = 0;
+    // ERG off puts the trainer in free resistance (a flat road), so a KICKR BIKE rides its own gears.
+    if (!this.ergModeEnabled && this.ble.isTrainerConnected()) this.ble.setTrainerSimulation();
     this.ergApplyNow(true);
     this.updatePowerSourceBadge();
-    this.showToast(this.ergModeEnabled ? 'ERG on - the trainer holds target power.' : 'ERG off - free resistance; targets are guidance only.');
+    this.renderGear();
+    this.showToast(this.ergModeEnabled ? 'ERG on - the trainer holds target power.' : this.trainerGear ? 'ERG off - free resistance; shift on the bike to change it.' : 'ERG off - free resistance; targets are guidance only.');
+  }
+
+  /** The KICKR BIKE's selected gear in the cockpit (hidden for trainers that do not report one). */
+  renderGear() {
+    if (window.VeloGearView) VeloGearView.render(this.$('ssGear'), this.trainerGear || null, { erg: this.ergModeEnabled });
   }
 
   populateCustomIntervalTable() {
