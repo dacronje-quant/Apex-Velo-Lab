@@ -1,95 +1,147 @@
-/* Presentation only. Ride commands are delegated to the existing phone controls. */
+/* Phone Zen: a one-glance ride screen. Presentation only; ride commands are delegated to the existing phone controls.
+   Built for a phone on the bars: the interval countdown is the largest number, power is the 3 s average shown
+   against the target as one bar and a status, and heart rate and cadence only light up when they need attention. */
 window.PhoneZen = (() => {
   const $ = id => document.getElementById(id);
   const LIGHT = {Z1:['#3d63ff','#19c2e0'],Z2:['#2a86ff','#1fd1b2'],Z3:['#16c08d','#a7e04a'],Z4:['#ffb21f','#ff7a2f'],Z5:['#ff5a36','#ff2d7a'],Z6:['#ff2e63','#a23bff'],Z7:['#9b4dff','#ff3dce']};
-  let active = false, history = [], previous = null, seeded = false;
+  const STEP_LIGHT = {Z1:'#3d63ff',Z2:'#2a86ff',Z3:'#16c08d',Z4:'#ffb21f',Z5:'#ff5a36',Z6:'#ff2e63',Z7:'#9b4dff'};
+  const ON_TARGET_PCT = 5, CLOSE_PCT = 10, BAND_PCT = 15, CADENCE_SLACK = 5;
+  let active = false, previous = null, stripKey = '';
+  const fmt = s => {
+    s = Math.max(0, Math.round(s || 0));
+    const h = Math.floor(s / 3600), m = Math.floor((s % 3600) / 60), x = s % 60;
+    return (h ? h + ':' + String(m).padStart(2, '0') : m) + ':' + String(x).padStart(2, '0');
+  };
+  const esc = v => String(v == null ? '' : v).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+  const zoneOf = pct => window.VeloMetrics && pct > 0 ? VeloMetrics.zoneForPct(pct) : null;
+  const stepColor = pct => { const z = zoneOf(pct); return (z && STEP_LIGHT[z.short]) || '#2a86ff'; };
+  /** The 3 s average: steady enough to read at a glance, quick enough to follow an effort. */
+  const power3 = s => { const a = s.powerAverages && s.powerAverages[3]; return a != null ? a : s.power; };
+
   function setActive(value) {
     active = value;
-    document.body.classList.toggle('zen-active',value);
+    document.body.classList.toggle('zen-active', value);
     $('phoneZen').hidden = !value;
-    $('btnZen').setAttribute('aria-pressed',String(value));
+    $('btnZen').setAttribute('aria-pressed', String(value));
     if (value) $('zenExit').focus(); else $('btnZen').focus();
-    if (previous) update(...previous);
+    if (previous) update(previous);
     window.dispatchEvent(new Event('resize'));
   }
   function init() {
-    $('btnZen').addEventListener('click',()=>setActive(true));
-    $('zenExit').addEventListener('click',()=>setActive(false));
-    document.addEventListener('keydown',e=>{if(active && e.key==='Escape')setActive(false);});
-    [['zenDown','btnDown'],['zenToggle','btnToggle'],['zenUp','btnUp'],['zenSkip','btnSkip'],['zenPowerView','btnPowerView']].forEach(([zen,normal])=>$(zen).addEventListener('click',()=>{ $(normal).click(); syncControls(); }));
-    window.addEventListener('resize',()=>{if(active&&previous)update(...previous);});
+    $('btnZen').addEventListener('click', () => setActive(true));
+    $('zenExit').addEventListener('click', () => setActive(false));
+    document.addEventListener('keydown', e => { if (active && e.key === 'Escape') setActive(false); });
+    [['zenDown','btnDown'],['zenToggle','btnToggle'],['zenUp','btnUp'],['zenSkip','btnSkip']].forEach(([zen, normal]) => $(zen).addEventListener('click', () => { $(normal).click(); syncControls(); }));
   }
-  function spark(id,values,color) {
-    const canvas=$(id),w=canvas.clientWidth,h=canvas.clientHeight;
-    if(!w||!h)return;
-    const dpr=devicePixelRatio||1;canvas.width=Math.round(w*dpr);canvas.height=Math.round(h*dpr);
-    const g=canvas.getContext('2d');g.scale(dpr,dpr);
-    const good=values.filter(v=>v!=null&&Number.isFinite(v));if(good.length<2)return;
-    const lo=Math.min(...good)-2,hi=Math.max(...good)+2;
-    g.strokeStyle=color;g.lineWidth=1.6;g.beginPath();let pen=false;
-    values.forEach((v,i)=>{if(v==null||!Number.isFinite(v)){pen=false;return;}const x=i/Math.max(1,values.length-1)*w,y=h-3-(v-lo)/(hi-lo)*(h-6);pen?g.lineTo(x,y):g.moveTo(x,y);pen=true;});g.stroke();
+
+  /** Whole-workout strip: one segment per step in its zone colour, the ridden part dimmed, a needle at "now". */
+  function drawStrip(s) {
+    const prof = (s.profile || []).filter(p => p[0] > 0);
+    const strip = $('zenStrip');
+    strip.hidden = !prof.length;
+    if (!prof.length) return;
+    const key = s.title + '|' + prof.map(p => p.join(':')).join(',');
+    if (key !== stripKey) {
+      stripKey = key;
+      $('zenSegments').innerHTML = prof.map(p => `<i style="flex:${p[0]} 0 0;background:${stepColor(p[1])}"></i>`).join('');
+    }
+    const at = Math.max(0, Math.min(1, s.progress || 0)) * 100;
+    $('zenDone').style.width = at + '%';
+    $('zenHere').style.left = at + '%';
   }
-  function update(s,power,label) {
-    if(!s)return;
-    if(!previous||s.title!==previous[0].title||s.elapsed<previous[0].elapsed) {
-      history=[];seeded=false;
-    }
-    if(!seeded&&(s.hist?.recent?.h?.length||s.hist?.h?.length)) {
-      history=[];seeded=true;
-      const hist=s.hist||{},recent=hist.recent,bin=recent?1:hist.bin||1;
-      const h=recent?.h||hist.h||[],c=recent?.c||hist.c||[];
-      const n=Math.min(59,h.length*bin);
-      const now=Math.floor(Date.now()/1000);
-      for(let i=n;i>0;i--)history.push({t:now-i,h:h.at(-Math.ceil(i/bin))??null,c:c.at(-Math.ceil(i/bin))??null});
-    }
-    previous=[s,power,label];
-    const basis=power>0?power:s.target||0,pct=s.ftp>0?basis/s.ftp*100:0;
-    const zone=window.VeloMetrics&&s.ftp>0?VeloMetrics.zoneForPct(pct):null;
-    // Zone light: Zen follows the displayed power; the normal views follow the step's target zone
-    // (as the PC cockpit does), so the colour does not flicker when power hovers at a zone edge.
-    const lightKey=active?zone&&zone.short:(s.targetZone&&s.targetZone.short)||(zone&&zone.short);
-    const colors=lightKey&&LIGHT[lightKey];
-    if(colors){document.body.style.setProperty('--zone-a',colors[0]);document.body.style.setProperty('--zone-b',colors[1]);document.body.dataset.zone=lightKey.toLowerCase();}
-    const now=Math.floor(Date.now()/1000),sample={t:now,h:s.hr||null,c:s.cadence||null};
-    if(history.at(-1)?.t===now)history[history.length-1]=sample;else history.push(sample);
-    history=history.filter(p=>now-p.t<60);
-    const running=s.state==='running',finished=s.state==='finished';
-    $('zenPower').textContent=power!=null&&(power>0||running)?power:'--';
-    $('zenPower').classList.toggle('four-digits',String(power).length>3);
-    $('zenPowerLabel').textContent='Power · '+label;
-    $('zenPowerView').setAttribute('aria-label','Power view: '+label+'. Tap to change averaging.');
-    $('zenTarget').textContent=s.target>0?'target '+s.target+' W'+(s.targetPct!=null?' · '+s.targetPct+'% FTP':''):'No target';
-    $('zenZone').textContent=zone?zone.short+' · '+zone.name.toUpperCase():'POWER';
-    $('zenState').textContent=running?'RIDING':finished?'FINISHED':s.state==='paused'?'PAUSED':'READY';
-    $('zenHr').textContent=s.hr||'--';$('zenCadence').textContent=s.cadence||'--';
-    $('zenCadenceTarget').textContent=s.targetCadence?'TARGET '+s.targetCadence:'LAST 60 S';
-    const wb=s.wbal;
-    $('zenReserve').classList.toggle('unavailable',!wb);
-    $('zenWbal').textContent=wb?wb.pct+'%':'--';
-    $('zenWbalSub').textContent=wb?wb.kj.toFixed(1)+' kJ left'+(wb.state==='burning'&&wb.tte!=null?' · empty in '+Math.floor(wb.tte/60)+':'+String(Math.floor(wb.tte%60)).padStart(2,'0'):''):'No CP model';
-    $('zenLiquid').style.height=wb?Math.max(0,Math.min(100,wb.pct))+'%':'0%';
-    const C=2*Math.PI*160,arc=C*.75,max=s.target>0?s.target/.625:Math.max(400,(s.ftp||0)*1.6);
-    $('zenArc').style.strokeDasharray=Math.max(0,Math.min(1,(power||0)/max))*arc+' '+C;
-    $('zenBand').style.strokeDasharray=s.target>0?(s.target*.1/max*arc)+' '+C:'0 '+C;
-    $('zenBand').style.strokeDashoffset=-(s.target*.95/max*arc);
-    const theta=(135+Math.max(0,Math.min(1,(s.ftp||0)/max))*270)*Math.PI/180;
-    const point=r=>[200+Math.cos(theta)*r,200+Math.sin(theta)*r];const a=point(174),b=point(188),t=point(204);
-    $('zenFtpTick').setAttribute('x1',a[0]);$('zenFtpTick').setAttribute('y1',a[1]);$('zenFtpTick').setAttribute('x2',b[0]);$('zenFtpTick').setAttribute('y2',b[1]);
-    $('zenFtpText').setAttribute('x',t[0]);$('zenFtpText').setAttribute('y',t[1]);$('zenFtpText').textContent=s.ftp>0?'FTP':'';$('zenFtpTick').style.display=s.ftp>0?'':'none';
+
+  function powerStatus(s, power, running) {
+    const st = $('zenStatus');
+    const hasTarget = s.target > 0;
+    $('zenBand').hidden = !hasTarget;
+    if (!hasTarget) { st.textContent = running ? 'Free ride' : stateWord(s); st.className = 'zen-status'; return; }
+    if (!running || !(power > 0)) { st.textContent = stateWord(s); st.className = 'zen-status'; $('zenMarker').hidden = true; return; }
+    const d = (power - s.target) / s.target * 100, off = Math.abs(d);
+    // In ERG the trainer sets the watts, so the status says where power is rather than asking for an effort.
+    const under = s.erg ? 'Under' : 'Push', over = s.erg ? 'Over' : 'Ease off';
+    st.textContent = off <= ON_TARGET_PCT ? 'On target' : d < 0 ? under : over;
+    st.className = 'zen-status ' + (off <= ON_TARGET_PCT ? 'on' : off <= CLOSE_PCT ? 'close' : 'off');
+    $('zenMarker').hidden = false;
+    $('zenMarker').style.left = Math.max(3, Math.min(97, 50 + d / BAND_PCT * 50)) + '%';
+  }
+  const stateWord = s => s.state === 'running' ? 'Riding' : s.state === 'paused' ? 'Paused' : s.state === 'finished' ? 'Finished' : 'Ready';
+
+  function update(s) {
+    if (Array.isArray(s)) s = s[0]; // tolerate the old (snapshot, power, label) call shape
+    if (!s) return;
+    previous = s;
+    const running = s.state === 'running', finished = s.state === 'finished';
+    const rampFinished = finished && !!s.completedRide?.rampTest;
+    const power = power3(s);
+
+    // Zone light follows the step's target zone (as the PC cockpit does), so it does not flicker when power
+    // hovers at a zone edge; a free ride without a target follows the 3 s power instead.
+    const basis = s.target > 0 ? s.target : power > 0 ? power : 0;
+    const zone = s.targetZone || zoneOf(s.ftp > 0 ? basis / s.ftp * 100 : 0);
+    const colors = zone && LIGHT[zone.short];
+    if (colors) { document.body.style.setProperty('--zone-a', colors[0]); document.body.style.setProperty('--zone-b', colors[1]); document.body.dataset.zone = zone.short.toLowerCase(); }
+
+    // Where you are
+    $('zenStep').textContent = s.step ? `${s.step.index}/${s.step.count} · ${s.step.name || ''}` : (s.title || 'Free ride');
+    const totalLeft = s.totalDuration && !s.rampTest?.openEnded ? Math.max(0, Math.round(s.totalDuration * (1 - (s.progress || 0)))) : null;
+    $('zenTotalWrap').hidden = totalLeft == null;
+    $('zenTotal').textContent = totalLeft != null ? fmt(totalLeft) : '';
+    drawStrip(s);
+
+    // The countdown
+    $('zenClockLabel').textContent = rampFinished ? 'RAMP COMPLETE' : s.step ? (s.rampTest?.openEnded ? 'STEP LEFT' : 'INTERVAL LEFT') : 'RIDE TIME';
+    $('zenClock').textContent = rampFinished ? 'DONE' : s.step ? fmt(s.step.remaining) : fmt(s.elapsed || 0);
+
+    // Power: 3 s average against the target
+    $('zenPower').textContent = power != null && (power > 0 || running) ? power : '--';
+    $('zenPower').classList.toggle('four-digits', String($('zenPower').textContent).length > 3);
+    $('zenTarget').textContent = s.target > 0 ? (s.erg ? 'ERG holding ' : 'Target ') + s.target + ' W' : 'No target';
+    $('zenTargetPct').textContent = s.target > 0 && s.targetPct != null ? s.targetPct + '% FTP' : '';
+    powerStatus(s, power, running);
+
+    // Heart rate and cadence; a tile lights up only when you are off the cadence target
+    $('zenHr').textContent = s.hr || '--';
+    $('zenHrSub').textContent = s.hr && s.hrZone ? s.hrZone : 'bpm';
+    $('zenCadence').textContent = s.cadence || '--';
+    const tc = s.targetCadence, cad = s.cadence;
+    const offCad = running && tc > 0 && cad > 0 && Math.abs(cad - tc) > CADENCE_SLACK;
+    $('zenCadTile').classList.toggle('warn', offCad);
+    $('zenCadenceTarget').textContent = tc > 0 ? `target ${tc}${offCad ? (cad < tc ? ' ↑' : ' ↓') : ''}` : 'rpm';
+
+    // What comes next
+    const next = $('zenNext');
+    if (rampFinished) { next.hidden = false; $('zenNextSwatch').hidden = true; $('zenNextText').textContent = s.completedRide.rampTest.message || 'Ramp test complete.'; }
+    else if (s.next) {
+      next.hidden = false; $('zenNextSwatch').hidden = false;
+      $('zenNextSwatch').style.background = stepColor(s.ftp > 0 ? s.next.watts / s.ftp * 100 : 0);
+      $('zenNextText').innerHTML = `Next <b>${esc(s.next.name)}</b> · <span class="num">${fmt(s.next.duration)} @ ${s.next.watts} W</span>`;
+    } else if (s.step && !finished) {
+      next.hidden = false; $('zenNextSwatch').hidden = true;
+      $('zenNextText').textContent = s.rampTest?.openEnded ? 'Ramp continues until you cannot hold the target.' : 'Final step. Bring it home.';
+    } else next.hidden = true;
+
     syncControls();
-    if(active){const streams=history.length>1?history:null;for(const [id,key,color] of [['zenHrTrace','h','#ff5c86'],['zenCadTrace','c','#3ddc97']]){const hist=s.hist||{};const values=streams?Array.from({length:60},(_,i)=>streams.find(p=>p.t===now-59+i)?.[key]??null):(hist.recent?.[key]||hist[key]||[]).slice(-Math.ceil(60/(hist.recent?.[key]?1:hist.bin||1)));spark(id,values,color);}}
   }
+
   function syncControls() {
-    $('zenState').textContent=$('state').textContent;
-    for(const [zen,normal] of [['zenDown','btnDown'],['zenToggle','btnToggle'],['zenUp','btnUp'],['zenSkip','btnSkip']]){$(zen).disabled=$(normal).disabled;}
-    const label=$('btnToggle').textContent;
-    $('zenToggle').textContent=label==='PAUSE'?'Ⅱ':label==='RESUME'?'▶':label;
-    $('zenToggle').setAttribute('aria-label',label==='PAUSE'?'Pause ride':label==='RESUME'?'Resume ride':label==='START'?'Start ride':'Ride finished');
-    $('zenToggle').classList.toggle('paused',label!=='PAUSE');
-    const armed=$('btnSkip').classList.contains('armed');
-    $('zenSkip').textContent=armed?'Confirm':'Skip';
-    $('zenSkip').setAttribute('aria-label',armed?'Tap again to skip step':'Skip step');
-    if(previous){const s=previous[0],pending=Number($('trTarget').textContent);if(pending>0)$('zenTarget').textContent='target '+pending+' W'+(s.ftp>0?' · '+Math.round(pending/s.ftp*100)+'% FTP':'');}
+    $('zenState').textContent = $('state').textContent;
+    for (const [zen, normal] of [['zenDown','btnDown'],['zenToggle','btnToggle'],['zenUp','btnUp'],['zenSkip','btnSkip']]) $(zen).disabled = $(normal).disabled;
+    const label = $('btnToggle').textContent;
+    const words = {PAUSE:'Pause', RESUME:'Resume', START:'Start', FINISHED:'Finished'};
+    $('zenToggleText').textContent = words[label] || label;
+    $('zenToggle').setAttribute('aria-label', label === 'PAUSE' ? 'Pause ride' : label === 'RESUME' ? 'Resume ride' : label === 'START' ? 'Start ride' : 'Ride finished');
+    $('zenToggle').classList.toggle('paused', label !== 'PAUSE');
+    const armed = $('btnSkip').classList.contains('armed');
+    $('zenSkip').textContent = armed ? 'Confirm' : 'Skip';
+    $('zenSkip').setAttribute('aria-label', armed ? 'Tap again to skip step' : 'Skip step');
+    // Show a tapped ±5 W straight away, before the PC confirms it.
+    if (previous) {
+      const s = previous, pending = Number($('trTarget').textContent);
+      if (pending > 0) {
+        $('zenTarget').textContent = (s.erg ? 'ERG holding ' : 'Target ') + pending + ' W';
+        $('zenTargetPct').textContent = s.ftp > 0 ? Math.round(pending / s.ftp * 100) + '% FTP' : '';
+      }
+    }
   }
-  return {init,update,syncControls,setActive,get active(){return active;}};
+  return {init, update, syncControls, setActive, get active() { return active; }};
 })();

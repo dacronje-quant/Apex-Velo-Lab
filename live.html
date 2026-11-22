@@ -603,18 +603,25 @@
   </section>
 
 <section id="phoneZen" class="phone-zen" hidden aria-label="Zen ride view">
-  <div class="zen-top"><span id="zenState">READY</span><button id="zenExit" type="button">Exit Zen</button></div>
-  <div class="zen-dashboard"><div class="zen-left">
-    <button id="zenPowerView" class="zen-meter" type="button" aria-label="Change power averaging">
-      <svg class="ss-ring zen-ring" viewBox="-22 -22 444 444" aria-hidden="true"><circle class="t" cx="200" cy="200" r="160"/><circle class="b" id="zenBand" cx="200" cy="200" r="160"/><circle class="a" id="zenArc" cx="200" cy="200" r="160"/><line id="zenFtpTick" class="zen-ftp-tick"/><text id="zenFtpText" class="zen-ftp-text" text-anchor="middle" dominant-baseline="middle"></text></svg>
-      <div class="zen-reading"><div><span id="zenPower">--</span><small>W</small></div><div id="zenPowerLabel">Power &middot; Current</div><div id="zenTarget">No target</div><span id="zenZone">POWER</span></div>
-    </button>
-    <div class="zen-actions" aria-label="Ride controls"><button id="zenDown" type="button" aria-label="Reduce target by 5 watts">&minus;5 W</button><button id="zenToggle" type="button" aria-label="Start ride">START</button><button id="zenUp" type="button" aria-label="Increase target by 5 watts">+5 W</button><button id="zenSkip" type="button">Skip</button></div>
-  </div><div class="zen-metrics">
-    <div class="zen-card"><div class="zen-card-label"><span>HEART RATE</span><span>LAST 60 S</span></div><div class="zen-metric"><span id="zenHr">--</span><small>bpm</small></div><canvas id="zenHrTrace" role="img" aria-label="Heart rate over the last sixty seconds"></canvas></div>
-    <div class="zen-card"><div class="zen-card-label"><span>CADENCE</span><span id="zenCadenceTarget">LAST 60 S</span></div><div class="zen-metric"><span id="zenCadence">--</span><small>rpm</small></div><canvas id="zenCadTrace" role="img" aria-label="Cadence over the last sixty seconds"></canvas></div>
-    <div class="zen-card zen-reserve" id="zenReserve"><div class="zen-card-label"><span>W&prime; BALANCE</span><span>BURST RESERVE</span></div><div id="zenLiquid"></div><div class="zen-reserve-value"><div id="zenWbal">--</div><div id="zenWbalSub">No CP model</div></div></div>
-  </div></div>
+  <div class="zen-top"><span id="zenState">READY</span><span id="zenStep" class="zen-step"></span><button id="zenExit" type="button">Exit Zen</button></div>
+  <div class="zen-progress" id="zenStrip" aria-hidden="true"><div class="zen-strip"><div id="zenSegments" class="zen-segments"></div><span id="zenDone" class="zen-done"></span><span id="zenHere" class="zen-here"></span></div><span id="zenTotalWrap" class="zen-total"><b id="zenTotal" class="num"></b> left</span></div>
+  <div class="zen-dashboard">
+    <div class="zen-clock"><div id="zenClockLabel" class="zen-label">INTERVAL LEFT</div><div id="zenClock" class="num">--:--</div></div>
+    <div class="zen-power">
+      <div class="zen-power-row"><div class="zen-reading"><span id="zenPower" class="num">--</span><small>W</small></div><span id="zenStatus" class="zen-status">Ready</span></div>
+      <div id="zenBand" class="zen-band" aria-hidden="true"><span class="zen-band-ok"></span><span id="zenMarker" class="zen-marker"></span></div>
+      <div class="zen-power-sub"><span id="zenTarget">No target</span><span><span id="zenTargetPct" class="num"></span> <span id="zenPowerLabel">· 3 s power</span></span></div>
+    </div>
+    <div class="zen-tiles">
+      <div class="zen-tile"><div class="zen-label">HEART RATE</div><span id="zenHr" class="zen-tile-v num">--</span><span id="zenHrSub" class="zen-tile-s">bpm</span></div>
+      <div class="zen-tile" id="zenCadTile"><div class="zen-label">CADENCE</div><span id="zenCadence" class="zen-tile-v num">--</span><span id="zenCadenceTarget" class="zen-tile-s">rpm</span></div>
+    </div>
+    <div id="zenNext" class="zen-next" hidden><i id="zenNextSwatch"></i><span id="zenNextText"></span></div>
+  </div>
+  <div class="zen-actions" aria-label="Ride controls">
+    <button id="zenToggle" type="button" aria-label="Start ride"><svg viewBox="0 0 24 24" aria-hidden="true"><rect class="zen-ico-pause" x="6" y="4" width="4" height="16" rx="1"/><rect class="zen-ico-pause" x="14" y="4" width="4" height="16" rx="1"/><path class="zen-ico-play" d="M7 4.5v15l12-7.5z"/></svg><span id="zenToggleText">Start</span></button>
+    <button id="zenDown" type="button" aria-label="Reduce target by 5 watts">&minus;5 W</button><button id="zenSkip" type="button">Skip</button><button id="zenUp" type="button" aria-label="Increase target by 5 watts">+5 W</button>
+  </div>
 </section>
   <div class="overlay" id="overlay">
     <h2 id="ovTitle">Can't reach your PC</h2>
@@ -1425,7 +1432,7 @@
     if (nx) nx.innerHTML = rampFinished ? esc(s.completedRide.rampTest.message || 'Ramp test complete.') : s.next && stepLeft != null
       ? `Next in <b class="num">${fmt(stepLeft)}</b>: <b>${esc(s.next.name)}</b> &middot; <span class="num">${fmt(s.next.duration)} @ ${s.next.watts} W</span>`
       : (s.rampTest?.openEnded ? 'Ramp continues until you cannot hold the target.' : s.step ? 'Final step &mdash; bring it home.' : '&nbsp;');
-    PhoneZen.update(s, power, powerViewLabel());
+    PhoneZen.update(s);
   }
 
   function drawZoneBar(s, progress) {

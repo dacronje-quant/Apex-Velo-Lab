@@ -61,30 +61,52 @@ const snapshot = { state:'running', title:'Threshold progression — sustained c
   snapshot.power = 178;
   const commandResponse=page.waitForResponse(r=>r.url().endsWith('/api/live/cmd'));await page.locator('#btnUp').click();await commandResponse;assert.ok(commands.some(c=>c.body?.includes('watts-up')),'nudge command sent');
   // Zen is a display choice, with live data and the same guarded ride commands.
-  snapshot.power=218;snapshot.target=222;snapshot.targetPct=120;snapshot.hr=169;snapshot.cadence=97;snapshot.targetCadence=98;
+  snapshot.power=218;snapshot.powerAverages={3:216,5:217,7:217,10:218};snapshot.target=222;snapshot.targetPct=120;snapshot.targetZone={short:'Z5',color:'#ff5a36'};snapshot.hr=169;snapshot.cadence=97;snapshot.targetCadence=98;
   snapshot.hist={bin:1,p:Array(60).fill(218),h:Array.from({length:60},(_,i)=>168+Math.sin(i/6)*2),c:Array.from({length:60},(_,i)=>97+Math.sin(i)*1.5)};
   await page.waitForFunction(()=>document.getElementById('trPower').textContent==='218');
   await page.waitForTimeout(4500); // Let the earlier unacknowledged mock nudge expire.
   const beforeZen=commands.length;
   await page.locator('#btnZen').click();
   assert.equal(await page.locator('#phoneZen').isVisible(),true);
-  assert.equal(await page.locator('#zenPower').textContent(),'218');
+  assert.equal(await page.locator('#zenPower').textContent(),'216','Zen shows the 3 s average, not the erratic current power');
+  assert.ok((await page.locator('#zenPowerLabel').textContent()).includes('3 s'));
+  assert.equal(await page.locator('#zenClock').textContent(),'6:30','interval countdown is the hero number');
+  assert.equal(await page.locator('#zenClockLabel').textContent(),'INTERVAL LEFT');
+  assert.equal(await page.locator('#zenStatus').textContent(),'On target');
+  assert.equal(await page.locator('#zenStep').textContent(),'5/8 · Sustained threshold with controlled cadence');
+  assert.ok((await page.locator('#zenNextText').textContent()).startsWith('Next Easy recovery before the next threshold effort'));
+  assert.equal(await page.locator('#zenTotal').textContent(),'26:30');
   assert.equal(await page.locator('#zenHr').textContent(),'169');
-  assert.equal(await page.locator('#zenWbal').textContent(),'68%');
-  assert.equal(await page.locator('body').getAttribute('data-zone'),'z5');
+  assert.equal(await page.locator('#zenCadTile').getAttribute('class'),'zen-tile','cadence on target stays quiet');
+  assert.equal(await page.locator('body').getAttribute('data-zone'),'z5','zone light follows the step target');
   assert.equal(commands.length,beforeZen,'entering Zen sends no ride command');
   for(const [width,height] of [[390,844],[430,932],[360,740],[320,568],[844,390],[578,329]]) {
    await page.setViewportSize({width,height});
-   const problems=await page.evaluate(()=>[document.documentElement,document.getElementById('phoneZen'),...document.querySelectorAll('.zen-dashboard,.zen-left,.zen-metrics,.zen-card,.zen-actions')].filter(e=>e.scrollHeight>e.clientHeight+2||e.scrollWidth>e.clientWidth+2).map(e=>({id:e.id||e.className,h:e.clientHeight,sh:e.scrollHeight,w:e.clientWidth,sw:e.scrollWidth})));
+   const problems=await page.evaluate(()=>[document.documentElement,document.getElementById('phoneZen'),...document.querySelectorAll('.zen-top,.zen-dashboard,.zen-clock,.zen-power,.zen-tiles,.zen-tile,.zen-next,.zen-actions')].filter(e=>e.scrollHeight>e.clientHeight+2||e.scrollWidth>e.clientWidth+2).map(e=>({id:e.id||e.className,h:e.clientHeight,sh:e.scrollHeight,w:e.clientWidth,sw:e.scrollWidth})));
+   // Blocks must not overlap each other or run past the screen.
+   const overlaps=await page.evaluate(()=>{const shown=[...document.querySelectorAll('.zen-top,.zen-progress,.zen-clock,.zen-power,.zen-tile,.zen-next,.zen-actions button')].filter(e=>e.getClientRects().length);const r=shown.map(e=>e.getBoundingClientRect());const out=[];
+    r.forEach((a,i)=>{if(a.bottom>innerHeight+1||a.right>innerWidth+1)out.push({id:shown[i].id||shown[i].className,offscreen:true});for(let j=i+1;j<r.length;j++){const b=r[j];if(shown[i].contains(shown[j])||shown[j].contains(shown[i]))continue;if(a.left<b.right-1&&b.left<a.right-1&&a.top<b.bottom-1&&b.top<a.bottom-1)out.push({a:shown[i].id||shown[i].className,b:shown[j].id||shown[j].className});}});return out;});
+   overlaps.forEach(problem=>issues.push({width,height,view:'zen-overlap',...problem}));
+   const clock=await page.locator('#zenClock').evaluate(e=>parseFloat(getComputedStyle(e).fontSize));
+   if(clock<44)issues.push({width,height,view:'zen',clockFont:clock});
    problems.forEach(problem=>issues.push({width,height,view:'zen',...problem}));
    if(width===390||width===578)await page.screenshot({path:path.join(root,'test-output/phone-zen-'+(width===390?'portrait':'landscape')+'.png')});
   }
-  snapshot.power=1234;
+  // Off target: the status and the cadence tile ask for attention.
+  snapshot.powerAverages={3:190,5:192,7:195,10:200};snapshot.cadence=85;
+  await page.waitForFunction(()=>document.getElementById('zenPower').textContent==='190');
+  assert.equal(await page.locator('#zenStatus').textContent(),'Push');
+  assert.equal(await page.locator('#zenStatus').getAttribute('class'),'zen-status off');
+  assert.equal(await page.locator('#zenCadTile').getAttribute('class'),'zen-tile warn');
+  assert.equal(await page.locator('#zenCadenceTarget').textContent(),'target 98 ↑');
+  snapshot.erg=true;
+  await page.waitForFunction(()=>document.getElementById('zenStatus').textContent==='Under');
+  assert.ok((await page.locator('#zenTarget').textContent()).startsWith('ERG holding'));
+  snapshot.power=1234;snapshot.powerAverages={3:1234,5:1234,7:1234,10:1234};
   await page.waitForFunction(()=>document.getElementById('zenPower').textContent==='1234');
-  assert.equal(await page.locator('#zenPower').getAttribute('class'),'four-digits');
-  assert.equal(await page.locator('body').getAttribute('data-zone'),'z7');
-  await page.locator('#zenPowerView').click();
-  assert.ok((await page.locator('#zenPowerLabel').textContent()).includes('3s'),'averaging shared with Ride');
+  assert.equal(await page.locator('#zenPower').getAttribute('class'),'num four-digits');
+  assert.equal(await page.locator('body').getAttribute('data-zone'),'z5','zone light does not jump with power');
+  snapshot.cadence=97;snapshot.erg=false;
   await page.locator('#zenSkip').click();
   assert.equal(await page.locator('#zenSkip').textContent(),'Confirm');
   const skipResponse=page.waitForResponse(r=>r.url().endsWith('/api/live/cmd'));
@@ -96,7 +118,6 @@ const snapshot = { state:'running', title:'Threshold progression — sustained c
   snapshot.state='paused';snapshot.wbal=null;snapshot.hr=null;snapshot.cadence=null;
   await page.waitForFunction(()=>document.getElementById('zenState').textContent==='PAUSED'&&document.getElementById('zenHr').textContent==='--');
   assert.equal(await page.locator('#zenHr').textContent(),'--');
-  assert.equal(await page.locator('#zenWbalSub').textContent(),'No CP model');
   const beforeExit=commands.length;
   await page.locator('#zenExit').click();
   assert.equal(await page.locator('#phoneZen').isVisible(),false);
@@ -111,7 +132,7 @@ const snapshot = { state:'running', title:'Threshold progression — sustained c
   assert.equal(await page.locator('#spinOffer').isVisible(),true,'easy-spin offer remains accessible');
   await page.locator('#zenExit').click();
   delete snapshot.easySpinOffer;
-  snapshot.state='running';snapshot.power=178;
+  snapshot.state='running';snapshot.power=178;snapshot.powerAverages={3:178,5:177,7:176,10:175};
   for(let i=0;i<4;i++)await page.locator('#btnPowerView').click(); // 3s -> 5s -> 7s -> 10s -> Current.
   await page.locator('#tabs [data-page="3"]').click();await page.reload();await page.waitForFunction(()=>document.getElementById('trPower').textContent==='178');
   assert.equal(await page.locator('#tabs [data-page="3"]').getAttribute('aria-selected'),'true');
@@ -123,6 +144,6 @@ const snapshot = { state:'running', title:'Threshold progression — sustained c
   assert.deepEqual(errors,[],'no browser errors');
   if(issues.length)console.log(JSON.stringify(issues,null,2));
   assert.deepEqual(issues,[],'every visible phone view fits without scrolling');
-  console.log('Passed: Ride, Pedaling, Devices and Zen; no scrolling across 31 layouts; live zones, averaging, two-tap skip, pause, exit and missing sensors.');
+  console.log('Passed: Ride, Pedaling, Devices and Zen; no scrolling across 31 layouts; live zones, 3 s power, countdown, target status, two-tap skip, pause, exit and missing sensors.');
  } finally {await browser.close();}
 })().catch(e=>{console.error(e);process.exit(1);});

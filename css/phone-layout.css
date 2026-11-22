@@ -1,79 +1,122 @@
 [hidden] { display: none !important; }
-/* Zen is a full-screen display choice on Ride, not another navigation category. */
+/* Zen is a full-screen display choice on Ride, not another navigation category.
+   One glance from the bars: interval countdown first, 3 s power against the target, HR and cadence, the next step,
+   and ride controls in the thumb zone. Nothing scrolls at any phone size. */
 body.zen-active > header, body.zen-active > .tabs, body.zen-active > .pages,
 body.zen-active > .controls, body.zen-active > #zoneBar { display: none !important; }
 body.zen-active > #spinOffer, body.zen-active > #rideDownload { position: fixed; bottom: 10px; left: 10px; right: 10px; z-index: 4; }
-.phone-zen { position: fixed; inset: max(8px,env(safe-area-inset-top)) max(8px,env(safe-area-inset-right)) max(8px,env(safe-area-inset-bottom)) max(8px,env(safe-area-inset-left)); z-index: 3; display: flex; flex-direction: column; gap: 8px; overflow: hidden; }
-.zen-top { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex: none; min-height: 40px; }
-#zenState { font-size: 10px; letter-spacing: .1em; color: var(--muted); }
-#zenExit { min-height: 40px; padding: 7px 16px; font-size: 12px; border-radius: 99px; }
-.zen-dashboard { display: grid; grid-template-columns: minmax(0,1.6fr) minmax(0,1fr); gap: 16px; flex: 1; min-height: 0; }
-.zen-left { display: flex; flex-direction: column; align-items: stretch; min-height: 0; min-width: 0; }
-button.zen-meter { flex: 1; min-height: 0; position: relative; display: flex; align-items: center; justify-content: center; background: none; border: 0; padding: 0; box-shadow: none; }
-.zen-meter .zen-ring { inset: 0; width: 100%; height: 100%; transform: none; }
-.zen-ring .zen-ftp-tick { stroke: var(--muted); stroke-width: 2; }
-.zen-ring .zen-ftp-text { fill: var(--muted); font-size: 11px; font-family: Figtree,sans-serif; }
-.zen-reading { position: relative; text-align: center; max-width: 72%; }
-#zenPower { font-family: var(--display); font-weight: 600; font-size: clamp(36px,8vw,96px); letter-spacing: -.05em; line-height: 1.05; }
-#zenPower.four-digits { font-size: clamp(28px,6.5vw,72px); }
-.zen-reading small { font-size: 15px; color: var(--muted); margin-left: 3px; }
-#zenPowerLabel { font-size: 9px; color: var(--muted); margin-top: 5px; }
-#zenTarget { font-size: 11px; margin: 9px 0; }
-#zenZone { display: inline-block; font-size: 9px; padding: 5px 9px; border: 1px solid color-mix(in srgb,var(--zone-a) 45%,transparent); border-radius: 99px; background: color-mix(in srgb,var(--zone-a) 14%,transparent); }
-.zen-metrics { display: grid; grid-template-rows: repeat(3,minmax(0,1fr)); gap: 10px; min-height: 0; min-width: 0; }
-.zen-card { background: var(--glass); border: 1px solid rgba(255,255,255,.1); border-radius: 24px; padding: 14px; display: flex; flex-direction: column; min-height: 0; overflow: hidden; backdrop-filter: blur(18px) saturate(150%); }
-.zen-card-label { display: flex; justify-content: space-between; gap: 8px; font-size: 8px; font-weight: 650; letter-spacing: .06em; color: var(--muted); }
-.zen-metric { margin-top: 6px; }
-.zen-metric > span { font-family: var(--display); font-size: clamp(24px,4.5vw,46px); font-weight: 600; letter-spacing: -.05em; }
-.zen-metric small { font-size: 10px; margin-left: 4px; color: var(--muted); }
-.zen-card canvas { flex: 1; min-height: 14px; width: 100%; height: 34px; margin-top: 6px; }
-.zen-reserve { position: relative; justify-content: space-between; }
-#zenLiquid { position: absolute; bottom: 0; left: 0; right: 0; background: linear-gradient(180deg,color-mix(in srgb,var(--zone-a) 35%,#a4acc6),color-mix(in srgb,var(--zone-b) 28%,#3d63ff)); opacity: .45; transition: height .6s ease; pointer-events: none; }
-.zen-reserve .zen-card-label,.zen-reserve-value { position: relative; }
-#zenWbal { font-family: var(--display); font-size: clamp(28px,5vw,50px); font-weight: 600; letter-spacing: -.05em; }
-#zenWbalSub { font-size: 11px; color: var(--muted); }
-.zen-actions { display: flex; justify-content: center; gap: 7px; flex: none; align-self: center; padding: 7px; border: 1px solid rgba(255,255,255,.12); border-radius: 99px; background: var(--glass); }
-.zen-actions button { min-width: 52px; min-height: 52px; border-radius: 99px; padding: 6px 10px; font-size: 12px; }
-#zenToggle { background: linear-gradient(135deg,#ff5a36,#ff2d7a); min-width: 58px; font-size: 19px; color: #fff; }
-#zenToggle.paused { font-size: 12px; background: linear-gradient(135deg,var(--zone-a),var(--zone-b)); }
-.zen-actions button:focus-visible,#zenExit:focus-visible,.zen-meter:focus-visible { outline: 2px solid var(--cyan); outline-offset: 2px; }
-@media (orientation:portrait) {
-  .zen-dashboard { grid-template-columns: 1fr; grid-template-rows: minmax(0,1fr) minmax(180px,.8fr); gap: 12px; }
-  .zen-left { position: relative; }
-  .zen-metrics { grid-template-columns: 1fr 1fr; grid-template-rows: minmax(0,1fr) minmax(0,.85fr); gap: 8px; }
-  .zen-reserve { grid-column: 1 / -1; }
-  .zen-card { padding: 12px; border-radius: 20px; }
-  #zenPower { font-size: clamp(42px,13vw,72px); }
-  #zenPower.four-digits { font-size: clamp(34px,10vw,56px); }
-  .zen-metric > span { font-size: 30px; }
-  #zenWbal { font-size: 34px; }
+/* Messages show at the top in Zen, over the step line, so they never cover the ride controls. */
+body.zen-active > .toast { top: calc(56px + env(safe-area-inset-top)); bottom: auto; }
+.phone-zen { position: fixed; inset: max(8px,env(safe-area-inset-top)) max(10px,env(safe-area-inset-right)) max(8px,env(safe-area-inset-bottom)) max(10px,env(safe-area-inset-left)); z-index: 3; display: flex; flex-direction: column; gap: 10px; overflow: hidden; }
+.zen-top { display: flex; align-items: center; gap: 10px; flex: none; min-height: 40px; }
+#zenState { flex: none; font-size: 11px; font-weight: 700; letter-spacing: .1em; color: var(--muted); }
+.zen-step { flex: 1; min-width: 0; font-size: 14px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+#zenExit { flex: none; min-height: 40px; padding: 7px 16px; font-size: 13px; border-radius: 99px; }
+.zen-progress { display: flex; align-items: center; gap: 10px; flex: none; }
+.zen-strip { position: relative; flex: 1; height: 8px; }
+.zen-segments { display: flex; gap: 2px; height: 100%; border-radius: 99px; overflow: hidden; }
+.zen-segments i { display: block; height: 100%; min-width: 1px; }
+.zen-done { position: absolute; left: 0; top: 0; bottom: 0; border-radius: 99px 0 0 99px; background: rgba(4,6,13,.62); }
+.zen-here { position: absolute; top: -4px; bottom: -4px; width: 3px; margin-left: -1.5px; border-radius: 2px; background: #fff; box-shadow: 0 0 0 2px rgba(4,6,13,.9); }
+.zen-total { flex: none; font-size: 13px; color: var(--muted); }
+.zen-total b { color: var(--text); font-weight: 700; }
+.zen-dashboard { flex: 1; min-height: 0; display: flex; flex-direction: column; justify-content: space-between; gap: 10px; }
+.zen-label { font-size: 11px; font-weight: 700; letter-spacing: .1em; color: var(--muted); }
+.zen-clock { text-align: center; flex: none; }
+#zenClock { font-family: var(--display); font-weight: 600; font-size: clamp(64px, min(26vw, 13vh), 150px); line-height: 1.2; letter-spacing: -.05em; margin-top: 6px;
+  text-shadow: 0 0 40px color-mix(in srgb, var(--zone-a) 45%, transparent); }
+.zen-power { flex: none; min-width: 0; display: flex; flex-direction: column; gap: 12px; padding: 14px 16px 16px; border-radius: 24px; background: var(--glass); border: 1px solid rgba(255,255,255,.1); }
+.zen-power-row { display: flex; flex-wrap: wrap; row-gap: 6px; align-items: center; justify-content: space-between; gap: 10px; }
+.zen-reading { white-space: nowrap; }
+#zenPower { font-family: var(--display); font-weight: 600; font-size: clamp(44px, 14vw, 64px); line-height: 1.15; letter-spacing: -.05em; }
+#zenPower.four-digits { font-size: clamp(36px, 11vw, 52px); }
+.zen-reading small { font-size: 16px; color: var(--muted); margin-left: 4px; }
+.zen-status { flex: none; font-size: 13px; font-weight: 800; letter-spacing: .06em; text-transform: uppercase; white-space: nowrap; padding: 9px 13px; border-radius: 99px; background: rgba(255,255,255,.08); color: var(--muted); }
+.zen-status.on { background: #3ddc97; color: #04130d; }
+.zen-status.close { background: var(--amber); color: #1a1200; }
+.zen-status.off { background: var(--red); color: #1d0508; }
+/* ±15% of the target across the band; the lit middle third is the ±5% "on target" window. */
+.zen-band { position: relative; height: 12px; border-radius: 99px; background: linear-gradient(90deg, rgba(61,123,255,.5), rgba(255,255,255,.08) 30%, rgba(255,255,255,.08) 70%, rgba(248,113,113,.5)); }
+.zen-band-ok { position: absolute; left: 33.333%; width: 33.333%; top: 0; bottom: 0; border-radius: 99px; background: rgba(61,220,151,.5); }
+.zen-marker { position: absolute; top: -5px; width: 22px; height: 22px; margin-left: -11px; border-radius: 99px; background: #fff; box-shadow: 0 0 0 4px #0b0f1c; transition: left .6s ease; }
+.zen-power-sub { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 2px 8px; font-size: 13px; color: var(--muted); }
+.zen-tiles { flex: none; display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+.zen-tile { display: flex; flex-direction: column; gap: 4px; min-width: 0; padding: 12px 14px; border-radius: 22px; background: var(--glass); border: 1px solid rgba(255,255,255,.1); }
+.zen-tile-v { font-family: var(--display); font-weight: 600; font-size: clamp(32px, 10vw, 44px); line-height: 1.15; letter-spacing: -.05em; }
+.zen-tile-s { font-size: 13px; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.zen-tile.warn { border-color: color-mix(in srgb, var(--amber) 60%, transparent); background: color-mix(in srgb, var(--amber) 12%, transparent); }
+.zen-tile.warn .zen-tile-s { color: var(--amber); font-weight: 700; }
+.zen-next { flex: none; display: flex; align-items: center; gap: 10px; padding: 10px 12px; border-radius: 16px; background: rgba(255,255,255,.06); font-size: 14px; color: var(--muted); min-width: 0; }
+.zen-next i { flex: none; width: 10px; height: 26px; border-radius: 4px; }
+.zen-next span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.zen-next b { color: var(--text); font-weight: 650; }
+.zen-actions { flex: none; display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; }
+.zen-actions button { min-height: 54px; padding: 6px 8px; font-size: 17px; border-radius: 20px; }
+#zenToggle { grid-column: 1 / -1; min-height: 66px; display: flex; align-items: center; justify-content: center; gap: 10px; font-size: 20px; font-weight: 800; letter-spacing: .04em;
+  background: linear-gradient(135deg, #ffbe4a, #ff8a3d); color: #1a1102; border: 0; box-shadow: 0 12px 28px -14px #ff8a3d; }
+#zenToggle svg { width: 22px; height: 22px; fill: currentColor; }
+#zenToggle .zen-ico-play, #zenToggle.paused .zen-ico-pause { display: none; }
+#zenToggle.paused .zen-ico-play { display: inline; }
+#zenToggle.paused { background: linear-gradient(135deg, var(--zone-a), var(--zone-b)); color: #fff; box-shadow: 0 12px 28px -12px var(--zone-a); }
+#zenToggle:disabled { opacity: .55; }
+body.no-intensity #zenDown, body.no-intensity #zenUp, body.no-skip #zenSkip { display: none; }
+body.no-intensity .zen-actions { grid-template-columns: 1fr; }
+body.no-skip .zen-actions { grid-template-columns: 1fr 1fr; }
+.zen-actions button:focus-visible, #zenExit:focus-visible { outline: 2px solid var(--cyan); outline-offset: 2px; }
+/* Short portrait screens: keep the countdown, power and controls; the next-step line goes first. */
+@media (max-height: 700px) and (orientation: portrait) {
+  .phone-zen, .zen-dashboard { gap: 8px; }
+  #zenClock { font-size: clamp(56px, 13vh, 88px); margin-top: 2px; }
+  .zen-power { padding: 10px 14px 12px; gap: 9px; border-radius: 20px; }
+  #zenPower { font-size: 44px; } #zenPower.four-digits { font-size: 36px; }
+  .zen-tile { padding: 9px 12px; border-radius: 18px; gap: 2px; }
+  .zen-tile-v { font-size: 32px; }
+  .zen-actions button { min-height: 48px; }
+  #zenToggle { min-height: 56px; }
 }
-@media (max-height:620px) and (orientation:portrait) {
-  .zen-dashboard { grid-template-rows: minmax(0,1fr) 188px; gap: 8px; }
+@media (max-height: 620px) and (orientation: portrait) {
+  .zen-next { display: none !important; }
+  .zen-top { min-height: 34px; }
+  #zenExit { min-height: 34px; padding: 5px 12px; }
+  .zen-step { font-size: 13px; }
+  #zenClock { font-size: 64px; }
+  .zen-label, .zen-power-sub, .zen-tile-s { font-size: 11px; }
+  .zen-status { font-size: 11px; padding: 7px 10px; }
+  #zenPower { font-size: 38px; } #zenPower.four-digits { font-size: 31px; }
+  .zen-tile-v { font-size: 28px; }
+  .zen-actions button { min-height: 46px; font-size: 15px; }
+  #zenToggle { min-height: 52px; font-size: 18px; }
+}
+/* Phone on its side (bar mount): countdown | power | HR and cadence, controls in one row. */
+@media (orientation: landscape) and (max-height: 560px) {
+  .phone-zen { gap: 6px; }
   .zen-top { min-height: 32px; }
   #zenExit { min-height: 32px; padding: 5px 12px; }
-  .zen-card { padding: 8px 10px; }
-  .zen-metric > span { font-size: 24px; }
-  #zenPower { font-size: 40px; }
-  #zenPower.four-digits { font-size: 31px; }
-  #zenTarget { margin: 4px 0; font-size: 10px; }
-  #zenZone { padding: 3px 7px; font-size: 8px; }
-  .zen-actions button { min-width: 48px; min-height: 44px; }
+  .zen-dashboard { display: grid; grid-template-columns: minmax(0,1.05fr) minmax(0,1.2fr) minmax(0,.85fr); grid-template-rows: minmax(0,1fr) auto; gap: 8px 12px; align-items: center; }
+  .zen-clock { grid-column: 1; grid-row: 1; }
+  #zenClock { font-size: clamp(44px, min(10vw, 22vh), 96px); }
+  .zen-power { grid-column: 2; grid-row: 1; padding: 10px 14px; gap: 8px; }
+  #zenPower { font-size: clamp(34px, 12vh, 56px); } #zenPower.four-digits { font-size: clamp(28px, 10vh, 46px); }
+  .zen-status { font-size: 11px; padding: 6px 10px; }
+  .zen-power-sub { font-size: 11px; }
+  .zen-tiles { grid-column: 3; grid-row: 1; grid-template-columns: 1fr; gap: 6px; align-self: stretch; align-content: center; }
+  .zen-tile { padding: 6px 12px; border-radius: 16px; gap: 0; }
+  .zen-tile-v { font-size: clamp(24px, 8vh, 36px); }
+  .zen-tile-s, .zen-label { font-size: 10px; }
+  .zen-next { grid-column: 1 / -1; grid-row: 2; padding: 6px 10px; font-size: 13px; }
+  .zen-next i { height: 16px; }
+  .zen-actions { grid-template-columns: 1.6fr 1fr 1fr 1fr; gap: 6px; }
+  body.no-intensity .zen-actions { grid-template-columns: 1.6fr 1fr; }
+  body.no-skip .zen-actions { grid-template-columns: 1.6fr 1fr 1fr; }
+  body.no-intensity.no-skip .zen-actions { grid-template-columns: 1fr; }
+  #zenToggle { grid-column: auto; min-height: 46px; font-size: 17px; }
+  .zen-actions button { min-height: 46px; font-size: 15px; }
 }
-@media (orientation:landscape) and (max-height:560px) {
-  .phone-zen { gap: 3px; }
-  .zen-dashboard { gap: 12px; }
-  .zen-card { padding: 9px 12px; border-radius: 18px; }
-  .zen-metrics { gap: 8px; }
-  .zen-metric > span { font-size: 28px; line-height: 1; }
-  .zen-card-label { font-size: 7px; }
-  #zenWbal { font-size: 30px; }
-  #zenWbalSub { font-size: 9px; }
-  #zenPower { font-size: clamp(40px,10vh,64px); }
-  #zenPower.four-digits { font-size: clamp(32px,8vh,52px); }
-  .zen-actions button { min-height: 44px; min-width: 48px; }
+@media (orientation: landscape) and (max-height: 360px) {
+  .zen-next { display: none !important; }
+  .zen-progress { display: none; }
 }
-@media (prefers-reduced-motion:reduce) { #zenLiquid { transition: none; } }
+@media (prefers-reduced-motion:reduce) { .zen-marker { transition: none; } }
 .tabs { grid-template-columns: repeat(3, minmax(0, 1fr)); }
 .pedaling-views { display: flex; gap: 6px; flex: none; }
 .pedaling-views button { flex: 1; min-height: 34px; padding: 6px; font-size: 11px; border-radius: 99px; }
