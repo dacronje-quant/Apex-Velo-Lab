@@ -217,7 +217,7 @@
       if (hr.length) lines.push(hr.join(', '));
       if (pos(ride.leftBal) && pos(ride.rightBal)) lines.push(`L/R balance ${ride.leftBal}/${ride.rightBal}`);
       if (pos(ride.kj)) lines.push(`Work ${ride.kj} kJ`);
-      lines.push('Recorded with Apex Velo Lab (Assioma DUO-Shi + KICKR SHIFT)');
+      lines.push('Recorded with Apex Velo Lab');
       return lines.join('\n');
     },
 

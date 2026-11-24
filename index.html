@@ -134,7 +134,7 @@
         <div class="profile-avatar" id="headerProfileAvatar">D</div>
         <span id="headerProfileName" hidden></span>
         <select id="headerProfileSelect" class="header-profile-dropdown" aria-label="Select active rider profile"></select>
-        <button type="button" class="icon-btn icon-btn-sm" id="btnManageProfiles" title="Rider profiles &amp; biometrics"><svg class="ic"><use href="#i-user"/></svg></button>
+        <button type="button" class="icon-btn icon-btn-sm" id="btnManageProfiles" title="Rider profiles &amp; biometrics" aria-label="Rider profiles and biometrics"><svg class="ic"><use href="#i-user"/></svg></button>
       </div>
 
       <div class="device-cluster" role="group" aria-label="Bluetooth devices">
@@ -146,11 +146,11 @@
 
       <div class="header-tools">
         <button type="button" class="sim-toggle-pill" id="simToggleBtn" title="Physics simulator (used only when no hardware is streaming)"><span class="switch-dot"></span><span>Sim</span></button>
-        <button type="button" class="icon-btn active" id="btnToggleAudio" title="Interval audio cues (M)"><svg class="ic"><use href="#i-volume"/></svg></button>
-        <button type="button" class="icon-btn" id="btnHeaderZenMode" title="Zen cockpit (Z)"><svg class="ic"><use href="#i-zen"/></svg></button>
-        <button type="button" class="icon-btn" id="btnToggleFullscreen" title="Fullscreen (F)"><svg class="ic"><use href="#i-expand"/></svg></button>
-        <button type="button" class="icon-btn" id="btnShowShortcuts" title="Keyboard shortcuts (?)"><svg class="ic"><use href="#i-keyboard"/></svg></button>
-        <button type="button" class="icon-btn" id="btnOpenSettings" title="Settings: rider, AI engine, Apple Health, backups, phone view"><svg class="ic"><use href="#i-gear"/></svg></button>
+        <button type="button" class="icon-btn active" id="btnToggleAudio" title="Interval audio cues (M)" aria-label="Interval audio cues active" aria-pressed="true"><svg class="ic"><use href="#i-volume"/></svg></button>
+        <button type="button" class="icon-btn" id="btnHeaderZenMode" title="Zen cockpit (Z)" aria-label="Zen cockpit"><svg class="ic"><use href="#i-zen"/></svg></button>
+        <button type="button" class="icon-btn" id="btnToggleFullscreen" title="Fullscreen (F)" aria-label="Toggle fullscreen"><svg class="ic"><use href="#i-expand"/></svg></button>
+        <button type="button" class="icon-btn" id="btnShowShortcuts" title="Keyboard shortcuts (?)" aria-label="Keyboard shortcuts"><svg class="ic"><use href="#i-keyboard"/></svg></button>
+        <button type="button" class="icon-btn" id="btnOpenSettings" title="Settings: rider, AI engine, Apple Health, backups, phone view" aria-label="Settings"><svg class="ic"><use href="#i-gear"/></svg></button>
       </div>
     </div>
   </header>
@@ -356,12 +356,12 @@
           <div class="control-btn-group">
             <button type="button" class="btn btn-reset" id="btnResetWorkout" title="Reset to step 1"><svg class="ic"><use href="#i-reset"/></svg><span>RESET</span></button>
             <button type="button" class="btn btn-step" id="btnStand" title="Out of the saddle: eases ERG 5% for 30 s, then ramps back (S). Tap again to end early."><span id="btnStandText">Stand 30s</span></button>
-            <div class="segmented">
+            <div class="segmented" data-ctl="length">
               <button type="button" id="btnShortenInterval" title="Shorten current step by 30 s">&minus;30s</button>
               <button type="button" id="btnExtendInterval" title="Extend current step by 30 s">+30s</button>
             </div>
           </div>
-          <div class="control-btn-group">
+          <div class="control-btn-group" data-ctl="intensity">
             <span class="ctrl-label">Fine ERG bias</span>
             <div class="segmented">
               <button type="button" id="btnBiasMinus1">&minus;1%</button>
@@ -710,11 +710,11 @@
           <h2 class="section-title">How is my training going?</h2>
         </div>
         <div class="segmented" id="anaRangePills" role="radiogroup" aria-label="Time range for the whole page">
-          <button type="button" class="ana-range" data-range="6w">6 weeks</button>
-          <button type="button" class="ana-range" data-range="3m">3 months</button>
-          <button type="button" class="ana-range active" data-range="6m">6 months</button>
-          <button type="button" class="ana-range" data-range="1y">1 year</button>
-          <button type="button" class="ana-range" data-range="all">All</button>
+          <button type="button" class="ana-range" role="radio" aria-checked="false" data-range="6w">6 weeks</button>
+          <button type="button" class="ana-range" role="radio" aria-checked="false" data-range="3m">3 months</button>
+          <button type="button" class="ana-range active" role="radio" aria-checked="true" data-range="6m">6 months</button>
+          <button type="button" class="ana-range" role="radio" aria-checked="false" data-range="1y">1 year</button>
+          <button type="button" class="ana-range" role="radio" aria-checked="false" data-range="all">All</button>
         </div>
       </div>
 
@@ -798,11 +798,11 @@
             <div class="card-title">
               <span><span id="progWeeklyTitle">Weekly training load</span><span class="plain">Training done each week</span></span>
               <div class="segmented" id="progMetricPills" role="radiogroup" aria-label="Weekly metric">
-                <button type="button" class="prog-metric active" data-metric="tss" data-term-tip="tss">TSS</button>
-                <button type="button" class="prog-metric" data-metric="hours">Hours</button>
-                <button type="button" class="prog-metric" data-metric="kj" data-term-tip="kj">kJ</button>
-                <button type="button" class="prog-metric" data-metric="rides">Rides</button>
-                <button type="button" class="prog-metric" data-metric="zones" title="Hours per power zone, from 1 Hz power">Zones</button>
+                <button type="button" class="prog-metric active" role="radio" aria-checked="true" data-metric="tss" data-term-tip="tss">TSS</button>
+                <button type="button" class="prog-metric" role="radio" aria-checked="false" data-metric="hours">Hours</button>
+                <button type="button" class="prog-metric" role="radio" aria-checked="false" data-metric="kj" data-term-tip="kj">kJ</button>
+                <button type="button" class="prog-metric" role="radio" aria-checked="false" data-metric="rides">Rides</button>
+                <button type="button" class="prog-metric" role="radio" aria-checked="false" data-metric="zones" title="Hours per power zone, from 1 Hz power">Zones</button>
               </div>
             </div>
             <div class="kpi-grid" id="progKpis"></div>
@@ -874,8 +874,8 @@
                     <button type="button" class="lg-toggle" data-ds="4" aria-pressed="true" id="pdcLiveLegendWrap" hidden><i class="lg lg-session"></i>This session</button>
                   </span>
                   <div class="segmented segmented-sm" id="pdcUnitPills" role="radiogroup" aria-label="Power units">
-                    <button type="button" class="pdc-unit active" data-unit="w" aria-pressed="true">W</button>
-                    <button type="button" class="pdc-unit" data-unit="wkg" aria-pressed="false">W/kg</button>
+                    <button type="button" class="pdc-unit active" role="radio" aria-checked="true" data-unit="w">W</button>
+                    <button type="button" class="pdc-unit" role="radio" aria-checked="false" data-unit="wkg">W/kg</button>
                   </div>
                 </div>
               </div>

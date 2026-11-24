@@ -208,14 +208,34 @@ class VeloApp {
     }, type === 'error' ? 6000 : 3600);
   }
 
-  openModal(id) { this.$(id)?.classList.add('open'); }
+  openModal(id) {
+    const m = this.$(id);
+    if (!m) return;
+    if (!m.classList.contains('open')) {
+      this._modalStack = (this._modalStack || []).filter(x => x.id !== id);
+      this._modalStack.push({ id, prevFocus: document.activeElement });
+      m.classList.add('open');
+      if (id !== 'hardwareModal') {
+        const target = m.querySelector('.close-modal, button:not([disabled]), input:not([disabled]), select:not([disabled]), [tabindex]:not([tabindex="-1"])');
+        if (target) target.focus();
+      }
+    }
+  }
 
   closeModal(id) {
     const m = this.$(id);
     if (!m) return;
+    const wasOpen = m.classList.contains('open');
     m.classList.remove('open');
     if (id === 'hardwareModal' && this.closeDevicesFocus) this.closeDevicesFocus();
     if (id === 'rideSummaryModal') this.destroyScrubChart();
+    if (this._modalStack) {
+      const idx = this._modalStack.findIndex(x => x.id === id);
+      const entry = idx >= 0 ? this._modalStack.splice(idx, 1)[0] : null;
+      if (wasOpen && id !== 'hardwareModal' && entry?.prevFocus?.isConnected && !this._modalStack.length) {
+        entry.prevFocus.focus();
+      }
+    }
   }
 
   // ------------------------------------------------------------- profiles --
@@ -456,7 +476,7 @@ class VeloApp {
     });
 
     if (!filtered.length) {
-      container.innerHTML = '<div class="empty-state wide">No workouts match. Try the workout architect above or the AI Coach.</div>';
+      container.innerHTML = '<div class="empty-state wide">No workouts match. Try clearing the search or choose <b>Create with the coach</b> above.</div>';
       return;
     }
     const ftp = this.activeProfile.ftp;
@@ -1582,7 +1602,6 @@ class VeloApp {
     this.setText('hwPedalBattery', this.bleBattery.pedals !== null ? `${this.bleBattery.pedals}%` : '--');
     this.setText('hwPedalRssi', dp.rssi);
     this.setText('hwPedalLink', dp.link);
-    this.setText('btnConnectPedalsModal', (this.ble.isPedalsConnected() || pedalAlive) ? 'Disconnect pedals' : (dp.state === 'reconnecting' ? 'Cancel reconnect' : 'Connect Assioma pedals'));
 
     const dt = info('trainer');
     setState('hwTrainerStatusBadge', 'hwTrainerState', dt, trainerConnected || trainerLive);
@@ -1593,7 +1612,6 @@ class VeloApp {
     this.setText('hwTrainerBattery', this.bleBattery.trainer !== null ? `${this.bleBattery.trainer}%` : '--');
     this.setText('hwTrainerRssi', dt.rssi);
     this.setText('hwTrainerLink', dt.link);
-    this.setText('btnConnectTrainerModal', trainerConnected ? 'Disconnect KICKR SHIFT' : (dt.state === 'reconnecting' ? 'Cancel reconnect' : 'Connect KICKR SHIFT'));
 
     const dh = info('hr');
     setState('hwHrStatusBadge', 'hwHrState', dh, hrAlive);
@@ -1601,7 +1619,6 @@ class VeloApp {
     this.setText('hwHrBattery', this.bleBattery.hr !== null ? `${this.bleBattery.hr}%` : '--');
     this.setText('hwHrRssi', dh.rssi);
     this.setText('hwHrLink', dh.link);
-    this.setText('btnConnectHrModal', this.ble.isHrConnected() ? 'Disconnect HR strap' : (dh.state === 'reconnecting' ? 'Cancel reconnect' : 'Connect HR strap'));
 
     const pmActive = this.powerMatchEnabled && pedalAlive && trainerConnected && this.ergModeEnabled;
     const trim = `${this.powerMatchOffset >= 0 ? '+' : ''}${Math.round(this.powerMatchOffset)}`;
@@ -1689,7 +1706,8 @@ class VeloApp {
     if (success) {
       const stamp = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
       this.setText('calibLastOffset', `Last calibration ${stamp}${offset !== null ? ` - offset ${offset}` : ''}`);
-      this.showToast(`Assioma calibrated${offset !== null ? ` (Offset: ${offset})` : ''}.`, 'success');
+      const meterName = this.deviceLabel ? this.deviceLabel('pedals') : 'Power meter';
+      this.showToast(`${meterName} calibrated${offset !== null ? ` (Offset: ${offset})` : ''}.`, 'success');
     } else {
       this.showToast(message, 'error');
     }
@@ -2443,12 +2461,21 @@ class VeloApp {
       const card = e.target.closest('.workout-preset-card');
       if (card) this.selectWorkoutById(card.dataset.id);
     });
-    document.querySelectorAll('.cat-pill').forEach(pill => this.on(pill, 'click', () => {
-      document.querySelectorAll('.cat-pill').forEach(p => p.classList.toggle('active', p === pill));
+    this.on(this.$('workoutCardsContainer'), 'keydown', (e) => {
+      if (e.key !== 'Enter' && e.key !== ' ') return;
+      if (e.target.closest('button, a, input, select')) return;
+      const card = e.target.closest('.workout-preset-card');
+      if (!card) return;
+      e.preventDefault();
+      this.selectWorkoutById(card.dataset.id);
+    });
+    const workoutCatPills = () => document.querySelectorAll('#view-workouts .cat-pill');
+    workoutCatPills().forEach(pill => this.on(pill, 'click', () => {
+      workoutCatPills().forEach(p => p.classList.toggle('active', p === pill));
       this.renderWorkoutCatalog(pill.dataset.cat, this.$('searchWorkoutsInput')?.value || '');
     }));
     this.on(this.$('searchWorkoutsInput'), 'input', (e) => {
-      this.renderWorkoutCatalog(document.querySelector('.cat-pill.active')?.dataset?.cat || 'all', e.target.value);
+      this.renderWorkoutCatalog(document.querySelector('#view-workouts .cat-pill.active')?.dataset?.cat || 'all', e.target.value);
     });
     this.on(this.$('btnGoToCoach'), 'click', () => this.switchTab('ai-coach'));
 
@@ -2678,9 +2705,23 @@ class VeloApp {
 
   initKeyboardShortcuts() {
     this.on(window, 'keydown', (e) => {
+      const openModals = [...document.querySelectorAll('.modal-overlay.open')];
+      if (e.code === 'Escape' && !e.metaKey && !e.ctrlKey && !e.altKey) {
+        if (openModals.length) {
+          e.preventDefault();
+          const stacked = (this._modalStack || []).slice().reverse().find(x => this.$(x.id)?.classList.contains('open'));
+          const topId = stacked ? stacked.id : openModals[openModals.length - 1].id;
+          if (topId === 'shareCardModal' && this.closeShareCard) this.closeShareCard();
+          else this.closeModal(topId);
+          return;
+        }
+        if (this.isZenMode) { e.preventDefault(); this.toggleZenMode(); return; }
+        if (document.body.classList.contains('focus-mode')) this.toggleFocusMode();
+        return;
+      }
       // Devices controls keep normal Tab, Space and arrow behavior. Ride shortcuts
       // must never change resistance or skip steps while a dialog is being used.
-      if (document.querySelector('.modal-overlay.open') && e.code !== 'Escape') return;
+      if (openModals.length) return;
       const tag = e.target.tagName ? e.target.tagName.toLowerCase() : '';
       if (tag === 'input' || tag === 'textarea' || tag === 'select' || e.target.isContentEditable || e.metaKey || e.ctrlKey || e.altKey) return;
       if (e.code === 'Tab' || ((tag === 'button' || tag === 'summary') && ['Space', 'Enter', 'ArrowUp', 'ArrowDown', 'ArrowRight'].includes(e.code))) return;
@@ -2701,11 +2742,6 @@ class VeloApp {
           if (this.$('hardwareModal')?.classList.contains('open')) this.closeModal('hardwareModal'); else this.openHardwareLab();
           break;
         case 'Slash': if (e.shiftKey) { e.preventDefault(); this.openModal('shortcutsModal'); } break;
-        case 'Escape':
-          if (this.isZenMode) { e.preventDefault(); this.toggleZenMode(); return; }
-          document.querySelectorAll('.modal-overlay.open').forEach(m => this.closeModal(m.id));
-          if (document.body.classList.contains('focus-mode')) this.toggleFocusMode();
-          break;
         default: break;
       }
     });

@@ -1,6 +1,6 @@
 # Apex Velo for Android: phone UX proposal
 
-Status: **approved by the owner** (five tabs, simple ride view by default, phone only, "You" plus 3-step onboarding). No app code changes in this PR.
+Status: **implemented** (five tabs, simple ride view by default, phone only, "You" plus 3-step onboarding). Sections 1–4 are the original approved UX proposal; Section 5 records the implemented design.
 
 The owner's brief: the look is fine, but the app is hard to use on a phone. Too much happens on each screen, finding
 tabs and sections takes too much scrolling, and moving around is hard. Make it simpler and easier to browse without

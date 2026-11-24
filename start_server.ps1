@@ -89,7 +89,12 @@ if (-not $providers.Contains($defaultProvider)) { $defaultProvider = if ($apiKey
 $defaultModel = $defaultModels[$defaultProvider]
 $defaultEffort = Get-Setting 'APEX_COACH_EFFORT' 'low'
 if ($efforts -notcontains $defaultEffort) { $defaultEffort = 'low' }
-$port = [int](Get-Setting 'APEX_PORT' '8080')
+$rawPort = (Get-Setting 'APEX_PORT' '8080').Trim()
+$port = 0
+if (-not [int]::TryParse($rawPort, [ref]$port) -or $port -lt 1 -or $port -gt 65535) {
+    Write-Host "Invalid APEX_PORT '$rawPort'. Use a number between 1 and 65535 (default 8080) in .env." -ForegroundColor Red
+    exit 1
+}
 $apiBase = (Get-Setting 'APEX_ANTHROPIC_BASE_URL' 'https://api.anthropic.com').TrimEnd('/')
 $geminiBase = (Get-Setting 'APEX_GEMINI_BASE_URL' 'https://generativelanguage.googleapis.com').TrimEnd('/')
 $openaiBase = (Get-Setting 'APEX_OPENAI_BASE_URL' 'https://api.openai.com').TrimEnd('/')
@@ -384,7 +389,7 @@ function Invoke-Health($request, $response, [string]$path) {
 # requests are just parked responses, so this single-threaded loop never blocks on them.
 # Every command has an id and stays queued until the PC confirms it (cmdAck in its next
 # publish), so a command is never lost on a dropped connection and never applied twice.
-$liveCmdsAllowed = @('toggle', 'skip', 'bias-up', 'bias-down', 'bias-reset', 'watts-up', 'watts-down', 'stand', 'spin-more', 'spin-finish',
+$liveCmdsAllowed = @('toggle', 'skip', 'interval-plus', 'interval-minus', 'bias-up', 'bias-down', 'bias-reset', 'watts-up', 'watts-down', 'stand', 'spin-more', 'spin-finish',
     'connect-trainer', 'connect-pedals', 'connect-hr', 'connect-fan', 'disconnect-trainer', 'disconnect-pedals', 'disconnect-hr', 'disconnect-fan', 'connect-all', 'connect-stop', 'pair-cancel', 'calibrate-pedals',
     'fan-0', 'fan-25', 'fan-50', 'fan-75', 'fan-100', 'fan-mode-manual', 'fan-mode-hr', 'fan-mode-power')
 $liveHoldMs = 2500

@@ -110,7 +110,7 @@
           if (typeof DecompressionStream === 'undefined') { this.showToast('This browser cannot open .gz backups - unzip it first.', 'error'); return; }
           new Response(file.stream().pipeThrough(new DecompressionStream('gzip'))).text()
             .then(text => this.importJsonText(text, file.name))
-            .catch(err => this.showToast(`Could not read ${file.name}: ${err.message}`, 'error'));
+            .catch(() => this.showToast(`Could not open ${file.name} — make sure it is a valid gzip-compressed Apex backup.`, 'error'));
           return;
         }
         const reader = new FileReader();
@@ -124,7 +124,7 @@
               this.addImportedRides([ride], `Imported FIT ride "${ride.title}".`);
             } catch (err) {
               console.error('FIT import error', err);
-              this.showToast(`Could not parse ${file.name}: ${err.message}`, 'error');
+              this.showToast(`Could not read ${file.name} as a FIT ride (${err.message}).`, 'error');
             }
           };
           reader.readAsArrayBuffer(file);
@@ -148,7 +148,7 @@
             }
           } catch (err) {
             console.error('Import error', err);
-            this.showToast(`Could not parse ${file.name}: ${err.message}`, 'error');
+            this.showToast(`Could not import ${file.name} (${err.message}).`, 'error');
           }
         };
         reader.readAsText(file);
@@ -172,7 +172,7 @@
         this.addImportedRides(fresh, `Restored ${fresh.length} ride${fresh.length === 1 ? '' : 's'} from ${fileName}.`);
         return fresh.length;
       } catch (err) {
-        this.showToast(`Could not parse ${fileName}: ${err.message}`, 'error');
+        this.showToast(`Could not read ${fileName} — make sure it is a valid Apex JSON backup.`, 'error');
         return -1;
       }
     },
@@ -223,9 +223,6 @@
       const medalHist = this.medalHistory ? this.medalHistory() : null;
       const tbody = document.getElementById('historyTableBody');
       if (!tbody) return;
-      // Menus close after a choice (and when clicking elsewhere).
-      document.querySelectorAll('details.menu').forEach(d => this.on(d, 'click', (e) => { if (e.target.closest('.menu-item')) d.open = false; }));
-      this.on(document, 'click', (e) => document.querySelectorAll('details.menu[open]').forEach(d => { if (!d.contains(e.target)) d.open = false; }));
       document.querySelectorAll('.history-table th.sortable-th').forEach(th => {
         const sorted = th.dataset.sort === this.historySortColumn;
         th.classList.toggle('sorted-th', sorted);

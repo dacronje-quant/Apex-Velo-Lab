@@ -82,7 +82,7 @@ export function installOnboarding({ shell, win = window, storage: getStorage = (
 
   const el = doc.createElement('div');
   el.className = 'av-page-body av-onb';
-  el.addEventListener('click', (e) => {
+  el.addEventListener('click', async (e) => {
     const b = e.target.closest('[data-onb]');
     if (!b) return;
     const step = shell.current && shell.current.params.step;
@@ -98,9 +98,39 @@ export function installOnboarding({ shell, win = window, storage: getStorage = (
       el.querySelector('#onbFtpHelp').hidden = !input.disabled;
     }
     else if (act === 'pair') pair(b.dataset.kind);
-    else if (act === 'strava') { const a = app(); if (a && a.connectStrava) a.connectStrava(); }
-    else if (act === 'hc') { const h = doc.querySelector('[data-hc-request="recovery"]'); if (h) h.click(); }
-    else if (act === 'import') { const h = doc.getElementById('btnImportHistory'); if (h) h.click(); }
+    else if (act === 'strava') {
+      const a = app(), N = win.ApexNative || {};
+      const st = N.strava && N.strava.status ? await N.strava.status().catch(() => null) : null;
+      if (st && !st.configured && !st.usingBroker) {
+        saveState(storage, { step: 'done', done: true });
+        shell.go('you/connections/strava', { replace: true });
+      } else if (a && a.connectStrava) {
+        await a.connectStrava();
+        if (shell.current && shell.current.params.step === 'connect') render('connect');
+      }
+    }
+    else if (act === 'hc') {
+      const N = win.ApexNative || {}, hc = N.healthConnect;
+      if (hc && hc.availability) {
+        const av = await hc.availability().catch(() => ({ status: 'unsupported' }));
+        if (av.status === 'not_installed' && hc.plugin && hc.plugin.openPlayStore) {
+          await hc.plugin.openPlayStore().catch(() => {});
+          return;
+        }
+        if (av.status !== 'available') return;
+        if (hc.request) {
+          await hc.request('recovery').catch(() => {});
+          if (shell.current && shell.current.params.step === 'connect') render('connect');
+          return;
+        }
+      }
+      const h = doc.querySelector('[data-hc-request="recovery"]'); if (h) h.click();
+    }
+    else if (act === 'import') {
+      saveState(storage, { step: 'done', done: true });
+      shell.go('history', { replace: true });
+      const h = doc.getElementById('btnImportHistory'); if (h) h.click();
+    }
   });
 
   const saveProfile = () => {
@@ -173,6 +203,25 @@ export function installOnboarding({ shell, win = window, storage: getStorage = (
           ${hasHc ? '<button type="button" class="av-row" data-onb="hc" id="onbHc"><div class="av-row-text"><b>Health Connect</b><small>Read recovery data</small></div><span class="av-pair-label">Connect</span></button>' : ''}
           <button type="button" class="av-row" data-onb="import" id="onbImport"><div class="av-row-text"><b>Import my history</b><small>A Garmin or Strava export</small></div><span class="av-pair-label">Import</span></button>
         </div>`, 'Finish setup');
+      const N = win.ApexNative || {};
+      if (N.strava && N.strava.status) {
+        N.strava.status().then((st) => {
+          const lbl = el.querySelector('#onbStrava .av-pair-label');
+          if (lbl && st && st.connected) lbl.textContent = 'Connected';
+        }).catch(() => {});
+      }
+      if (hasHc && N.healthConnect && N.healthConnect.status) {
+        N.healthConnect.status().then((st) => {
+          const row = el.querySelector('#onbHc');
+          if (!row || !st) return;
+          const av = st.availability && st.availability.status;
+          if (av === 'unsupported') { row.hidden = true; return; }
+          const lbl = row.querySelector('.av-pair-label');
+          if (av === 'not_installed') { if (lbl) lbl.textContent = 'Install'; return; }
+          const hasRead = !!(st.granted && Array.isArray(st.granted.read) && st.granted.read.length);
+          if (lbl && hasRead) lbl.textContent = 'Connected';
+        }).catch(() => {});
+      }
     }
   };
 

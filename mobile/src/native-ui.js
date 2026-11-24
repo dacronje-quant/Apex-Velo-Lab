@@ -104,7 +104,7 @@ export function installUiPolish({ shell, win = window }) {
     }
     for (const link of doc.querySelectorAll('a[href^="docs/"]')) {
       if (/privacy/i.test(link.textContent)) {
-        link.href = 'https://github.com/dacronje-quant/Apex-Velo-Lab/blob/claude/android-apk-poc/mobile/PRIVACY.md';
+        link.href = 'https://github.com/dacronje-quant/Apex-Velo-Lab/blob/main/mobile/PRIVACY.md';
         continue;
       }
       const button = doc.createElement('button'); button.type = 'button'; button.className = 'av-text-action';

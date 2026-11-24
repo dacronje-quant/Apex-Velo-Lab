@@ -291,6 +291,10 @@ export function installYou({ shell, win = window, services = {} }) {
       const list = appPage.querySelector('#avAppList'), adv = appPage.querySelector('#avAppAdvList');
       list.innerHTML = ''; adv.innerHTML = '';
       list.appendChild(switchRow('avAudioCues', 'Audio cues', 'Beeps at interval changes', () => a && a.audio && !a.audio.muted, () => { if (a && a.audio) a.audio.toggleMute(); }));
+      const ridePlugin = win.ApexNative && win.ApexNative.ride && win.ApexNative.ride.plugin;
+      if (ridePlugin && typeof ridePlugin.openBatterySettings === 'function') {
+        list.appendChild(shell.row({ id: 'avBatterySettings', title: 'Background recording', sub: 'Open Android battery settings to allow Unrestricted / Don’t optimise', onClick: () => { ridePlugin.openBatterySettings().catch(() => {}); } }));
+      }
       adv.appendChild(switchRow('avSimulator', 'Simulator', 'Simulated power when no trainer or power meter streams', () => a && a.simulator && a.simulator.enabled, clickId('simToggleBtn')));
     }
   });

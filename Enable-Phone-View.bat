@@ -26,6 +26,11 @@ if exist ".env" (
     if /i "%%A"=="APEX_PORT" if not "%%B"=="" set "PORT=%%B"
   )
 )
+for /f "tokens=1 delims=#" %%P in ("%PORT%") do set "PORT=%%P"
+set "PORT=%PORT:"=%"
+set "PORT=%PORT:'=%"
+set "PORT=%PORT: =%"
+if "%PORT%"=="" set "PORT=8080"
 
 if /i "%~1"=="remove" goto remove
 
@@ -48,10 +53,10 @@ netsh http show urlacl url=http://+:%PORT%/ | findstr /i "Reserved" >nul && (ech
 netsh advfirewall firewall show rule name="Apex Velo Lab (phone view)" >nul 2>&1 && (echo [OK] Firewall rule present for Private networks) || (echo [!!] Firewall rule missing)
 powershell -NoProfile -Command "$p = Get-NetConnectionProfile | Where-Object { $_.IPv4Connectivity -ne 'Disconnected' }; foreach ($x in $p) { if ($x.NetworkCategory -eq 'Private') { Write-Host ('[OK] Network ''' + $x.Name + ''' is Private') } else { Write-Host ('[!!] Network ''' + $x.Name + ''' is ' + $x.NetworkCategory + ' - the phone cannot connect until it is Private.') -ForegroundColor Yellow; Write-Host '     Fix: Settings > Network & internet > Wi-Fi (or Ethernet) > your network > Network profile type: Private' -ForegroundColor Yellow } }"
 echo.
-echo Your phone address(es) - open in Safari on the same Wi-Fi:
-powershell -NoProfile -Command "Get-NetIPAddress -AddressFamily IPv4 | Where-Object { $_.IPAddress -match '^(10\.|192\.168\.|172\.(1[6-9]|2[0-9]|3[01])\.)' -and $_.AddressState -eq 'Preferred' } | ForEach-Object { Write-Host ('   http://' + $_.IPAddress + ':%PORT%/live.html') -ForegroundColor Green }"
-echo.
-echo Next: close the Apex Velo Lab server window (if open) and start Launch-Apex-Velo.bat again.
+echo Next:
+echo   1. Close the Apex Velo Lab server window (if open) and start Launch-Apex-Velo.bat again.
+echo   2. On this PC, open Settings ^> Phone view in Apex Velo Lab.
+echo   3. Scan the QR code (or open that paired link) on your phone on the same Wi-Fi.
 echo.
 pause
 exit /b

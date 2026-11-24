@@ -129,7 +129,12 @@
       this.on(document.getElementById('btnOpenBackupFile'), 'click', () => document.getElementById('localBackupFile').click());
       this.on(document.getElementById('localBackupFile'), 'change', async e => {
         const file = e.target.files[0]; e.target.value = '';
-        if (!file || !window.VeloStorage?.enabled) return;
+        if (!file) return;
+        if (!window.VeloStorage?.enabled) {
+          if (this.handleIncomingFiles) { this.handleIncomingFiles([file]); this.closeModal?.('settingsModal'); }
+          else this.showToast('Start the local server to restore a full SQLite backup, or drop the file into History > Import.', 'warning');
+          return;
+        }
         try {
           if (file.size > 200 * 1024 * 1024) throw new Error('This backup is too large.');
           const text = file.name.endsWith('.gz') ? await new Response(file.stream().pipeThrough(new DecompressionStream('gzip'))).text() : await file.text();
@@ -137,7 +142,7 @@
           await this.showLocalBackups();
           const button = [...document.querySelectorAll('[data-restore-backup]')].find(b => b.dataset.restoreBackup === imported.name);
           if (button) await this.restoreLocalBackup(imported.name, button);
-        } catch (err) { this.showToast(`Could not open this backup: ${err.message}`, 'error'); }
+        } catch (err) { this.showToast(`Could not open this backup: ${/JSON/i.test(err.message) ? 'this does not look like a valid Apex backup file.' : err.message}`, 'error'); }
       });
       this.on(document.getElementById('localBackupList'), 'click', async e => {
         const button = e.target.closest('[data-restore-backup]');
@@ -161,7 +166,7 @@
       try {
         const info = await VeloStorage.request('/backups');
         el.innerHTML = info.files.length ? info.files.map(f => `<div class="settings-kv"><span>${f.corrupt ? 'Unreadable backup' : esc(new Date(f.at).toLocaleString()) + ' · ' + f.rides + ' rides · ' + esc(f.reason)}${f.name.startsWith('legacy:') ? ' · old app folder' : ''}</span><button type="button" class="btn btn-xs" data-restore-backup="${esc(f.name)}" ${f.corrupt ? 'disabled' : ''}>Preview &amp; restore</button></div>`).join('') : 'No backups yet. Press Back up now.';
-      } catch(e) { el.textContent = e.message; }
+      } catch(e) { el.textContent = /Failed to fetch|NetworkError/i.test(e.message) ? 'Could not reach the local server — check that Apex Velo Lab is running and try again.' : e.message; }
     },
 
     async restoreLocalBackup(name, button) {

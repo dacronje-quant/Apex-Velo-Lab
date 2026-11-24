@@ -29,14 +29,14 @@ export const WELLNESS_TYPES = ['HeartRateVariabilityRmssd', 'RestingHeartRate', 
 export const RIDE_TYPES = ['ExerciseSession', 'HeartRate', 'Power', 'Speed', 'Cadence', 'Distance'];
 export const WRITE_TYPES = ['ExerciseSession', 'HeartRate', 'Power', 'Cadence', 'Speed', 'Distance', 'TotalCaloriesBurned'];
 
-/** What each permission is for, in the words Settings > Health shows next to it. */
+/** What each permission is for, in the words You > Connections > Health Connect shows next to it. */
 export const TYPE_TEXT = {
   HeartRateVariabilityRmssd: 'Heart rate variability (overnight rMSSD): the main input of your readiness score.',
   RestingHeartRate: 'Resting heart rate: compared with your normal range for readiness and the calendar.',
   SleepSession: 'Sleep, with its stages: hours slept, deep and REM sleep, bedtime and wake-up.',
-  Weight: 'Weight: shown over time in Analytics > Health.',
-  OxygenSaturation: 'Blood oxygen (SpO2): shown over time in Analytics > Health.',
-  RespiratoryRate: 'Breathing rate: shown over time in Analytics > Health.',
+  Weight: 'Weight: shown over time in Progress > Health & recovery.',
+  OxygenSaturation: 'Blood oxygen (SpO2): shown over time in Progress > Health & recovery.',
+  RespiratoryRate: 'Breathing rate: shown over time in Progress > Health & recovery.',
   ExerciseSession: 'Exercise sessions: cycling rides recorded by other apps join your history. Other sports are skipped.',
   HeartRate: 'Heart rate during those rides (not the rest of the day).',
   Power: 'Power during those rides: training load, power curve and FTP.',

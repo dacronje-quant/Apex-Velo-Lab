@@ -249,7 +249,11 @@ export class ProgressTab {
   renderAnswer() {
     const box = this.el.querySelector('#avProgAnswer');
     const app = this.app();
-    if (!app || !app.analytics) { box.innerHTML = '<p class="av-note">Loading…</p>'; return; }
+    if (!app || !app.analytics) {
+      box.innerHTML = '<p class="av-note">Loading…</p>';
+      if (this.shell && this.shell.whenApp) this.shell.whenApp(() => this.renderAnswer());
+      return;
+    }
     /* global VeloMetrics */
     let pmc = null;
     try { pmc = app.analytics.calculatePmcHistory(app.completedWorkouts, 90, app.pmcOpts ? app.pmcOpts() : {}); } catch (e) { pmc = null; }

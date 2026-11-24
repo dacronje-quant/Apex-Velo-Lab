@@ -396,6 +396,8 @@
       } catch (e) {
         if (run !== this._coachRun) return;
         console.error('Coach chat: workout failed', e);
+        const inp = $('askInput');
+        if (inp && text && !inp.value.trim()) { inp.value = text; this.askGrowInput(); }
         this.askMessages.push({ role: 'error', content: `Could not build the workout: ${e.message}` });
       } finally {
         if (run === this._coachRun) {
@@ -433,6 +435,8 @@
         if (res && res.block) this.askMessages.push(this.coachPlanMessage(res, { wordsUnread: !!text && res.block.source === 'offline_heuristic' && !res.apiError }));
       } catch (e) {
         console.error('Coach chat: plan failed', e);
+        const inp = $('askInput');
+        if (inp && text && !inp.value.trim()) { inp.value = text; this.askGrowInput(); }
         this.askMessages.push({ role: 'error', content: `Could not build the plan: ${e.message}` });
       } finally {
         this.coachIdle();

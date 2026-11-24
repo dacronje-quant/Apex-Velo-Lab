@@ -85,3 +85,20 @@ test('devices chosen before are offered by getDevices after a restart', async ()
   const list = await again.getDevices();
   assert.deepEqual(list.map((d) => [d.id, d.name]), [['AA:BB', 'KICKR CORE']]);
 });
+
+test('requestLEScan failure clears cancelChooser so Android Back is never swallowed', async () => {
+  const ble = fakeBle();
+  ble.requestLEScan = async () => { throw new Error('Bluetooth adapter off'); };
+  let removed = false;
+  const fakeEl = {
+    className: '', innerHTML: '',
+    setAttribute() {}, addEventListener() {},
+    querySelector: () => ({ innerHTML: '', textContent: '' }),
+    remove() { removed = true; }
+  };
+  const doc = { createElement: () => fakeEl, body: { appendChild() {} } };
+  const bt = new NativeBluetooth(ble, { storage: memoryStorage(), document: doc });
+  await assert.rejects(bt.requestDevice({ acceptAllDevices: true }), /Bluetooth scan failed: Bluetooth adapter off/);
+  assert.equal(removed, true);
+  assert.equal(bt.cancelChooser(), false);
+});
