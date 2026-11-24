@@ -2706,6 +2706,8 @@ class VeloApp {
   initKeyboardShortcuts() {
     this.on(window, 'keydown', (e) => {
       const openModals = [...document.querySelectorAll('.modal-overlay.open')];
+      const tag = e.target.tagName ? e.target.tagName.toLowerCase() : '';
+      const typing = tag === 'input' || tag === 'textarea' || tag === 'select' || e.target.isContentEditable;
       if (e.code === 'Escape' && !e.metaKey && !e.ctrlKey && !e.altKey) {
         if (openModals.length) {
           e.preventDefault();
@@ -2715,6 +2717,7 @@ class VeloApp {
           else this.closeModal(topId);
           return;
         }
+        if (typing) return;
         if (this.isZenMode) { e.preventDefault(); this.toggleZenMode(); return; }
         if (document.body.classList.contains('focus-mode')) this.toggleFocusMode();
         return;
@@ -2722,8 +2725,7 @@ class VeloApp {
       // Devices controls keep normal Tab, Space and arrow behavior. Ride shortcuts
       // must never change resistance or skip steps while a dialog is being used.
       if (openModals.length) return;
-      const tag = e.target.tagName ? e.target.tagName.toLowerCase() : '';
-      if (tag === 'input' || tag === 'textarea' || tag === 'select' || e.target.isContentEditable || e.metaKey || e.ctrlKey || e.altKey) return;
+      if (typing || e.metaKey || e.ctrlKey || e.altKey) return;
       if (e.code === 'Tab' || ((tag === 'button' || tag === 'summary') && ['Space', 'Enter', 'ArrowUp', 'ArrowDown', 'ArrowRight'].includes(e.code))) return;
       if (['Space','ArrowUp','ArrowDown','ArrowRight','KeyS'].includes(e.code) && this.activeTab !== 'cockpit' && !this.isZenMode) return;
       switch (e.code) {

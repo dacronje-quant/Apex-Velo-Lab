@@ -761,13 +761,21 @@ RideView.prototype.mountSummary = function (rideId) {
   });
   const sync = el.querySelector('#avSummarySync');
   const S = this.shell, N = this.win.ApexNative || {};
+  let syncToken = 0;
   const renderSync = async () => {
-    sync.innerHTML = '';
+    const token = ++syncToken;
     const st = ride.strava && ride.strava.state;
     const can = app.canSendToStrava ? app.canSendToStrava(ride) : false;
-    const stravaConnected = N.strava && N.strava.status
-      ? await N.strava.status().then((s) => !!(s && s.connected)).catch(() => !!(app.strava && app.strava.connected))
-      : !!(app.strava && app.strava.connected);
+    const hasHc = !!(N.healthConnect && N.uploads);
+    const [stravaConnected, hcRow, hcCanWrite] = await Promise.all([
+      N.strava && N.strava.status
+        ? N.strava.status().then((s) => !!(s && s.connected)).catch(() => !!(app.strava && app.strava.connected))
+        : Promise.resolve(!!(app.strava && app.strava.connected)),
+      hasHc ? N.uploads.state(ride.id, 'healthconnect').catch(() => null) : Promise.resolve(null),
+      hasHc && N.healthConnect.canWrite ? N.healthConnect.canWrite().catch(() => false) : Promise.resolve(false)
+    ]);
+    if (token !== syncToken) return;
+    const rows = [];
     const where = app.settingsLabel('strava', 'You > Connections');
     let end = null, stravaSub = '';
     if (st === 'sent' || st === 'duplicate') stravaSub = 'On Strava';
@@ -782,27 +790,25 @@ RideView.prototype.mountSummary = function (rideId) {
       end = this.doc.createElement('button'); end.type = 'button'; end.className = 'btn btn-sm'; end.id = 'avSendStrava'; end.textContent = 'Send';
       end.addEventListener('click', async () => { end.disabled = true; await app.sendRideToStrava(ride.id); renderSync(); });
     }
-    sync.appendChild(S.row({ icon: 'i-upload', title: 'Strava', sub: stravaSub, end }));
-    if (N.healthConnect && N.uploads) {
-      const [row, canWrite] = await Promise.all([
-        N.uploads.state(ride.id, 'healthconnect').catch(() => null),
-        N.healthConnect.canWrite ? N.healthConnect.canWrite().catch(() => false) : Promise.resolve(false)
-      ]);
+    rows.push(S.row({ icon: 'i-upload', title: 'Strava', sub: stravaSub, end }));
+    if (hasHc) {
       let hcEnd = null, hcSub = 'Not saved';
-      if (row && row.status === 'sent') hcSub = 'Saved as a cycling session';
-      else if (!canWrite) {
+      if (hcRow && hcRow.status === 'sent') hcSub = 'Saved as a cycling session';
+      else if (!hcCanWrite) {
         hcSub = 'Enable saving rides in You > Connections > Health Connect';
         hcEnd = this.doc.createElement('button'); hcEnd.type = 'button'; hcEnd.className = 'btn btn-sm'; hcEnd.id = 'avSetupHc'; hcEnd.textContent = 'Set up';
         hcEnd.addEventListener('click', () => S.go('you/connections/healthconnect'));
-      } else if (row && row.status === 'queued') {
+      } else if (hcRow && hcRow.status === 'queued') {
         hcSub = 'Saving…';
       } else {
-        hcSub = row && row.status === 'failed' ? 'Not saved - tap Save to try again' : 'Not saved';
+        hcSub = hcRow && hcRow.status === 'failed' ? 'Not saved - tap Save to try again' : 'Not saved';
         hcEnd = this.doc.createElement('button'); hcEnd.type = 'button'; hcEnd.className = 'btn btn-sm'; hcEnd.id = 'avSaveHc'; hcEnd.textContent = 'Save';
         hcEnd.addEventListener('click', async () => { hcEnd.disabled = true; await N.uploads.enqueue(ride, 'healthconnect', { retry: true }).then(() => N.uploads.run()).catch(() => {}); renderSync(); });
       }
-      sync.appendChild(S.row({ icon: 'i-heart', title: 'Health Connect', sub: hcSub, end: hcEnd }));
+      rows.push(S.row({ icon: 'i-heart', title: 'Health Connect', sub: hcSub, end: hcEnd }));
     }
+    sync.innerHTML = '';
+    for (const r of rows) sync.appendChild(r);
   };
   renderSync();
   el.querySelector('#avSummaryDone').addEventListener('click', () => this.shell.go('ride'));
