@@ -31,6 +31,8 @@
         const btn = document.getElementById('btnToggleAudio');
         if (!btn) return;
         btn.classList.toggle('active', !this.muted);
+        btn.setAttribute('aria-pressed', String(!this.muted));
+        btn.setAttribute('aria-label', this.muted ? 'Interval audio cues muted' : 'Interval audio cues active');
         btn.title = this.muted ? 'Audio Muted - Click to Enable Beeps (Key: M)' : 'Audio Active - Click to Mute (Key: M)';
         btn.innerHTML = `<svg class="ic"><use href="#${this.muted ? 'i-volume-x' : 'i-volume'}"/></svg>`;
       }

@@ -525,7 +525,7 @@
         <div class="m"><div class="v num" id="src" style="font-size:18px;line-height:34px">--</div><div class="l">POWER SOURCE</div></div>
       </div>
 
-      <div class="note" id="balNote">Balance comes from the Assioma pedals. They don't report torque effectiveness or pedal smoothness, so those aren't shown.</div>
+      <div class="note" id="balNote">Balance comes from your dual-sided power meter. Torque effectiveness and pedal smoothness are not reported over standard Bluetooth CPS, so those aren't shown.</div>
     </div><div class="mode-panel" id="pagePedal" hidden>
       <div class="card">
         <div class="sub" style="margin-top:0"><span class="lbl">PEDAL STROKE</span><span class="model-tag">MODEL</span></div>
@@ -739,6 +739,10 @@
   document.querySelectorAll('[data-pedal-view]').forEach(b => b.addEventListener('click', () => { pedalView = Number(b.dataset.pedalView); markTab(); }));
   function movePage(delta) { setPage(destinations[Math.max(0, Math.min(2, destinations.indexOf(page) + delta))]); }
   document.addEventListener('keydown', e => {
+    if (!$('cardSheet').hidden) {
+      if (e.key === 'Escape') { e.preventDefault(); closeCard(); }
+      return;
+    }
     if (PhoneZen.active) return;
     if (['INPUT','SELECT','TEXTAREA'].includes(e.target?.tagName) || e.target?.isContentEditable) return;
     if (e.key === 'ArrowRight') movePage(1);
@@ -1074,9 +1078,14 @@
     $('cardHint').textContent = canShareFiles()
       ? 'Tap Share and choose Strava to post it or add it to this ride.'
       : 'Save the image, then add it to this ride in the Strava app (or press and hold the picture and choose Share).';
+    const wasHidden = $('cardSheet').hidden;
     $('cardSheet').hidden = false;
+    if (wasHidden) $('btnCloseCard').focus();
   }
-  function closeCard() { $('cardSheet').hidden = true; }
+  function closeCard() {
+    $('cardSheet').hidden = true;
+    if (!$('btnOpenCard').hidden) $('btnOpenCard').focus();
+  }
   $('btnOpenCard').addEventListener('click', showCard);
   $('btnCloseCard').addEventListener('click', closeCard);
   document.querySelectorAll('[data-card-style]').forEach(b => b.addEventListener('click', () => {

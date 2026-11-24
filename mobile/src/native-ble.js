@@ -280,6 +280,7 @@ export class NativeBluetooth extends EventTarget {
     try {
       await this.ble.requestLEScan({ allowDuplicates: true, scanMode: 2 }, onResult);
     } catch (e) {
+      this._cancelChooser = null;
       overlay.remove();
       throw new Error(`Bluetooth scan failed: ${(e && e.message) || e}`);
     }

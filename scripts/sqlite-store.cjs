@@ -38,7 +38,12 @@ class LocalStore {
     fs.mkdirSync(this.dir, { recursive: true });
     this.db = new DatabaseSync(this.file);
     try {
-      this.db.exec('PRAGMA busy_timeout=5000; PRAGMA journal_mode=WAL; PRAGMA synchronous=FULL;');
+      try {
+        this.db.exec('PRAGMA busy_timeout=5000; PRAGMA journal_mode=WAL; PRAGMA synchronous=FULL;');
+      } catch (e) {
+        if (/not a database|malformed|corrupt/i.test(String(e && e.message))) fail('The local database failed its integrity check. It has been left untouched.', 503);
+        throw e;
+      }
       if (this.db.prepare('PRAGMA quick_check').get().quick_check !== 'ok') fail('The local database failed its integrity check. It has been left untouched.', 503);
       const version = this.db.prepare('PRAGMA user_version').get().user_version;
       if (version > 1) fail('This database needs a newer version of Apex. It has been left untouched.', 503);
@@ -51,6 +56,8 @@ class LocalStore {
       if (!this.meta('storeId')) this.setMeta('storeId', crypto.randomUUID());
     } catch (e) { this.db.close(); throw e; }
     this.lastBackupError = null;
+    this.backupRetryMs = 15000;
+    this.backupPending = false;
   }
   meta(key) { return this.db.prepare('SELECT value FROM meta WHERE key=?').get(key)?.value; }
   setMeta(key, value) { this.db.prepare('INSERT OR REPLACE INTO meta VALUES (?,?)').run(key, String(value)); }
@@ -104,9 +111,11 @@ class LocalStore {
     if (replay) return JSON.parse(replay.result);
     this.checkRevision(input);
     if (this.initialized) fail('This PC already has saved data. Reload to use it.', 409);
+    let profiles = [];
+    try { profiles = JSON.parse(input.settings.apex_velo_profiles || '[]') || []; } catch { profiles = []; }
     // Verify a recovery snapshot of the complete browser export BEFORE committing migration.
     this.writeSnapshot({ app: 'APEX VELO LAB', exportedAt: this.clock().toISOString(), history: input.rides,
-      settings: input.settings, dbSettings: input.dbSettings || [], profiles: JSON.parse(input.settings.apex_velo_profiles || '[]') }, 'migration');
+      settings: input.settings, dbSettings: input.dbSettings || [], profiles }, 'migration');
     return this.mutate(input, () => {
       this.applyRides(input.rides, [], { exact: true }); this.applySettings(input.settings);
       for (const s of input.dbSettings || []) this.db.prepare('INSERT OR REPLACE INTO db_settings VALUES (?,?)').run(s.key, JSON.stringify(s));
@@ -156,8 +165,10 @@ class LocalStore {
       fs.writeFileSync(tmp, zlib.gzipSync(JSON.stringify(value)), { flush: true });
       const written = this.readSnapshot(tmp); fs.renameSync(tmp, target);
       this.rememberSnapshot(target, written);
-      this.pruneBackups();
       this.lastBackupError = null;
+      this.backupRetryMs = 15000;
+      this.backupPending = false;
+      try { this.pruneBackups(); } catch (e) { this.lastBackupError = `Backup saved, but removing an older copy failed: ${e.message}`; }
       if (this.mirrorDir && this.mirrorDir !== this.backupDir) {
         let mirrorTmp;
         try {
@@ -269,10 +280,24 @@ class LocalStore {
     for (const n of files) if (!keep.has(n)) { fs.unlinkSync(path.join(this.backupDir,n)); this.snapshotCache.delete(path.join(this.backupDir,n)); }
   }
   backup(reason = 'manual') { if (!this.initialized) fail('Open Apex to migrate your browser data first.', 409); return this.writeSnapshot(this.payload(), reason); }
-  scheduleBackup() {
+  scheduleBackup(delayMs = 15000) {
+    this.backupPending = true;
     clearTimeout(this.backupTimer);
-    this.backupTimer = setTimeout(() => { try { this.backup('automatic'); } catch (e) { this.lastBackupError = e.message; this.scheduleBackup(); } }, 15000);
+    this.backupTimer = setTimeout(() => {
+      try { this.backup('automatic'); }
+      catch (e) {
+        this.lastBackupError = e.message;
+        this.backupRetryMs = Math.min((this.backupRetryMs || 15000) * 2, 15 * 60000);
+        this.scheduleBackup(this.backupRetryMs);
+      }
+    }, delayMs);
     this.backupTimer.unref();
+  }
+  flushBackup() {
+    if (!this.backupPending || !this.initialized) return;
+    clearTimeout(this.backupTimer);
+    this.backupTimer = null;
+    try { this.backup('automatic'); } catch (e) { this.lastBackupError = e.message; }
   }
   startDailyBackups() {
     const check = () => { if (!this.initialized) return;

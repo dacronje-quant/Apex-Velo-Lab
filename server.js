@@ -30,9 +30,9 @@ function loadDotEnv(file) {
     let val = m[2].trim();
     if ((val.startsWith('"') && val.endsWith('"')) || (val.startsWith("'") && val.endsWith("'"))) val = val.slice(1, -1);
     else val = val.replace(/\s+#.*$/, '');
-    // The app's own APEX_* settings always come from .env. For the API keys a key already set as an
-    // environment variable wins, so you can keep it there instead of in the file.
-    if (m[1].startsWith('APEX_') || !(process.env[m[1]] || '').trim()) process.env[m[1]] = val;
+    // The app's own non-blank APEX_* settings come from .env; blank lines in .env (e.g. from .env.example)
+    // must not wipe out an environment override like APEX_DATA_DIR. For API keys, an env var always wins.
+    if ((m[1].startsWith('APEX_') && val !== '') || !(process.env[m[1]] || '').trim()) process.env[m[1]] = val;
   }
 }
 const KEY_FROM_ENVIRONMENT = !!(process.env.ANTHROPIC_API_KEY || '').trim();
@@ -77,12 +77,34 @@ const DEFAULT_PROVIDER = PROVIDERS[process.env.APEX_COACH_PROVIDER] ? process.en
   : (API_KEY ? 'claude' : GEMINI_API_KEY ? 'gemini' : OPENAI_API_KEY ? 'openai' : 'claude');
 const DEFAULT_MODEL = DEFAULT_MODELS[DEFAULT_PROVIDER];
 const DEFAULT_EFFORT = EFFORTS.includes(process.env.APEX_COACH_EFFORT) ? process.env.APEX_COACH_EFFORT : 'low';
-const PORT = parseInt(process.env.APEX_PORT || '8080', 10);
+const RAW_PORT = (process.env.APEX_PORT || '8080').trim();
+const PORT = /^\d+$/.test(RAW_PORT) ? parseInt(RAW_PORT, 10) : NaN;
+const PORT_VALID = Number.isInteger(PORT) && PORT >= 1 && PORT <= 65535;
 const API_BASE = (process.env.APEX_ANTHROPIC_BASE_URL || 'https://api.anthropic.com').replace(/\/+$/, '');
 const GEMINI_BASE = (process.env.APEX_GEMINI_BASE_URL || 'https://generativelanguage.googleapis.com').replace(/\/+$/, '');
 const OPENAI_BASE = (process.env.APEX_OPENAI_BASE_URL || 'https://api.openai.com').replace(/\/+$/, '');
 const UPSTREAM_TIMEOUT_MS = 180000;
 const MAX_BODY_BYTES = 256 * 1024;
+
+function explainFetchError(err) {
+  const code = err && err.cause && err.cause.code;
+  const msg = (err && err.cause && err.cause.message) || (err && err.message) || String(err);
+  if (code === 'ENOTFOUND' || code === 'EAI_AGAIN') return 'check your internet connection (DNS lookup failed)';
+  if (code === 'ECONNREFUSED') return 'connection refused';
+  if (code === 'ETIMEDOUT' || code === 'UND_ERR_CONNECT_TIMEOUT' || code === 'UND_ERR_HEADERS_TIMEOUT') return 'connection timed out';
+  if (code === 'ECONNRESET') return 'connection reset';
+  if (/CERT_|UNABLE_TO_VERIFY/i.test(code || '')) return `TLS certificate check failed (${code})`;
+  return code && !msg.includes(code) ? `${msg} (${code})` : msg;
+}
+
+function aiErrorHint(provider, status) {
+  const p = PROVIDERS[provider];
+  if (!p) return '';
+  if (status === 401 || status === 403) return ` Check ${p.keyName} in .env and restart the server.`;
+  if (status === 404) return ' Model may no longer be available — open Settings > AI engine and press Re-check server.';
+  if (status === 429 || status === 529) return ` ${p.label} is busy or over its quota/billing limit — try again shortly or switch provider.`;
+  return '';
+}
 
 const SYSTEM_PROMPT = 'You are the Apex Velo Lab sport scientist: an elite cycling coach and exercise physiologist with deep knowledge of training methodology and periodisation. ' +
   'You build structured indoor ERG sessions and training blocks from the rider\'s real training data, and you review the rides they have done. ' +
@@ -288,8 +310,9 @@ function refreshModelCatalog(force = false) {
       Object.assign(MODELS, keep);
       CATALOG[provider] = { source: 'live', count: list.length, at: new Date().toISOString() };
     } catch (e) {
-      CATALOG[provider] = { source: 'built-in', error: e.message };
-      console.warn(`[models] ${PROVIDERS[provider].label} model list unavailable (${e.message}); using the built-in list.`);
+      const reason = explainFetchError(e);
+      CATALOG[provider] = { source: 'built-in', error: reason };
+      console.warn(`[models] ${PROVIDERS[provider].label} model list unavailable (${reason}); using the built-in list.`);
     }
   })).then(() => { catalogAt = Date.now(); }).finally(() => { catalogRefresh = null; });
   return catalogRefresh;
@@ -417,7 +440,7 @@ async function callOpenAi(reqBody, signal) {
   }
   if (!upstream.ok) {
     const msg = (data && data.error && data.error.message) || `HTTP ${upstream.status}`;
-    return { error: `OpenAI API error ${upstream.status}: ${msg}`, upstreamStatus: upstream.status, log: `${upstream.status} ${msg}` };
+    return { error: `OpenAI API error ${upstream.status}: ${msg}.${aiErrorHint('openai', upstream.status)}`, upstreamStatus: upstream.status, log: `${upstream.status} ${msg}` };
   }
   const items = Array.isArray(data.output) ? data.output : [];
   let text = '', refusal = '';
@@ -453,7 +476,7 @@ async function callClaude(reqBody, signal) {
   const data = await upstream.json().catch(() => ({}));
   if (!upstream.ok) {
     const msg = (data && data.error && data.error.message) || `HTTP ${upstream.status}`;
-    return { error: `Claude API error ${upstream.status}: ${msg}`, upstreamStatus: upstream.status, log: `${upstream.status} ${msg}` };
+    return { error: `Claude API error ${upstream.status}: ${msg}.${aiErrorHint('claude', upstream.status)}`, upstreamStatus: upstream.status, log: `${upstream.status} ${msg}` };
   }
   const blocks = Array.isArray(data.content) ? data.content : [];
   const usage = data.usage || {};
@@ -477,7 +500,7 @@ async function callGemini(reqBody, model, signal) {
   const data = await upstream.json().catch(() => ({}));
   if (!upstream.ok) {
     const msg = (data && data.error && data.error.message) || `HTTP ${upstream.status}`;
-    return { error: `Gemini API error ${upstream.status}: ${msg}`, upstreamStatus: upstream.status, log: `${upstream.status} ${msg}` };
+    return { error: `Gemini API error ${upstream.status}: ${msg}.${aiErrorHint('gemini', upstream.status)}`, upstreamStatus: upstream.status, log: `${upstream.status} ${msg}` };
   }
   const cand = Array.isArray(data.candidates) && data.candidates[0];
   if (!cand) {
@@ -537,8 +560,9 @@ async function handleCoach(req, res) {
     return sendJson(res, 200, { text: out.text, thinking: out.thinking, provider, model: out.model, effort: shownEffort, stopReason: out.stopReason, usage: out.usage });
   } catch (err) {
     const aborted = err.name === 'AbortError';
-    console.warn(`[coach] ${model} ${aborted ? 'timed out / cancelled' : 'request failed: ' + err.message}`);
-    return sendJson(res, aborted ? 504 : 502, { error: aborted ? `${p.label} did not answer in time.` : `Could not reach the ${p.label} API (${err.message}).` });
+    const reason = explainFetchError(err);
+    console.warn(`[coach] ${model} ${aborted ? 'timed out / cancelled' : 'request failed: ' + reason}`);
+    return sendJson(res, aborted ? 504 : 502, { error: aborted ? `${p.label} did not answer in time.` : `Could not reach the ${p.label} API (${reason}).` });
   } finally {
     clearTimeout(timer);
   }
@@ -601,8 +625,9 @@ async function handleAsk(req, res) {
     return sendJson(res, 200, { text, refused, provider, model: out.model, effort: MODELS[model].adaptive ? effort : null, stopReason: out.stopReason, usage: out.usage });
   } catch (err) {
     const aborted = err.name === 'AbortError';
-    console.warn(`[ask] ${model} ${aborted ? 'timed out / cancelled' : 'request failed: ' + err.message}`);
-    return sendJson(res, aborted ? 504 : 502, { error: aborted ? `${p.label} did not answer in time.` : `Could not reach the ${p.label} API (${err.message}).` });
+    const reason = explainFetchError(err);
+    console.warn(`[ask] ${model} ${aborted ? 'timed out / cancelled' : 'request failed: ' + reason}`);
+    return sendJson(res, aborted ? 504 : 502, { error: aborted ? `${p.label} did not answer in time.` : `Could not reach the ${p.label} API (${reason}).` });
   } finally {
     clearTimeout(timer);
   }
@@ -631,18 +656,32 @@ function saveStravaTokens(d, scope, athlete) {
   }, null, 2));
 }
 async function stravaForm(url, fields) {
-  const r = await fetch(url, { method: 'POST', body: new URLSearchParams(fields), signal: AbortSignal.timeout(STRAVA_TIMEOUT_MS) });
-  const data = await r.json().catch(() => null);
-  return { ok: r.ok, status: r.status, data };
+  try {
+    const r = await fetch(url, { method: 'POST', body: new URLSearchParams(fields), signal: AbortSignal.timeout(STRAVA_TIMEOUT_MS) });
+    const data = await r.json().catch(() => null);
+    return { ok: r.ok, status: r.status, data };
+  } catch (e) {
+    return { ok: false, status: 0, data: null, networkError: explainFetchError(e) };
+  }
+}
+async function stravaTokenResult() {
+  const t = readStravaTokens();
+  if (!t || !t.refresh_token) return { token: null, status: 401, error: 'Strava is not connected. Connect Strava first.', needsConnect: true };
+  if (t.access_token && Number(t.expires_at) > Date.now() / 1000 + 120) return { token: t.access_token };
+  const r = await stravaForm(`${STRAVA_BASE}/oauth/token`, { client_id: STRAVA_CLIENT_ID, client_secret: STRAVA_CLIENT_SECRET, grant_type: 'refresh_token', refresh_token: t.refresh_token });
+  if (!r.ok || !r.data) {
+    console.warn(`[strava] token refresh failed: ${r.status || r.networkError}`);
+    if (r.status === 0) return { token: null, status: 502, error: `Could not reach Strava (${r.networkError}). Try again shortly.` };
+    if (r.status === 429) return { token: null, status: 429, error: 'Strava rate limit reached - try again in 15 minutes.' };
+    if (r.status >= 500) return { token: null, status: 502, error: `Strava is temporarily unavailable (HTTP ${r.status}). Try again shortly.` };
+    return { token: null, status: 401, error: 'Strava sign-in expired or was revoked. Reconnect Strava.', needsConnect: true };
+  }
+  saveStravaTokens(r.data, t.scope, t.athlete);
+  return { token: r.data.access_token };
 }
 async function stravaAccessToken() {
-  const t = readStravaTokens();
-  if (!t || !t.refresh_token) return null;
-  if (t.access_token && Number(t.expires_at) > Date.now() / 1000 + 120) return t.access_token;
-  const r = await stravaForm(`${STRAVA_BASE}/oauth/token`, { client_id: STRAVA_CLIENT_ID, client_secret: STRAVA_CLIENT_SECRET, grant_type: 'refresh_token', refresh_token: t.refresh_token });
-  if (!r.ok || !r.data) { console.warn(`[strava] token refresh failed: ${r.status}`); return null; }
-  saveStravaTokens(r.data, t.scope, t.athlete);
-  return r.data.access_token;
+  const r = await stravaTokenResult();
+  return r.token;
 }
 function stravaStatus() {
   const t = readStravaTokens();
@@ -719,8 +758,9 @@ async function handleStravaSync(req, res, query) {
   if (!/activity:read_all/.test(t.scope || '')) {
     return sendJson(res, 403, { error: 'Strava sync needs permission to read all your activities. Reconnect Strava (Disconnect, then Connect Strava) and allow access to your activities.', needsReconnect: true });
   }
-  const token = await stravaAccessToken();
-  if (!token) return sendJson(res, 401, { error: 'Strava sign-in expired or was revoked. Reconnect Strava.', needsConnect: true });
+  const tok = await stravaTokenResult();
+  if (!tok.token) return sendJson(res, tok.status, tok.needsConnect ? { error: tok.error, needsConnect: true } : { error: tok.error });
+  const token = tok.token;
 
   // Second-by-second data of ONE activity, passed through as Strava sends it (the app converts it).
   const sid = query.get('streams');
@@ -730,7 +770,7 @@ async function handleStravaSync(req, res, query) {
     try {
       r = await fetch(`${STRAVA_BASE}/api/v3/activities/${sid}/streams?keys=${SYNC_STREAM_KEYS}&key_by_type=true`, { method: 'GET', headers: { Authorization: `Bearer ${token}` }, signal: AbortSignal.timeout(STRAVA_TIMEOUT_MS) });
       text = await r.text();
-    } catch (e) { return sendJson(res, 502, { error: `Could not reach Strava (${e.message}).` }); }
+    } catch (e) { return sendJson(res, 502, { error: `Could not reach Strava (${explainFetchError(e)}).` }); }
     const rate = stravaRate(r);
     if (r.status === 401) return sendJson(res, 401, { error: 'Strava rejected the sign-in. Reconnect Strava.', needsConnect: true });
     if (r.status === 429) return sendJson(res, 200, { id: sid, rateLimited: true, rate });
@@ -750,7 +790,7 @@ async function handleStravaSync(req, res, query) {
     let rate = null;
     for (const id of list) {
       let r;
-      try { r = await stravaGet(`activities/${id}`, token); } catch (e) { return sendJson(res, 502, { error: `Could not reach Strava (${e.message}).`, activities: out, missing }); }
+      try { r = await stravaGet(`activities/${id}`, token); } catch (e) { return sendJson(res, 502, { error: `Could not reach Strava (${explainFetchError(e)}).`, activities: out, missing }); }
       rate = r.rate;
       if (r.status === 401) return sendJson(res, 401, { error: 'Strava rejected the sign-in. Reconnect Strava.', needsConnect: true });
       if (r.status === 429) return sendJson(res, 200, { activities: out, missing, rateLimited: true, rate });
@@ -771,7 +811,7 @@ async function handleStravaSync(req, res, query) {
   for (let page = 1; page <= SYNC_MAX_PAGES; page++) {
     let r;
     try { r = await stravaGet(`athlete/activities?after=${after}&before=${before}&per_page=200&page=${page}`, token); }
-    catch (e) { return sendJson(res, 502, { error: `Could not reach Strava (${e.message}).` }); }
+    catch (e) { return sendJson(res, 502, { error: `Could not reach Strava (${explainFetchError(e)}).` }); }
     rate = r.rate; pages = page;
     if (r.status === 401) return sendJson(res, 401, { error: 'Strava needs permission to read your activities. Reconnect Strava.', needsConnect: true });
     if (r.status === 429) return sendJson(res, 429, { error: 'Strava rate limit reached - try again in 15 minutes.', rate });
@@ -807,7 +847,10 @@ async function handleStrava(req, res, urlPath, query) {
     const scope = query.get('scope') || '';
     if (!/activity:write/.test(scope)) return sendHtml(res, 400, 'Strava', "<h1>Upload permission missing</h1><p>Please tick <b>Upload your activities</b> on the Strava screen, then connect again.</p><p><a href='/api/strava/connect'>Connect again</a></p>");
     const r = await stravaForm(`${STRAVA_BASE}/oauth/token`, { client_id: STRAVA_CLIENT_ID, client_secret: STRAVA_CLIENT_SECRET, code: query.get('code'), grant_type: 'authorization_code' });
-    if (!r.ok || !r.data) return sendHtml(res, 502, 'Strava', `<h1>Could not finish connecting</h1><p>Strava answered ${r.status}. Check STRAVA_CLIENT_ID / STRAVA_CLIENT_SECRET in .env.</p>`);
+    if (!r.ok || !r.data) {
+      const detail = r.status === 0 ? `Could not reach Strava (${escHtml(r.networkError)}). Check your internet connection and try again.` : `Strava answered ${r.status}. Check STRAVA_CLIENT_ID / STRAVA_CLIENT_SECRET in .env.`;
+      return sendHtml(res, 502, 'Strava', `<h1>Could not finish connecting</h1><p>${detail}</p><p><a href='/api/strava/connect'>Try again</a></p>`);
+    }
     saveStravaTokens(r.data, scope);
     const who = escHtml(`${(r.data.athlete || {}).firstname || ''} ${(r.data.athlete || {}).lastname || ''}`.trim());
     console.log(`[strava] connected as ${who}`);
@@ -825,8 +868,9 @@ async function handleStrava(req, res, urlPath, query) {
     if (req.method !== 'POST') return sendJson(res, 405, { error: 'Method not allowed' });
     if (!isPcRequest(req)) return sendJson(res, 403, { error: 'Requests are only accepted from the app on this PC.' });
     if (!/^application\/json\b/i.test(req.headers['content-type'] || '')) return sendJson(res, 415, { error: 'Content-Type must be application/json.' });
-    const token = await stravaAccessToken();
-    if (!token) return sendJson(res, 401, { error: 'Strava is not connected (or access was revoked). Connect Strava and try again.', needsConnect: true });
+    const tok = await stravaTokenResult();
+    if (!tok.token) return sendJson(res, tok.status, tok.needsConnect ? { error: tok.error, needsConnect: true } : { error: tok.error });
+    const token = tok.token;
     let input;
     try { input = JSON.parse(await readBody(req, STRAVA_MAX_UPLOAD)); } catch (e) { return sendJson(res, e.status || 400, { error: e.status ? 'Ride file too large' : 'Invalid JSON.' }); }
     const fit = Buffer.from(String(input.fitBase64 || ''), 'base64');
@@ -837,7 +881,7 @@ async function handleStrava(req, res, urlPath, query) {
     for (const [k, v] of Object.entries(parts)) if (v !== '') form.append(k, String(v));
     let r;
     try { r = await fetch(`${STRAVA_BASE}/api/v3/uploads`, { method: 'POST', headers: { Authorization: `Bearer ${token}` }, body: form, signal: AbortSignal.timeout(STRAVA_UPLOAD_TIMEOUT_MS) }); }
-    catch (e) { return sendJson(res, 502, { error: `Could not reach Strava (${e.message}).` }); }
+    catch (e) { return sendJson(res, 502, { error: `Could not reach Strava (${explainFetchError(e)}).` }); }
     const d = await r.json().catch(() => null);
     if (r.status === 401) return sendJson(res, 401, { error: 'Strava rejected the sign-in. Connect Strava again.', needsConnect: true });
     if (r.status === 429) return sendJson(res, 429, { error: 'Strava rate limit reached - try again in 15 minutes.' });
@@ -850,13 +894,14 @@ async function handleStrava(req, res, urlPath, query) {
     if (!isPcRequest(req)) return sendJson(res, 403, { error: 'Forbidden' });
     const after = query.get('after') || '', before = query.get('before') || '';
     if (!/^\d+$/.test(after) || !/^\d+$/.test(before)) return sendJson(res, 400, { error: 'after and before (unix seconds) are required' });
-    const token = await stravaAccessToken();
-    if (!token) return sendJson(res, 401, { error: 'Strava is not connected.', needsConnect: true });
+    const tok = await stravaTokenResult();
+    if (!tok.token) return sendJson(res, tok.status, tok.needsConnect ? { error: tok.error, needsConnect: true } : { error: tok.error });
+    const token = tok.token;
     const out = [];
     for (let page = 1; page <= 10; page++) {
       let r;
       try { r = await fetch(`${STRAVA_BASE}/api/v3/athlete/activities?after=${after}&before=${before}&per_page=200&page=${page}`, { headers: { Authorization: `Bearer ${token}` }, signal: AbortSignal.timeout(STRAVA_TIMEOUT_MS) }); }
-      catch (e) { return sendJson(res, 502, { error: `Could not reach Strava (${e.message}).` }); }
+      catch (e) { return sendJson(res, 502, { error: `Could not reach Strava (${explainFetchError(e)}).` }); }
       if (r.status === 401) return sendJson(res, 401, { error: 'Strava needs permission to read your activities. Connect Strava again.', needsConnect: true });
       if (r.status === 429) return sendJson(res, 429, { error: 'Strava rate limit reached - try again in 15 minutes.' });
       if (!r.ok) return sendJson(res, 502, { error: `Strava activity list failed (HTTP ${r.status}).` });
@@ -870,11 +915,12 @@ async function handleStrava(req, res, urlPath, query) {
   const m = urlPath.match(/^\/api\/strava\/upload\/(\d+)$/);
   if (m) {
     if (!isPcRequest(req)) return sendJson(res, 403, { error: 'Forbidden' });
-    const token = await stravaAccessToken();
-    if (!token) return sendJson(res, 401, { error: 'Strava is not connected.', needsConnect: true });
+    const tok = await stravaTokenResult();
+    if (!tok.token) return sendJson(res, tok.status, tok.needsConnect ? { error: tok.error, needsConnect: true } : { error: tok.error });
+    const token = tok.token;
     let r;
     try { r = await fetch(`${STRAVA_BASE}/api/v3/uploads/${m[1]}`, { headers: { Authorization: `Bearer ${token}` }, signal: AbortSignal.timeout(STRAVA_TIMEOUT_MS) }); }
-    catch (e) { return sendJson(res, 502, { error: `Could not reach Strava (${e.message}).` }); }
+    catch (e) { return sendJson(res, 502, { error: `Could not reach Strava (${explainFetchError(e)}).` }); }
     const d = await r.json().catch(() => null);
     if (!r.ok || !d) return sendJson(res, 502, { error: `Strava status check failed (HTTP ${r.status}).` });
     return sendJson(res, 200, convertUpload(d));
@@ -890,7 +936,7 @@ async function handleStrava(req, res, urlPath, query) {
 // GET /api/live/cmds open so a tapped command reaches it at once instead of on its next publish.
 // Every command has an id and stays queued until the PC confirms it (cmdAck in its next
 // publish), so a command is never lost on a dropped connection and never applied twice.
-const LIVE_CMDS = new Set(['toggle', 'skip', 'bias-up', 'bias-down', 'bias-reset', 'watts-up', 'watts-down', 'stand', 'spin-more', 'spin-finish',
+const LIVE_CMDS = new Set(['toggle', 'skip', 'interval-plus', 'interval-minus', 'bias-up', 'bias-down', 'bias-reset', 'watts-up', 'watts-down', 'stand', 'spin-more', 'spin-finish',
   'connect-trainer', 'connect-pedals', 'connect-hr', 'connect-fan', 'disconnect-trainer', 'disconnect-pedals', 'disconnect-hr', 'disconnect-fan', 'connect-all', 'connect-stop', 'pair-cancel', 'calibrate-pedals',
   'fan-0', 'fan-25', 'fan-50', 'fan-75', 'fan-100', 'fan-mode-manual', 'fan-mode-hr', 'fan-mode-power']);
 const LIVE_HOLD_MS = 2500;
@@ -1335,26 +1381,35 @@ function createServer() {
 
 if (require.main === module) {
   const major = parseInt(process.versions.node.split('.')[0], 10);
-  if (major < 24) { console.error(`Node 24 or newer is required. On Windows, use Launch-Apex-Velo.bat for automatic setup (found ${process.versions.node}).`); process.exit(1); }
+  if (major < 24) { console.error(`Node 24 or newer is required (found ${process.versions.node}). On Windows, use Launch-Apex-Velo.bat for automatic setup; on macOS/Linux, install Node 24+ from https://nodejs.org.`); process.exit(1); }
+  if (!PORT_VALID) { console.error(`Invalid APEX_PORT "${RAW_PORT}". Use a number between 1 and 65535 (default 8080) in .env.`); process.exit(1); }
   const server = createServer();
+  let shuttingDown = false;
+  const shutdown = () => {
+    if (shuttingDown) return;
+    shuttingDown = true;
+    try { if (localStore) { localStore.flushBackup(); localStore.close(); } } catch (e) { /* best effort */ }
+    server.close(() => process.exit(0));
+    setTimeout(() => process.exit(0), 2000).unref();
+  };
+  process.on('SIGINT', shutdown);
+  process.on('SIGTERM', shutdown);
   server.on('error', (e) => {
-    console.error(e.code === 'EADDRINUSE' ? `Port ${PORT} is already in use - is Apex Velo Lab already running? Set APEX_PORT in .env to change it.` : e.message);
+    if (e.code === 'EADDRINUSE') console.error(`Port ${PORT} is already in use - is Apex Velo Lab already running? Set APEX_PORT in .env to change it.`);
+    else if (e.code === 'EACCES') console.error(`Permission denied on port ${PORT}. Pick a port 1024 or higher (for example APEX_PORT=8080) in .env.`);
+    else console.error(e.message);
     process.exit(1);
   });
   server.listen(PORT, '0.0.0.0', () => {
     const url = `http://localhost:${PORT}/`;
     console.log(`Apex Velo Lab running at ${url}`);
     try { console.log(`Saved data: ${storage().file}`); }
-    catch (e) { console.error(`Storage unavailable: ${e.message}. Existing data has not been reset.`); }
+    catch (e) {
+      const dataDir = (() => { try { return require('./scripts/sqlite-store.cjs').dataDirectory(); } catch { return ''; } })();
+      console.error(`Storage unavailable: ${e.message}. Existing data has not been reset.${dataDir ? ` Data folder: ${dataDir} (backups in ${path.join(dataDir, 'backups')}).` : ''}`);
+    }
     try {
-      const os = require('os');
-      const nets = os.networkInterfaces();
-      const lanIps = [];
-      for (const name of Object.keys(nets)) {
-        for (const net of nets[name] || []) {
-          if (net.family === 'IPv4' && !net.internal) lanIps.push(net.address);
-        }
-      }
+      const lanIps = lanAddresses();
       if (lanIps.length) {
         console.log(`Phone view (same Wi-Fi as this PC): pair the phone from the app's Settings > Phone view (${lanIps.map(ip => `http://${ip}:${PORT}/live.html`).join(', ')}).`);
       }
@@ -1385,4 +1440,4 @@ if (require.main === module) {
   });
 }
 
-module.exports = { createServer, buildClaudeRequest, buildGeminiRequest, buildClaudeAskRequest, buildGeminiAskRequest, buildOpenAiCoachRequest, buildOpenAiAskRequest, prettyOpenAiName, openAiChat, refreshModelCatalog, validateAsk, ASK_SYSTEM_PROMPT, loadDotEnv, slimActivity, MODELS, PROVIDERS };
+module.exports = { createServer, buildClaudeRequest, buildGeminiRequest, buildClaudeAskRequest, buildGeminiAskRequest, buildOpenAiCoachRequest, buildOpenAiAskRequest, prettyOpenAiName, openAiChat, refreshModelCatalog, validateAsk, ASK_SYSTEM_PROMPT, loadDotEnv, slimActivity, MODELS, PROVIDERS, LIVE_CMDS, explainFetchError, aiErrorHint };

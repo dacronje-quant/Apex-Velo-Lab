@@ -170,7 +170,7 @@ function healthSection() {
         <p class="field-help">Resting heart rate, HRV and sleep are read from your <b>intervals.icu</b> wellness data (synced there from your watch). They drive the readiness score, the calendar recovery strip and the recovery trends.</p>
         <ol class="setup-steps">
           <li>On <a href="https://intervals.icu/settings" target="_blank" rel="noopener">intervals.icu/settings</a>, open <b>Developer settings</b> and copy your <b>API key</b>.</li>
-          <li>Paste it here and press <b>Save and backfill</b>. All your history (up to about two years) is read once; after that the last week is refreshed when the app opens and every hour.</li>
+          <li>Paste it here and press <b>Save and backfill</b>. All your history (up to about two years) is read once; after that the last week is refreshed when the app opens or returns to the screen.</li>
         </ol>
         <div class="form-group">
           <label for="nativeIcuKey">intervals.icu API key</label>
@@ -1130,9 +1130,12 @@ export function bootNativeApp({ bluetooth, storage, strava, ai, icu, uploads, pl
         const m = c.model;
         const modelText = `${AC.labelFor(m)}${AC.supportsEffort(m) ? ` - ${c.effort} effort` : ''}`;
         const keys = Object.values(c.engine.providers || {}).map((p) => `${esc(p.label)} ${p.configured ? 'key saved' : 'no key'}`).join(' &middot; ');
-        detail.innerHTML = c.isLive
-          ? `<strong>Ready.</strong> Requests go from this phone to ${esc(modelText)}. <span style="opacity:.7">(${keys})</span>`
-          : `<strong>No ${esc(c.providerLabel)} API key.</strong> Paste it below and press Save keys, or pick a provider whose key is saved. Until then the offline engine is used. <span style="opacity:.7">(${keys})</span>`;
+        const catErr = c.engine.catalog && c.engine.catalog[c.provider] && c.engine.catalog[c.provider].error;
+        detail.innerHTML = c.isLive && catErr
+          ? `<strong class="backup-warn">Key check failed (${esc(catErr)}).</strong> Check your ${esc(c.providerLabel)} API key and connection, then press Re-check. <span style="opacity:.7">(${keys})</span>`
+          : c.isLive
+            ? `<strong>Ready.</strong> Requests go from this phone to ${esc(modelText)}. <span style="opacity:.7">(${keys})</span>`
+            : `<strong>No ${esc(c.providerLabel)} API key.</strong> Paste it below and press Save keys, or pick a provider whose key is saved. Until then the offline engine is used. <span style="opacity:.7">(${keys})</span>`;
         const pill = doc.getElementById('aiCoachEngineStatus');
         if (pill && !c.isLive) pill.innerHTML = `<span class="status-indicator-dot"></span>${esc(c.providerLabel)}: add an API key`;
       };

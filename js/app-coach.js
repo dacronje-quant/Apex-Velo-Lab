@@ -196,7 +196,9 @@
       this.updateCoachEngineStatus();
       if (!announce) return;
       const c = this.aiCoach;
-      if (c.isLive) this.showToast(`${c.providerLabel} ready - ${VeloAiCoach.labelFor(c.model)}.`, 'success');
+      const catErr = c.engine.catalog && c.engine.catalog[c.provider] && c.engine.catalog[c.provider].error;
+      if (c.isLive && catErr) this.showToast(`${c.providerLabel} key check failed: ${catErr}. Check your API key and network.`, 'warning');
+      else if (c.isLive) this.showToast(`${c.providerLabel} ready - ${VeloAiCoach.labelFor(c.model)}.`, 'success');
       else if (c.engine.reachable) this.showToast(`Server found, but no ${VeloAiCoach.PROVIDERS[c.provider].keyName} yet. Add it to .env and restart Launch-Apex-Velo.bat.`, 'warning');
       else this.showToast(`Local server not running - open the app with Launch-Apex-Velo.bat to use ${c.providerLabel}.`, 'warning');
     },
@@ -254,7 +256,8 @@
       const pLabel = c.providerLabel;
       const keyName = VeloAiCoach.PROVIDERS[c.provider].keyName;
       const modelText = `${VeloAiCoach.labelFor(m)}${VeloAiCoach.supportsEffort(m) ? ` - ${c.effort} effort` : ''}`;
-      const state = c.isLive ? 'live' : c.engine.reachable ? 'warn' : '';
+      const catErr = c.engine.catalog && c.engine.catalog[c.provider] && c.engine.catalog[c.provider].error;
+      const state = c.isLive && !catErr ? 'live' : c.engine.reachable ? 'warn' : '';
       if (el) {
         el.className = `engine-pill ${state}`;
         el.innerHTML = `<span class="status-indicator-dot"></span>${c.isLive ? esc(modelText) : c.engine.reachable ? `${esc(pLabel)}: API key missing` : 'Offline physiology engine'}`;
@@ -262,11 +265,13 @@
       if (detail) {
         const keys = Object.entries(c.engine.providers || {})
           .map(([, p]) => `${esc(p.label)} ${p.configured ? 'key found' : 'no key'}`).join(' &middot; ');
-        detail.innerHTML = c.isLive
-          ? `<strong>Connected.</strong> Requests go to ${esc(modelText)} through the local server. <span style="opacity:.7">(${keys})</span>`
-          : c.engine.reachable
-            ? `<strong>No ${esc(pLabel)} API key.</strong> Paste your key after <code>${keyName}=</code> in the <code>.env</code> file, then restart <code>Launch-Apex-Velo.bat</code>. <span style="opacity:.7">(${keys})</span>`
-            : '<strong>Local server not running.</strong> Open the app with <code>Launch-Apex-Velo.bat</code> (it serves the app and holds your keys). Until then the offline engine is used.';
+        detail.innerHTML = c.isLive && catErr
+          ? `<strong class="backup-warn">Key check failed (${esc(catErr)}).</strong> Check <code>${keyName}</code> and your internet connection, then press Re-check server. <span style="opacity:.7">(${keys})</span>`
+          : c.isLive
+            ? `<strong>Connected.</strong> Requests go to ${esc(modelText)} through the local server. <span style="opacity:.7">(${keys})</span>`
+            : c.engine.reachable
+              ? `<strong>No ${esc(pLabel)} API key.</strong> Paste your key after <code>${keyName}=</code> in the <code>.env</code> file, then restart <code>Launch-Apex-Velo.bat</code>. <span style="opacity:.7">(${keys})</span>`
+              : '<strong>Local server not running.</strong> Open the app with <code>Launch-Apex-Velo.bat</code> (it serves the app and holds your keys). Until then the offline engine is used.';
       }
     },
 

@@ -105,7 +105,7 @@
       // One time range for the whole Analytics page (PMC, weekly load, trends).
       document.querySelectorAll('#anaRangePills .ana-range').forEach(p => this.on(p, 'click', () => this.setAnalyticsRange(p.dataset.range)));
       document.querySelectorAll('#progMetricPills .prog-metric').forEach(p => this.on(p, 'click', () => {
-        document.querySelectorAll('#progMetricPills .prog-metric').forEach(x => x.classList.toggle('active', x === p));
+        document.querySelectorAll('#progMetricPills .prog-metric').forEach(x => { const on = x === p; x.classList.toggle('active', on); x.setAttribute('aria-checked', String(on)); });
         this.progMetric = p.dataset.metric;
         this.renderProgression();
       }));
@@ -121,7 +121,7 @@
       // Power duration curve: watts or W/kg (remembered in this browser).
       try { this.pdcUnit = localStorage.getItem('apex_pdc_unit') === 'wkg' ? 'wkg' : 'w'; } catch (e) { this.pdcUnit = 'w'; }
       const unitPills = document.querySelectorAll('#pdcUnitPills .pdc-unit');
-      const syncUnits = () => unitPills.forEach(x => { const on = x.dataset.unit === this.pdcUnit; x.classList.toggle('active', on); x.setAttribute('aria-pressed', String(on)); });
+      const syncUnits = () => unitPills.forEach(x => { const on = x.dataset.unit === this.pdcUnit; x.classList.toggle('active', on); x.setAttribute('aria-checked', String(on)); });
       syncUnits();
       unitPills.forEach(p => this.on(p, 'click', () => {
         this.pdcUnit = p.dataset.unit === 'wkg' ? 'wkg' : 'w';
@@ -142,7 +142,7 @@
       this.anaRange = R[key] ? key : '6m';
       this.pmcRange = v[0];
       this.progWeeks = v[1];
-      document.querySelectorAll('#anaRangePills .ana-range').forEach(x => x.classList.toggle('active', x.dataset.range === this.anaRange));
+      document.querySelectorAll('#anaRangePills .ana-range').forEach(x => { const on = x.dataset.range === this.anaRange; x.classList.toggle('active', on); x.setAttribute('aria-checked', String(on)); });
       this.recalculatePmc();
       this.renderProgression();
       this.updateMmpChart();
