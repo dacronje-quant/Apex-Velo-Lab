@@ -5,6 +5,8 @@ const crypto = require('node:crypto'), zlib = require('node:zlib');
 const { DatabaseSync } = require('node:sqlite');
 const VeloSync = require('../js/velo-sync.js');
 const VeloHealth = require('../js/velo-health.js');
+const { RideAnalyticsIndex } = require('./sqlite-analytics.cjs');
+const RawHealth = require('./raw-health.cjs');
 const MAX_BYTES = 200 * 1024 * 1024;
 const DAY_RE = /^\d{4}-\d{2}-\d{2}$/;
 const sha256 = text => crypto.createHash('sha256').update(String(text)).digest('hex');
@@ -50,7 +52,7 @@ class LocalStore {
       this.db.exec('PRAGMA busy_timeout=5000; PRAGMA journal_mode=WAL; PRAGMA synchronous=FULL;');
       if (this.db.prepare('PRAGMA quick_check').get().quick_check !== 'ok') fail('The local database failed its integrity check. It has been left untouched.', 503);
       const version = this.db.prepare('PRAGMA user_version').get().user_version;
-      if (version > 2) fail('This database needs a newer version of Apex. It has been left untouched.', 503);
+      if (version > 4) fail('This database needs a newer version of Apex. It has been left untouched.', 503);
       this.db.exec(`CREATE TABLE IF NOT EXISTS meta (key TEXT PRIMARY KEY, value TEXT NOT NULL);
         CREATE TABLE IF NOT EXISTS rides (id TEXT PRIMARY KEY, json TEXT NOT NULL, position INTEGER NOT NULL, updated_at INTEGER NOT NULL DEFAULT 0, content_hash TEXT);
         CREATE TABLE IF NOT EXISTS settings (key TEXT PRIMARY KEY, value TEXT NOT NULL, updated_at INTEGER NOT NULL DEFAULT 0);
@@ -67,8 +69,11 @@ class LocalStore {
         const cols = this.db.prepare(`PRAGMA table_info(${table})`).all().map(c => c.name);
         if (!cols.includes(col)) this.db.exec(`ALTER TABLE ${table} ADD COLUMN ${col} ${def}`);
       }
-      this.db.exec('PRAGMA user_version=2;');
+      this.analytics = new RideAnalyticsIndex(this.db);
+      this.analytics.initSchema();
+      this.db.exec('PRAGMA user_version=4;');
       this.backfillSyncMetadata();
+      this.analytics.syncAll();
       if (!this.meta('storeId')) this.setMeta('storeId', crypto.randomUUID());
     } catch (e) { this.db.close(); throw e; }
     this.lastBackupError = null;
@@ -146,15 +151,17 @@ class LocalStore {
         this.db.prepare('DELETE FROM sync_tombstones WHERE kind=? AND id=?').run('setting', k);
       }
     }
+    if (own(settings, 'apex_health_v1')) this.analytics.syncWellness();
   }
   applyRides(put, del = [], { exact = false, replace = false, now } = {}) {
     validateRides(put);
     if (!Array.isArray(del) || del.some(id => !['number', 'string'].includes(typeof id))) fail('Invalid deleted IDs.');
     const ts = Number.isFinite(now) ? now : this.clock().getTime();
-    if (replace) this.db.exec('DELETE FROM rides');
+    if (replace) { this.db.exec('DELETE FROM rides'); this.analytics.clearRides(); }
     for (const id of del) {
       this.db.prepare('DELETE FROM rides WHERE id=?').run(String(id));
       this.db.prepare('INSERT OR REPLACE INTO sync_tombstones (kind, id, deleted_at) VALUES (?,?,?)').run('ride', String(id), ts);
+      this.analytics.deleteRide(String(id));
     }
     let position = Number(this.db.prepare('SELECT COALESCE(MAX(position),-1) AS n FROM rides').get().n) + 1;
     for (const ride of put) {
@@ -166,6 +173,7 @@ class LocalStore {
       this.db.prepare('INSERT OR REPLACE INTO rides (id, json, position, updated_at, content_hash) VALUES (?,?,?,?,?)')
         .run(String(ride.id), JSON.stringify(value), previous?.position ?? position++, at, hash);
       this.db.prepare('DELETE FROM sync_tombstones WHERE kind=? AND id=?').run('ride', String(ride.id));
+      this.analytics.indexRide(value, hash);
     }
   }
   putWellnessDays(source, days, { now } = {}) {
@@ -187,6 +195,7 @@ class LocalStore {
           this.db.prepare('DELETE FROM sync_tombstones WHERE kind=? AND id=?').run('wellness', `${source}:${day}`);
         }
       }
+      this.analytics.syncWellness();
       this.db.exec('COMMIT');
     } catch (e) { this.db.exec('ROLLBACK'); throw e; }
   }
@@ -246,6 +255,7 @@ class LocalStore {
       for (const id of delRideIds) {
         const res = this.db.prepare('DELETE FROM rides WHERE id=?').run(String(id));
         if (res.changes > 0) changed = true;
+        this.analytics.deleteRide(String(id));
       }
       let position = Number(this.db.prepare('SELECT COALESCE(MAX(position),-1) AS n FROM rides').get().n) + 1;
       for (const wrap of putRides) {
@@ -262,6 +272,7 @@ class LocalStore {
           if (!previous || previous.content_hash !== hash) changed = true;
           this.db.prepare('INSERT OR REPLACE INTO rides (id, json, position, updated_at, content_hash) VALUES (?,?,?,?,?)')
             .run(id, JSON.stringify(value), previous?.position ?? position++, Math.max(at, previous?.updated_at || 0), hash);
+          this.analytics.indexRide(value, hash);
         }
         this.db.prepare('DELETE FROM sync_tombstones WHERE kind=? AND id=?').run('ride', id);
       }
@@ -311,6 +322,7 @@ class LocalStore {
         changed = true;
       }
       if (changed) this.setMeta('revision', this.revision + 1);
+      this.analytics.syncWellness();
       this.db.exec('COMMIT');
       if (changed) this.scheduleBackup();
       return { ok: true, changed, revision: this.revision, storeId: this.meta('storeId') };
@@ -501,6 +513,14 @@ class LocalStore {
     };
     check(); this.dailyTimer = setInterval(check, 3600000); this.dailyTimer.unref();
   }
+  ingestHealthAutoExport(payload) {
+    const parsed = RawHealth.parseHealthAutoExportPayload(payload);
+    if (!parsed.readings.length && !parsed.sleepSessions.length) {
+      return { readings: 0, sleepSessions: 0, metrics: [], touchedDays: 0 };
+    }
+    return this.analytics.ingestRawHealth(parsed, { transactional: true });
+  }
+  analyticsStatus() { return this.analytics.status(); }
   close() { clearTimeout(this.backupTimer); clearInterval(this.dailyTimer); this.db.close(); }
 }
 module.exports = { LocalStore, settingKey, dataDirectory, MAX_BYTES };

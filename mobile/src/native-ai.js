@@ -154,7 +154,7 @@ export function validateAsk(input) {
   if (messages[messages.length - 1].role !== 'user') return { error: 'The last message must be the rider\'s question.' };
   const context = typeof input.context === 'string' ? input.context : '';
   if (context.length > ASK_MAX_CONTEXT_CHARS) return { error: `The training data is too long (over ${ASK_MAX_CONTEXT_CHARS} characters): pick a shorter period.` };
-  return { messages, context };
+  return { messages, context, useTools: input.useTools === true };
 }
 
 // ------------------------------------------------------------------ reply parsing --

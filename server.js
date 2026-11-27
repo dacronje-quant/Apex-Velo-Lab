@@ -136,6 +136,7 @@ const ASK_SYSTEM_PROMPT = 'You are the rider\'s personal cycling coach and data 
 const ASK_MAX_MESSAGES = 40;
 const ASK_MAX_MESSAGE_CHARS = 20000;
 const ASK_MAX_CONTEXT_CHARS = 150000;
+const ASK_MAX_TOOL_ROUNDS = 8;
 // Server-side refusal fallback (Claude Opus 5.5): a declined request is re-run on Anthropic's recommended model.
 const FALLBACK_BETA = 'server-side-fallback-2026-07-01';
 
@@ -477,7 +478,8 @@ async function callOpenAi(reqBody, signal) {
     thinking: thinking.join('\n\n'),
     model: data.model || reqBody.model,
     stopReason: refusal && !text ? 'refusal' : incomplete === 'max_output_tokens' ? 'max_tokens' : (incomplete || 'end_turn'),
-    usage: { input_tokens: u.input_tokens || 0, output_tokens: u.output_tokens || 0, cache_read_input_tokens: (u.input_tokens_details && u.input_tokens_details.cached_tokens) || 0 }
+    usage: { input_tokens: u.input_tokens || 0, output_tokens: u.output_tokens || 0, cache_read_input_tokens: (u.input_tokens_details && u.input_tokens_details.cached_tokens) || 0 },
+    rawOutput: items
   };
 }
 
@@ -504,7 +506,8 @@ async function callClaude(reqBody, signal) {
     thinking: blocks.filter(b => b.type === 'thinking' && b.thinking).map(b => b.thinking).join('\n\n'),
     model: data.model || model,
     stopReason: data.stop_reason,
-    usage: { input_tokens: usage.input_tokens || 0, output_tokens: usage.output_tokens || 0, cache_read_input_tokens: usage.cache_read_input_tokens || 0 }
+    usage: { input_tokens: usage.input_tokens || 0, output_tokens: usage.output_tokens || 0, cache_read_input_tokens: usage.cache_read_input_tokens || 0 },
+    contentBlocks: blocks
   };
 }
 
@@ -533,7 +536,8 @@ async function callGemini(reqBody, model, signal) {
     thinking: parts.filter(p => p.thought && p.text).map(p => p.text).join('\n\n'),
     model: data.modelVersion || model,
     stopReason: cand.finishReason === 'MAX_TOKENS' ? 'max_tokens' : String(cand.finishReason || '').toLowerCase(),
-    usage: { input_tokens: um.promptTokenCount || 0, output_tokens: (um.candidatesTokenCount || 0) + (um.thoughtsTokenCount || 0) }
+    usage: { input_tokens: um.promptTokenCount || 0, output_tokens: (um.candidatesTokenCount || 0) + (um.thoughtsTokenCount || 0) },
+    rawParts: parts
   };
 }
 
@@ -608,7 +612,118 @@ function validateAsk(input) {
   if (messages[messages.length - 1].role !== 'user') return { error: 'The last message must be the rider\'s question.' };
   const context = typeof input.context === 'string' ? input.context : '';
   if (context.length > ASK_MAX_CONTEXT_CHARS) return { error: `The training data is too long (over ${ASK_MAX_CONTEXT_CHARS} characters): pick a shorter period.` };
-  return { messages, context };
+  return { messages, context, useTools: input.useTools === true };
+}
+
+let aiToolsCache = null;
+function tryLoadDbTools() {
+  try {
+    const store = storage();
+    if (!store || !store.initialized) return null;
+    if (!aiToolsCache) aiToolsCache = require('./scripts/ai-tools.cjs');
+    return { store, aiTools: aiToolsCache };
+  } catch {
+    return null;
+  }
+}
+
+function addAskUsage(acc, u) {
+  if (!u) return acc;
+  acc.input_tokens += u.input_tokens || 0;
+  acc.output_tokens += u.output_tokens || 0;
+  acc.cache_read_input_tokens += u.cache_read_input_tokens || 0;
+  return acc;
+}
+
+async function runClaudeAskWithTools(v, model, effort, dbTools, signal) {
+  const { store, aiTools } = dbTools;
+  let allowFallback = true;
+  const reqBody = buildClaudeAskRequest(v.messages, v.context, model, effort, allowFallback);
+  reqBody.system.push({ type: 'text', text: aiTools.AI_TOOLS_PROMPT });
+  reqBody.tools = aiTools.claudeTools();
+  const usage = { input_tokens: 0, output_tokens: 0, cache_read_input_tokens: 0 };
+  const toolsUsed = [];
+
+  for (let round = 0; round <= ASK_MAX_TOOL_ROUNDS; round++) {
+    if (round === ASK_MAX_TOOL_ROUNDS) reqBody.tool_choice = { type: 'none' };
+    let out = await callClaude(reqBody, signal);
+    if (round === 0 && out.error && out.upstreamStatus === 400 && /fallback/i.test(out.log || '')) {
+      allowFallback = false;
+      delete reqBody.fallbacks;
+      out = await callClaude(reqBody, signal);
+    }
+    if (out.error) return out;
+    addAskUsage(usage, out.usage);
+    const calls = (out.contentBlocks || []).filter(b => b && b.type === 'tool_use');
+    if (!calls.length || round === ASK_MAX_TOOL_ROUNDS) {
+      return { ...out, usage, toolsUsed };
+    }
+    reqBody.messages.push({ role: 'assistant', content: out.contentBlocks });
+    const results = [];
+    for (const tc of calls) {
+      const result = aiTools.executeTool(store, tc.name, tc.input || {});
+      toolsUsed.push({ name: tc.name });
+      results.push({ type: 'tool_result', tool_use_id: tc.id, content: JSON.stringify(result) });
+    }
+    reqBody.messages.push({ role: 'user', content: results });
+  }
+}
+
+async function runGeminiAskWithTools(v, model, effort, dbTools, signal) {
+  const { store, aiTools } = dbTools;
+  const reqBody = buildGeminiAskRequest(v.messages, v.context, effort, model);
+  reqBody.systemInstruction.parts.push({ text: aiTools.AI_TOOLS_PROMPT });
+  reqBody.tools = aiTools.geminiTools();
+  const usage = { input_tokens: 0, output_tokens: 0, cache_read_input_tokens: 0 };
+  const toolsUsed = [];
+
+  for (let round = 0; round <= ASK_MAX_TOOL_ROUNDS; round++) {
+    if (round === ASK_MAX_TOOL_ROUNDS) reqBody.toolConfig = { functionCallingConfig: { mode: 'NONE' } };
+    const out = await callGemini(reqBody, model, signal);
+    if (out.error) return out;
+    addAskUsage(usage, out.usage);
+    const calls = (out.rawParts || []).filter(p => p && p.functionCall);
+    if (!calls.length || round === ASK_MAX_TOOL_ROUNDS) {
+      return { ...out, usage, toolsUsed };
+    }
+    reqBody.contents.push({ role: 'model', parts: out.rawParts });
+    const responses = [];
+    for (const p of calls) {
+      const fc = p.functionCall;
+      const result = aiTools.executeTool(store, fc.name, fc.args || {});
+      toolsUsed.push({ name: fc.name });
+      responses.push({ functionResponse: { name: fc.name, response: { result } } });
+    }
+    reqBody.contents.push({ role: 'user', parts: responses });
+  }
+}
+
+async function runOpenAiAskWithTools(v, model, effort, dbTools, signal) {
+  const { store, aiTools } = dbTools;
+  const reqBody = buildOpenAiAskRequest(v.messages, v.context, model, effort);
+  reqBody.instructions = `${reqBody.instructions}\n\n${aiTools.AI_TOOLS_PROMPT}`;
+  reqBody.tools = aiTools.openaiTools();
+  const usage = { input_tokens: 0, output_tokens: 0, cache_read_input_tokens: 0 };
+  const toolsUsed = [];
+
+  for (let round = 0; round <= ASK_MAX_TOOL_ROUNDS; round++) {
+    if (round === ASK_MAX_TOOL_ROUNDS) reqBody.tool_choice = 'none';
+    const out = await callOpenAi(reqBody, signal);
+    if (out.error) return out;
+    addAskUsage(usage, out.usage);
+    const calls = (out.rawOutput || []).filter(it => it && it.type === 'function_call');
+    if (!calls.length || round === ASK_MAX_TOOL_ROUNDS) {
+      return { ...out, usage, toolsUsed };
+    }
+    for (const it of out.rawOutput) reqBody.input.push(it);
+    for (const fc of calls) {
+      let args = {};
+      try { args = typeof fc.arguments === 'string' ? JSON.parse(fc.arguments || '{}') : (fc.arguments || {}); } catch {}
+      const result = aiTools.executeTool(store, fc.name, args);
+      toolsUsed.push({ name: fc.name });
+      reqBody.input.push({ type: 'function_call_output', call_id: fc.call_id, output: JSON.stringify(result) });
+    }
+  }
 }
 
 /** POST /api/ask - free questions about the rider's own training data, answered by Claude, Gemini or ChatGPT. */
@@ -620,6 +735,8 @@ async function handleAsk(req, res) {
   const { provider, model, effort, p } = resolveEngine(input);
   if (!KEYS[provider]) return sendJson(res, 503, { error: `No ${p.label} API key. Add ${p.keyName} to the .env file and restart the server.` });
 
+  const wantTools = v.useTools || (isPairedSyncClient(req) && input.useTools !== false);
+  const dbTools = wantTools ? tryLoadDbTools() : null;
   const ac = new AbortController();
   const timer = setTimeout(() => ac.abort(), UPSTREAM_TIMEOUT_MS);
   // res, not req: the request's 'close' has already fired once its body was read, so it never reports a cancel.
@@ -627,7 +744,11 @@ async function handleAsk(req, res) {
   const t0 = Date.now();
   try {
     let out;
-    if (provider === 'gemini') out = await callGemini(buildGeminiAskRequest(v.messages, v.context, effort, model), model, ac.signal);
+    if (dbTools) {
+      if (provider === 'gemini') out = await runGeminiAskWithTools(v, model, effort, dbTools, ac.signal);
+      else if (provider === 'openai') out = await runOpenAiAskWithTools(v, model, effort, dbTools, ac.signal);
+      else out = await runClaudeAskWithTools(v, model, effort, dbTools, ac.signal);
+    } else if (provider === 'gemini') out = await callGemini(buildGeminiAskRequest(v.messages, v.context, effort, model), model, ac.signal);
     else if (provider === 'openai') out = await callOpenAi(buildOpenAiAskRequest(v.messages, v.context, model, effort), ac.signal);
     else {
       out = await callClaude(buildClaudeAskRequest(v.messages, v.context, model, effort), ac.signal);
@@ -640,8 +761,9 @@ async function handleAsk(req, res) {
     }
     const refused = out.stopReason === 'refusal' && !out.text.trim();
     const text = refused ? 'I can\'t answer that one. Try asking it another way, or about a specific part of your training.' : out.text;
-    console.log(`[ask] ${out.model} (${MODELS[model].adaptive ? effort : 'budget'}) ${((Date.now() - t0) / 1000).toFixed(1)} s, ${out.usage.input_tokens} in (${out.usage.cache_read_input_tokens || 0} cached) / ${out.usage.output_tokens} out tokens, stop=${out.stopReason}`);
-    return sendJson(res, 200, { text, refused, provider, model: out.model, effort: MODELS[model].adaptive ? effort : null, stopReason: out.stopReason, usage: out.usage });
+    const toolsUsed = Array.isArray(out.toolsUsed) ? out.toolsUsed : [];
+    console.log(`[ask] ${out.model} (${MODELS[model].adaptive ? effort : 'budget'}) ${((Date.now() - t0) / 1000).toFixed(1)} s, ${out.usage.input_tokens} in (${out.usage.cache_read_input_tokens || 0} cached) / ${out.usage.output_tokens} out tokens${toolsUsed.length ? `, tools=${toolsUsed.length}` : ''}, stop=${out.stopReason}`);
+    return sendJson(res, 200, { text, refused, provider, model: out.model, effort: MODELS[model].adaptive ? effort : null, stopReason: out.stopReason, usage: out.usage, ...(toolsUsed.length ? { toolsUsed } : {}) });
   } catch (err) {
     const aborted = err.name === 'AbortError';
     console.warn(`[ask] ${model} ${aborted ? 'timed out / cancelled' : 'request failed: ' + err.message}`);
@@ -1094,6 +1216,7 @@ async function handleStorage(req, res, urlPath) {
       if (urlPath === '/api/storage/rides') return sendJson(res, 200, { ok: true, rides: store.rides(), revision: store.revision });
       if (urlPath === '/api/storage/db-settings') return sendJson(res, 200, { ok: true, settings: store.dbSettings(), revision: store.revision });
       if (urlPath === '/api/storage/backups') return sendJson(res, 200, store.backups());
+      if (urlPath === '/api/storage/analytics-status') return sendJson(res, 200, { ok: true, ...store.analyticsStatus() });
       return sendJson(res, 404, { error: 'Not found' });
     }
     if (req.method !== 'POST') return sendJson(res, 405, { error: 'Method not allowed' });
@@ -1298,6 +1421,19 @@ async function handleHealth(req, res, urlPath, query) {
       writePrivateFile(HEALTH_META_FILE, JSON.stringify({ lastReceived: d.toISOString(), lastBytes: buf.length, received: (meta.received || 0) + 1 }));
     } catch (e) {
       return sendJson(res, 500, { error: `Could not save the data (${e.message}).` });
+    }
+    if (fs.existsSync(path.join(ROOT, 'scripts', 'sqlite-store.cjs'))) {
+      try {
+        const store = storage();
+        if (store.initialized) {
+          const rawStats = store.ingestHealthAutoExport(body);
+          if (rawStats && (rawStats.readings || rawStats.sleepSessions)) {
+            console.log(`[health] stored ${rawStats.readings} readings (${rawStats.metrics.length} metrics) & ${rawStats.sleepSessions} sleep records into SQLite`);
+          }
+        }
+      } catch (e) {
+        console.warn('[health] raw SQLite capture skipped:', e.message);
+      }
     }
     return sendJson(res, 200, { ok: true, stored: name });
   }

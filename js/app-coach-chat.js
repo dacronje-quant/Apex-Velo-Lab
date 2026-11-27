@@ -351,12 +351,14 @@
         const res = await fetch(ASK_URL, {
           method: 'POST', cache: 'no-store', signal: ac.signal,
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ messages: this.askHistoryForApi(), context, provider: c.provider, model: c.model, effort: c.effort })
+          body: JSON.stringify({ messages: this.askHistoryForApi(), context, provider: c.provider, model: c.model, effort: c.effort, useTools: !!(window.VeloStorage && window.VeloStorage.enabled) })
         });
         const data = await res.json().catch(() => ({}));
         if (!res.ok) throw Object.assign(new Error(data.error || `The local server answered ${res.status}.`), { server: true });
         const secs = ((performance.now() - this._askStarted) / 1000).toFixed(1);
-        this.askMessages.push({ id: newMsgId(), role: 'assistant', content: String(data.text || '').trim() || 'No answer came back - try asking again.', meta: `${VeloAiCoach.labelFor(data.model || c.model)} · ${secs} s`, at: Date.now() });
+        const toolCount = Array.isArray(data.toolsUsed) ? data.toolsUsed.length : 0;
+        const toolNote = toolCount ? ` · ${toolCount} DB ${toolCount === 1 ? 'query' : 'queries'}` : '';
+        this.askMessages.push({ id: newMsgId(), role: 'assistant', content: String(data.text || '').trim() || 'No answer came back - try asking again.', meta: `${VeloAiCoach.labelFor(data.model || c.model)} · ${secs} s${toolNote}`, at: Date.now() });
       } catch (e) {
         const reason = ac.signal.aborted ? ac.signal.reason : null;
         const last = this.askMessages[this.askMessages.length - 1];
