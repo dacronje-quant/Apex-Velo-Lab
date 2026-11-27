@@ -27,6 +27,7 @@ import { BACKFILL_DAYS, RECENT_DAYS } from './native-icu.js';
 import { aboutSection } from './native-licences.js';
 import { isFromDestination } from './native-outbox.js';
 import { HC_SOURCE, TYPE_TEXT, WELLNESS_TYPES, RIDE_TYPES, WRITE_TYPES, MERGE_FIELDS, RESUME_SYNC_MS, toRide, importRides, removeRides, recordedHere } from './native-healthconnect.js';
+import { parsePairingInput } from './native-sync.js';
 
 const json = (status, body) => new Response(JSON.stringify(body), { status, headers: { 'Content-Type': 'application/json' } });
 const AI_PATHS = ['/api/coach', '/api/coach/status', '/api/ask'];
@@ -130,6 +131,32 @@ function filesSection() {
         <p class="field-help">Ride files are saved in <b>Documents/ApexVelo</b> on this phone, where any file manager can open them and Garmin Connect, TrainingPeaks, intervals.icu and others can import them.</p>
         <label class="native-toggle"><input type="checkbox" id="nativeAutoFit" checked> Save a FIT file of every ride when it finishes</label>
         <p class="field-help">History &gt; Export (FIT, TCX, CSV and the full JSON backup) saves to the same folder. Rides themselves are always kept in the app as well.</p>
+      </section>`;
+}
+
+function homeSyncSection() {
+  return `
+      <section class="settings-section" data-sec="sync" id="nativeSyncSettings">
+        <p class="field-help">Connect to your Home Server (PC today or Mac mini later) over Tailscale to keep rides, Apple Health, training plans and AI coach chats in sync.</p>
+        <div class="form-group">
+          <label for="nativeSyncPairLink">Quick pair (paste pairing link)</label>
+          <input type="text" id="nativeSyncPairLink" class="input-field" autocomplete="off" autocapitalize="off" spellcheck="false" placeholder="apexvelo://sync?url=...&token=...">
+        </div>
+        <div class="form-group">
+          <label for="nativeSyncUrl">Server URL</label>
+          <input type="url" id="nativeSyncUrl" class="input-field" autocomplete="off" autocapitalize="off" spellcheck="false" placeholder="https://mac-mini.tailnet.ts.net">
+        </div>
+        <div class="form-group">
+          <label for="nativeSyncToken">Sync token</label>
+          <input type="password" id="nativeSyncToken" class="input-field" autocomplete="off" autocapitalize="off" spellcheck="false" placeholder="Copy from Desktop Settings > Sync">
+        </div>
+        <label class="native-toggle"><input type="checkbox" id="nativeSyncUseHostAi" checked> Use Home Server's AI keys when reachable</label>
+        <div class="settings-kv" id="nativeSyncStatus" aria-live="polite"><span class="dim">Not configured.</span></div>
+        <div class="btn-row">
+          <button type="button" class="btn btn-primary" id="btnNativeSyncSave">Save &amp; test</button>
+          <button type="button" class="btn" id="btnNativeSyncNow">Sync now</button>
+          <button type="button" class="btn btn-ghost" id="btnNativeSyncDisconnect">Disconnect</button>
+        </div>
       </section>`;
 }
 
@@ -254,8 +281,12 @@ function hideStravaSync(doc) {
 }
 
 /** Settings > Strava: the DOM must exist before VeloApp binds the settings tabs. */
-function addSettingsUi(doc, icu, healthConnect) {
+function addSettingsUi(doc, icu, healthConnect, sync) {
   hideStravaSync(doc);
+  const desktopSyncBtn = doc.querySelector('#settingsNav [data-sec="sync"]');
+  if (desktopSyncBtn) desktopSyncBtn.hidden = true;
+  const desktopSyncSec = doc.getElementById('syncSettings');
+  if (desktopSyncSec) desktopSyncSec.hidden = true;
   const nav = doc.getElementById('settingsNav');
   if (nav && !nav.querySelector('[data-sec="strava"]')) {
     const b = doc.createElement('button');
@@ -269,7 +300,7 @@ function addSettingsUi(doc, icu, healthConnect) {
     about.type = 'button'; about.className = 'cat-pill'; about.dataset.sec = 'about'; about.textContent = 'About';
     nav.append(about);
     const riderSection = doc.querySelector('#settingsModal .settings-section[data-sec="rider"]');
-    if (riderSection) riderSection.insertAdjacentHTML('afterend', stravaSection() + filesSection() + aboutSection());
+    if (riderSection) riderSection.insertAdjacentHTML('afterend', (sync ? homeSyncSection() : '') + stravaSection() + filesSection() + aboutSection());
   }
   const status = doc.getElementById('localStorageStatus');
   if (status) status.textContent = 'Saved on this phone.';
@@ -461,11 +492,17 @@ const localDay = (d = new Date()) => `${d.getFullYear()}-${String(d.getMonth() +
 const UPLOAD_DEST = 'strava';
 const hhmm = (t) => new Date(t).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' });
 
-export function bootNativeApp({ bluetooth, storage, strava, ai, icu, uploads, plugins, ride, healthConnect = null, wellness = null, shell = null, win = window }) {
+export function bootNativeApp({ bluetooth, storage, strava, ai, icu, sync = null, uploads, plugins, ride, healthConnect = null, wellness = null, shell = null, win = window }) {
   const doc = win.document;
   const { App, Browser, KeepAwake, Filesystem, Share } = plugins;
   doc.documentElement.classList.add('apex-native');
   installApiRoutes({ storage, strava, ai }, win);
+  let syncTimer = null;
+  const scheduleHomeSync = (reason, delayMs = 1200) => {
+    if (!sync || win.__APEX_TEST_MODE__) return;
+    clearTimeout(syncTimer);
+    syncTimer = setTimeout(() => { sync.sync({ reason }).catch(() => {}); }, delayMs);
+  };
 
   // External links (Strava activity pages, the API settings page) open in the system browser.
   doc.addEventListener('click', (e) => {
@@ -479,7 +516,7 @@ export function bootNativeApp({ bluetooth, storage, strava, ai, icu, uploads, pl
 
   win.addEventListener('DOMContentLoaded', () => {
     doc.body.classList.add('apex-native');
-    addSettingsUi(doc, icu, healthConnect);
+    addSettingsUi(doc, icu, healthConnect, sync);
     if (ai) addAiSettingsUi(doc);
     // `class VeloApp` in js/app.js is a global binding of the page's scripts, not a window property.
     /* global VeloApp, VeloExport */
@@ -590,6 +627,7 @@ export function bootNativeApp({ bluetooth, storage, strava, ai, icu, uploads, pl
       if (uploads && healthConnect && recordedHere(ride)) {
         uploads.autoUpload(HC_SOURCE).then((on) => on && uploads.enqueue(ride, HC_SOURCE).then(() => uploads.run())).catch(() => {});
       }
+      scheduleHomeSync('ride');
       if (!autoSaveFit() || !ride || !Array.isArray(ride.samples) || !ride.samples.length) return;
       const name = `${VeloExport.fileStem(ride)}.fit`;
       saveRideFile(Filesystem, name, new Blob([VeloExport.buildFit(ride, ride.samples)], { type: 'application/vnd.ant.fit' }))
@@ -836,10 +874,11 @@ export function bootNativeApp({ bluetooth, storage, strava, ai, icu, uploads, pl
     };
     const showSection = P.showSettingsSection;
     P.showSettingsSection = function (sec) {
-      if (sec === 'phone' || (sec === 'ai' && !ai) || (sec === 'health' && !icu)) sec = 'rider'; // sections that need the PC
+      if (sec === 'phone' || (sec === 'ai' && !ai) || (sec === 'health' && !icu) || (sec === 'sync' && !sync)) sec = 'rider'; // sections that need the PC
       showSection.call(this, sec);
       if (sec === 'strava' && this._renderNativeStrava) this._renderNativeStrava().catch(() => {});
       if (sec === 'ai' && this._renderNativeAiKeys) this._renderNativeAiKeys().catch(() => {});
+      if (sec === 'sync' && this._renderNativeSync) this._renderNativeSync().catch(() => {});
     };
 
     // ------------------------------------------------------------ health (intervals.icu) --
@@ -883,7 +922,7 @@ export function bootNativeApp({ bluetooth, storage, strava, ai, icu, uploads, pl
         } finally {
           this._healthBusy = false;
         }
-        if (added) { this.refreshHealthDerived(); this.afterHealthChange(); }
+        if (added) { this.refreshHealthDerived(); this.afterHealthChange(); scheduleHomeSync('health'); }
         if (announce) {
           this.showToast(this._healthError || (full ? `intervals.icu: ${days} day${days === 1 ? '' : 's'} with health data read, ${added} new or changed.` : added ? `intervals.icu: ${added} day${added === 1 ? '' : 's'} updated.` : 'intervals.icu: up to date.'), this._healthError ? 'warning' : 'success');
         }
@@ -1019,6 +1058,7 @@ export function bootNativeApp({ bluetooth, storage, strava, ai, icu, uploads, pl
         }
         if (days) { this.refreshHealthDerived(); this.afterHealthChange(); }
         if (rides) { this.renderHistoryTable(); this.refreshAnalytics(); }
+        if (days || rides) scheduleHomeSync('healthconnect');
         if (announce) {
           this.showToast(this._hcError || (res && (res.days || res.sessions) ? `Health Connect: ${days} day${days === 1 ? '' : 's'} and ${rides} ride${rides === 1 ? '' : 's'} added or updated.` : 'Health Connect: up to date.'), this._hcError ? 'warning' : 'success');
         }
@@ -1130,9 +1170,11 @@ export function bootNativeApp({ bluetooth, storage, strava, ai, icu, uploads, pl
         const m = c.model;
         const modelText = `${AC.labelFor(m)}${AC.supportsEffort(m) ? ` - ${c.effort} effort` : ''}`;
         const keys = Object.values(c.engine.providers || {}).map((p) => `${esc(p.label)} ${p.configured ? 'key saved' : 'no key'}`).join(' &middot; ');
-        detail.innerHTML = c.isLive
-          ? `<strong>Ready.</strong> Requests go from this phone to ${esc(modelText)}. <span style="opacity:.7">(${keys})</span>`
-          : `<strong>No ${esc(c.providerLabel)} API key.</strong> Paste it below and press Save keys, or pick a provider whose key is saved. Until then the offline engine is used. <span style="opacity:.7">(${keys})</span>`;
+        detail.innerHTML = c.engine.viaHost && c.engine.hostReachable
+          ? `<strong>Ready.</strong> Requests use your Home Server's API keys (${esc(modelText)}). <span style="opacity:.7">(${keys})</span>`
+          : c.isLive
+            ? `<strong>Ready.</strong> Requests go from this phone to ${esc(modelText)}. <span style="opacity:.7">(${keys})</span>`
+            : `<strong>No ${esc(c.providerLabel)} API key.</strong> Paste it below and press Save keys, or connect Home Server Sync in You &gt; Connections. <span style="opacity:.7">(${keys})</span>`;
         const pill = doc.getElementById('aiCoachEngineStatus');
         if (pill && !c.isLive) pill.innerHTML = `<span class="status-indicator-dot"></span>${esc(c.providerLabel)}: add an API key`;
       };
@@ -1191,6 +1233,81 @@ export function bootNativeApp({ bluetooth, storage, strava, ai, icu, uploads, pl
         render().catch(() => {});
       };
     }
+
+    if (sync) {
+      const esc = (v) => String(v ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+      P.onCoachChatSaved = function () { scheduleHomeSync('chat', 800); };
+      const initSettingsSync = P.initSettings;
+      P.initSettings = function () {
+        initSettingsSync.call(this);
+        const app = this;
+        const $ = (id) => doc.getElementById(id);
+        const render = async () => {
+          const st = await sync.status();
+          if ($('nativeSyncUrl') && !$('nativeSyncUrl').value && st.url) $('nativeSyncUrl').value = st.url;
+          if ($('nativeSyncToken')) $('nativeSyncToken').placeholder = st.token ? 'Saved - leave blank to keep it' : 'Copy from Desktop Settings > Sync';
+          if ($('nativeSyncUseHostAi')) $('nativeSyncUseHostAi').checked = st.useHostAi;
+          const box = $('nativeSyncStatus');
+          if (box) {
+            const kv = (k, v) => `<div><span>${esc(k)}</span><b>${v}</b></div>`;
+            const when = st.lastAt ? new Date(st.lastAt).toLocaleString('en-GB', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' }) : 'not yet';
+            box.innerHTML = st.configured
+              ? [kv('Server', esc(st.url)), kv('Last sync', esc(when)), st.lastError ? `<div class="backup-warn">${esc(st.lastError)}</div>` : ''].join('')
+              : '<span class="dim">Not paired yet.</span>';
+          }
+          if ($('btnNativeSyncNow')) $('btnNativeSyncNow').disabled = !st.configured;
+          if ($('btnNativeSyncDisconnect')) $('btnNativeSyncDisconnect').hidden = !st.configured;
+        };
+        this._renderNativeSync = render;
+        this.on($('nativeSyncPairLink'), 'input', () => {
+          const raw = $('nativeSyncPairLink').value.trim();
+          if (!raw) return;
+          try {
+            const p = parsePairingInput(raw);
+            if (p && p.url && $('nativeSyncUrl')) $('nativeSyncUrl').value = p.url;
+            if (p && p.token && $('nativeSyncToken')) $('nativeSyncToken').value = p.token;
+          } catch { /* wait until valid */ }
+        });
+        this.on($('btnNativeSyncSave'), 'click', async () => {
+          const url = ($('nativeSyncUrl')?.value || '').trim();
+          const cur = await sync.config();
+          const token = ($('nativeSyncToken')?.value || '').trim() || cur.token;
+          const useHostAi = $('nativeSyncUseHostAi') ? $('nativeSyncUseHostAi').checked : true;
+          try {
+            await sync.setConfig({ url, token, useHostAi });
+            if ($('nativeSyncToken')) $('nativeSyncToken').value = '';
+            if ($('nativeSyncPairLink')) $('nativeSyncPairLink').value = '';
+            const ping = await sync.ping();
+            if (ping.ok) {
+              app.showToast('Home Server connected! Running first sync...', 'success');
+              await sync.sync({ reason: 'pair', announce: true });
+              if (app.refreshCoachEngine) app.refreshCoachEngine(false).catch(() => {});
+            }
+          } catch (e) {
+            app.showToast((e && e.message) || String(e), 'warning');
+          }
+          render().catch(() => {});
+        });
+        this.on($('nativeSyncUseHostAi'), 'change', async (e) => {
+          await sync.setUseHostAi(e.currentTarget.checked);
+          if (app.refreshCoachEngine) app.refreshCoachEngine(false).catch(() => {});
+        });
+        this.on($('btnNativeSyncNow'), 'click', async () => {
+          await sync.sync({ reason: 'manual', announce: true });
+          render().catch(() => {});
+        });
+        this.on($('btnNativeSyncDisconnect'), 'click', async () => {
+          if (!confirm('Disconnect Home Server Sync? Your rides and health data on this phone stay.')) return;
+          await sync.clearConfig();
+          if ($('nativeSyncUrl')) $('nativeSyncUrl').value = '';
+          if ($('nativeSyncToken')) $('nativeSyncToken').value = '';
+          if (app.refreshCoachEngine) app.refreshCoachEngine(false).catch(() => {});
+          app.showToast('Home Server disconnected.', 'success');
+          render().catch(() => {});
+        });
+        render().catch(() => {});
+      };
+    }
   });
 
   // Strava sign-in returns through the apexvelo:// link (also when Android restarted the app meanwhile).
@@ -1199,6 +1316,20 @@ export function bootNativeApp({ bluetooth, storage, strava, ai, icu, uploads, pl
   if (storage) whenApp().then((app) => app && win.VeloStorage && win.VeloStorage.enabled && app.backfillRideSummaries
     && new Promise((r) => setTimeout(r, 3000)).then(() => app.backfillRideSummaries())).catch(() => {});
   const onAppUrl = async ({ url }) => {
+    if (sync && sync.isPairingUrl(url)) {
+      const app = await whenApp();
+      try {
+        const res = await sync.handlePairingLink(url);
+        if (app) {
+          if (app._renderNativeSync) app._renderNativeSync().catch(() => {});
+          if (app.refreshCoachEngine) app.refreshCoachEngine(false).catch(() => {});
+          app.showToast(res.ping?.ok ? 'Paired with Home Server!' : `Saved Home Server, but could not reach it yet (${res.ping?.error || 'offline'}).`, res.ping?.ok ? 'success' : 'warning');
+        }
+      } catch (e) {
+        if (app) app.showToast((e && e.message) || String(e), 'warning');
+      }
+      return;
+    }
     if (!strava.isRedirect(url)) return;
     Browser.close().catch(() => {});
     const r = await strava.handleRedirect(url);
@@ -1219,6 +1350,7 @@ export function bootNativeApp({ bluetooth, storage, strava, ai, icu, uploads, pl
   const icuDueOnOpen = () => { const now = Date.now(); if (now - icuOpenAt < ICU_OPEN_GAP_MS) return false; icuOpenAt = now; return true; };
   if (icu) whenApp().then((app) => { if (app && app.pullHealthInbox && !win.__APEX_TEST_MODE__) return app.pullHealthInbox({ force: icuDueOnOpen() }); }).catch(() => {});
   if (healthConnect) whenApp().then((app) => { if (app && app.syncHealthConnect && !win.__APEX_TEST_MODE__) return app.syncHealthConnect({ force: true }); }).catch(() => {});
+  if (sync) whenApp().then((app) => { if (app && !win.__APEX_TEST_MODE__) return sync.sync({ reason: 'start' }); }).catch(() => {});
   // Backups: a pending automatic snapshot is written before Android may close the app in the background, and
   // one that is due (a day old, or changes since the last) when it comes back.
   if (storage) {
@@ -1232,6 +1364,7 @@ export function bootNativeApp({ bluetooth, storage, strava, ai, icu, uploads, pl
     if (uploads) uploads.run().catch(() => {}); // the offline retry queue
     if (icu && app.pullHealthInbox) app.pullHealthInbox({ force: icuDueOnOpen() }).catch(() => {}); // every time the app comes back (a minute apart at least)
     if (healthConnect && app.syncHealthConnect) app.syncHealthConnect().catch(() => {}); // at most every 15 minutes
+    if (sync) sync.sync({ reason: 'resume' }).catch(() => {});
   });
 
   // Android back: close the chooser, then the top dialog, then Zen, then follow the shell's stack (sheet > page >

@@ -21,6 +21,7 @@ import { BROKER_URL } from './app-config.js';
 import { PrefsSyncLedger, UploadQueue } from './native-outbox.js';
 import { NativeAi } from './native-ai.js';
 import { NativeIcu } from './native-icu.js';
+import { NativeSync } from './native-sync.js';
 import { bootNativeApp } from './native-app.js';
 import { installShell } from './native-shell.js';
 import { installHistory } from './native-history.js';
@@ -48,7 +49,8 @@ if (fake || Capacitor.isNativePlatform()) {
   const bluetooth = installNativeBluetooth((fake && fake.ble) || BleClient);
   // One-tap Strava sign-in through the token broker when this build has one (src/app-config.js).
   const strava = new NativeStrava({ http: (fake && fake.http) || CapacitorHttp, prefs, openUrl: (url) => plugins.Browser.open({ url }), brokerUrl: fake ? fake.brokerUrl || '' : BROKER_URL });
-  const ai = new NativeAi({ http: (fake && (fake.aiHttp || fake.http)) || CapacitorHttp, prefs, ...(fake && fake.aiBases ? { bases: fake.aiBases } : {}) });
+  let sync = null;
+  const ai = new NativeAi({ http: (fake && (fake.aiHttp || fake.http)) || CapacitorHttp, prefs, host: { getConfig: () => (sync ? sync.hostAiConfig() : null) }, ...(fake && fake.aiBases ? { bases: fake.aiBases } : {}) });
   const icu = new NativeIcu({ http: (fake && fake.http) || CapacitorHttp, prefs });
   // Saved data: SQLite in the app's private storage, opened once; a failure is reported by every
   // /api/storage answer, and js/velo-storage.js then keeps the WebView storage and shows why.
@@ -82,7 +84,14 @@ if (fake || Capacitor.isNativePlatform()) {
     /** Moves earlier WebView data in (once); onProgress(done, total). */
     async migrate(onProgress) {
       return new WebViewMigration({ store: await store, source: webViewSource(window), onProgress }).run();
-    }
+    },
+    async syncManifest() { return (await store).syncManifest(); },
+    async ridesByIds(ids) { return (await store).ridesByIds(ids); },
+    async settingsWithMeta(keys) { return (await store).settingsWithMeta(keys); },
+    async wellnessByKeys(keys) { return (await store).wellnessByKeys(keys); },
+    async applySyncBatch(batch) { return (await store).applySyncBatch(batch); },
+    async putWellnessDays(source, days, opts) { return (await store).putWellnessDays(source, days, opts); },
+    async listWellnessDays(opts) { return (await store).listWellnessDays(opts); }
   };
   // Outbound uploads. The rides, the FIT writer and the ride description belong to the page (js/), which
   // loads after this module, so they are looked up when an upload runs. The ledger is the sync_ledger table
@@ -93,6 +102,7 @@ if (fake || Capacitor.isNativePlatform()) {
   const healthConnect = plugins.HealthConnect ? new NativeHealthConnect({ plugin: plugins.HealthConnect, prefs }) : null;
   const wellness = healthConnect && store ? store.then((s) => new WellnessSources({ store: s, prefs })) : null;
   if (wellness) wellness.catch(() => {});
+  sync = new NativeSync({ http: (fake && fake.http) || CapacitorHttp, prefs, store, wellness, getApp: () => window.app, reloadStorage: () => window.VeloStorage?.reloadFromServer?.() });
   const hcOut = healthConnect ? new HealthConnectDestination({ hc: healthConnect }) : null;
   const outs = [stravaOut, hcOut].filter(Boolean);
   const uploads = new UploadQueue({
@@ -114,7 +124,7 @@ if (fake || Capacitor.isNativePlatform()) {
   const importPlugin = fake ? fake.importPlugin : registerPlugin('ApexImport');
   const nativeImport = importPlugin ? new NativeImport({ plugin: importPlugin, store, getApp: () => window.app }) : null;
   const importJobs = store ? new SqliteImportJobs(store, () => new window.VeloImportJobs()) : null;
-  window.ApexNative = { bluetooth, store, strava, ai, icu, uploads, nativeImport, healthConnect, platform: fake ? 'test' : Capacitor.getPlatform() };
+  window.ApexNative = { bluetooth, store, strava, ai, icu, sync, uploads, nativeImport, healthConnect, platform: fake ? 'test' : Capacitor.getPlatform() };
   // Riding with the screen off: the native recorder in a foreground service (com.apexvelo.lab.ride).
   const ridePlugin = fake ? fake.ridePlugin : registerPlugin('ApexRide');
   const ride = ridePlugin ? new NativeRide({ plugin: ridePlugin, prefs }) : null;
@@ -126,10 +136,10 @@ if (fake || Capacitor.isNativePlatform()) {
   window.ApexNative.rideTab = installRideTab({ shell });
   window.ApexNative.trainTab = installTrainTab({ shell, rideTab: window.ApexNative.rideTab });
   window.ApexNative.progressTab = installProgressTab({ shell });
-  bootNativeApp({ bluetooth, storage, strava, ai, icu, uploads, plugins, ride, healthConnect, wellness, shell });
+  bootNativeApp({ bluetooth, storage, strava, ai, icu, sync, uploads, plugins, ride, healthConnect, wellness, shell });
   installNativeImportUi({ nativeImport, jobs: importJobs, App: plugins.App });
   // You (Settings, profile, devices, connections, data) and the first-run onboarding (workstream U5).
-  installYou({ shell, services: { strava, icu, healthConnect, ai } });
+  installYou({ shell, services: { strava, icu, healthConnect, ai, sync } });
   installOnboarding({ shell });
   installUiPolish({ shell });
 }

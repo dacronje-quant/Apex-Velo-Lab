@@ -35,6 +35,7 @@
       document.querySelectorAll('details.menu').forEach(d => this.on(d, 'click', (e) => { if (e.target.closest('.menu-item')) d.open = false; }));
       this.on(document, 'click', (e) => document.querySelectorAll('details.menu[open]').forEach(d => { if (!d.contains(e.target)) d.open = false; }));
       document.querySelectorAll('.history-table th.sortable-th').forEach(th => this.on(th, 'click', () => th.dataset.sort && this.sortHistory(th.dataset.sort)));
+      document.querySelectorAll('.strength-table th.sortable-th').forEach(th => this.on(th, 'click', () => th.dataset.sortStrength && this.sortStrengthHistory(th.dataset.sortStrength)));
 
       const tbody = document.getElementById('historyTableBody');
       this.on(tbody, 'click', (e) => {
@@ -47,6 +48,19 @@
           if (act.dataset.act === 'fit') this.exportFitForRide(id);
           else if (act.dataset.act === 'tcx') this.exportTcxForRide(id);
           else if (act.dataset.act === 'delete') this.deleteCompletedRide(id);
+          return;
+        }
+        this.showRideSummaryById(tr.dataset.id);
+      });
+
+      const strengthBody = document.getElementById('strengthTableBody');
+      this.on(strengthBody, 'click', (e) => {
+        const act = e.target.closest('[data-act]');
+        const tr = e.target.closest('tr[data-id]');
+        if (!tr) return;
+        if (act) {
+          e.stopPropagation();
+          if (act.dataset.act === 'delete') this.deleteCompletedRide(tr.dataset.id);
           return;
         }
         this.showRideSummaryById(tr.dataset.id);
@@ -210,13 +224,44 @@
         if: r => parseFloat(r.if || 0),
         kj: r => r.kj || 0
       }[this.historySortColumn];
-      const sorted = [...this.completedWorkouts];
+      const sorted = this.completedWorkouts.filter(r => r && r.activityType !== 'strength');
       if (this.historySortColumn === 'title' || this.historySortColumn === 'profile') {
         const f = this.historySortColumn === 'title' ? (r => (r.title || '').toLowerCase()) : (r => (r.profileName || '').toLowerCase());
         return sorted.sort((a, b) => f(a).localeCompare(f(b)) * dir);
       }
       const k = key || (r => new Date(r.date || 0).getTime());
       return sorted.sort((a, b) => (k(a) - k(b)) * dir);
+    },
+
+    sortStrengthHistory(column) {
+      const curCol = this.strengthSortColumn || 'date';
+      const curDir = this.strengthSortDirection || 'desc';
+      if (curCol === column) {
+        this.strengthSortDirection = curDir === 'asc' ? 'desc' : 'asc';
+      } else {
+        this.strengthSortColumn = column;
+        this.strengthSortDirection = column === 'title' ? 'asc' : 'desc';
+      }
+      this.renderStrengthTable();
+    },
+
+    getSortedStrengthWorkouts() {
+      const col = this.strengthSortColumn || 'date';
+      const dir = (this.strengthSortDirection || 'desc') === 'asc' ? 1 : -1;
+      const list = (this.completedWorkouts || []).filter(r => r && r.activityType === 'strength');
+      if (col === 'title') {
+        return list.sort((a, b) => String(a.title || '').toLowerCase().localeCompare(String(b.title || '').toLowerCase()) * dir);
+      }
+      const key = {
+        date: r => new Date(r.date || 0).getTime(),
+        duration: r => Number(r.duration) || 0,
+        exercises: r => (Array.isArray(r.exercises) ? r.exercises.length : 0),
+        sets: r => (r.hevy && (Number(r.hevy.workingSetCount) || Number(r.hevy.setCount))) || 0,
+        volume: r => (r.hevy && Number(r.hevy.volumeKg)) || 0,
+        hr: r => Number(r.avgHr) || 0,
+        load: r => Number(r.strengthTss) || 0
+      }[col] || (r => new Date(r.date || 0).getTime());
+      return list.sort((a, b) => (key(a) - key(b)) * dir);
     },
 
     renderHistoryTable() {
@@ -232,23 +277,22 @@
         const icon = th.querySelector('.sort-icon');
         if (icon) icon.textContent = sorted ? (this.historySortDirection === 'asc' ? '▲' : '▼') : '⇅';
       });
-      if (!this.completedWorkouts.length) {
-        tbody.innerHTML = `<tr><td colspan="12" class="empty-cell">No completed workouts in database.<br>Import FIT/TCX/CSV files above, ride a workout, or try <b>Explore a demo</b>.</td></tr>`;
-        this.updateHeroStats();
-        return;
-      }
-      tbody.innerHTML = this.getSortedWorkouts().map(r => {
-        const d = new Date(r.date);
-        const dateStr = isNaN(d) ? '--' : d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: '2-digit' }) + ' ' + d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
-        const dist = this.getRideDistanceKm(r);
-        const spd = this.getRideAvgSpeedKmh(r);
-        const np = r.np || r.avgWatts || 0;
-        const bal = Number(r.leftBal) > 0 && Number(r.rightBal) > 0 ? `${r.leftBal} / ${r.rightBal}` : '--';
-        const tss = pos(r.tss) ? r.tss : (np > 0 ? '0' : '--');
-        const ifv = pos(r.if) ? Number(r.if).toFixed(2) : (np > 0 ? '0.00' : '--');
-        const z = pos(r.if) ? VeloProgress.ifBand(parseFloat(r.if)) : null;
-        const hasSamples = VeloRideSummary.count(r) >= 5;
-        return `
+      const rides = this.getSortedWorkouts();
+      if (!rides.length) {
+        tbody.innerHTML = `<tr><td colspan="12" class="empty-cell">No cycling rides in database.<br>Import FIT/TCX/CSV files above, ride a workout, or try <b>Explore a demo</b>.</td></tr>`;
+      } else {
+        tbody.innerHTML = rides.map(r => {
+          const d = new Date(r.date);
+          const dateStr = isNaN(d) ? '--' : d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: '2-digit' }) + ' ' + d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+          const dist = this.getRideDistanceKm(r);
+          const spd = this.getRideAvgSpeedKmh(r);
+          const np = r.np || r.avgWatts || 0;
+          const bal = Number(r.leftBal) > 0 && Number(r.rightBal) > 0 ? `${r.leftBal} / ${r.rightBal}` : '--';
+          const tss = pos(r.tss) ? r.tss : (np > 0 ? '0' : '--');
+          const ifv = pos(r.if) ? Number(r.if).toFixed(2) : (np > 0 ? '0.00' : '--');
+          const z = pos(r.if) ? VeloProgress.ifBand(parseFloat(r.if)) : null;
+          const hasSamples = VeloRideSummary.count(r) >= 5;
+          return `
           <tr data-id="${esc(r.id)}">
             <td class="num nowrap">${dateStr}</td>
             <td class="muted">${esc(r.profileName || 'Imported rider')}</td>
@@ -267,8 +311,54 @@
               <button type="button" class="icon-btn icon-btn-danger btn-delete-workout" data-act="delete" title="Delete from history"><svg class="ic"><use href="#i-trash"/></svg></button>
             </div></td>
           </tr>`;
-      }).join('');
+        }).join('');
+      }
+      this.renderStrengthTable();
       this.updateHeroStats();
+    },
+
+    renderStrengthTable() {
+      const tbody = document.getElementById('strengthTableBody');
+      if (!tbody) return;
+      const curCol = this.strengthSortColumn || 'date';
+      const curDir = this.strengthSortDirection || 'desc';
+      document.querySelectorAll('.strength-table th.sortable-th').forEach(th => {
+        const sorted = th.dataset.sortStrength === curCol;
+        th.classList.toggle('sorted-th', sorted);
+        const icon = th.querySelector('.sort-icon');
+        if (icon) icon.textContent = sorted ? (curDir === 'asc' ? '▲' : '▼') : '⇅';
+      });
+      const list = this.getSortedStrengthWorkouts();
+      const countEl = document.getElementById('strengthLogCount');
+      if (countEl) countEl.textContent = String(list.length);
+      if (!list.length) {
+        tbody.innerHTML = `<tr><td colspan="9" class="empty-cell">No strength workouts yet. Sync from Hevy above to import your sessions.</td></tr>`;
+        return;
+      }
+      tbody.innerHTML = list.map(r => {
+        const d = new Date(r.date);
+        const dateStr = isNaN(d) ? '--' : d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: '2-digit' }) + ' ' + d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+        const exCount = Array.isArray(r.exercises) ? r.exercises.length : 0;
+        const sets = r.hevy && pos(r.hevy.workingSetCount || r.hevy.setCount) ? (r.hevy.workingSetCount || r.hevy.setCount) : 0;
+        const vol = r.hevy && pos(r.hevy.volumeKg) ? `${Number(r.hevy.volumeKg).toLocaleString('en-US')} kg` : '--';
+        const hr = pos(r.avgHr) ? `${r.avgHr}${pos(r.maxHr) ? ' / ' + r.maxHr : ''} bpm` : '--';
+        const load = pos(r.strengthTss) ? `${r.strengthTss}${r.strengthTssMethod ? `<small class="muted"> ${esc(r.strengthTssMethod)}</small>` : ''}` : '--';
+        const lifts = typeof VeloStravaSync !== 'undefined' ? VeloStravaSync.mainLifts(r).slice(0, 3).join(', ') : '';
+        const src = r.source ? `<span class="chip chip-ghost chip-xs">${esc(r.source)}</span>` : '';
+        const heavy = r.heavyLegs ? '<span class="chip chip-xs act-heavy">heavy legs</span>' : '';
+        return `
+          <tr data-id="${esc(r.id)}">
+            <td class="num nowrap">${dateStr}</td>
+            <td><div class="cell-title"><b>${esc(r.title)}</b>${src}${heavy}</div>${lifts ? `<div class="strength-lifts-sub">${esc(lifts)}</div>` : ''}</td>
+            <td class="num">${this.fmtTime(r.duration)}</td>
+            <td class="num">${exCount > 0 ? exCount : '--'}</td>
+            <td class="num">${sets > 0 ? sets : '--'}</td>
+            <td class="num strong">${vol}</td>
+            <td class="num">${hr}</td>
+            <td class="num strong">${load}</td>
+            <td><button type="button" class="icon-btn icon-btn-danger btn-delete-workout" data-act="delete" title="Delete from history"><svg class="ic"><use href="#i-trash"/></svg></button></td>
+          </tr>`;
+      }).join('');
     },
 
     async deleteCompletedRide(rideId) {
@@ -589,12 +679,14 @@
           ${cell('Calories', pos(r.totalCalories) ? `${r.totalCalories} kcal` : '--', 'amber')}
           ${cell('Relative effort', pos(r.sufferScore) ? r.sufferScore : '--', 'violet')}
           ${r.activityType === 'strength' ? cell('Strength load', pos(r.strengthTss) ? `${r.strengthTss}<small class="num"> ${esc(r.strengthTssMethod || '')}</small>` : '--', 'lime') : ''}
+          ${r.activityType === 'strength' && r.hevy && pos(r.hevy.workingSetCount || r.hevy.setCount) ? cell('Sets', `${r.hevy.workingSetCount || r.hevy.setCount}${r.hevy.setCount && r.hevy.workingSetCount && r.hevy.setCount !== r.hevy.workingSetCount ? `<small class="num"> / ${r.hevy.setCount} total</small>` : ''}`, 'cyan') : ''}
+          ${r.activityType === 'strength' && r.hevy && pos(r.hevy.volumeKg) ? cell('Volume', `${Number(r.hevy.volumeKg).toLocaleString('en-US')} kg`, 'amber') : ''}
           ${pos(r.distanceKm) ? cell('Distance', `${r.distanceKm} km`, 'cyan') : ''}
         </div>
         <div class="review-block">
           <div class="sub-title"><span>${r.activityType === 'strength' ? 'Exercises' : 'Notes'}</span><span class="hint">${r.heavyLegs ? 'Heavy leg day - counts like a hard day for the training block' : 'Not counted in cycling power, MMP or FTP analytics'}</span></div>
           ${lifts.length ? `<div class="btn-row btn-row-tight">${lifts.map(l => `<span class="chip chip-xs act-chip act-strength">${esc(l)}</span>`).join('')}</div>` : ''}
-          ${ex.length ? `<ol class="exercise-list">${ex.map(l => `<li>${esc(l)}</li>`).join('')}</ol>` : `<div class="dim">${r.description ? esc(r.description) : 'No exercise list on Strava for this session.'}</div>`}
+          ${ex.length ? `<ol class="exercise-list">${ex.map(l => `<li>${esc(l)}</li>`).join('')}</ol>` : `<div class="dim">${r.description ? esc(r.description) : 'No exercise list for this session.'}</div>`}
         </div>
         <div class="modal-actions">
           <div class="btn-row"><button type="button" class="btn btn-danger" data-act="delete"><svg class="ic"><use href="#i-trash"/></svg>Delete</button></div>

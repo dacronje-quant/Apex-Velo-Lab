@@ -6,6 +6,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 import zlib from 'node:zlib';
 import { spawn } from 'node:child_process';
 import { NativeStore, SqliteSyncLedger, openingLedger, gunzip, unpackSamples } from '../src/native-store.js';
@@ -455,7 +456,7 @@ test('a snapshot that does not read back the same is not kept', async (t) => {
 test('200 hour-long rides move in within a 512 MB heap, and a later app start stays under 150 MB', { timeout: 300000 }, async (t) => {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'apex-native-store-'));
   t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
-  const script = new URL('./migrate-memory-run.mjs', import.meta.url).pathname;
+  const script = fileURLToPath(new URL('./migrate-memory-run.mjs', import.meta.url));
   const run = async (mode, heapMb) => {
     const child = spawn(process.execPath, [`--max-old-space-size=${heapMb}`, script, mode, dir, '200', '3600'], { stdio: ['ignore', 'pipe', 'pipe'] });
     let out = '', err = '';
@@ -575,7 +576,7 @@ test('a database from the first phone version gets the summary columns, its ride
   old.prepare("INSERT INTO meta VALUES ('initialized','1')").run();
   old.close();
   const s = await open(dir, summarizer);
-  assert.equal((await s.db.all('PRAGMA user_version'))[0].user_version, 2);
+  assert.equal((await s.db.all('PRAGMA user_version'))[0].user_version, 3);
   assert.deepEqual((await s.state()).rides, [{ id: 'old', date: ride.date, samples: null }]);
   await s.close(); opened.delete(s);
 });

@@ -15,6 +15,18 @@ const http = require('http');
 const fs = require('fs');
 const path = require('path');
 const zlib = require('zlib');
+const crypto = require('crypto');
+let syncDepsCache = null;
+function syncDeps() {
+  if (!syncDepsCache) {
+    syncDepsCache = {
+      VeloSync: require('./js/velo-sync.js'),
+      VeloDedupe: require('./js/velo-dedupe.js'),
+      VeloHealth: require('./js/velo-health.js')
+    };
+  }
+  return syncDepsCache;
+}
 
 const ROOT = __dirname;
 
@@ -38,6 +50,7 @@ function loadDotEnv(file) {
 const KEY_FROM_ENVIRONMENT = !!(process.env.ANTHROPIC_API_KEY || '').trim();
 const GEMINI_KEY_FROM_ENVIRONMENT = !!(process.env.GEMINI_API_KEY || '').trim();
 const OPENAI_KEY_FROM_ENVIRONMENT = !!(process.env.OPENAI_API_KEY || '').trim();
+const HEVY_KEY_FROM_ENVIRONMENT = !!(process.env.HEVY_API_KEY || '').trim();
 loadDotEnv(path.join(ROOT, '.env'));
 
 /**
@@ -81,6 +94,11 @@ const PORT = parseInt(process.env.APEX_PORT || '8080', 10);
 const API_BASE = (process.env.APEX_ANTHROPIC_BASE_URL || 'https://api.anthropic.com').replace(/\/+$/, '');
 const GEMINI_BASE = (process.env.APEX_GEMINI_BASE_URL || 'https://generativelanguage.googleapis.com').replace(/\/+$/, '');
 const OPENAI_BASE = (process.env.APEX_OPENAI_BASE_URL || 'https://api.openai.com').replace(/\/+$/, '');
+const HEVY_API_KEY = (process.env.HEVY_API_KEY || '').trim();
+const HEVY_BASE = (process.env.APEX_HEVY_BASE_URL || 'https://api.hevyapp.com').replace(/\/+$/, '');
+const HEVY_TIMEOUT_MS = 20000;
+const HEVY_MAX_PAGES = 50;
+const HEVY_PAGE_SIZE = 10;
 const UPSTREAM_TIMEOUT_MS = 180000;
 const MAX_BODY_BYTES = 256 * 1024;
 
@@ -188,6 +206,27 @@ const sendJson = (res, status, obj) => send(res, status, JSON.stringify(obj), 'a
 // Private-LAN IPv4 ranges (RFC1918 + link-local), so a phone on the same home
 // Wi-Fi as this PC can reach the API too - never a public/internet address.
 const LAN_HOST_RE = /^(10(?:\.\d{1,3}){3}|172\.(?:1[6-9]|2\d|3[0-1])(?:\.\d{1,3}){2}|192\.168(?:\.\d{1,3}){2}|169\.254(?:\.\d{1,3}){2})(:\d+)?$/;
+const tailscaleAllowed = () => /^(1|true|yes)$/i.test((process.env.APEX_ALLOW_TAILSCALE || '').trim());
+const tailscaleHosts = () => (process.env.APEX_TAILSCALE_HOST || '').split(',').map(s => s.trim().toLowerCase().replace(/^https?:\/\//, '').replace(/\/.*$/, '')).filter(Boolean);
+function isTailscaleIp(ip) {
+  const clean = String(ip || '').replace(/^::ffff:/, '').replace(/^\[|\]$/g, '');
+  const m = clean.match(/^100\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$/);
+  if (m) {
+    const b = Number(m[1]);
+    return b >= 64 && b <= 127 && Number(m[2]) <= 255 && Number(m[3]) <= 255;
+  }
+  return /^fd7a:115c:a1e0:/i.test(clean);
+}
+function isTrustedTailscaleHost(host) {
+  const h = String(host || '').trim().toLowerCase();
+  if (!h) return false;
+  const configured = tailscaleHosts();
+  if (!tailscaleAllowed() && !configured.length) return false;
+  const hostOnly = h.replace(/:\d+$/, '');
+  if (configured.includes(h) || configured.includes(hostOnly)) return true;
+  if (!tailscaleAllowed()) return false;
+  return /^[a-z0-9-]+(?:\.[a-z0-9-]+)*\.ts\.net$/.test(hostOnly) || isTailscaleIp(hostOnly);
+}
 /** Only pages served by this server (from this PC or another device on the same LAN) may call the API. */
 /**
  * The real client address (not a header a client can set) must be this PC or a private home
@@ -197,14 +236,17 @@ function isAllowedClient(req) {
   let ip = String((req.socket && req.socket.remoteAddress) || '');
   if (ip.startsWith('::ffff:')) ip = ip.slice(7);
   if (ip === '::1' || /^127\./.test(ip)) return true;
-  return /^(10\.|192\.168\.|169\.254\.|172\.(1[6-9]|2\d|3[01])\.)/.test(ip) || /^(f[cd][0-9a-f]{2}|fe80):/i.test(ip);
+  if (/^(10\.|192\.168\.|169\.254\.|172\.(1[6-9]|2\d|3[01])\.)/.test(ip) || /^(f[cd][0-9a-f]{2}|fe80):/i.test(ip)) return true;
+  return (tailscaleAllowed() || tailscaleHosts().length > 0) && isTailscaleIp(ip);
 }
 
 function isLocalRequest(req) {
   const host = req.headers.host || '';
-  const hostOk = /^(localhost|127\.0\.0\.1|\[::1\])(:\d+)?$/i.test(host) || LAN_HOST_RE.test(host);
+  const tsHost = isTrustedTailscaleHost(host);
+  const hostOk = /^(localhost|127\.0\.0\.1|\[::1\])(:\d+)?$/i.test(host) || LAN_HOST_RE.test(host) || tsHost;
   const origin = req.headers.origin;
-  const originOk = !origin || /^http:\/\/(localhost|127\.0\.0\.1|\[::1\])(:\d+)?$/i.test(origin) || LAN_HOST_RE.test(origin.replace(/^https?:\/\//, ''));
+  const originOk = !origin || /^http:\/\/(localhost|127\.0\.0\.1|\[::1\])(:\d+)?$/i.test(origin) || LAN_HOST_RE.test(origin.replace(/^https?:\/\//, ''))
+    || (tsHost && (origin === `https://${host}` || origin === `http://${host}`));
   return hostOk && originOk;
 }
 
@@ -503,15 +545,16 @@ function resolveEngine(input) {
   return { provider, model, effort, p: PROVIDERS[provider] };
 }
 
-/** Reads and checks a JSON request from the app (local only); returns the parsed body or sends the error. */
-async function readAppJson(req, res) {
-  if (!isPcRequest(req)) { sendJson(res, 403, { error: 'Requests are only accepted from the app on this PC.' }); return null; }
+/** Reads and checks a JSON request from the app (local PC, or a paired sync client when allowed). */
+async function readAppJson(req, res, { allowPairedSync = false } = {}) {
+  const ok = isPcRequest(req) || (allowPairedSync && isPairedSyncClient(req));
+  if (!ok) { sendJson(res, 403, { error: 'Requests are only accepted from the app on this PC.' }); return null; }
   if (!/^application\/json\b/i.test(req.headers['content-type'] || '')) { sendJson(res, 415, { error: 'Content-Type must be application/json.' }); return null; }
   try { return JSON.parse(await readBody(req)); } catch (e) { sendJson(res, e.status || 400, { error: e.status ? e.message : 'Invalid JSON.' }); return null; }
 }
 
 async function handleCoach(req, res) {
-  const input = await readAppJson(req, res);
+  const input = await readAppJson(req, res, { allowPairedSync: true });
   if (!input) return;
   const prompt = typeof input.prompt === 'string' ? input.prompt : '';
   if (!prompt.trim() || prompt.length > 100000) return sendJson(res, 400, { error: 'A prompt of 1-100000 characters is required.' });
@@ -570,7 +613,7 @@ function validateAsk(input) {
 
 /** POST /api/ask - free questions about the rider's own training data, answered by Claude, Gemini or ChatGPT. */
 async function handleAsk(req, res) {
-  const input = await readAppJson(req, res);
+  const input = await readAppJson(req, res, { allowPairedSync: true });
   if (!input) return;
   const v = validateAsk(input);
   if (v.error) return sendJson(res, 400, { error: v.error });
@@ -793,7 +836,8 @@ async function handleStrava(req, res, urlPath, query) {
     if (!STRAVA_CLIENT_ID || !STRAVA_CLIENT_SECRET) return sendHtml(res, 400, 'Strava not set up', '<h1>Strava is not set up yet</h1><p>Add <code>STRAVA_CLIENT_ID</code> and <code>STRAVA_CLIENT_SECRET</code> to the <code>.env</code> file, restart the server, then try again.</p>');
     const state = require('crypto').randomBytes(16).toString('hex');
     stravaStates.set(state, Date.now());
-    const redirect = `http://localhost:${PORT}/api/strava/callback`;
+    const host = String(req.headers.host || '');
+    const redirect = isTrustedTailscaleHost(host) ? `https://${host}/api/strava/callback` : `http://localhost:${PORT}/api/strava/callback`;
     const url = `${STRAVA_BASE}/oauth/authorize?client_id=${encodeURIComponent(STRAVA_CLIENT_ID)}&response_type=code&redirect_uri=${encodeURIComponent(redirect)}&approval_prompt=auto&scope=${encodeURIComponent('read,activity:read_all,activity:write')}&state=${state}`;
     res.writeHead(302, { Location: url, 'Cache-Control': 'no-store' });
     return res.end();
@@ -882,6 +926,103 @@ async function handleStrava(req, res, urlPath, query) {
   return sendJson(res, 404, { error: 'Not found' });
 }
 
+// ------------------------------------------------------------ Hevy (READ ONLY) --
+function slimHevyWorkout(w) {
+  if (!w || typeof w !== 'object') return null;
+  const exercises = Array.isArray(w.exercises) ? w.exercises.filter(Boolean).map((ex) => ({
+    title: String(ex.title || '').trim(),
+    notes: ex.notes ? String(ex.notes).trim() : '',
+    sets: Array.isArray(ex.sets) ? ex.sets.filter(Boolean).map((s) => ({
+      type: s.type || 'normal',
+      weight_kg: s.weight_kg ?? null,
+      reps: s.reps ?? null,
+      distance_meters: s.distance_meters ?? null,
+      duration_seconds: s.duration_seconds ?? null,
+      rpe: s.rpe ?? null
+    })) : []
+  })) : [];
+  return {
+    id: String(w.id),
+    title: String(w.title || '').trim(),
+    description: w.description ? String(w.description).trim() : '',
+    start_time: toIsoUtc(w.start_time),
+    end_time: toIsoUtc(w.end_time),
+    updated_at: toIsoUtc(w.updated_at),
+    exercises
+  };
+}
+
+async function handleHevy(req, res, urlPath, query) {
+  if (req.method !== 'GET') return sendJson(res, 405, { error: 'Method not allowed' });
+  if (!isPcRequest(req)) return sendJson(res, 403, { error: 'Forbidden' });
+  if (urlPath === '/api/hevy/status') {
+    return sendJson(res, 200, {
+      configured: !!HEVY_API_KEY,
+      keySource: HEVY_KEY_FROM_ENVIRONMENT ? 'env' : (HEVY_API_KEY ? 'dotenv' : null)
+    });
+  }
+  if (urlPath === '/api/hevy/workouts') {
+    if (!HEVY_API_KEY) {
+      return sendJson(res, 400, { error: 'Hevy is not set up yet. Add HEVY_API_KEY to .env and restart the server.', needsKey: true });
+    }
+    const rawAfter = query.get('after'), rawBefore = query.get('before');
+    let afterMs = null, beforeMs = null;
+    if (rawAfter !== null || rawBefore !== null) {
+      afterMs = Date.parse(rawAfter || '');
+      beforeMs = Date.parse(rawBefore || '');
+      if (!Number.isFinite(afterMs) || !Number.isFinite(beforeMs) || beforeMs <= afterMs) {
+        return sendJson(res, 400, { error: 'after and before must be ISO dates, with after before before' });
+      }
+    }
+    const out = [];
+    let pages = 0;
+    for (let page = 1; page <= HEVY_MAX_PAGES; page++) {
+      let r, data;
+      try {
+        r = await fetch(`${HEVY_BASE}/v1/workouts?page=${page}&pageSize=${HEVY_PAGE_SIZE}`, {
+          method: 'GET',
+          headers: { 'api-key': HEVY_API_KEY, Accept: 'application/json' },
+          signal: AbortSignal.timeout(HEVY_TIMEOUT_MS)
+        });
+        data = await r.json().catch(() => null);
+      } catch (e) {
+        return sendJson(res, 502, { error: `Could not reach Hevy (${e.message}).` });
+      }
+      if (r.status === 401 || r.status === 403) {
+        return sendJson(res, 401, { error: 'Hevy rejected the API key. Check HEVY_API_KEY in .env and restart the server.', invalidKey: true });
+      }
+      if (r.status === 429) {
+        return sendJson(res, 429, { error: 'Hevy rate limit reached - try again in a minute.' });
+      }
+      if (r.status === 404 && page > 1) break;
+      if (!r.ok || !data || !Array.isArray(data.workouts)) {
+        return sendJson(res, 502, { error: `Hevy workout list failed (HTTP ${r.status}).` });
+      }
+      pages = page;
+      const list = data.workouts;
+      if (!list.length) break;
+      let allOlderThanAfter = afterMs !== null;
+      for (const raw of list) {
+        const w = slimHevyWorkout(raw);
+        if (!w || !w.id || !w.start_time) continue;
+        const t = Date.parse(w.start_time);
+        if (afterMs === null || t >= afterMs) allOlderThanAfter = false;
+        if (afterMs !== null && t < afterMs) continue;
+        if (beforeMs !== null && t >= beforeMs) continue;
+        out.push(w);
+      }
+      if (allOlderThanAfter || (data.page_count && page >= Number(data.page_count)) || list.length < HEVY_PAGE_SIZE) break;
+    }
+    return sendJson(res, 200, {
+      workouts: out,
+      after: afterMs !== null ? new Date(afterMs).toISOString() : null,
+      before: beforeMs !== null ? new Date(beforeMs).toISOString() : null,
+      pages
+    });
+  }
+  return sendJson(res, 404, { error: 'Not found' });
+}
+
 // -------------------------------------------------------------- phone view --
 // The PC app publishes a small live snapshot right after every ride tick; the phone page
 // (live.html) reads it and queues simple commands. Nothing is stored on disk.
@@ -941,8 +1082,10 @@ function storage() {
 async function handleStorage(req, res, urlPath) {
   if (!isPcRequest(req)) return sendJson(res, 403, { error: 'Saved data is available only on this PC.' });
   // Require the exact origin for browser writes, including its port (other local sites are unrelated).
-  const expectedOrigin = `http://${req.headers.host}`;
-  if (req.headers.origin && req.headers.origin !== expectedOrigin) return sendJson(res, 403, { error: 'Open Apex on this server to save data.' });
+  const host = String(req.headers.host || '');
+  const allowHttps = isTrustedTailscaleHost(host) || req.headers['x-forwarded-proto'] === 'https';
+  const originOk = !req.headers.origin || req.headers.origin === `http://${host}` || (allowHttps && req.headers.origin === `https://${host}`);
+  if (!originOk) return sendJson(res, 403, { error: 'Open Apex on this server to save data.' });
   if (req.headers['sec-fetch-site'] && !['same-origin', 'none'].includes(req.headers['sec-fetch-site'])) return sendJson(res, 403, { error: 'Cross-origin storage request refused.' });
   try {
     const store = storage();
@@ -960,6 +1103,10 @@ async function handleStorage(req, res, urlPath) {
     if (!input || typeof input !== 'object' || Array.isArray(input)) return sendJson(res, 400, { error: 'Invalid request.' });
     if (urlPath === '/api/storage/migrate') return sendJson(res, 200, store.migrate(input));
     if (urlPath === '/api/storage/save') return sendJson(res, 200, store.update(input));
+    if (urlPath === '/api/storage/wellness') {
+      store.putWellnessDays(input.source || 'apple', input.days || {});
+      return sendJson(res, 200, { ok: true, revision: store.revision });
+    }
     if (urlPath === '/api/storage/backup') return sendJson(res, 200, { ok: true, ...store.backup() });
     if (urlPath === '/api/storage/import-backup') return sendJson(res, 200, { ok: true, ...store.importSnapshot(input.backup) });
     if (urlPath === '/api/storage/preview') {
@@ -982,12 +1129,19 @@ const BACKUP_MAX_BYTES = 200 * 1024 * 1024;
 const BACKUP_NAME_RE = /^apex_velo_backup_\d{4}-\d{2}-\d{2}_\d{6}\.json\.gz$/;
 const BACKUP_PREFIX = '{"app":"APEX VELO LAB"';
 
-/** Only the app opened on this PC (not a phone on the Wi-Fi) may read or write backups. */
+/** Only the app opened on this PC (or via trusted Tailscale host when enabled). */
 function isPcRequest(req) {
   const host = req.headers.host || '';
   const origin = req.headers.origin;
   const ip = String((req.socket && req.socket.remoteAddress) || '').replace(/^::ffff:/, '');
-  return (ip === '::1' || /^127\./.test(ip)) && /^(localhost|127\.0\.0\.1|\[::1\])(:\d+)?$/i.test(host) && (!origin || /^http:\/\/(localhost|127\.0\.0\.1|\[::1\])(:\d+)?$/i.test(origin));
+  const loopback = ip === '::1' || /^127\./.test(ip);
+  if (loopback && /^(localhost|127\.0\.0\.1|\[::1\])(:\d+)?$/i.test(host) && (!origin || /^http:\/\/(localhost|127\.0\.0\.1|\[::1\])(:\d+)?$/i.test(origin))) {
+    return true;
+  }
+  if ((loopback || isTailscaleIp(ip)) && isTrustedTailscaleHost(host)) {
+    return !origin || origin === `https://${host}` || origin === `http://${host}`;
+  }
+  return false;
 }
 
 function readRaw(req, limit) {
@@ -1091,12 +1245,28 @@ function lanAddresses() {
   return out;
 }
 
-function healthStatus() {
+function healthStatus(req = null) {
   let meta = {};
   try { meta = JSON.parse(fs.readFileSync(HEALTH_META_FILE, 'utf8')) || {}; } catch (e) { /* none yet */ }
   const ips = lanAddresses();
   const pair = phoneToken();
-  return { token: healthToken(), port: PORT, urls: ips.map(ip => `http://${ip}:${PORT}/api/health`), phoneUrls: ips.map(ip => `http://${ip}:${PORT}/live.html#pair=${pair}`), inbox: healthInboxFiles().length, lastReceived: meta.lastReceived || null, lastBytes: meta.lastBytes || 0, received: meta.received || 0 };
+  const tsList = [];
+  const reqHost = req && String(req.headers.host || '');
+  if (reqHost && isTrustedTailscaleHost(reqHost)) tsList.push(`https://${reqHost}`);
+  for (const h of tailscaleHosts()) {
+    const u = `https://${h}`;
+    if (!tsList.includes(u)) tsList.push(u);
+  }
+  return {
+    token: healthToken(),
+    port: PORT,
+    urls: [...tsList.map(u => `${u}/api/health`), ...ips.map(ip => `http://${ip}:${PORT}/api/health`)],
+    phoneUrls: ips.map(ip => `http://${ip}:${PORT}/live.html#pair=${pair}`),
+    inbox: healthInboxFiles().length,
+    lastReceived: meta.lastReceived || null,
+    lastBytes: meta.lastBytes || 0,
+    received: meta.received || 0
+  };
 }
 
 function tokenMatches(given) {
@@ -1133,9 +1303,9 @@ async function handleHealth(req, res, urlPath, query) {
   }
   // Everything else - the token, the stored data - only for the app on this PC.
   if (!isPcRequest(req)) return sendJson(res, 403, { error: 'Only the app on this PC can read Apple Health data.' });
-  if (urlPath === '/api/health/status' && req.method === 'GET') return sendJson(res, 200, healthStatus());
-  if (urlPath === '/api/health/token' && req.method === 'POST') { healthToken(true); return sendJson(res, 200, healthStatus()); }
-  if (urlPath === '/api/health/phone-token' && req.method === 'POST') { phoneToken(true); return sendJson(res, 200, healthStatus()); }
+  if (urlPath === '/api/health/status' && req.method === 'GET') return sendJson(res, 200, healthStatus(req));
+  if (urlPath === '/api/health/token' && req.method === 'POST') { healthToken(true); return sendJson(res, 200, healthStatus(req)); }
+  if (urlPath === '/api/health/phone-token' && req.method === 'POST') { phoneToken(true); return sendJson(res, 200, healthStatus(req)); }
   if (urlPath === '/api/health/inbox' && req.method === 'GET') {
     const names = healthInboxFiles().slice(0, 20);
     const files = [];
@@ -1276,6 +1446,233 @@ async function handleLive(req, res, urlPath) {
   return sendJson(res, 404, { error: 'Not found' });
 }
 
+// -------------------------------------------------------- Home Server Sync --
+const SYNC_TOKEN_FILE = path.join(ROOT, 'data', 'sync-token.txt');
+const SYNC_META_FILE = path.join(ROOT, 'data', 'sync-meta.json');
+const syncSseClients = new Set();
+
+function syncToken(renew = false) {
+  if (!renew) {
+    try {
+      const t = fs.readFileSync(SYNC_TOKEN_FILE, 'utf8').trim();
+      if (/^[0-9a-f]{32,}$/.test(t)) return t;
+    } catch (e) { /* none yet */ }
+  }
+  const t = crypto.randomBytes(24).toString('hex');
+  writePrivateFile(SYNC_TOKEN_FILE, t);
+  return t;
+}
+
+function isPairedSyncClient(req) {
+  const auth = String(req.headers.authorization || '');
+  const bearer = auth.replace(/^Bearer\s+/i, '').trim();
+  const given = bearer || String(req.headers['x-apex-sync-token'] || '').trim();
+  return !!(given && safeEqual(given, syncToken()));
+}
+
+function tailscaleIps() {
+  const out = [];
+  try {
+    const nets = require('os').networkInterfaces();
+    for (const name of Object.keys(nets)) {
+      for (const n of nets[name] || []) if (!n.internal && n.family === 'IPv4' && isTailscaleIp(n.address)) out.push(n.address);
+    }
+  } catch (e) { /* best effort */ }
+  return out;
+}
+
+function syncServerUrls(req) {
+  const urls = [];
+  const add = (u) => { if (u && !urls.includes(u)) urls.push(u); };
+  const reqHost = req && String(req.headers.host || '');
+  if (reqHost && isTrustedTailscaleHost(reqHost)) add(`https://${reqHost}`);
+  for (const h of tailscaleHosts()) add(`https://${h}`);
+  for (const ip of tailscaleIps()) add(`http://${ip}:${PORT}`);
+  for (const ip of lanAddresses()) add(`http://${ip}:${PORT}`);
+  if (!urls.length) add(`http://localhost:${PORT}`);
+  return urls;
+}
+
+function readSyncMeta() {
+  try { return JSON.parse(fs.readFileSync(SYNC_META_FILE, 'utf8')) || {}; } catch (e) { return {}; }
+}
+
+function writeSyncMeta(meta) {
+  try { writePrivateFile(SYNC_META_FILE, JSON.stringify(meta)); } catch (e) { /* best effort */ }
+}
+
+function broadcastSyncEvent(payload) {
+  const frame = `event: sync\ndata: ${JSON.stringify(payload)}\n\n`;
+  for (const res of syncSseClients) {
+    try {
+      if (!res.writableEnded) res.write(frame);
+    } catch (e) {
+      syncSseClients.delete(res);
+    }
+  }
+}
+
+function buildSyncStatus(req, includeSecret = false) {
+  const store = storage();
+  const manifest = store.syncManifest();
+  const meta = readSyncMeta();
+  const token = syncToken();
+  const urls = syncServerUrls(req);
+  const st = status();
+  return {
+    ok: true,
+    storeId: manifest.storeId,
+    revision: manifest.revision,
+    tailscaleEnabled: tailscaleAllowed() || tailscaleHosts().length > 0,
+    tailscaleHosts: tailscaleHosts(),
+    urls,
+    ...(includeSecret ? {
+      token,
+      pairingUris: urls.map(u => `apexvelo://sync?url=${encodeURIComponent(u)}&token=${encodeURIComponent(token)}`)
+    } : {}),
+    lastSyncAt: meta.lastSyncAt || null,
+    lastClient: meta.lastClient || null,
+    ridesCount: manifest.rides.length,
+    wellnessDaysCount: manifest.wellness.length,
+    ai: { configured: st.configured, provider: st.provider, providers: st.providers }
+  };
+}
+
+async function handleSync(req, res, urlPath) {
+  const pc = isPcRequest(req);
+  const paired = isPairedSyncClient(req);
+  if (urlPath === '/api/sync/events') {
+    if (req.method !== 'GET') return sendJson(res, 405, { error: 'Method not allowed' });
+    if (!pc) return sendJson(res, 403, { error: 'Forbidden' });
+    res.writeHead(200, {
+      'Content-Type': 'text/event-stream; charset=utf-8',
+      'Cache-Control': 'no-store, no-transform',
+      Connection: 'keep-alive',
+      'X-Content-Type-Options': 'nosniff'
+    });
+    res.write(': connected\n\n');
+    syncSseClients.add(res);
+    const keepalive = setInterval(() => {
+      if (res.writableEnded) { clearInterval(keepalive); syncSseClients.delete(res); return; }
+      try { res.write(': ping\n\n'); } catch { clearInterval(keepalive); syncSseClients.delete(res); }
+    }, 25000);
+    if (keepalive.unref) keepalive.unref();
+    req.on('close', () => { clearInterval(keepalive); syncSseClients.delete(res); });
+    return;
+  }
+  if (urlPath === '/api/sync/token') {
+    if (req.method !== 'POST') return sendJson(res, 405, { error: 'Method not allowed' });
+    if (!pc) return sendJson(res, 403, { error: 'Forbidden' });
+    syncToken(true);
+    return sendJson(res, 200, buildSyncStatus(req, true));
+  }
+  if (urlPath === '/api/sync/status') {
+    if (req.method !== 'GET') return sendJson(res, 405, { error: 'Method not allowed' });
+    if (!pc && !paired) return sendJson(res, 401, { error: 'Sync token required.' });
+    return sendJson(res, 200, buildSyncStatus(req, pc));
+  }
+  if (urlPath === '/api/sync/ping') {
+    if (req.method !== 'GET') return sendJson(res, 405, { error: 'Method not allowed' });
+    if (!pc && !paired) return sendJson(res, 401, { error: 'Sync token required.' });
+    const store = storage();
+    const st = status();
+    return sendJson(res, 200, {
+      ok: true,
+      storeId: store.meta('storeId'),
+      revision: store.revision,
+      serverTime: Date.now(),
+      ai: { configured: st.configured, provider: st.provider, providers: st.providers }
+    });
+  }
+  if (!paired) return sendJson(res, 401, { error: 'Invalid or missing sync token.' });
+  if (req.method !== 'POST') return sendJson(res, 405, { error: 'Method not allowed' });
+  if (!/^application\/json\b/i.test(req.headers['content-type'] || '')) return sendJson(res, 415, { error: 'Content-Type must be application/json.' });
+
+  if (urlPath === '/api/sync/manifest') {
+    let input;
+    try { input = JSON.parse(await readBody(req, 16 * 1024 * 1024)); } catch (e) { return sendJson(res, e.status || 400, { error: e.status ? e.message : 'Invalid JSON.' }); }
+    const { VeloSync } = syncDeps();
+    const store = storage();
+    const serverManifest = store.syncManifest();
+    const delta = VeloSync.planDelta(input || {}, serverManifest);
+    return sendJson(res, 200, {
+      ok: true,
+      storeId: serverManifest.storeId,
+      revision: serverManifest.revision,
+      serverTime: Date.now(),
+      wantRideIds: delta.pushRideIds,
+      wantSettingKeys: delta.pushSettingKeys,
+      wantWellnessKeys: delta.pushWellnessKeys,
+      tombstones: serverManifest.tombstones
+    });
+  }
+  if (urlPath === '/api/sync/push') {
+    let input;
+    try { input = JSON.parse(await readBody(req, 200 * 1024 * 1024)); } catch (e) { return sendJson(res, e.status || 400, { error: e.status ? e.message : 'Invalid JSON.' }); }
+    if (!input || typeof input !== 'object' || Array.isArray(input)) return sendJson(res, 400, { error: 'Invalid sync payload.' });
+    const { VeloSync, VeloDedupe, VeloHealth } = syncDeps();
+    const now = Date.now();
+    const store = storage();
+    const serverManifest = store.syncManifest();
+    const serverRides = store.ridesByIds(serverManifest.rides.map(r => r.id));
+    const serverSettings = store.settingsWithMeta();
+    const serverWellness = store.listWellnessDays();
+    const allTombs = [...serverManifest.tombstones, ...(Array.isArray(input.tombstones) ? input.tombstones : [])];
+
+    const mergedRides = VeloSync.mergeRides(serverRides, Array.isArray(input.rides) ? input.rides : [], allTombs, VeloDedupe, now);
+    const mergedWellness = VeloSync.mergeWellnessRows(serverWellness, Array.isArray(input.wellness) ? input.wellness : [], mergedRides.tombstones);
+    const mergedSettings = VeloSync.mergeSettings(serverSettings, input.settings && typeof input.settings === 'object' ? input.settings : {}, mergedWellness.tombstones);
+    if (mergedWellness.rows.length) {
+      const rebuiltJson = JSON.stringify(VeloSync.buildHealthStore(mergedWellness.rows, {}, VeloHealth));
+      const prevHealth = mergedSettings.settings.apex_health_v1;
+      const maxWellAt = mergedWellness.rows.reduce((m, r) => Math.max(m, Number(r.updatedAt) || 0), 0);
+      mergedSettings.settings.apex_health_v1 = {
+        value: rebuiltJson,
+        updatedAt: prevHealth && prevHealth.value === rebuiltJson
+          ? Math.max(prevHealth.updatedAt || 0, maxWellAt)
+          : Math.max(maxWellAt, prevHealth?.updatedAt || 0, now)
+      };
+    }
+
+    const keepRideIds = new Set(mergedRides.rides.map(r => String(r.ride.id)));
+    const delRideIds = serverManifest.rides.map(r => String(r.id)).filter(id => !keepRideIds.has(id));
+    const delSettingKeys = Object.keys(serverSettings).filter(k => !mergedSettings.settings[k]);
+    const finalTombs = [...mergedRides.tombstones, ...mergedWellness.tombstones, ...mergedSettings.tombstones];
+
+    const batch = store.applySyncBatch({
+      putRides: mergedRides.rides,
+      delRideIds,
+      putSettings: mergedSettings.settings,
+      delSettingKeys,
+      putWellness: mergedWellness.rows,
+      tombstones: finalTombs,
+      now
+    });
+
+    const afterManifest = store.syncManifest();
+    const haveRides = input.haveRideHashes && typeof input.haveRideHashes === 'object' ? input.haveRideHashes : {};
+    const haveWellness = input.haveWellnessHashes && typeof input.haveWellnessHashes === 'object' ? input.haveWellnessHashes : {};
+    const sendRideIds = afterManifest.rides.filter(r => haveRides[r.id] !== r.contentHash).map(r => r.id);
+    const sendWellnessKeys = afterManifest.wellness.filter(w => haveWellness[`${w.day}|${w.source}`] !== w.hash).map(w => ({ day: w.day, source: w.source }));
+
+    writeSyncMeta({ lastSyncAt: new Date(now).toISOString(), lastClient: String(input.clientName || input.clientId || 'Android').slice(0, 80) });
+    if (batch.changed) broadcastSyncEvent({ revision: batch.revision, storeId: batch.storeId, at: now });
+
+    return sendJson(res, 200, {
+      ok: true,
+      changed: batch.changed,
+      revision: batch.revision,
+      storeId: batch.storeId,
+      serverTime: now,
+      rides: store.ridesByIds(sendRideIds),
+      settings: store.settingsWithMeta(),
+      wellness: store.wellnessByKeys(sendWellnessKeys),
+      tombstones: afterManifest.tombstones
+    });
+  }
+  return sendJson(res, 404, { error: 'Not found' });
+}
+
 // ------------------------------------------------------------------ server --
 function createServer() {
   return http.createServer((req, res) => {
@@ -1307,9 +1704,12 @@ function createServer() {
     if (urlPath === '/api/live' || urlPath === '/api/live/cmd' || urlPath === '/api/live/cmds' || urlPath === '/api/live/fit' || urlPath === '/api/live/card') {
       return handleLive(req, res, urlPath).catch((e) => { if (!res.headersSent) sendJson(res, 500, { error: e.message }); });
     }
+    if (urlPath.startsWith('/api/sync/')) {
+      return handleSync(req, res, urlPath).catch((e) => { if (!res.headersSent) sendJson(res, e.status || 500, { error: e.message }); });
+    }
     if (urlPath === '/api/coach/status') {
       if (req.method !== 'GET') return sendJson(res, 405, { error: 'Method not allowed' });
-      if (!isPcRequest(req)) return sendJson(res, 403, { error: 'Forbidden' });
+      if (!isPcRequest(req) && !isPairedSyncClient(req)) return sendJson(res, 403, { error: 'Forbidden' });
       const q = new URL(req.url, 'http://localhost').searchParams;
       return refreshModelCatalog(q.get('refresh') === '1').then(() => sendJson(res, 200, status()), () => sendJson(res, 200, status()));
     }
@@ -1324,6 +1724,10 @@ function createServer() {
     if (urlPath.startsWith('/api/strava/')) {
       const query = new URL(req.url, 'http://localhost').searchParams;
       return handleStrava(req, res, urlPath, query).catch((e) => { if (!res.headersSent) sendJson(res, 500, { error: e.message }); });
+    }
+    if (urlPath.startsWith('/api/hevy/')) {
+      const query = new URL(req.url, 'http://localhost').searchParams;
+      return handleHevy(req, res, urlPath, query).catch((e) => { if (!res.headersSent) sendJson(res, 500, { error: e.message }); });
     }
     if (urlPath.startsWith('/api/')) return sendJson(res, 404, { error: 'Not found' });
     if (req.method !== 'GET' && req.method !== 'HEAD') return send(res, 405, 'Method not allowed');
@@ -1363,6 +1767,7 @@ if (require.main === module) {
     console.log(API_KEY ? `AI Coach - Claude: ready, key from ${keySrc(KEY_FROM_ENVIRONMENT, 'ANTHROPIC_API_KEY')}` : 'AI Coach - Claude: no ANTHROPIC_API_KEY in .env');
     console.log(GEMINI_API_KEY ? `AI Coach - Gemini: ready, key from ${keySrc(GEMINI_KEY_FROM_ENVIRONMENT, 'GEMINI_API_KEY')}` : 'AI Coach - Gemini: no GEMINI_API_KEY in .env');
     console.log(OPENAI_API_KEY ? `AI Coach - ChatGPT: ready, key from ${keySrc(OPENAI_KEY_FROM_ENVIRONMENT, 'OPENAI_API_KEY')}` : 'AI Coach - ChatGPT: no OPENAI_API_KEY in .env');
+    if (HEVY_API_KEY) console.log(`Hevy: ready, key from ${keySrc(HEVY_KEY_FROM_ENVIRONMENT, 'HEVY_API_KEY')}`);
     refreshModelCatalog(true).then(() => {
       for (const [p, c] of Object.entries(CATALOG)) if (c.source === 'live') console.log(`AI models - ${PROVIDERS[p].label}: ${c.count} models from the API`);
     });
@@ -1385,4 +1790,4 @@ if (require.main === module) {
   });
 }
 
-module.exports = { createServer, buildClaudeRequest, buildGeminiRequest, buildClaudeAskRequest, buildGeminiAskRequest, buildOpenAiCoachRequest, buildOpenAiAskRequest, prettyOpenAiName, openAiChat, refreshModelCatalog, validateAsk, ASK_SYSTEM_PROMPT, loadDotEnv, slimActivity, MODELS, PROVIDERS };
+module.exports = { createServer, buildClaudeRequest, buildGeminiRequest, buildClaudeAskRequest, buildGeminiAskRequest, buildOpenAiCoachRequest, buildOpenAiAskRequest, prettyOpenAiName, openAiChat, refreshModelCatalog, validateAsk, ASK_SYSTEM_PROMPT, loadDotEnv, slimActivity, slimHevyWorkout, MODELS, PROVIDERS };

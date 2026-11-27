@@ -197,9 +197,39 @@ export function mergeDay(icu, hc, prefs = DEFAULT_PREFS) {
   return { summary: out, src: 'merged' };
 }
 
+const APPLE_SOURCE = 'apple';
+const EXTRA_FIELDS = ['sleepScore', 'icuReadiness', 'baevsky', 'bpSys', 'bpDia', 'glucose', 'kcalIn', 'sleepHr', 'hrvRmssd', 'hrvSdnn'];
+
+function mergeMultiSourceDay(perSrc, prefs = DEFAULT_PREFS, activeHrvKind = null) {
+  const order = [APPLE_SOURCE, HC_SOURCE, 'icu'];
+  const out = { rhr: null, hrv: null, sleepH: null, deepH: null, remH: null, coreH: null, awakeH: null };
+  const used = new Set();
+  for (const [group, keys] of Object.entries(MERGE_FIELDS)) {
+    const pref = prefs[group];
+    const groupOrder = pref ? [pref, ...order.filter((s) => s !== pref)] : order;
+    let chosen = null, chosenSrc = null;
+    for (const src of groupOrder) {
+      const rec = perSrc[src];
+      if (!rec || !has(rec, keys[0])) continue;
+      if (group === 'hrv') {
+        const k = rec.hrvKind || (src === APPLE_SOURCE ? 'sdnn' : 'rmssd');
+        if (activeHrvKind && k !== activeHrvKind) continue;
+      }
+      chosen = rec; chosenSrc = src; break;
+    }
+    if (chosen) { used.add(chosenSrc); for (const k of keys) if (has(chosen, k)) out[k] = chosen[k]; }
+  }
+  for (const k of EXTRA_FIELDS) {
+    for (const src of order) if (perSrc[src] && has(perSrc[src], k)) { out[k] = perSrc[src][k]; break; }
+  }
+  if (!has(out, 'rhr') && !has(out, 'hrv') && !has(out, 'sleepH') && !has(out, 'weight') && !has(out, 'spo2') && !has(out, 'resp')) return null;
+  const list = [...used];
+  return { summary: out, src: list.length > 1 ? 'merged' : (list[0] || 'merged') };
+}
+
 const PREFS_KEY = 'hc_field_prefs';
 /**
- * The wellness_days table (both sources) and the merged days velo-health reads (`target`, the app's
+ * The wellness_days table (apple, healthconnect, icu) and the merged days velo-health reads (`target`, the app's
  * healthStore.days). Days stored before this existed hold only intervals.icu data: they are copied into the
  * table as source 'icu' the first time they are merged, so the next merge still has them.
  */
@@ -223,14 +253,18 @@ export class WellnessSources {
   }
 
   /**
-   * Merges `dayList` (every stored day when left out) into `target` again. HRV comes from the preferred
-   * source only if that source has HRV at all; when the source in effect changes (or a preference does),
-   * every day is merged again, so all days use the same one.
+   * Merges `dayList` (every stored day when left out) into `target` again. When Apple Health days exist
+   * from Home Server Sync, Apple Health comes first, then Health Connect, then intervals.icu, while never
+   * mixing SDNN and rMSSD HRV scales.
    */
   async remerge(target, dayList) {
     const rows = await this.store.listWellnessDays();
+    const hasApple = rows.some((r) => r.source === APPLE_SOURCE);
     const by = {};
-    for (const r of rows) (by[r.day] = by[r.day] || {})[r.source === 'icu' ? 'icu' : r.source === HC_SOURCE ? 'hc' : 'other'] = r.data;
+    for (const r of rows) {
+      const key = r.source === 'icu' ? 'icu' : r.source === HC_SOURCE ? 'hc' : r.source === APPLE_SOURCE ? APPLE_SOURCE : 'other';
+      (by[r.day] = by[r.day] || {})[key] = r.data;
+    }
     const icuDays = Object.keys(target).filter((d) => target[d] && target[d].src === 'icu');
     const hrvIn = (source) => rows.some((r) => r.source === source && has(r.data && r.data.summary, 'hrv'))
       || (source === 'icu' && icuDays.some((d) => has(target[d].summary, 'hrv')));
@@ -238,18 +272,36 @@ export class WellnessSources {
     const icuHrv = rows.find((r) => r.source === 'icu' && has(r.data && r.data.summary, 'hrv')) || icuDays.map((d) => ({ data: target[d] })).find((r) => has(r.data.summary, 'hrv'));
     if (icuHrv) prefs.icuHrvKind = icuHrv.data.summary.hrvKind || 'rmssd';
     if (!hrvIn(prefs.hrv)) prefs.hrv = prefs.hrv === 'icu' ? HC_SOURCE : 'icu';
-    const effective = JSON.stringify(prefs);
+    const effective = JSON.stringify({ ...prefs, hasApple });
     const all = effective !== await this.prefs.get(PREFS_KEY + '_in_effect');
     const days = !all && dayList ? [...new Set(dayList)].sort() : [...new Set([...Object.keys(by), ...icuDays, ...(dayList || [])])].sort();
+    let activeHrvKind = null;
+    if (hasApple) {
+      for (const src of [APPLE_SOURCE, HC_SOURCE, 'icu']) {
+        const hit = rows.find((r) => r.source === src && has(r.data && r.data.summary, 'hrv') && r.data.summary.hrv > 0);
+        if (hit) { activeHrvKind = hit.data.summary.hrvKind || (src === APPLE_SOURCE ? 'sdnn' : 'rmssd'); break; }
+      }
+    }
     const seed = {};
     let changed = 0;
     for (const day of days) {
       const cur = target[day];
-      let { icu, hc } = by[day] || {};
+      const d = by[day] || {};
+      let { icu, hc } = d;
       if (!icu && cur && cur.src === 'icu') { icu = cur; seed[day] = cur; }
-      const next = mergeDay(icu, hc, prefs);
+      let next;
+      if (hasApple) {
+        const perSrc = {};
+        if (d[APPLE_SOURCE]?.summary) perSrc[APPLE_SOURCE] = { ...d[APPLE_SOURCE].summary, hrvKind: d[APPLE_SOURCE].summary.hrvKind || 'sdnn' };
+        if (hc?.summary) perSrc[HC_SOURCE] = { ...hc.summary, hrvKind: hc.summary.hrvKind || 'rmssd' };
+        if (icu?.summary) perSrc.icu = { ...icu.summary, hrvKind: icu.summary.hrvKind || 'rmssd' };
+        const applePrefs = Object.fromEntries(Object.keys(MERGE_FIELDS).map((k) => [k, APPLE_SOURCE]));
+        next = mergeMultiSourceDay(perSrc, applePrefs, activeHrvKind);
+      } else {
+        next = mergeDay(icu, hc, prefs);
+      }
       if (!next) {
-        if (cur && (cur.src === HC_SOURCE || cur.src === 'merged')) { delete target[day]; changed++; }
+        if (cur && (cur.src === HC_SOURCE || cur.src === APPLE_SOURCE || cur.src === 'merged')) { delete target[day]; changed++; }
         continue;
       }
       if (JSON.stringify(cur) !== JSON.stringify(next)) { target[day] = next; changed++; }

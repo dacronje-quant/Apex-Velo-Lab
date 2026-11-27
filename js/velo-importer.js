@@ -27,8 +27,10 @@ class VeloRideImporter {
     const last = samples[samples.length - 1] || {};
     const distanceKm = Number(last.dist) > 0 ? Math.round(Number(last.dist) * 100) / 100 : 0;
     const speeds = samples.map(s => Number(s.speed) || 0).filter(v => v > 0);
+    const derived = VeloRideImporter._sampleRollups(samples, meta);
 
     return {
+      ...derived,
       ...meta,
       duration,
       durationMin: Math.round(duration / 60),
@@ -52,6 +54,41 @@ class VeloRideImporter {
       samplesCount: samples.length,
       samples
     };
+  }
+
+  /** Optional ride-level rollups (elevation, temperature, cycling dynamics) computed strictly when present. */
+  static _sampleRollups(samples, meta = {}) {
+    const out = {};
+    let gain = 0, loss = 0, prevAlt = null, hasAlt = false;
+    let tempSum = 0, tempCnt = 0, maxTemp = -Infinity;
+    let lteSum = 0, lteCnt = 0, rteSum = 0, rteCnt = 0;
+    let lpsSum = 0, lpsCnt = 0, rpsSum = 0, rpsCnt = 0;
+    for (const s of samples || []) {
+      if (Number.isFinite(s.alt)) {
+        hasAlt = true;
+        if (prevAlt === null) prevAlt = s.alt;
+        else {
+          const d = s.alt - prevAlt;
+          if (d >= 1.0) { gain += d; prevAlt = s.alt; }
+          else if (d <= -1.0) { loss += -d; prevAlt = s.alt; }
+        }
+      }
+      if (Number.isFinite(s.temp)) { tempSum += s.temp; tempCnt++; if (s.temp > maxTemp) maxTemp = s.temp; }
+      if (s.leftTe > 0) { lteSum += s.leftTe; lteCnt++; }
+      if (s.rightTe > 0) { rteSum += s.rightTe; rteCnt++; }
+      if (s.leftPs > 0) { lpsSum += s.leftPs; lpsCnt++; }
+      if (s.rightPs > 0) { rpsSum += s.rightPs; rpsCnt++; }
+    }
+    const r1 = (v) => Math.round(v * 10) / 10;
+    if (hasAlt && meta.elevationGainM === undefined) out.elevationGainM = Math.round(gain);
+    if (hasAlt && meta.elevationLossM === undefined) out.elevationLossM = Math.round(loss);
+    if (tempCnt && meta.avgTempC === undefined) out.avgTempC = r1(tempSum / tempCnt);
+    if (tempCnt && meta.maxTempC === undefined) out.maxTempC = r1(maxTemp);
+    if (lteCnt && meta.avgLeftTe === undefined) out.avgLeftTe = r1(lteSum / lteCnt);
+    if (rteCnt && meta.avgRightTe === undefined) out.avgRightTe = r1(rteSum / rteCnt);
+    if (lpsCnt && meta.avgLeftPs === undefined) out.avgLeftPs = r1(lpsSum / lpsCnt);
+    if (rpsCnt && meta.avgRightPs === undefined) out.avgRightPs = r1(rpsSum / rpsCnt);
+    return out;
   }
 
   static uid(prefix) {
@@ -306,6 +343,11 @@ class VeloRideImporter {
   }
 
   // -------------------------------------------------------------------- FIT --
+  static FIT_LAP_TRIGGERS = {
+    0: 'manual', 1: 'time', 2: 'distance', 3: 'position_start', 4: 'position_lap',
+    5: 'position_waypoint', 6: 'position_marked', 7: 'session_end', 8: 'fitness_equipment'
+  };
+
   static parseFit(arrayBuffer, profileName = 'Imported rider', riderFtp = 185) {
     const dv = new DataView(arrayBuffer);
     if (dv.byteLength < 14) throw new Error('File too short for FIT format.');
@@ -319,6 +361,8 @@ class VeloRideImporter {
     let offset = headerSize;
     const defs = {};
     const records = [];
+    const rawLaps = [];
+    let session = null;
     let lastTimestamp = 0;
     let timerStopped = false, segmentPending = false;
     let sport = null; // FIT sport / sub_sport from the session message, else the sport message
@@ -327,6 +371,8 @@ class VeloRideImporter {
       if ((def.globalMesg === 18 || def.globalMesg === 12) && msg.sport !== undefined && (!sport || (def.globalMesg === 18 && !sport.session))) {
         sport = { sport: msg.sport, subSport: msg.subSport ?? 0, session: def.globalMesg === 18 };
       }
+      if (def.globalMesg === 18) session = { ...(session || {}), ...msg };
+      if (def.globalMesg === 19) rawLaps.push(msg);
       if (def.globalMesg === 21 && msg.event === 0) {
         if (msg.eventType === 0) { if (timerStopped) segmentPending = true; timerStopped = false; }
         else if ([1, 4, 8, 9].includes(msg.eventType)) timerStopped = true;
@@ -386,7 +432,7 @@ class VeloRideImporter {
       }
     }
 
-    const firstTs = (records.find(r => r.timestamp) || {}).timestamp || 0;
+    const firstTs = (records.find(r => r.timestamp) || {}).timestamp || (session && session.start_time) || 0;
     const startMs = firstTs ? (firstTs + 631065600) * 1000 : Date.now();
     const samples = records.map((r, i) => {
       // left_right_balance: bit 7 = the stored value is the RIGHT pedal share.
@@ -397,7 +443,7 @@ class VeloRideImporter {
           if (r.left_right_balance & 0x80) { rightBal = pct; leftBal = 100 - pct; } else { leftBal = pct; rightBal = 100 - pct; }
         }
       }
-      return {
+      const s = {
         time: r.timestamp && firstTs ? r.timestamp - firstTs : i,
         segmentStart: !!r.segmentStart,
         timestamp: r.timestamp ? (r.timestamp + 631065600) * 1000 : undefined,
@@ -409,48 +455,184 @@ class VeloRideImporter {
         leftBal,
         rightBal
       };
+      if (r.altitude !== undefined) s.alt = r.altitude;
+      if (r.grade !== undefined) s.grade = r.grade;
+      if (r.temperature !== undefined) s.temp = r.temperature;
+      if (r.position_lat !== undefined) s.lat = r.position_lat;
+      if (r.position_long !== undefined) s.lon = r.position_long;
+      if (r.left_torque_effectiveness !== undefined) s.leftTe = r.left_torque_effectiveness;
+      if (r.right_torque_effectiveness !== undefined) s.rightTe = r.right_torque_effectiveness;
+      if (r.left_pedal_smoothness !== undefined) s.leftPs = r.left_pedal_smoothness;
+      if (r.right_pedal_smoothness !== undefined) s.rightPs = r.right_pedal_smoothness;
+      return s;
+    });
+
+    const laps = rawLaps.map((l, idx) => {
+      const durationSec = Math.round(l.total_timer_time ?? l.total_elapsed_time ?? 0);
+      const elapsedSec = l.total_elapsed_time !== undefined ? Math.round(l.total_elapsed_time) : undefined;
+      let startSec;
+      if (l.start_time !== undefined && firstTs) startSec = Math.max(0, l.start_time - firstTs);
+      else if (l.timestamp !== undefined && firstTs && durationSec > 0) startSec = Math.max(0, (l.timestamp - firstTs) - durationSec);
+      let leftBal;
+      if (l.left_right_balance !== undefined) {
+        const pct = (l.left_right_balance & 0x7FFF) / 100;
+        if (pct > 0 && pct < 100) {
+          leftBal = Math.round(((l.left_right_balance & 0x8000) ? (100 - pct) : pct) * 10) / 10;
+        }
+      }
+      const out = { lapIdx: idx + 1, durationSec };
+      if (startSec !== undefined) out.startSec = startSec;
+      if (elapsedSec !== undefined) out.elapsedSec = elapsedSec;
+      if (l.total_distance !== undefined) out.distanceM = Math.round(l.total_distance);
+      if (l.avg_power !== undefined) out.avgWatts = l.avg_power;
+      if (l.max_power !== undefined) out.maxWatts = l.max_power;
+      if (l.normalized_power !== undefined) out.np = l.normalized_power;
+      if (l.avg_hr !== undefined) out.avgHr = l.avg_hr;
+      if (l.max_hr !== undefined) out.maxHr = l.max_hr;
+      if (l.min_hr !== undefined) out.minHr = l.min_hr;
+      if (l.avg_cadence !== undefined) out.avgCadence = l.avg_cadence;
+      if (l.max_cadence !== undefined) out.maxCadence = l.max_cadence;
+      if (l.avg_speed !== undefined) out.avgSpeedKmh = Math.round(l.avg_speed * 3.6 * 10) / 10;
+      if (l.total_ascent !== undefined) out.ascentM = l.total_ascent;
+      if (l.total_descent !== undefined) out.descentM = l.total_descent;
+      if (l.total_calories !== undefined) out.calories = l.total_calories;
+      if (leftBal !== undefined) out.leftBal = leftBal;
+      if (l.avg_temperature !== undefined) out.avgTempC = l.avg_temperature;
+      if (l.lap_trigger !== undefined) out.trigger = VeloRideImporter.FIT_LAP_TRIGGERS[l.lap_trigger] || String(l.lap_trigger);
+      return out;
     });
 
     const rideDate = new Date(startMs).toISOString();
+    const extraMeta = {};
+    if (sport) { extraMeta.fitSport = sport.sport; extraMeta.fitSubSport = sport.subSport; }
+    if (laps.length) extraMeta.laps = laps;
+    if (session) {
+      if (session.total_ascent !== undefined) extraMeta.elevationGainM = session.total_ascent;
+      if (session.total_descent !== undefined) extraMeta.elevationLossM = session.total_descent;
+      if (session.avg_temperature !== undefined) extraMeta.avgTempC = session.avg_temperature;
+      if (session.max_temperature !== undefined) extraMeta.maxTempC = session.max_temperature;
+      if (session.total_elapsed_time !== undefined) extraMeta.elapsedSec = Math.round(session.total_elapsed_time);
+      const fitMeta = {};
+      if (session.total_training_effect !== undefined) fitMeta.trainingEffect = session.total_training_effect;
+      if (session.total_anaerobic_training_effect !== undefined) fitMeta.anaerobicTe = session.total_anaerobic_training_effect;
+      if (session.threshold_power !== undefined) fitMeta.thresholdPower = session.threshold_power;
+      if (session.min_heart_rate !== undefined) fitMeta.minHr = session.min_heart_rate;
+      if (Object.keys(fitMeta).length) extraMeta.fitMeta = fitMeta;
+    }
+
     return VeloRideImporter.summarize(samples, riderFtp, {
       id: VeloRideImporter.uid('fit'),
       title: 'FIT Ride (' + new Date(rideDate).toLocaleDateString() + ')',
       date: rideDate,
       profileName,
       source: 'FIT Import',
-      ...(sport ? { fitSport: sport.sport, fitSubSport: sport.subSport } : {})
+      ...extraMeta
     });
+  }
+
+  static _readFitVal(dv, off, size, type, le) {
+    const base = type & 0x1F;
+    if (size === 1) {
+      if (base === 1) { const v = dv.getInt8(off); return v === 0x7F ? undefined : v; }
+      const v = dv.getUint8(off);
+      return (base === 10 ? v === 0 : v === 0xFF) ? undefined : v;
+    }
+    if (size === 2) {
+      if (base === 3) { const v = dv.getInt16(off, le); return v === 0x7FFF ? undefined : v; }
+      const v = dv.getUint16(off, le);
+      return (base === 11 ? v === 0 : v === 0xFFFF) ? undefined : v;
+    }
+    if (size === 4) {
+      if (base === 5) { const v = dv.getInt32(off, le); return v === 0x7FFFFFFF ? undefined : v; }
+      const v = dv.getUint32(off, le);
+      return (base === 12 ? v === 0 : v === 0xFFFFFFFF) ? undefined : v;
+    }
+    return undefined;
   }
 
   static _readFitMsg(dv, startOff, def) {
     const msg = {};
     let off = startOff;
     const le = !def.isBigEndian;
+    const gm = def.globalMesg;
+    const r1 = (v) => Math.round(v * 10) / 10;
     for (const f of def.fields) {
       if (off + f.size > dv.byteLength) break;
-      if (f.size === 1) {
-        const val = dv.getUint8(off);
-        if (val !== 0xff) {
-          if ((def.globalMesg === 12 && f.num === 0) || (def.globalMesg === 18 && f.num === 5)) msg.sport = val;
-          else if ((def.globalMesg === 12 && f.num === 1) || (def.globalMesg === 18 && f.num === 6)) msg.subSport = val;
-          else if (def.globalMesg === 21 && f.num === 0) msg.event = val;
-          else if (def.globalMesg === 21 && f.num === 1) msg.eventType = val;
+      const val = VeloRideImporter._readFitVal(dv, off, f.size, f.type, le);
+      if (val !== undefined) {
+        if (gm === 12) {
+          if (f.num === 0) msg.sport = val;
+          else if (f.num === 1) msg.subSport = val;
+        } else if (gm === 21) {
+          if (f.num === 253) msg.timestamp = val;
+          else if (f.num === 0) msg.event = val;
+          else if (f.num === 1) msg.eventType = val;
+        } else if (gm === 18) {
+          if (f.num === 253) msg.timestamp = val;
+          else if (f.num === 2) msg.start_time = val;
+          else if (f.num === 5) msg.sport = val;
+          else if (f.num === 6) msg.subSport = val;
+          else if (f.num === 7) msg.total_elapsed_time = val / 1000;
+          else if (f.num === 8) msg.total_timer_time = val / 1000;
+          else if (f.num === 9) msg.total_distance = val / 100;
+          else if (f.num === 11) msg.total_calories = val;
+          else if (f.num === 22) msg.total_ascent = val;
+          else if (f.num === 23) msg.total_descent = val;
+          else if (f.num === 24) msg.total_training_effect = r1(val / 10);
+          else if (f.num === 34) msg.normalized_power = val;
+          else if (f.num === 35) msg.training_stress_score = r1(val / 10);
+          else if (f.num === 36) msg.intensity_factor = val / 1000;
+          else if (f.num === 45) msg.threshold_power = val;
+          else if (f.num === 57) msg.avg_temperature = val;
+          else if (f.num === 58) msg.max_temperature = val;
+          else if (f.num === 64) msg.min_heart_rate = val;
+          else if (f.num === 137) msg.total_anaerobic_training_effect = r1(val / 10);
+        } else if (gm === 19) {
+          if (f.num === 253) msg.timestamp = val;
+          else if (f.num === 2) msg.start_time = val;
+          else if (f.num === 7) msg.total_elapsed_time = val / 1000;
+          else if (f.num === 8) msg.total_timer_time = val / 1000;
+          else if (f.num === 9) msg.total_distance = val / 100;
+          else if (f.num === 11) msg.total_calories = val;
+          else if (f.num === 13 && msg.avg_speed === undefined) msg.avg_speed = val / 1000;
+          else if (f.num === 14 && msg.max_speed === undefined) msg.max_speed = val / 1000;
+          else if (f.num === 110) msg.avg_speed = val / 1000;
+          else if (f.num === 111) msg.max_speed = val / 1000;
+          else if (f.num === 15) msg.avg_hr = val;
+          else if (f.num === 16) msg.max_hr = val;
+          else if (f.num === 63) msg.min_hr = val;
+          else if (f.num === 17) msg.avg_cadence = val;
+          else if (f.num === 18) msg.max_cadence = val;
+          else if (f.num === 19) msg.avg_power = val;
+          else if (f.num === 20) msg.max_power = val;
+          else if (f.num === 21) msg.total_ascent = val;
+          else if (f.num === 22) msg.total_descent = val;
+          else if (f.num === 24) msg.lap_trigger = val;
+          else if (f.num === 25) msg.sport = val;
+          else if (f.num === 39) msg.sub_sport = val;
+          else if (f.num === 34) msg.left_right_balance = val;
+          else if (f.num === 42) msg.normalized_power = val;
+          else if (f.num === 50) msg.avg_temperature = val;
+          else if (f.num === 51) msg.max_temperature = val;
+        } else if (gm === 20) {
+          if (f.num === 253) msg.timestamp = val;
+          else if (f.num === 0) msg.position_lat = Math.round(val * (180 / 2147483648) * 1e6) / 1e6;
+          else if (f.num === 1) msg.position_long = Math.round(val * (180 / 2147483648) * 1e6) / 1e6;
+          else if (f.num === 2 && msg.altitude === undefined) msg.altitude = r1(val / 5 - 500);
+          else if (f.num === 78) msg.altitude = r1(val / 5 - 500);
           else if (f.num === 3) msg.heart_rate = val;
           else if (f.num === 4) msg.cadence = val;
-          else if (f.num === 30) msg.left_right_balance = val;
-        }
-      } else if (f.size === 2) {
-        const val = dv.getUint16(off, le);
-        if (val !== 0xffff) {
-          if (f.num === 7) msg.power = val;
-          else if (f.num === 6) msg.speed = val / 1000;
-        }
-      } else if (f.size === 4) {
-        const val = dv.getUint32(off, le);
-        if (val !== 0xffffffff) {
-          if (f.num === 253) msg.timestamp = val;
           else if (f.num === 5) msg.distance = val / 100;
-          else if (f.num === 73 && msg.speed === undefined) msg.speed = val / 1000; // enhanced_speed
+          else if (f.num === 6 && msg.speed === undefined) msg.speed = val / 1000;
+          else if (f.num === 73) msg.speed = val / 1000;
+          else if (f.num === 7) msg.power = val;
+          else if (f.num === 9) msg.grade = r1(val / 100);
+          else if (f.num === 13) msg.temperature = val;
+          else if (f.num === 30) msg.left_right_balance = val;
+          else if (f.num === 43) msg.left_torque_effectiveness = r1(val / 2);
+          else if (f.num === 44) msg.right_torque_effectiveness = r1(val / 2);
+          else if (f.num === 45) msg.left_pedal_smoothness = r1(val / 2);
+          else if (f.num === 46) msg.right_pedal_smoothness = r1(val / 2);
         }
       }
       off += f.size;

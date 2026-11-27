@@ -32,7 +32,15 @@ import { Sha256, writeGzipFile, hashGzipFile } from './native-snapshot.js';
 export const MAX_BYTES = 200 * 1024 * 1024;
 /** What the snapshots may take together on the phone before the oldest kept copies go. */
 export const BACKUP_BUDGET = 512 * 1024 * 1024;
-export const SCHEMA_VERSION = 2; // 2: rides and migration_rides keep the ride's sample summary
+export const SCHEMA_VERSION = 3; // 3: sync metadata (updated_at, content_hash, samples_hash, sync_tombstones)
+const SYNCED_SETTINGS = new Set([
+  'apex_velo_profiles', 'apex_velo_active_prof_id', 'apex_velo_saved_workouts', 'apex_training_block', 'apex_block_options',
+  'apex_ask_v1', 'apex_health_v1', 'apex_coach_goal', 'apex_coach_lookback_days', 'apex_coach_intent', 'apex_coach_provider',
+  'apex_coach_model', 'apex_coach_effort', 'apex_claude_model', 'apex_claude_effort', 'apex_gemini_model',
+  'apex_ftp_source', 'apex_ftp_suggest_dismissed', 'apex_strength_load', 'apex_hevy_skip_strava_strength',
+  'apex_ana_pins', 'apex_ana_panel', 'apex_ana_more', 'apex_ana_story', 'apex_pdc_unit', 'apex_power_view', 'apex_share_card_style'
+]);
+const isSyncedSetting = (k) => typeof k === 'string' && SYNCED_SETTINGS.has(k);
 const own = (o, k) => Object.prototype.hasOwnProperty.call(o, k);
 export const settingKey = (k) => typeof k === 'string' && /^apex_[a-zA-Z0-9_:-]{1,180}$/.test(k) && !['apex_velo_history', 'apex_auto_backup', 'apex_sqlite_migration'].includes(k);
 const fail = (message, status = 400) => { throw Object.assign(new Error(message), { status }); };
@@ -93,6 +101,20 @@ const randomHex = (n) => hex(crypto.getRandomValues(new Uint8Array(n)));
 
 export const packSamples = async (samples) => toBase64(await gzip(encoder.encode(JSON.stringify(samples))));
 export const unpackSamples = async (text) => JSON.parse(decoder.decode(await gunzip(fromBase64(text))));
+/** Canonical JSON of a ride's metadata (sorted top-level keys, without samples or sampleSummary). */
+export function rideMetaJson(ride) {
+  if (!ride || typeof ride !== 'object') return '{}';
+  const keys = Object.keys(ride).filter((k) => k !== 'samples' && k !== 'sampleSummary' && ride[k] !== undefined).sort();
+  const clean = {};
+  for (const k of keys) clean[k] = ride[k];
+  return JSON.stringify(clean);
+}
+export async function computeRideHash(ride, knownSamplesHash = null) {
+  const metaHash = await sha256(rideMetaJson(ride));
+  const samplesHash = knownSamplesHash !== null ? knownSamplesHash
+    : (Array.isArray(ride.samples) && ride.samples.length ? await sha256(JSON.stringify(ride.samples)) : '0');
+  return { contentHash: `${metaHash}:${samplesHash}`, samplesHash };
+}
 /** A ride as the app holds it on the phone, without the summary the store adds (it is kept in its own column). */
 const withoutSummary = (ride) => {
   if (!ride || typeof ride !== 'object' || !own(ride, 'sampleSummary')) return ride;
@@ -101,8 +123,13 @@ const withoutSummary = (ride) => {
 };
 /** A rides row: the JSON with `samples: null` where the ride had its samples (so a read returns the same JSON), and the samples packed. */
 async function encodeRide(ride) {
-  if (Array.isArray(ride.samples) && ride.samples.length) return { json: JSON.stringify({ ...ride, samples: null }), packed: await packSamples(ride.samples), count: ride.samples.length };
-  return { json: JSON.stringify(ride), packed: null, count: 0 };
+  if (Array.isArray(ride.samples) && ride.samples.length) {
+    const rawSamples = JSON.stringify(ride.samples);
+    const samplesHash = await sha256(rawSamples);
+    const packed = toBase64(await gzip(encoder.encode(rawSamples)));
+    return { json: JSON.stringify({ ...ride, samples: null }), packed, count: ride.samples.length, samplesHash };
+  }
+  return { json: JSON.stringify(ride), packed: null, count: 0, samplesHash: '0' };
 }
 /**
  * Settings with every lone UTF-16 surrogate replaced by U+FFFD. SQLite (and the plugin bridge) store text as
@@ -134,8 +161,8 @@ async function* jsonPieces(head, key, items, tail, onItem) {
 class Chunks { constructor(list) { this.list = list; } }
 
 const SCHEMA = `CREATE TABLE IF NOT EXISTS meta (key TEXT PRIMARY KEY, value TEXT NOT NULL);
-  CREATE TABLE IF NOT EXISTS rides (id TEXT PRIMARY KEY, json TEXT NOT NULL, position INTEGER NOT NULL, samples_gz TEXT, sample_count INTEGER NOT NULL DEFAULT 0, summary TEXT, summary_v INTEGER);
-  CREATE TABLE IF NOT EXISTS settings (key TEXT PRIMARY KEY, value TEXT NOT NULL);
+  CREATE TABLE IF NOT EXISTS rides (id TEXT PRIMARY KEY, json TEXT NOT NULL, position INTEGER NOT NULL, samples_gz TEXT, sample_count INTEGER NOT NULL DEFAULT 0, summary TEXT, summary_v INTEGER, updated_at INTEGER NOT NULL DEFAULT 0, content_hash TEXT, samples_hash TEXT);
+  CREATE TABLE IF NOT EXISTS settings (key TEXT PRIMARY KEY, value TEXT NOT NULL, updated_at INTEGER NOT NULL DEFAULT 0);
   CREATE TABLE IF NOT EXISTS db_settings (key TEXT PRIMARY KEY, json TEXT NOT NULL);
   CREATE TABLE IF NOT EXISTS operations (id TEXT PRIMARY KEY, result TEXT NOT NULL, at INTEGER NOT NULL);
   CREATE TABLE IF NOT EXISTS snapshots (name TEXT PRIMARY KEY, size INTEGER NOT NULL, mtime REAL NOT NULL, info TEXT NOT NULL);
@@ -144,7 +171,8 @@ const SCHEMA = `CREATE TABLE IF NOT EXISTS meta (key TEXT PRIMARY KEY, value TEX
   CREATE TABLE IF NOT EXISTS import_files (job_id TEXT, path TEXT, hash TEXT, ride_id TEXT, status TEXT, error TEXT, PRIMARY KEY(job_id, path));
   CREATE INDEX IF NOT EXISTS import_files_hash ON import_files(hash);
   CREATE TABLE IF NOT EXISTS sync_ledger (ride_id TEXT, destination TEXT, external_id TEXT, content_hash TEXT, status TEXT, attempts INT, last_error TEXT, updated_at TEXT, PRIMARY KEY(ride_id, destination));
-  CREATE TABLE IF NOT EXISTS wellness_days (day TEXT, source TEXT, json TEXT, PRIMARY KEY(day, source));`;
+  CREATE TABLE IF NOT EXISTS wellness_days (day TEXT, source TEXT, json TEXT, updated_at INTEGER NOT NULL DEFAULT 0, PRIMARY KEY(day, source));
+  CREATE TABLE IF NOT EXISTS sync_tombstones (kind TEXT NOT NULL, id TEXT NOT NULL, deleted_at INTEGER NOT NULL, PRIMARY KEY(kind, id));`;
 
 const str = (v) => (v === undefined || v === null ? null : String(v));
 const int = (v) => (Number.isFinite(Number(v)) && v !== null && v !== '' ? Math.trunc(Number(v)) : 0);
@@ -192,13 +220,23 @@ export class NativeStore {
       const version = Number((await d.all('PRAGMA user_version'))[0]?.user_version || 0);
       if (version > SCHEMA_VERSION) fail('This database needs a newer version of Apex. It has been left untouched.', 503);
       await d.exec(SCHEMA);
-      // Version 1 databases get the summary columns; their rides are summarized in the background.
+      // Version 1/2 databases get the summary and sync columns.
       for (const table of ['rides', 'migration_rides']) {
         const columns = (await d.all(`PRAGMA table_info(${table})`)).map((c) => c.name);
         if (!columns.includes('summary')) await d.exec(`ALTER TABLE ${table} ADD COLUMN summary TEXT`);
         if (!columns.includes('summary_v')) await d.exec(`ALTER TABLE ${table} ADD COLUMN summary_v INTEGER`);
+        if (!columns.includes('samples_hash')) await d.exec(`ALTER TABLE ${table} ADD COLUMN samples_hash TEXT`);
       }
+      const rideCols = (await d.all('PRAGMA table_info(rides)')).map((c) => c.name);
+      if (!rideCols.includes('updated_at')) await d.exec('ALTER TABLE rides ADD COLUMN updated_at INTEGER NOT NULL DEFAULT 0');
+      if (!rideCols.includes('content_hash')) await d.exec('ALTER TABLE rides ADD COLUMN content_hash TEXT');
+      if (!rideCols.includes('samples_hash')) await d.exec('ALTER TABLE rides ADD COLUMN samples_hash TEXT');
+      const setCols = (await d.all('PRAGMA table_info(settings)')).map((c) => c.name);
+      if (!setCols.includes('updated_at')) await d.exec('ALTER TABLE settings ADD COLUMN updated_at INTEGER NOT NULL DEFAULT 0');
+      const wellCols = (await d.all('PRAGMA table_info(wellness_days)')).map((c) => c.name);
+      if (!wellCols.includes('updated_at')) await d.exec('ALTER TABLE wellness_days ADD COLUMN updated_at INTEGER NOT NULL DEFAULT 0');
       await d.exec(`PRAGMA user_version=${SCHEMA_VERSION}`);
+      await this.backfillSyncMetadata();
       if (!await this.meta('storeId')) await this.setMeta('storeId', crypto.randomUUID());
       // A snapshot the app was killed while writing never got its name: remove the leftover.
       for (const name of await this.files.list().catch(() => [])) if (/\.json\.gz\.tmp$/.test(name)) await this.files.remove(name).catch(() => {});
@@ -343,32 +381,71 @@ export class NativeStore {
     this.scheduleBackup();
     return result;
   }
-  async applySettings(settings) {
+  async backfillSyncMetadata() {
+    const now = this.clock().getTime();
+    const staleRides = await this.db.all('SELECT id, json, samples_gz, sample_count, samples_hash FROM rides WHERE content_hash IS NULL OR updated_at=0');
+    const staleSettings = await this.db.all('SELECT key FROM settings WHERE updated_at=0');
+    if (!staleRides.length && !staleSettings.length) return;
+    await this.transaction(async () => {
+      for (const r of staleRides) {
+        const ride = JSON.parse(r.json);
+        let sHash = r.samples_hash;
+        if (!sHash) {
+          if (r.sample_count > 0 && r.samples_gz) sHash = await sha256(decoder.decode(await gunzip(fromBase64(r.samples_gz))));
+          else sHash = '0';
+        }
+        const { contentHash } = await computeRideHash(ride, sHash);
+        await this.db.run('UPDATE rides SET updated_at=?, content_hash=?, samples_hash=? WHERE id=?', [now, contentHash, sHash, r.id]);
+      }
+      for (const s of staleSettings) {
+        await this.db.run('UPDATE settings SET updated_at=? WHERE key=? AND updated_at=0', [now, s.key]);
+      }
+    });
+  }
+  async applySettings(settings, { now } = {}) {
     validateSettings(settings);
+    const ts = Number.isFinite(now) ? now : this.clock().getTime();
     for (const [k, v] of Object.entries(settings)) {
-      if (v === null) await this.db.run('DELETE FROM settings WHERE key=?', [k]);
-      else await this.db.run('INSERT OR REPLACE INTO settings VALUES (?,?)', [k, v]);
+      if (v === null) {
+        await this.db.run('DELETE FROM settings WHERE key=?', [k]);
+        if (isSyncedSetting(k)) await this.db.run('INSERT OR REPLACE INTO sync_tombstones (kind, id, deleted_at) VALUES (?,?,?)', ['setting', k, ts]);
+      } else {
+        const prev = (await this.db.all('SELECT value, updated_at FROM settings WHERE key=?', [k]))[0];
+        const at = prev && prev.value === v && prev.updated_at > 0 ? prev.updated_at : ts;
+        await this.db.run('INSERT OR REPLACE INTO settings (key, value, updated_at) VALUES (?,?,?)', [k, v, at]);
+        await this.db.run('DELETE FROM sync_tombstones WHERE kind=? AND id=?', ['setting', k]);
+      }
     }
   }
   async putDbSettings(list) {
     for (const s of list) await this.db.run('INSERT OR REPLACE INTO db_settings VALUES (?,?)', [s.key, JSON.stringify(s)]);
   }
-  async applyRides(put, del = [], { exact = false, replace = false } = {}) {
+  async applyRides(put, del = [], { exact = false, replace = false, now } = {}) {
     put = Array.isArray(put) ? put.map(withoutSummary) : put;
     validateRides(put);
     if (!Array.isArray(del) || del.some((id) => !['number', 'string'].includes(typeof id))) fail('Invalid deleted IDs.');
     const d = this.db;
+    const ts = Number.isFinite(now) ? now : this.clock().getTime();
     if (replace) await d.run('DELETE FROM rides');
-    for (const id of del) await d.run('DELETE FROM rides WHERE id=?', [String(id)]);
+    for (const id of del) {
+      await d.run('DELETE FROM rides WHERE id=?', [String(id)]);
+      await d.run('INSERT OR REPLACE INTO sync_tombstones (kind, id, deleted_at) VALUES (?,?,?)', ['ride', String(id), ts]);
+    }
     let position = Number((await d.all('SELECT COALESCE(MAX(position),-1) AS n FROM rides'))[0].n) + 1;
     for (const ride of put) {
-      const previous = (await d.all('SELECT position, samples_gz, sample_count, summary, summary_v FROM rides WHERE id=?', [String(ride.id)]))[0];
+      const previous = (await d.all('SELECT position, samples_gz, sample_count, summary, summary_v, updated_at, content_hash, samples_hash FROM rides WHERE id=?', [String(ride.id)]))[0];
       // A summary-only save keeps the stored samples (as the desktop store does), still packed, and their summary.
       const keep = !exact && !(ride.samples?.length) && previous?.sample_count > 0;
-      const { json, packed, count } = keep ? { json: JSON.stringify({ ...ride, samples: null }), packed: previous.samples_gz, count: previous.sample_count } : await encodeRide(ride);
+      let sHash = keep ? previous.samples_hash : null;
+      const enc = keep ? { json: JSON.stringify({ ...ride, samples: null }), packed: previous.samples_gz, count: previous.sample_count, samplesHash: sHash } : await encodeRide(ride);
+      if (keep && !sHash) sHash = await sha256(decoder.decode(await gunzip(fromBase64(previous.samples_gz))));
+      else if (!keep) sHash = enc.samplesHash;
+      const { contentHash } = await computeRideHash(ride, sHash);
+      const at = previous && previous.content_hash === contentHash && previous.updated_at > 0 ? previous.updated_at : ts;
       const { summary, v } = keep ? { summary: previous.summary, v: previous.summary_v } : this.summaryOf(ride);
-      await d.run('INSERT OR REPLACE INTO rides (id, json, position, samples_gz, sample_count, summary, summary_v) VALUES (?,?,?,?,?,?,?)',
-        [String(ride.id), json, previous ? previous.position : position++, packed, count, summary, v]);
+      await d.run('INSERT OR REPLACE INTO rides (id, json, position, samples_gz, sample_count, summary, summary_v, updated_at, content_hash, samples_hash) VALUES (?,?,?,?,?,?,?,?,?,?)',
+        [String(ride.id), enc.json, previous ? previous.position : position++, enc.packed, enc.count, summary, v, at, contentHash, sHash]);
+      await d.run('DELETE FROM sync_tombstones WHERE kind=? AND id=?', ['ride', String(ride.id)]);
     }
   }
   /** The desktop /migrate request: staged a few rides at a time, then committed as one change. */
@@ -391,10 +468,10 @@ export class NativeStore {
     validateRides(rides);
     await this.transaction(async () => {
       for (const ride of rides) {
-        const id = String(ride.id), text = JSON.stringify(ride), { json, packed, count } = await encodeRide(ride);
+        const id = String(ride.id), text = JSON.stringify(ride), { json, packed, count, samplesHash } = await encodeRide(ride);
         const { summary, v } = this.summaryOf(ride);
-        await this.db.run('INSERT OR REPLACE INTO migration_rides (id, json, samples_gz, sample_count, hash, summary, summary_v) VALUES (?,?,?,?,?,?,?)',
-          [id, json, packed, count, await sha256(text), summary, v]);
+        await this.db.run('INSERT OR REPLACE INTO migration_rides (id, json, samples_gz, sample_count, hash, summary, summary_v, samples_hash) VALUES (?,?,?,?,?,?,?,?)',
+          [id, json, packed, count, await sha256(text), summary, v, samplesHash]);
         const row = (await this.db.all('SELECT json, samples_gz FROM migration_rides WHERE id=?', [id]))[0];
         if (JSON.stringify(await this.decodeRide(row)) !== text) fail('Migration verification failed.', 500);
       }
@@ -423,7 +500,15 @@ export class NativeStore {
       tail: { settings: input.settings, dbSettings: input.dbSettings || [], profiles: JSON.parse(input.settings.apex_velo_profiles || '[]') } }, 'migration');
     return this.mutate(input, async () => {
       await this.db.run('DELETE FROM rides');
-      for (const [position, id] of order.entries()) await this.db.run('INSERT INTO rides (id, json, position, samples_gz, sample_count, summary, summary_v) SELECT id, json, ?, samples_gz, sample_count, summary, summary_v FROM migration_rides WHERE id=?', [position, id]);
+      const now = this.clock().getTime();
+      for (const [position, id] of order.entries()) {
+        await this.db.run('INSERT INTO rides (id, json, position, samples_gz, sample_count, summary, summary_v, updated_at, samples_hash) SELECT id, json, ?, samples_gz, sample_count, summary, summary_v, ?, samples_hash FROM migration_rides WHERE id=?', [position, now, id]);
+        const r = (await this.db.all('SELECT json, samples_hash FROM rides WHERE id=?', [id]))[0];
+        if (r) {
+          const { contentHash } = await computeRideHash(JSON.parse(r.json), r.samples_hash || '0');
+          await this.db.run('UPDATE rides SET content_hash=? WHERE id=?', [contentHash, id]);
+        }
+      }
       await this.applySettings(input.settings); await this.putDbSettings(input.dbSettings || []);
       await this.setMeta('initialized', 1); await this.setMeta('migratedAt', this.clock().toISOString());
       const same = Number((await this.db.all('SELECT COUNT(*) AS n FROM rides r JOIN migration_rides m ON m.id=r.id AND m.json=r.json AND m.samples_gz IS r.samples_gz AND m.sample_count=r.sample_count'))[0].n);
@@ -812,25 +897,172 @@ export class NativeStore {
     return this.exclusive(async () => (await this.db.all(`SELECT * FROM sync_ledger${where.length ? ' WHERE ' + where.join(' AND ') : ''} ORDER BY ride_id, destination`, params)).map(syncFromRow));
   }
   /** Saves wellness days of one source: { 'YYYY-MM-DD': data } (data null deletes that day). All or none. */
-  putWellnessDays(source, days) {
+  putWellnessDays(source, days, { now } = {}) {
     return this.exclusive(() => this.transaction(async () => {
       needText(source, 'wellness source');
       if (!days || typeof days !== 'object' || Array.isArray(days)) fail('Wellness days must be an object.');
+      const ts = Number.isFinite(now) ? now : this.clock().getTime();
       for (const [day, data] of Object.entries(days)) {
         if (!DAY.test(day)) fail('Invalid wellness day.');
-        if (data === null) await this.db.run('DELETE FROM wellness_days WHERE day=? AND source=?', [day, source]);
-        else await this.db.run('INSERT OR REPLACE INTO wellness_days VALUES (?,?,?)', [day, source, JSON.stringify(data)]);
+        if (data === null) {
+          await this.db.run('DELETE FROM wellness_days WHERE day=? AND source=?', [day, source]);
+          await this.db.run('INSERT OR REPLACE INTO sync_tombstones (kind, id, deleted_at) VALUES (?,?,?)', ['wellness', `${source}:${day}`, ts]);
+        } else {
+          const text = JSON.stringify(data);
+          const prev = (await this.db.all('SELECT json, updated_at FROM wellness_days WHERE day=? AND source=?', [day, source]))[0];
+          const at = prev && prev.json === text && prev.updated_at > 0 ? prev.updated_at : ts;
+          await this.db.run('INSERT OR REPLACE INTO wellness_days (day, source, json, updated_at) VALUES (?,?,?,?)', [day, source, text, at]);
+          await this.db.run('DELETE FROM sync_tombstones WHERE kind=? AND id=?', ['wellness', `${source}:${day}`]);
+        }
       }
     }));
   }
   /** Wellness days in date order, optionally from/to (inclusive, YYYY-MM-DD) and of one source: [{ day, source, data }]. */
-  listWellnessDays({ from, to, source } = {}) {
+  listWellnessDays({ from, to, source, withMeta = false } = {}) {
     const where = [], params = [];
     if (from !== undefined) { where.push('day>=?'); params.push(String(from)); }
     if (to !== undefined) { where.push('day<=?'); params.push(String(to)); }
     if (source !== undefined) { where.push('source=?'); params.push(String(source)); }
     return this.exclusive(async () => (await this.db.all(`SELECT * FROM wellness_days${where.length ? ' WHERE ' + where.join(' AND ') : ''} ORDER BY day, source`, params))
-      .map((r) => ({ day: r.day, source: r.source, data: JSON.parse(r.json) })));
+      .map((r) => (withMeta ? { day: r.day, source: r.source, data: JSON.parse(r.json), updatedAt: r.updated_at || 0 } : { day: r.day, source: r.source, data: JSON.parse(r.json) })));
+  }
+
+  // --------------------------------------------------------------- home sync --
+  syncManifest() {
+    return this.exclusive(async () => {
+      const rides = (await this.db.all('SELECT id, updated_at, content_hash FROM rides ORDER BY position, id'))
+        .map((r) => ({ id: r.id, updatedAt: r.updated_at || 0, contentHash: r.content_hash || '' }));
+      const settings = {};
+      for (const r of await this.db.all('SELECT key, value, updated_at FROM settings ORDER BY key')) {
+        if (isSyncedSetting(r.key)) settings[r.key] = { updatedAt: r.updated_at || 0, hash: await sha256(r.value) };
+      }
+      const wellness = [];
+      for (const r of await this.db.all('SELECT day, source, json, updated_at FROM wellness_days ORDER BY day, source')) {
+        wellness.push({ day: r.day, source: r.source, updatedAt: r.updated_at || 0, hash: await sha256(r.json) });
+      }
+      const tombstones = (await this.db.all('SELECT kind, id, deleted_at FROM sync_tombstones ORDER BY kind, id'))
+        .map((r) => ({ kind: r.kind, id: r.id, deletedAt: r.deleted_at || 0 }));
+      return { storeId: await this.meta('storeId'), revision: await this.revision(), rides, settings, wellness, tombstones };
+    });
+  }
+  ridesByIds(ids = []) {
+    return this.exclusive(async () => {
+      const out = [];
+      for (const id of ids) {
+        const r = (await this.db.all('SELECT json, samples_gz, updated_at, content_hash FROM rides WHERE id=?', [String(id)]))[0];
+        if (r) out.push({ ride: await this.decodeRide(r), updatedAt: r.updated_at || 0, contentHash: r.content_hash || '' });
+      }
+      return out;
+    });
+  }
+  settingsWithMeta(keys = null) {
+    return this.exclusive(async () => {
+      const out = {};
+      const want = keys ? new Set(keys) : null;
+      for (const r of await this.db.all('SELECT key, value, updated_at FROM settings ORDER BY key')) {
+        if (!isSyncedSetting(r.key)) continue;
+        if (want && !want.has(r.key)) continue;
+        out[r.key] = { value: r.value, updatedAt: r.updated_at || 0 };
+      }
+      return out;
+    });
+  }
+  wellnessByKeys(keys = []) {
+    return this.exclusive(async () => {
+      const out = [];
+      for (const k of keys) {
+        if (!k || !k.day || !k.source) continue;
+        const r = (await this.db.all('SELECT day, source, json, updated_at FROM wellness_days WHERE day=? AND source=?', [String(k.day), String(k.source)]))[0];
+        if (r) out.push({ day: r.day, source: r.source, data: JSON.parse(r.json), updatedAt: r.updated_at || 0 });
+      }
+      return out;
+    });
+  }
+  applySyncBatch({ putRides = [], delRideIds = [], putSettings = {}, delSettingKeys = [], putWellness = [], tombstones = [], now } = {}) {
+    return this.exclusive(async () => {
+      const ts = Number.isFinite(now) ? now : this.clock().getTime();
+      let changed = false;
+      const d = this.db;
+      await d.begin();
+      try {
+        for (const id of delRideIds) {
+          const prev = (await d.all('SELECT 1 FROM rides WHERE id=?', [String(id)]))[0];
+          if (prev) { await d.run('DELETE FROM rides WHERE id=?', [String(id)]); changed = true; }
+        }
+        let position = Number((await d.all('SELECT COALESCE(MAX(position),-1) AS n FROM rides'))[0].n) + 1;
+        for (const wrap of putRides) {
+          const ride = withoutSummary(wrap && wrap.ride ? wrap.ride : wrap);
+          if (!ride || !ride.id) continue;
+          validateRide(ride, new Set());
+          const id = String(ride.id);
+          const previous = (await d.all('SELECT position, samples_gz, sample_count, summary, summary_v, updated_at, content_hash, samples_hash FROM rides WHERE id=?', [id]))[0];
+          const keep = !(ride.samples?.length) && previous?.sample_count > 0;
+          let sHash = keep ? previous.samples_hash : null;
+          const enc = keep ? { json: JSON.stringify({ ...ride, samples: null }), packed: previous.samples_gz, count: previous.sample_count, samplesHash: sHash } : await encodeRide(ride);
+          if (keep && !sHash) sHash = await sha256(decoder.decode(await gunzip(fromBase64(previous.samples_gz))));
+          else if (!keep) sHash = enc.samplesHash;
+          const { contentHash } = await computeRideHash(ride, sHash);
+          const at = Number(wrap.updatedAt) || ts;
+          if (!previous || previous.content_hash !== contentHash || at > (previous.updated_at || 0)) {
+            if (!previous || previous.content_hash !== contentHash) changed = true;
+            const { summary, v } = keep ? { summary: previous.summary, v: previous.summary_v } : this.summaryOf(ride);
+            await d.run('INSERT OR REPLACE INTO rides (id, json, position, samples_gz, sample_count, summary, summary_v, updated_at, content_hash, samples_hash) VALUES (?,?,?,?,?,?,?,?,?,?)',
+              [id, enc.json, previous ? previous.position : position++, enc.packed, enc.count, summary, v, Math.max(at, previous?.updated_at || 0), contentHash, sHash]);
+          }
+          await d.run('DELETE FROM sync_tombstones WHERE kind=? AND id=?', ['ride', id]);
+        }
+        for (const k of delSettingKeys) {
+          if (!isSyncedSetting(k)) continue;
+          const prev = (await d.all('SELECT 1 FROM settings WHERE key=?', [k]))[0];
+          if (prev) { await d.run('DELETE FROM settings WHERE key=?', [k]); changed = true; }
+        }
+        for (const [k, entry] of Object.entries(putSettings)) {
+          if (!isSyncedSetting(k) || !entry || entry.value === null || entry.value === undefined) continue;
+          const val = String(entry.value), at = Number(entry.updatedAt) || ts;
+          const prev = (await d.all('SELECT value, updated_at FROM settings WHERE key=?', [k]))[0];
+          if (!prev || prev.value !== val || at > (prev.updated_at || 0)) {
+            if (!prev || prev.value !== val) changed = true;
+            await d.run('INSERT OR REPLACE INTO settings (key, value, updated_at) VALUES (?,?,?)', [k, val, Math.max(at, prev?.updated_at || 0)]);
+          }
+          await d.run('DELETE FROM sync_tombstones WHERE kind=? AND id=?', ['setting', k]);
+        }
+        for (const w of putWellness) {
+          if (!w || !DAY.test(w.day || '') || !w.source || !w.data) continue;
+          const json = JSON.stringify(w.data), at = Number(w.updatedAt) || ts;
+          const prev = (await d.all('SELECT json, updated_at FROM wellness_days WHERE day=? AND source=?', [w.day, w.source]))[0];
+          if (!prev || prev.json !== json || at > (prev.updated_at || 0)) {
+            if (!prev || prev.json !== json) changed = true;
+            await d.run('INSERT OR REPLACE INTO wellness_days (day, source, json, updated_at) VALUES (?,?,?,?)', [w.day, w.source, json, Math.max(at, prev?.updated_at || 0)]);
+          }
+          await d.run('DELETE FROM sync_tombstones WHERE kind=? AND id=?', ['wellness', `${w.source}:${w.day}`]);
+        }
+        for (const t of tombstones) {
+          if (!t || !t.kind || t.id === undefined || t.id === null) continue;
+          const id = String(t.id), at = Number(t.deletedAt) || ts;
+          const prev = (await d.all('SELECT deleted_at FROM sync_tombstones WHERE kind=? AND id=?', [t.kind, id]))[0];
+          if (!prev || at > prev.deleted_at) {
+            await d.run('INSERT OR REPLACE INTO sync_tombstones (kind, id, deleted_at) VALUES (?,?,?)', [t.kind, id, at]);
+          }
+          if (t.kind === 'wellness') {
+            const idx = id.indexOf(':');
+            if (idx > 0) {
+              const src = id.slice(0, idx), day = id.slice(idx + 1);
+              const existing = (await d.all('SELECT 1 FROM wellness_days WHERE day=? AND source=? AND updated_at<=?', [day, src, at]))[0];
+              if (existing) { await d.run('DELETE FROM wellness_days WHERE day=? AND source=? AND updated_at<=?', [day, src, at]); changed = true; }
+            }
+          }
+        }
+        if (!await this.initialized() && (putRides.length || Object.keys(putSettings).length || putWellness.length)) {
+          await this.setMeta('initialized', 1);
+          changed = true;
+        }
+        let revision = await this.revision();
+        if (changed) { revision += 1; await this.setMeta('revision', revision); }
+        await d.commit();
+        if (changed) this.scheduleBackup();
+        return { ok: true, changed, revision, storeId: await this.meta('storeId') };
+      } catch (e) { await d.rollback().catch(() => {}); throw e; }
+    });
   }
 }
 

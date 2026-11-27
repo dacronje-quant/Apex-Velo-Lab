@@ -199,6 +199,29 @@
         key(i) { return [...cache.keys(), ...Object.keys(unrelated)][i] ?? null; },
         get length() { return cache.size + Object.keys(unrelated).length; }
       };
+      V.applyRemoteState = function (state) {
+        if (!state || typeof state !== 'object') return;
+        if (Number.isSafeInteger(state.revision)) V.revision = state.revision;
+        const nextSettings = state.settings && typeof state.settings === 'object' ? state.settings : {};
+        for (const k of [...cache.keys()]) {
+          if (!Object.prototype.hasOwnProperty.call(nextSettings, k)) {
+            cache.delete(k);
+            try { storage.removeItem(k); } catch {}
+          }
+        }
+        for (const [k, v] of Object.entries(nextSettings)) {
+          if (!keyAllowed(k) || v === null || v === undefined) continue;
+          cache.set(k, v);
+          try { storage.setItem(k, v); } catch {}
+        }
+        if (Array.isArray(state.rides)) V.markCommitted(state.rides);
+      };
+      V.reloadFromServer = async function () {
+        if (!V.enabled) return null;
+        const state = await V.request('');
+        V.applyRemoteState(state);
+        return state;
+      };
       Object.defineProperty(window, 'localStorage', { configurable: true, get: () => mirror });
       const write = async (input, cacheState) => {
         try { await V.enqueue(input, '/save', cacheState); return true; }

@@ -3,7 +3,16 @@
 const fs = require('node:fs'), path = require('node:path'), os = require('node:os');
 const crypto = require('node:crypto'), zlib = require('node:zlib');
 const { DatabaseSync } = require('node:sqlite');
+const VeloSync = require('../js/velo-sync.js');
+const VeloHealth = require('../js/velo-health.js');
 const MAX_BYTES = 200 * 1024 * 1024;
+const DAY_RE = /^\d{4}-\d{2}-\d{2}$/;
+const sha256 = text => crypto.createHash('sha256').update(String(text)).digest('hex');
+function computeRideHash(ride) {
+  const metaHash = sha256(VeloSync.rideMetaJson(ride));
+  const samplesHash = Array.isArray(ride.samples) && ride.samples.length ? sha256(JSON.stringify(ride.samples)) : '0';
+  return VeloSync.formatRideHash(metaHash, samplesHash);
+}
 const own = (o, k) => Object.prototype.hasOwnProperty.call(o, k);
 const settingKey = k => typeof k === 'string' && /^apex_[a-zA-Z0-9_:-]{1,180}$/.test(k) && !['apex_velo_history', 'apex_auto_backup', 'apex_sqlite_migration'].includes(k);
 const fail = (message, status = 400) => { throw Object.assign(new Error(message), { status }); };
@@ -41,13 +50,25 @@ class LocalStore {
       this.db.exec('PRAGMA busy_timeout=5000; PRAGMA journal_mode=WAL; PRAGMA synchronous=FULL;');
       if (this.db.prepare('PRAGMA quick_check').get().quick_check !== 'ok') fail('The local database failed its integrity check. It has been left untouched.', 503);
       const version = this.db.prepare('PRAGMA user_version').get().user_version;
-      if (version > 1) fail('This database needs a newer version of Apex. It has been left untouched.', 503);
+      if (version > 2) fail('This database needs a newer version of Apex. It has been left untouched.', 503);
       this.db.exec(`CREATE TABLE IF NOT EXISTS meta (key TEXT PRIMARY KEY, value TEXT NOT NULL);
-        CREATE TABLE IF NOT EXISTS rides (id TEXT PRIMARY KEY, json TEXT NOT NULL, position INTEGER NOT NULL);
-        CREATE TABLE IF NOT EXISTS settings (key TEXT PRIMARY KEY, value TEXT NOT NULL);
+        CREATE TABLE IF NOT EXISTS rides (id TEXT PRIMARY KEY, json TEXT NOT NULL, position INTEGER NOT NULL, updated_at INTEGER NOT NULL DEFAULT 0, content_hash TEXT);
+        CREATE TABLE IF NOT EXISTS settings (key TEXT PRIMARY KEY, value TEXT NOT NULL, updated_at INTEGER NOT NULL DEFAULT 0);
         CREATE TABLE IF NOT EXISTS db_settings (key TEXT PRIMARY KEY, json TEXT NOT NULL);
         CREATE TABLE IF NOT EXISTS operations (id TEXT PRIMARY KEY, result TEXT NOT NULL, at INTEGER NOT NULL);
-        PRAGMA user_version=1;`);
+        CREATE TABLE IF NOT EXISTS sync_tombstones (kind TEXT NOT NULL, id TEXT NOT NULL, deleted_at INTEGER NOT NULL, PRIMARY KEY(kind, id));
+        CREATE TABLE IF NOT EXISTS wellness_days (day TEXT NOT NULL, source TEXT NOT NULL, json TEXT NOT NULL, updated_at INTEGER NOT NULL DEFAULT 0, PRIMARY KEY(day, source));`);
+      for (const [table, col, def] of [
+        ['rides', 'updated_at', 'INTEGER NOT NULL DEFAULT 0'],
+        ['rides', 'content_hash', 'TEXT'],
+        ['settings', 'updated_at', 'INTEGER NOT NULL DEFAULT 0'],
+        ['wellness_days', 'updated_at', 'INTEGER NOT NULL DEFAULT 0']
+      ]) {
+        const cols = this.db.prepare(`PRAGMA table_info(${table})`).all().map(c => c.name);
+        if (!cols.includes(col)) this.db.exec(`ALTER TABLE ${table} ADD COLUMN ${col} ${def}`);
+      }
+      this.db.exec('PRAGMA user_version=2;');
+      this.backfillSyncMetadata();
       if (!this.meta('storeId')) this.setMeta('storeId', crypto.randomUUID());
     } catch (e) { this.db.close(); throw e; }
     this.lastBackupError = null;
@@ -78,25 +99,222 @@ class LocalStore {
       this.scheduleBackup(); return result;
     } catch (e) { this.db.exec('ROLLBACK'); throw e; }
   }
-  applySettings(settings) {
+  backfillSyncMetadata() {
+    const now = this.clock().getTime();
+    const staleRides = this.db.prepare('SELECT id, json FROM rides WHERE content_hash IS NULL OR updated_at=0').all();
+    const staleSettings = this.db.prepare('SELECT key FROM settings WHERE updated_at=0').all();
+    const appleCount = this.db.prepare("SELECT COUNT(*) AS n FROM wellness_days WHERE source='apple'").get().n;
+    const rawHealth = !appleCount ? this.db.prepare("SELECT value, updated_at FROM settings WHERE key='apex_health_v1'").get() : null;
+    if (!staleRides.length && !staleSettings.length && !rawHealth) return;
+    this.db.exec('BEGIN IMMEDIATE');
+    try {
+      for (const r of staleRides) {
+        const ride = JSON.parse(r.json);
+        this.db.prepare('UPDATE rides SET updated_at=?, content_hash=? WHERE id=?').run(now, computeRideHash(ride), r.id);
+      }
+      for (const s of staleSettings) {
+        this.db.prepare('UPDATE settings SET updated_at=? WHERE key=? AND updated_at=0').run(now, s.key);
+      }
+      if (rawHealth) {
+        try {
+          const parsed = JSON.parse(rawHealth.value);
+          const days = parsed && parsed.days && typeof parsed.days === 'object' ? parsed.days : {};
+          const at = rawHealth.updated_at || now;
+          for (const [day, rec] of Object.entries(days)) {
+            if (!DAY_RE.test(day) || !rec || typeof rec !== 'object') continue;
+            const summary = rec.summary ? rec.summary : (() => { const s = VeloHealth.summarizeDay(day, rec); delete s.day; return s; })();
+            if (!summary.hrvKind && summary.hrv !== null && summary.hrv !== undefined) summary.hrvKind = 'sdnn';
+            this.db.prepare('INSERT OR IGNORE INTO wellness_days (day, source, json, updated_at) VALUES (?,?,?,?)')
+              .run(day, 'apple', JSON.stringify({ summary, src: 'apple' }), at);
+          }
+        } catch { /* ignore unreadable legacy health blob */ }
+      }
+      this.db.exec('COMMIT');
+    } catch (e) { this.db.exec('ROLLBACK'); throw e; }
+  }
+  applySettings(settings, { now } = {}) {
     validateSettings(settings);
+    const ts = Number.isFinite(now) ? now : this.clock().getTime();
     for (const [k, v] of Object.entries(settings)) {
-      if (v === null) this.db.prepare('DELETE FROM settings WHERE key=?').run(k);
-      else this.db.prepare('INSERT OR REPLACE INTO settings VALUES (?,?)').run(k, v);
+      if (v === null) {
+        this.db.prepare('DELETE FROM settings WHERE key=?').run(k);
+        if (VeloSync.isSyncedSetting(k)) this.db.prepare('INSERT OR REPLACE INTO sync_tombstones (kind, id, deleted_at) VALUES (?,?,?)').run('setting', k, ts);
+      } else {
+        const prev = this.db.prepare('SELECT value, updated_at FROM settings WHERE key=?').get(k);
+        const at = prev && prev.value === v && prev.updated_at > 0 ? prev.updated_at : ts;
+        this.db.prepare('INSERT OR REPLACE INTO settings (key, value, updated_at) VALUES (?,?,?)').run(k, v, at);
+        this.db.prepare('DELETE FROM sync_tombstones WHERE kind=? AND id=?').run('setting', k);
+      }
     }
   }
-  applyRides(put, del = [], { exact = false, replace = false } = {}) {
+  applyRides(put, del = [], { exact = false, replace = false, now } = {}) {
     validateRides(put);
     if (!Array.isArray(del) || del.some(id => !['number', 'string'].includes(typeof id))) fail('Invalid deleted IDs.');
+    const ts = Number.isFinite(now) ? now : this.clock().getTime();
     if (replace) this.db.exec('DELETE FROM rides');
-    for (const id of del) this.db.prepare('DELETE FROM rides WHERE id=?').run(String(id));
+    for (const id of del) {
+      this.db.prepare('DELETE FROM rides WHERE id=?').run(String(id));
+      this.db.prepare('INSERT OR REPLACE INTO sync_tombstones (kind, id, deleted_at) VALUES (?,?,?)').run('ride', String(id), ts);
+    }
     let position = Number(this.db.prepare('SELECT COALESCE(MAX(position),-1) AS n FROM rides').get().n) + 1;
     for (const ride of put) {
-      const previous = this.db.prepare('SELECT json,position FROM rides WHERE id=?').get(String(ride.id));
+      const previous = this.db.prepare('SELECT json, position, updated_at, content_hash FROM rides WHERE id=?').get(String(ride.id));
       const old = previous ? JSON.parse(previous.json) : null;
       const value = !exact && !(ride.samples?.length) && old?.samples?.length ? { ...ride, samples: old.samples } : ride;
-      this.db.prepare('INSERT OR REPLACE INTO rides VALUES (?,?,?)').run(String(ride.id), JSON.stringify(value), previous?.position ?? position++);
+      const hash = computeRideHash(value);
+      const at = previous && previous.content_hash === hash && previous.updated_at > 0 ? previous.updated_at : ts;
+      this.db.prepare('INSERT OR REPLACE INTO rides (id, json, position, updated_at, content_hash) VALUES (?,?,?,?,?)')
+        .run(String(ride.id), JSON.stringify(value), previous?.position ?? position++, at, hash);
+      this.db.prepare('DELETE FROM sync_tombstones WHERE kind=? AND id=?').run('ride', String(ride.id));
     }
+  }
+  putWellnessDays(source, days, { now } = {}) {
+    if (typeof source !== 'string' || !source.length || source.length > 100) fail('Invalid wellness source.');
+    if (!days || typeof days !== 'object' || Array.isArray(days)) fail('Wellness days must be an object.');
+    const ts = Number.isFinite(now) ? now : this.clock().getTime();
+    this.db.exec('BEGIN IMMEDIATE');
+    try {
+      for (const [day, data] of Object.entries(days)) {
+        if (!DAY_RE.test(day)) fail('Invalid wellness day.');
+        if (data === null) {
+          this.db.prepare('DELETE FROM wellness_days WHERE day=? AND source=?').run(day, source);
+          this.db.prepare('INSERT OR REPLACE INTO sync_tombstones (kind, id, deleted_at) VALUES (?,?,?)').run('wellness', `${source}:${day}`, ts);
+        } else {
+          const text = JSON.stringify(data);
+          const prev = this.db.prepare('SELECT json, updated_at FROM wellness_days WHERE day=? AND source=?').get(day, source);
+          const at = prev && prev.json === text && prev.updated_at > 0 ? prev.updated_at : ts;
+          this.db.prepare('INSERT OR REPLACE INTO wellness_days (day, source, json, updated_at) VALUES (?,?,?,?)').run(day, source, text, at);
+          this.db.prepare('DELETE FROM sync_tombstones WHERE kind=? AND id=?').run('wellness', `${source}:${day}`);
+        }
+      }
+      this.db.exec('COMMIT');
+    } catch (e) { this.db.exec('ROLLBACK'); throw e; }
+  }
+  listWellnessDays({ from, to, source } = {}) {
+    const where = [], params = [];
+    if (from !== undefined) { where.push('day>=?'); params.push(String(from)); }
+    if (to !== undefined) { where.push('day<=?'); params.push(String(to)); }
+    if (source !== undefined) { where.push('source=?'); params.push(String(source)); }
+    return this.db.prepare(`SELECT day, source, json, updated_at FROM wellness_days${where.length ? ' WHERE ' + where.join(' AND ') : ''} ORDER BY day, source`)
+      .all(...params).map(r => ({ day: r.day, source: r.source, data: JSON.parse(r.json), updatedAt: r.updated_at || 0 }));
+  }
+  syncManifest() {
+    const rides = this.db.prepare('SELECT id, updated_at, content_hash FROM rides ORDER BY position, id').all()
+      .map(r => ({ id: r.id, updatedAt: r.updated_at || 0, contentHash: r.content_hash || '' }));
+    const settings = {};
+    for (const r of this.db.prepare('SELECT key, value, updated_at FROM settings ORDER BY key').all()) {
+      if (VeloSync.isSyncedSetting(r.key)) settings[r.key] = { updatedAt: r.updated_at || 0, hash: sha256(r.value) };
+    }
+    const wellness = this.db.prepare('SELECT day, source, json, updated_at FROM wellness_days ORDER BY day, source').all()
+      .map(r => ({ day: r.day, source: r.source, updatedAt: r.updated_at || 0, hash: sha256(r.json) }));
+    const tombstones = this.db.prepare('SELECT kind, id, deleted_at FROM sync_tombstones ORDER BY kind, id').all()
+      .map(r => ({ kind: r.kind, id: r.id, deletedAt: r.deleted_at || 0 }));
+    return { storeId: this.meta('storeId'), revision: this.revision, rides, settings, wellness, tombstones };
+  }
+  ridesByIds(ids = []) {
+    const out = [];
+    for (const id of ids) {
+      const r = this.db.prepare('SELECT json, updated_at, content_hash FROM rides WHERE id=?').get(String(id));
+      if (r) out.push({ ride: JSON.parse(r.json), updatedAt: r.updated_at || 0, contentHash: r.content_hash || '' });
+    }
+    return out;
+  }
+  settingsWithMeta(keys = null) {
+    const out = {};
+    const want = keys ? new Set(keys) : null;
+    for (const r of this.db.prepare('SELECT key, value, updated_at FROM settings ORDER BY key').all()) {
+      if (!VeloSync.isSyncedSetting(r.key)) continue;
+      if (want && !want.has(r.key)) continue;
+      out[r.key] = { value: r.value, updatedAt: r.updated_at || 0 };
+    }
+    return out;
+  }
+  wellnessByKeys(keys = []) {
+    const out = [];
+    for (const k of keys) {
+      if (!k || !k.day || !k.source) continue;
+      const r = this.db.prepare('SELECT day, source, json, updated_at FROM wellness_days WHERE day=? AND source=?').get(String(k.day), String(k.source));
+      if (r) out.push({ day: r.day, source: r.source, data: JSON.parse(r.json), updatedAt: r.updated_at || 0 });
+    }
+    return out;
+  }
+  applySyncBatch({ putRides = [], delRideIds = [], putSettings = {}, delSettingKeys = [], putWellness = [], tombstones = [], now } = {}) {
+    const ts = Number.isFinite(now) ? now : this.clock().getTime();
+    let changed = false;
+    this.db.exec('BEGIN IMMEDIATE');
+    try {
+      for (const id of delRideIds) {
+        const res = this.db.prepare('DELETE FROM rides WHERE id=?').run(String(id));
+        if (res.changes > 0) changed = true;
+      }
+      let position = Number(this.db.prepare('SELECT COALESCE(MAX(position),-1) AS n FROM rides').get().n) + 1;
+      for (const wrap of putRides) {
+        const ride = wrap && wrap.ride ? wrap.ride : wrap;
+        if (!ride || !ride.id) continue;
+        validateRides([ride]);
+        const id = String(ride.id);
+        const previous = this.db.prepare('SELECT json, position, updated_at, content_hash FROM rides WHERE id=?').get(id);
+        const old = previous ? JSON.parse(previous.json) : null;
+        const value = !(ride.samples?.length) && old?.samples?.length ? { ...ride, samples: old.samples } : ride;
+        const hash = computeRideHash(value);
+        const at = Number(wrap.updatedAt) || ts;
+        if (!previous || previous.content_hash !== hash || at > (previous.updated_at || 0)) {
+          if (!previous || previous.content_hash !== hash) changed = true;
+          this.db.prepare('INSERT OR REPLACE INTO rides (id, json, position, updated_at, content_hash) VALUES (?,?,?,?,?)')
+            .run(id, JSON.stringify(value), previous?.position ?? position++, Math.max(at, previous?.updated_at || 0), hash);
+        }
+        this.db.prepare('DELETE FROM sync_tombstones WHERE kind=? AND id=?').run('ride', id);
+      }
+      for (const k of delSettingKeys) {
+        if (!VeloSync.isSyncedSetting(k)) continue;
+        const res = this.db.prepare('DELETE FROM settings WHERE key=?').run(k);
+        if (res.changes > 0) changed = true;
+      }
+      for (const [k, entry] of Object.entries(putSettings)) {
+        if (!VeloSync.isSyncedSetting(k) || !entry || entry.value === null || entry.value === undefined) continue;
+        const val = String(entry.value), at = Number(entry.updatedAt) || ts;
+        const prev = this.db.prepare('SELECT value, updated_at FROM settings WHERE key=?').get(k);
+        if (!prev || prev.value !== val || at > (prev.updated_at || 0)) {
+          if (!prev || prev.value !== val) changed = true;
+          this.db.prepare('INSERT OR REPLACE INTO settings (key, value, updated_at) VALUES (?,?,?)').run(k, val, Math.max(at, prev?.updated_at || 0));
+        }
+        this.db.prepare('DELETE FROM sync_tombstones WHERE kind=? AND id=?').run('setting', k);
+      }
+      for (const w of putWellness) {
+        if (!w || !DAY_RE.test(w.day || '') || !w.source || !w.data) continue;
+        const json = JSON.stringify(w.data), at = Number(w.updatedAt) || ts;
+        const prev = this.db.prepare('SELECT json, updated_at FROM wellness_days WHERE day=? AND source=?').get(w.day, w.source);
+        if (!prev || prev.json !== json || at > (prev.updated_at || 0)) {
+          if (!prev || prev.json !== json) changed = true;
+          this.db.prepare('INSERT OR REPLACE INTO wellness_days (day, source, json, updated_at) VALUES (?,?,?,?)').run(w.day, w.source, json, Math.max(at, prev?.updated_at || 0));
+        }
+        this.db.prepare('DELETE FROM sync_tombstones WHERE kind=? AND id=?').run('wellness', `${w.source}:${w.day}`);
+      }
+      for (const t of tombstones) {
+        if (!t || !t.kind || t.id === undefined || t.id === null) continue;
+        const id = String(t.id), at = Number(t.deletedAt) || ts;
+        const prev = this.db.prepare('SELECT deleted_at FROM sync_tombstones WHERE kind=? AND id=?').get(t.kind, id);
+        if (!prev || at > prev.deleted_at) {
+          this.db.prepare('INSERT OR REPLACE INTO sync_tombstones (kind, id, deleted_at) VALUES (?,?,?)').run(t.kind, id, at);
+        }
+        if (t.kind === 'wellness') {
+          const idx = id.indexOf(':');
+          if (idx > 0) {
+            const src = id.slice(0, idx), day = id.slice(idx + 1);
+            const r = this.db.prepare('DELETE FROM wellness_days WHERE day=? AND source=? AND updated_at<=?').run(day, src, at);
+            if (r.changes > 0) changed = true;
+          }
+        }
+      }
+      if (!this.initialized && (putRides.length || Object.keys(putSettings).length || putWellness.length)) {
+        this.setMeta('initialized', 1);
+        changed = true;
+      }
+      if (changed) this.setMeta('revision', this.revision + 1);
+      this.db.exec('COMMIT');
+      if (changed) this.scheduleBackup();
+      return { ok: true, changed, revision: this.revision, storeId: this.meta('storeId') };
+    } catch (e) { this.db.exec('ROLLBACK'); throw e; }
   }
   migrate(input) {
     validateRides(input.rides); validateSettings(input.settings); validateDbSettings(input.dbSettings || []);

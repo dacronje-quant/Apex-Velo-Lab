@@ -121,6 +121,7 @@ class VeloApp {
     if (typeof VeloGlossary !== 'undefined') VeloGlossary.apply(document);
     if (this.initDevicesUi) this.initDevicesUi();
     this.initCharts();
+    if (this.initStrengthAnalytics) this.initStrengthAnalytics();
     this.initKeyboardShortcuts();
     this.initCalendarEvents();
     this.initAiCoachUi();
@@ -128,10 +129,12 @@ class VeloApp {
     if (this.initCoachChat) this.initCoachChat();
     if (this.initStravaUi) this.initStravaUi();
     if (this.initStravaSyncUi) this.initStravaSyncUi();
+    if (this.initHevySyncUi) this.initHevySyncUi();
     if (this.bindInsightActions) this.bindInsightActions(document.getElementById('modalRideDetails'));
     if (this.initAutoBackup) this.initAutoBackup();
     if (this.initRemoteView) this.initRemoteView();
     if (this.initHealth) this.initHealth();
+    if (this.initHomeSync) this.initHomeSync();
     if (this.initSettings) this.initSettings();
     this.initAnalyticsUi();
     this.updateProfileUi();

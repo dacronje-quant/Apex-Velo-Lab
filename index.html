@@ -732,6 +732,9 @@
         <button type="button" class="ana-mod" role="tab" id="anaTab-health" data-panel="health" aria-controls="ana-panel-health" aria-selected="false" tabindex="-1">
           <svg class="ic"><use href="#i-heart"/></svg><span class="ana-mod-name">Health</span>
         </button>
+        <button type="button" class="ana-mod" role="tab" id="anaTab-strength" data-panel="strength" aria-controls="ana-panel-strength" aria-selected="false" tabindex="-1">
+          <svg class="ic"><use href="#i-dumbbell"/></svg><span class="ana-mod-name">Strength</span>
+        </button>
       </nav>
 
       <div class="ana-stage" id="anaStage">
@@ -1039,6 +1042,72 @@
             </div>
           </details>
         </div>
+
+        <!-- STRENGTH (Hevy lifting volume, e1RM progression, muscle balance & PRs: js/app-strength-ana.js) -->
+        <div class="ana-panel" id="ana-panel-strength" data-panel="strength" role="tabpanel" aria-labelledby="anaTab-strength" tabindex="-1" hidden>
+          <div class="ana-panel-head"><h3 class="ana-section" id="ana-strength">Strength</h3><p>Lifting volume, estimated 1RM progression, muscle balance and personal records from Hevy.</p></div>
+          <div class="card hl-empty" id="anaStrengthEmpty" hidden>
+            <div class="cp-empty"><svg class="ic ic-lg"><use href="#i-dumbbell"/></svg><div><b>No strength workouts yet</b><p>Add <code>HEVY_API_KEY</code> to <code>.env</code> and sync in <b>History &rarr; Sync from Hevy</b> to see lifting progression, estimated 1RMs and muscle balance.</p></div></div>
+          </div>
+          <div class="kpi-grid" id="strAnaKpis"></div>
+          <div class="card" id="anaCardStrWeekly" data-expandable>
+            <div class="card-title">
+              <span id="strWeeklyTitle">Weekly lifting volume (kg)</span>
+              <div class="segmented segmented-sm" id="strWeeklyPills" role="group" aria-label="Strength weekly metric">
+                <button type="button" class="preset-pill active" data-str-metric="volume" aria-pressed="true">Volume</button>
+                <button type="button" class="preset-pill" data-str-metric="sets" aria-pressed="false">Sets</button>
+                <button type="button" class="preset-pill" data-str-metric="load" aria-pressed="false">Load</button>
+                <button type="button" class="preset-pill" data-str-metric="sessions" aria-pressed="false">Sessions</button>
+              </div>
+            </div>
+            <div class="chart-box" style="height:260px;"><canvas id="strWeeklyCanvas" aria-label="Weekly strength training progression"></canvas></div>
+            <div class="week-rides" id="strWeekSessions"></div>
+            <p class="footnote">Bars show weekly totals and the white line shows the 4-week rolling average. Click any week bar to inspect its sessions.</p>
+          </div>
+          <div class="card" id="anaCardStrLift" data-expandable>
+            <div class="card-title">
+              <span>Exercise progression <span class="plain">Estimated 1RM (Epley), top weight and session volume</span></span>
+              <span class="chip chip-ghost num" id="strLiftChip">--</span>
+            </div>
+            <div class="str-lift-bar">
+              <div class="str-lift-pills" id="strLiftPills"></div>
+              <select id="strLiftSelect" class="input-field" aria-label="Select exercise"></select>
+            </div>
+            <div class="chart-box" style="height:270px;"><canvas id="strLiftCanvas" aria-label="Exercise e1RM, top weight and volume progression"></canvas></div>
+            <p class="footnote">Solid pink = Epley estimated 1RM (kg, sets &le; 15 reps); dashed amber = heaviest set; blue bars = session volume. Click any point to open the workout.</p>
+          </div>
+          <div class="ana-grid" id="strAnaSplitRow">
+            <div class="card ana-w-6" id="anaCardStrMuscle">
+              <div class="card-title">
+                <span>Muscle group split</span>
+                <div class="segmented segmented-sm" id="strMusclePills" role="group" aria-label="Muscle split measure">
+                  <button type="button" class="preset-pill active" data-str-muscle="sets" aria-pressed="true">Sets</button>
+                  <button type="button" class="preset-pill" data-str-muscle="volume" aria-pressed="false">Volume</button>
+                </div>
+              </div>
+              <div class="intensity-mix" id="strMuscleMix"></div>
+            </div>
+            <div class="card ana-w-6" id="anaCardStrRecords">
+              <div class="card-title"><span>Strength personal records<span class="plain">All-time bests - tap a lift to open the session</span></span><svg class="ic ana-title-ic"><use href="#i-trophy"/></svg></div>
+              <div class="records-list" id="strRecordsList"></div>
+            </div>
+          </div>
+          <details class="ana-more" id="anaMore-strength" data-more="strength">
+            <summary><span class="ana-more-txt"><b>Exercise leaderboard</b><small>Every exercise logged in this period with sets, total volume, best set and e1RM trend</small></span><svg class="ic"><use href="#i-right"/></svg></summary>
+            <div class="ana-more-body">
+              <div class="card">
+                <div class="table-scroll">
+                  <table class="data-table strength-table">
+                    <thead>
+                      <tr><th>Exercise</th><th>Muscle</th><th>Sessions</th><th>Sets</th><th>Volume</th><th>Best set</th><th>Best e1RM</th><th>Trend</th></tr>
+                    </thead>
+                    <tbody id="strExerciseTableBody"></tbody>
+                  </table>
+                </div>
+              </div>
+            </div>
+          </details>
+        </div>
       </div>
 
       <!-- Expanded chart: a card is moved in here (top layer) and put back on close. -->
@@ -1144,6 +1213,44 @@
         </div>
       </div>
 
+      <div class="card hevy-sync-card" id="hevySyncCard">
+        <div class="card-title">
+          <span class="strava-sync-title">Sync from Hevy</span>
+          <div class="btn-row btn-row-tight">
+            <span class="chip chip-ghost chip-xs" id="hevyKeyChip">Checking...</span>
+            <span class="chip chip-ghost chip-xs" title="Read-only import of your Hevy strength workouts">read-only</span>
+          </div>
+        </div>
+        <p class="field-help">Imports your strength workouts (exercises, sets, reps, weights and RPE) from Hevy. Add <code>HEVY_API_KEY</code> (from <a href="https://hevy.com/settings?developer" target="_blank" rel="noopener">hevy.com/settings?developer</a>) to <code>.env</code> and restart the server. Matching Strava strength records are replaced so workouts never double up in Calendar.</p>
+        <div class="strava-sync-row">
+          <label class="field"><span>Range</span>
+            <select id="hevySyncRange" class="input-field">
+              <option value="2">Last 2 weeks</option>
+              <option value="4">Last 4 weeks</option>
+              <option value="8" selected>Last 8 weeks</option>
+              <option value="12">Last 12 weeks</option>
+              <option value="26">Last 26 weeks</option>
+              <option value="custom">Custom dates...</option>
+            </select>
+          </label>
+          <div class="strava-sync-custom" id="hevySyncCustom" hidden>
+            <label class="field"><span>From</span><input type="date" id="hevySyncFrom" class="input-field"></label>
+            <label class="field"><span>To</span><input type="date" id="hevySyncTo" class="input-field"></label>
+          </div>
+          <div class="btn-row">
+            <button type="button" class="btn btn-primary" id="btnHevySync"><svg class="ic"><use href="#i-refresh"/></svg>Sync from Hevy</button>
+          </div>
+        </div>
+        <div class="strava-sync-meta">
+          <span class="dim" id="hevySyncRangeLabel"></span>
+          <span class="strava-sync-progress" id="hevySyncProgress" aria-live="polite"></span>
+          <span class="dim" id="hevySyncStatus"></span>
+        </div>
+        <div class="strava-sync-strength">
+          <label class="toggle"><input type="checkbox" id="chkHevySkipStravaStrength" checked><span class="toggle-ui"></span><span>Skip strength workouts from Strava (get them from Hevy instead &mdash; prevents duplicates in Calendar)</span></label>
+        </div>
+      </div>
+
       <div class="card">
         <div class="card-title">
           <span>Ride log</span>
@@ -1186,6 +1293,31 @@
               </tr>
             </thead>
             <tbody id="historyTableBody"></tbody>
+          </table>
+        </div>
+      </div>
+
+      <div class="card" id="strengthLogCard">
+        <div class="card-title">
+          <span>Strength log</span>
+          <span class="chip chip-ghost chip-xs num" id="strengthLogCount">0</span>
+        </div>
+        <div class="table-scroll">
+          <table class="strength-table data-table">
+            <thead>
+              <tr>
+                <th class="sortable-th sorted-th" data-sort-strength="date">Date <span class="sort-icon">&#9660;</span></th>
+                <th class="sortable-th" data-sort-strength="title">Workout <span class="sort-icon">&#8645;</span></th>
+                <th class="sortable-th" data-sort-strength="duration">Duration <span class="sort-icon">&#8645;</span></th>
+                <th class="sortable-th" data-sort-strength="exercises">Exercises <span class="sort-icon">&#8645;</span></th>
+                <th class="sortable-th" data-sort-strength="sets">Sets <span class="sort-icon">&#8645;</span></th>
+                <th class="sortable-th" data-sort-strength="volume">Volume <span class="sort-icon">&#8645;</span></th>
+                <th class="sortable-th" data-sort-strength="hr">Avg HR <span class="sort-icon">&#8645;</span></th>
+                <th class="sortable-th" data-sort-strength="load">Strength load <span class="sort-icon">&#8645;</span></th>
+                <th>Actions</th>
+              </tr>
+            </thead>
+            <tbody id="strengthTableBody"></tbody>
           </table>
         </div>
       </div>
@@ -1251,6 +1383,7 @@
         <button type="button" class="cat-pill" data-sec="ai">AI engine</button>
         <button type="button" class="cat-pill" data-sec="health">Apple Health</button>
         <button type="button" class="cat-pill" data-sec="backups">Backups</button>
+        <button type="button" class="cat-pill" data-sec="sync">Sync</button>
         <button type="button" class="cat-pill" data-sec="phone">Phone view</button>
         <button type="button" class="cat-pill" data-sec="guide">Training guide</button>
       </nav>
@@ -1390,6 +1523,19 @@
           <input type="file" id="localBackupFile" accept=".json,.gz" hidden>
         </div>
         <div id="localBackupList" hidden></div>
+      </section>
+
+      <section class="settings-section" data-sec="sync" id="syncSettings">
+        <p class="field-help">Keep this server, your desktop browsers and the Android APK in sync over your private Tailscale network or home Wi-Fi.</p>
+        <div class="settings-kv" id="syncStatusBox"><span class="dim">Checking sync status...</span></div>
+        <div id="syncQrWrap" class="phone-qr-wrap"></div>
+        <div class="btn-row">
+          <button type="button" class="btn btn-primary" id="btnSyncCopyLink">Copy pairing link</button>
+          <button type="button" class="btn" id="btnSyncCopyUrl">Copy URL</button>
+          <button type="button" class="btn" id="btnSyncCopyToken">Copy token</button>
+          <button type="button" class="btn btn-ghost" id="btnSyncNewToken" title="Makes a new sync token - paired Android apps must re-pair">Rotate token</button>
+        </div>
+        <p class="field-help">Moving to an always-on Mac mini later? See <code>docs/MAC-MINI-SETUP.md</code>.</p>
       </section>
 
       <section class="settings-section" data-sec="phone">
@@ -1762,13 +1908,16 @@
   <script src="js/velo-clock.js"></script>
   <script src="js/velo-progress.js"></script>
   <script src="js/velo-dedupe.js"></script>
+  <script src="js/velo-sync.js"></script>
   <script src="vendor/fflate.min.js"></script>
   <script src="js/velo-bulk-import.js"></script>
   <script src="js/velo-import-jobs.js"></script>
   <script src="js/velo-strava-sync.js"></script>
+  <script src="js/velo-hevy-sync.js"></script>
   <script src="js/velo-health.js"></script>
   <script src="js/velo-wellness.js"></script>
   <script src="js/velo-trends.js"></script>
+  <script src="js/velo-strength-ana.js"></script>
   <script src="js/velo-power.js"></script>
   <script src="js/velo-ftp-history.js"></script>
   <script src="js/velo-ftp-model.js"></script>
@@ -1782,6 +1931,7 @@
   <script src="js/app-ask.js"></script>
   <script src="js/app-dashboard.js"></script>
   <script src="js/app-health-ana.js"></script>
+  <script src="js/app-strength-ana.js"></script>
   <script src="js/app-ana-studio.js"></script>
   <script src="js/app-ana-plus.js"></script>
   <script src="js/app-ftp-history.js"></script>
@@ -1793,6 +1943,7 @@
   <script src="js/app-block.js"></script>
   <script src="js/app-strava.js"></script>
   <script src="js/app-strava-sync.js"></script>
+  <script src="js/app-hevy-sync.js"></script>
   <script src="js/app-insight.js"></script>
   <script src="js/app-backup.js"></script>
   <script src="js/app-devices.js"></script>
@@ -1800,6 +1951,7 @@
   <script src="js/app-health.js"></script>
   <script src="vendor/qrcode.js"></script>
   <script src="js/app-settings.js"></script>
+  <script src="js/app-sync.js"></script>
   <script src="js/app-slipstream.js"></script>
 </body>
 </html>

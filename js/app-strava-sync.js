@@ -184,7 +184,10 @@
 
     syncOptions() {
       const p = this.activeProfile || {};
-      return { ftp: p.ftp || 185, maxHr: p.maxHr || 175, lthr: p.lthr || 0, profileName: p.name || '' };
+      return {
+        ftp: p.ftp || 185, maxHr: p.maxHr || 175, lthr: p.lthr || 0, profileName: p.name || '',
+        skipStrength: !!(this.hevySkipStravaStrength && this.hevySkipStravaStrength())
+      };
     },
 
     // ------------------------------------------------------------- preview --

@@ -193,3 +193,61 @@ test('Re-check keys reads the live model list; a failing provider keeps the buil
   assert.equal(ai.http.log[0].data.model, 'claude-opus-5-6');
   assert.deepEqual(ai.http.log[0].data.output_config, { effort: 'low' });
 });
+
+test('host AI proxy uses Home Server .env keys when reachable and falls back to local key when offline', async () => {
+  let hostMode = 'ok';
+  const http = fakeHttp((o) => {
+    if (o.url.startsWith('https://mac-mini.tailnet.ts.net/')) {
+      assert.equal(o.headers.Authorization, 'Bearer tok123');
+      if (hostMode === 'down') throw new Error('ECONNREFUSED');
+      if (hostMode === 'unauth') return { status: 401, data: { error: 'Unauthorized' } };
+      if (o.url.includes('/api/coach/status')) {
+        return {
+          status: 200,
+          data: {
+            configured: true,
+            provider: 'gemini',
+            model: 'gemini-3.8-flash',
+            effort: 'low',
+            providers: { claude: { label: 'Claude', configured: false }, gemini: { label: 'Gemini', configured: true }, openai: { label: 'ChatGPT', configured: false } },
+            models: [{ id: 'gemini-3.8-flash', label: 'Gemini 3.8 Flash', provider: 'gemini', effort: true }],
+            catalog: { gemini: { source: 'live', count: 1 } }
+          }
+        };
+      }
+      return { status: 200, data: { text: 'Answer via Home Server', refused: false, provider: 'gemini', model: 'gemini-3.8-flash', effort: 'low' } };
+    }
+    if (o.url.startsWith('https://api.anthropic.com/v1/messages')) return claudeOk('Answer via local key');
+    return { status: 500, data: {} };
+  });
+
+  const ai = new NativeAi({
+    http,
+    prefs: memPrefs(),
+    host: { getConfig: async () => ({ url: 'https://mac-mini.tailnet.ts.net', token: 'tok123', useHostAi: true }) }
+  });
+
+  const st = await ai.status();
+  assert.equal(st.viaHost, true);
+  assert.equal(st.hostReachable, true);
+  assert.equal(st.configured, true);
+  assert.equal(st.providers.gemini.configured, true);
+
+  const viaHost = await ai.route('/api/ask', 'POST', new URLSearchParams(), JSON.stringify({ messages: [{ role: 'user', content: 'How is my CTL?' }] }));
+  assert.equal(viaHost.status, 200);
+  assert.equal(viaHost.body.text, 'Answer via Home Server');
+
+  // Host offline + local Claude key -> falls back cleanly to direct call
+  await ai.setKey('claude', KEY);
+  hostMode = 'down';
+  const fallback = await ai.route('/api/ask', 'POST', new URLSearchParams(), JSON.stringify({ messages: [{ role: 'user', content: 'How is my CTL?' }], provider: 'claude' }));
+  assert.equal(fallback.status, 200);
+  assert.equal(fallback.body.text, 'Answer via local key');
+
+  // Host auth error without local key -> clear re-pair message
+  await ai.setKey('claude', '');
+  hostMode = 'unauth';
+  const bad = await ai.route('/api/ask', 'POST', new URLSearchParams(), JSON.stringify({ messages: [{ role: 'user', content: 'How is my CTL?' }] }));
+  assert.equal(bad.status, 401);
+  assert.match(bad.body.error, /Re-pair/i);
+});

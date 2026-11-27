@@ -383,6 +383,15 @@ class VeloStravaSync {
   static combineRecord(ride, activity, opts = {}) {
     const S = VeloStravaSync;
     const summary = S.toRecord(activity, opts, ride);
+    // Hevy records own their title, duration, exercises and strength load; only fill missing HR/calories/effort.
+    if (ride && ride.source === 'Hevy') {
+      const next = { ...ride };
+      const positive = v => Number.isFinite(Number(v)) && Number(v) > 0;
+      for (const key of ['avgHr', 'maxHr', 'totalCalories', 'sufferScore']) {
+        if (!positive(next[key]) && positive(summary[key])) next[key] = summary[key];
+      }
+      return next;
+    }
     const next = { ...ride };
     const positive = v => Number.isFinite(Number(v)) && Number(v) > 0;
     const fallback = ride.stravaSummaryFallback || {
@@ -478,8 +487,15 @@ class VeloStravaSync {
     const mergedPrev = { ...(state.merged || {}) };
     const decisions = state.decisions || {};
     const hist = history || [];
-    const acts = (activities || []).filter(a => a && a.id != null && S.inRange(a.start_date, range))
+    const allActs = (activities || []).filter(a => a && a.id != null && S.inRange(a.start_date, range))
       .map(a => ({ ...a, id: String(a.id) }));
+    const skippedStrengthIds = new Set();
+    const acts = opts.skipStrength
+      ? allActs.filter(a => {
+          if (S.activityKind(a.sport_type || a.type) === 'strength') { skippedStrengthIds.add(a.id); return false; }
+          return true;
+        })
+      : allActs;
     const fetchedIds = new Set(acts.map(a => a.id));
 
     const appLinks = new Map();      // strava id -> app-native ride
@@ -490,7 +506,7 @@ class VeloStravaSync {
     });
 
     const out = {
-      range, opts, fetched: acts.length,
+      range, opts, fetched: acts.length, skippedStrength: skippedStrengthIds.size,
       new: [], linked: [], refreshed: [], removed: [], merged: [], review: [], staleLinks: [],
       alreadyLinked: 0, unchanged: 0, unchangedList: [], knownMerged: 0,
       mergedMap: { ...mergedPrev }, decisions: { ...decisions }
@@ -603,14 +619,14 @@ class VeloStravaSync {
 
     // Imported records deleted on Strava (in range only).
     stravaRecs.forEach((rec, sid) => {
-      if (!S.inRange(rec.date, range) || fetchedIds.has(sid)) return;
+      if (!S.inRange(rec.date, range) || fetchedIds.has(sid) || skippedStrengthIds.has(sid)) return;
       out.removed.push({ record: rec });
     });
     // App rides whose linked activity no longer exists: reported only, never changed.
     hist.forEach(r => {
       if (!S.isAppNative(r)) return;
       const l = S.linkOf(r);
-      if (l && S.inRange(r.date, range) && !fetchedIds.has(l)) out.staleLinks.push({ rideId: r.id, rideTitle: r.title, activityId: l });
+      if (l && S.inRange(r.date, range) && !fetchedIds.has(l) && !skippedStrengthIds.has(l)) out.staleLinks.push({ rideId: r.id, rideTitle: r.title, activityId: l });
     });
     out.linked.forEach(x => { x.record = S.combineRecord(hist.find(r => r.id === x.rideId), x.activity, opts); });
     out.changeCount = out.new.length + out.linked.length + out.refreshed.length + out.removed.length + out.merged.filter(m => m.removeRecordId || !mergedPrev[m.activity.id]).length;

@@ -13,6 +13,7 @@ const esc = (s) => String(s == null ? '' : s).replace(/[&<>"']/g, (c) => ({ '&':
 /** Settings section (app.openSettings) -> the You page that now holds it. */
 export const SECTION_ROUTES = {
   rider: 'you/profile',
+  sync: 'you/connections/sync',
   strava: 'you/connections/strava',
   health: 'you/connections/icu',
   ai: 'you/connections/ai',
@@ -104,7 +105,7 @@ export function installYou({ shell, win = window, services = {} }) {
     list.appendChild(prof);
     for (const r of [
       { icon: 'i-bluetooth', title: 'Devices', sub: 'Trainer, power meter, heart rate, fan', route: 'you/devices' },
-      { icon: 'i-refresh', title: 'Connections', sub: 'Strava, Health Connect, intervals.icu, AI coach', route: 'you/connections' },
+      { icon: 'i-refresh', title: 'Connections', sub: 'Home server, Strava, Health Connect, intervals.icu, AI coach', route: 'you/connections' },
       { icon: 'i-folder', title: 'Your data', sub: 'Import, watched folder, backup, ride files', route: 'you/data' },
       { icon: 'i-gear', title: 'App settings', sub: 'Audio cues, simulator', route: 'you/app' },
       { icon: 'i-book', title: 'Help & about', sub: 'Training guide, licences', route: 'you/help' }
@@ -171,6 +172,15 @@ export function installYou({ shell, win = window, services = {} }) {
   const renderConns = async () => {
     conns.innerHTML = '<p class="av-note">Choose what to connect.</p><div class="card av-list" id="avConnOut"></div><p class="av-note">Your data stays on this phone unless you choose to share it.</p>';
     const out = conns.querySelector('#avConnOut');
+    let syncSt = null;
+    try { syncSt = services.sync ? await services.sync.status() : null; } catch (e) { /* unknown */ }
+    if (services.sync) {
+      const syncSub = syncSt?.configured
+        ? (syncSt.lastError ? `Sync error · ${syncSt.url}` : syncSt.lastAt ? `Connected · synced ${new Date(syncSt.lastAt).toLocaleString('en-GB', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })}` : `Connected · ${syncSt.url}`)
+        : 'Sync rides, health, plans and AI chat over Tailscale';
+      out.appendChild(splitRow(shell, { icon: 'i-refresh', title: 'Home server', sub: syncSub, onClick: () => shell.go('you/connections/sync'), id: 'avConnSync' },
+        { label: syncSt?.configured ? 'Sync now' : 'Set up', id: 'avConnSyncBtn', onClick: () => { if (syncSt?.configured) services.sync.sync({ reason: 'manual', announce: true }).then(() => renderConns()).catch(() => {}); else shell.go('you/connections/sync'); } }));
+    }
     let st = null;
     try { st = services.strava ? await services.strava.status() : null; } catch (e) { /* shown as unknown */ }
     status.strava = !st ? '' : st.connected ? `Connected${st.athlete ? ' as ' + st.athlete : ''} · uploads new rides` : 'Not connected';
@@ -200,6 +210,9 @@ export function installYou({ shell, win = window, services = {} }) {
       { label: aiStatus?.configured ? 'Manage' : 'Set up', onClick: () => shell.go('you/connections/ai') }));
   };
   shell.registerPage('you/connections', { title: 'Connections', el: conns, mount: () => { renderConns().catch((e) => console.error(e)); } });
+
+  const syncPage = page('<div class="card" id="avSyncBox"></div>');
+  shell.registerPage('you/connections/sync', { title: 'Home server', el: syncPage, parent: 'you/connections', mount: () => { adopt(syncPage.firstChild, 'nativeSyncSettings'); section('sync'); } });
 
   const strava = page('<div class="card" id="avStravaBox"></div>');
   shell.registerPage('you/connections/strava', { title: 'Strava', el: strava, parent: 'you/connections', mount: () => { adopt(strava.firstChild, 'nativeStravaSettings'); section('strava'); } });

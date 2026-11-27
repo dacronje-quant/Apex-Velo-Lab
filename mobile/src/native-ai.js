@@ -233,13 +233,37 @@ function raceSignal(promise, signal) {
  * prefs: { get(key) -> string|null, set(key, value), remove(key) }.
  */
 export class NativeAi {
-  constructor({ http, prefs, bases = API_BASES, now = () => Date.now() }) {
-    Object.assign(this, { http, prefs, bases, now });
+  constructor({ http, prefs, bases = API_BASES, host = null, now = () => Date.now() }) {
+    Object.assign(this, { http, prefs, bases, host, now });
     this.MODELS = Object.fromEntries(Object.entries(BUILTIN_MODELS).map(([id, m]) => [id, { ...m }]));
     this.catalog = { claude: { source: 'built-in' }, gemini: { source: 'built-in' }, openai: { source: 'built-in' } };
     this.catalogAt = 0;
     this._refresh = null;
     this.build = builders(this.MODELS);
+  }
+
+  async _hostConfig() {
+    if (!this.host || typeof this.host.getConfig !== 'function') return null;
+    const cfg = await this.host.getConfig().catch(() => null);
+    return cfg && cfg.url && cfg.token && cfg.useHostAi !== false ? cfg : null;
+  }
+
+  async _hostRequest(cfg, path, method = 'GET', data = undefined, signal = undefined, timeout = UPSTREAM_TIMEOUT_MS) {
+    const opts = {
+      url: `${cfg.url}${path}`,
+      method,
+      headers: {
+        Authorization: `Bearer ${cfg.token}`,
+        ...(data !== undefined ? { 'Content-Type': 'application/json' } : {})
+      },
+      readTimeout: timeout,
+      connectTimeout: 5000
+    };
+    if (data !== undefined) opts.data = data;
+    const r = await raceSignal(this.http.request(opts), signal);
+    let body = r.data;
+    if (typeof body === 'string') { try { body = JSON.parse(body); } catch { body = { error: body.slice(0, 300) }; } }
+    return { status: r.status, data: body || {} };
   }
 
   // ------------------------------------------------------------------------ keys --
@@ -360,10 +384,11 @@ export class NativeAi {
     if (refresh) await this.refreshCatalog(true);
     else this.refreshCatalog(false).catch(() => {});
     const keys = await this.keys();
+    const hasLocal = Object.values(keys).some(Boolean);
     const provider = this.defaultProvider(keys);
     const providers = {};
     for (const [id, p] of Object.entries(PROVIDERS)) providers[id] = { label: p.label, configured: !!keys[id], model: p.fallbackModel };
-    return {
+    const out = {
       provider,
       providers,
       configured: !!keys[provider],
@@ -374,6 +399,38 @@ export class NativeAi {
       catalog: this.catalog,
       onDevice: true
     };
+    const hostCfg = await this._hostConfig();
+    if (hostCfg) {
+      try {
+        const hr = await this._hostRequest(hostCfg, `/api/coach/status${refresh ? '?refresh=1' : ''}`, 'GET', undefined, undefined, 4000);
+        if (hr.status === 200 && hr.data && hr.data.providers) {
+          out.viaHost = true;
+          out.hostReachable = true;
+          for (const [id, hp] of Object.entries(hr.data.providers)) {
+            if (out.providers[id]) out.providers[id].configured = !!(out.providers[id].configured || hp.configured);
+          }
+          const byId = new Map(out.models.map((m) => [m.id, m]));
+          for (const hm of hr.data.models || []) {
+            if (!hm || !hm.id) continue;
+            byId.set(hm.id, hm);
+            this.MODELS[hm.id] = { label: hm.label || hm.id, provider: hm.provider, adaptive: !!hm.effort };
+          }
+          out.models = [...byId.values()];
+          if (!hasLocal && hr.data.configured) {
+            out.provider = hr.data.provider || out.provider;
+            out.model = hr.data.model || out.model;
+            out.effort = hr.data.effort || out.effort;
+          }
+          out.configured = Object.values(out.providers).some((p) => p.configured);
+          out.catalog = { ...out.catalog, ...(hr.data.catalog || {}) };
+        } else {
+          out.hostReachable = false;
+        }
+      } catch {
+        out.hostReachable = false;
+      }
+    }
+    return out;
   }
 
   /** Same rule as server.js resolveEngine: the model decides the provider. */
@@ -396,10 +453,33 @@ export class NativeAi {
     return reply(502, { error: `Could not reach the ${p.label} API (${msg}). Check your internet connection.` });
   }
 
+  async _tryHostCall(path, input, localKey, p, signal) {
+    const hostCfg = await this._hostConfig();
+    if (!hostCfg) return null;
+    try {
+      const r = await this._hostRequest(hostCfg, path, 'POST', input, signal, UPSTREAM_TIMEOUT_MS);
+      if (r.status === 200) return reply(200, r.data);
+      if (r.status === 401 || r.status === 403) {
+        if (localKey) return null;
+        return reply(r.status, { error: 'Home Server rejected the sync token. Re-pair in You > Connections > Home server.' });
+      }
+      if (r.status === 503 && localKey) return null;
+      if (r.status >= 400 && r.status < 500) return reply(r.status, r.data);
+      if (localKey) return null;
+      return reply(r.status || 502, r.data && r.data.error ? r.data : { error: `Home Server answered HTTP ${r.status}.` });
+    } catch (e) {
+      if (e && e.name === 'AbortError') throw e;
+      if (localKey) return null;
+      return reply(502, { error: `Could not reach your Home Server (${(e && e.message) || e}). Connect Tailscale or add a local API key in You > Connections > AI coach.` });
+    }
+  }
+
   async coach(input, signal) {
     const prompt = typeof input.prompt === 'string' ? input.prompt : '';
     if (!prompt.trim() || prompt.length > 100000) return reply(400, { error: 'A prompt of 1-100000 characters is required.' });
     const { provider, model, effort, p, key } = this._engine(input, await this.keys());
+    const proxied = await this._tryHostCall('/api/coach', input, key, p, signal);
+    if (proxied) return proxied;
     if (!key) return this._noKey(p);
     let out;
     try {
@@ -416,6 +496,8 @@ export class NativeAi {
     const v = validateAsk(input);
     if (v.error) return reply(400, { error: v.error });
     const { provider, model, effort, p, key } = this._engine(input, await this.keys());
+    const proxied = await this._tryHostCall('/api/ask', input, key, p, signal);
+    if (proxied) return proxied;
     if (!key) return this._noKey(p);
     let out;
     try {

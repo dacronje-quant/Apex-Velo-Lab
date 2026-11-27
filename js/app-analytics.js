@@ -147,6 +147,7 @@
       this.renderProgression();
       this.updateMmpChart();
       if (this.updateDriftChart) this.updateDriftChart();
+      if (this.renderStrengthAnalytics) this.renderStrengthAnalytics();
       if (this.renderDashboard) this.renderDashboard();
     },
 
@@ -158,6 +159,7 @@
       if (this.updateDriftChart) this.updateDriftChart();
       this.updateMmpChart();
       this.renderProgression();
+      if (this.renderStrengthAnalytics) this.renderStrengthAnalytics();
       if (this.renderDashboard) this.renderDashboard();
       this.updateHeroStats && this.updateHeroStats();
       if (this.renderLiveWbal && !this.isPlaying) this.renderLiveWbal();

@@ -78,12 +78,36 @@
       return n;
     },
 
-    /** Applies one Health Auto Export payload. Returns the number of new readings. */
+    /** Applies one Health Auto Export payload. Returns the number of new readings and touched days. */
     ingestHealthPayload(body) {
       const parsed = VeloHealth.parsePayload(body);
       const { store, added } = VeloHealth.merge(this.healthStore, parsed);
       this.healthStore = store;
-      return { added, ignored: parsed.ignored, found: parsed.rhr.length + parsed.hrv.length + parsed.hr.length + parsed.sleep.length };
+      const touched = new Set();
+      for (const r of parsed.rhr || []) touched.add(r.day);
+      for (const r of parsed.hrv || []) touched.add(r.day);
+      for (const r of parsed.hr || []) touched.add(r.day);
+      for (const r of parsed.sleep || []) touched.add(r.day);
+      return { added, ignored: parsed.ignored, found: parsed.rhr.length + parsed.hrv.length + parsed.hr.length + parsed.sleep.length, touched: [...touched] };
+    },
+
+    async syncAppleWellnessToStore(touchedDays = null) {
+      if (!window.VeloStorage?.enabled) return;
+      const days = {};
+      const list = Array.isArray(touchedDays) && touchedDays.length ? touchedDays : Object.keys((this.healthStore && this.healthStore.days) || {});
+      for (const day of list) {
+        const rec = this.healthStore && this.healthStore.days && this.healthStore.days[day];
+        if (!rec || (rec.src && rec.src !== 'apple')) continue;
+        const summary = rec.summary ? { ...rec.summary } : (() => { const s = VeloHealth.summarizeDay(day, rec); delete s.day; return s; })();
+        if (summary.rhr !== null && summary.rhr !== undefined && !summary.rhrSrc) summary.rhrSrc = 'apple';
+        if (summary.hrv !== null && summary.hrv !== undefined) {
+          if (!summary.hrvSrc) summary.hrvSrc = 'apple';
+          summary.hrvKind = summary.hrvKind || 'sdnn';
+        }
+        days[day] = { summary, src: 'apple' };
+      }
+      if (!Object.keys(days).length) return;
+      await VeloStorage.request('/wellness', { source: 'apple', days }).catch(() => {});
     },
 
     /** Collects the payloads waiting on the server, stores them, then lets the server delete them. */
@@ -91,6 +115,7 @@
       if (this._healthBusy || (window.__APEX_TEST_MODE__ && !force)) return { ok: false };
       this._healthBusy = true;
       let added = 0, files = 0;
+      const touched = new Set();
       try {
         for (let round = 0; round < 50; round++) {
           const r = await fetch('api/health/inbox', { cache: 'no-store' });
@@ -104,11 +129,15 @@
             const result = this.ingestHealthPayload(f.body);
             if (!result.found) throw new Error('An export contains no supported health readings. Its server copy has been retained.');
             added += result.added;
+            for (const d of result.touched || []) touched.add(d);
             accepted.push(f.name);
             files++;
           }
           this.saveHealthStore();   // stored before the server deletes anything
-          if (window.VeloStorage?.enabled) await VeloStorage.flush(); // SQLite must confirm the save before inbox acknowledgement.
+          if (window.VeloStorage?.enabled) {
+            await VeloStorage.flush(); // SQLite must confirm the save before inbox acknowledgement.
+            await this.syncAppleWellnessToStore([...touched]);
+          }
           const ack = await fetch('api/health/ack', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ names: accepted }), cache: 'no-store' });
           if (!ack.ok) throw new Error('The server could not acknowledge the saved export. It will be retried.');
           if (!j.remaining) break;

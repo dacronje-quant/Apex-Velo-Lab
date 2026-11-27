@@ -398,3 +398,4 @@ class VeloInsight {
 }
 
 if (typeof window !== 'undefined') window.VeloInsight = VeloInsight;
+if (typeof module !== 'undefined' && module.exports) module.exports = VeloInsight;

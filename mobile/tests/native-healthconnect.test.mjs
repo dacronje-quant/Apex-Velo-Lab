@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 import vm from 'node:vm';
 import { createRequire } from 'node:module';
 import {
@@ -14,7 +15,7 @@ import { isFromDestination } from '../src/native-outbox.js';
 import { nodeDriver, folderFiles } from './sqlite-node.js';
 
 const require = createRequire(import.meta.url);
-const root = path.resolve(path.dirname(new URL(import.meta.url).pathname), '../..');
+const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..');
 vm.runInThisContext(fs.readFileSync(path.join(root, 'js/velo-metrics.js'), 'utf8') + ';globalThis.VeloMetrics = VeloMetrics;');
 const VeloRideImporter = require('../../js/velo-importer.js');
 const VeloDedupe = require('../../js/velo-dedupe.js');

@@ -49,6 +49,7 @@
         this.renderHealthSettings();
         if (this.pullHealthInbox) this.pullHealthInbox().then((r) => { if (r && r.added) this.renderHealthSettings(this._healthStatus); }).catch(() => {});
       } else if (sec === 'backups' && this.renderBackupStatus) this.renderBackupStatus();
+      else if (sec === 'sync' && this.renderSyncSettings) this.renderSyncSettings();
       else if (sec === 'phone') this.renderPhoneAddress();
     },
 

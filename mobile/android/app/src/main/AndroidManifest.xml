@@ -36,12 +36,13 @@
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
 
-            <!-- Strava sign-in returns to apexvelo://localhost/strava (callback domain "localhost") -->
+            <!-- Strava sign-in returns to apexvelo://localhost/strava; Home Server pairing uses apexvelo://sync -->
             <intent-filter>
                 <action android:name="android.intent.action.VIEW" />
                 <category android:name="android.intent.category.DEFAULT" />
                 <category android:name="android.intent.category.BROWSABLE" />
                 <data android:scheme="apexvelo" android:host="localhost" />
+                <data android:scheme="apexvelo" android:host="sync" />
             </intent-filter>
 
             <!-- Share target: ride files shared from Garmin Connect, Wahoo, Files or email are imported.

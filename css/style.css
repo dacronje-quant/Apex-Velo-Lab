@@ -610,7 +610,13 @@ main { padding: 18px clamp(12px, 2vw, 28px) 48px; max-width: 1760px; margin: 0 a
 .data-table td { padding: 9px 10px; border-bottom: 1px solid rgba(148, 163, 184, 0.07); color: var(--text-2); vertical-align: middle; }
 .data-table tbody tr { transition: background .12s; }
 .data-table tbody tr:hover { background: rgba(148, 163, 184, 0.05); }
-.history-table tbody tr { cursor: pointer; }
+.history-table tbody tr, .strength-table tbody tr { cursor: pointer; }
+.strength-lifts-sub { font-size: 11px; color: var(--text-3); margin-top: 2px; }
+.str-lift-bar { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 10px 14px; margin-bottom: 12px; }
+.str-lift-pills { display: flex; flex-wrap: wrap; gap: 6px; }
+.str-lift-bar .input-field { width: auto; min-width: 220px; max-width: 100%; }
+.str-lift-head-tools { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.str-muscle-mix .mix-row { grid-template-columns: 118px minmax(0, 1fr) max-content; }
 .row-active td { background: rgba(124, 200, 255, 0.06); }
 .sortable-th { cursor: pointer; user-select: none; }
 .sortable-th:hover { color: var(--text-1); }
@@ -1114,7 +1120,7 @@ body.focus-mode #valInstantPower { font-size: clamp(120px, 14vw, 220px); }
 }
 
 /* Long tables scroll inside their card with a sticky header */
-.table-scroll:has(> .history-table), .table-scroll:has(> .ai-coach-table) { max-height: 70vh; overflow: auto; }
+.table-scroll:has(> .history-table), .table-scroll:has(> .strength-table), .table-scroll:has(> .ai-coach-table) { max-height: 70vh; overflow: auto; }
 
 /* Short laptop / tablet screens: keep the power hero above the fold */
 @media (max-height: 860px) and (min-width: 861px) {
@@ -1232,6 +1238,7 @@ body.focus-mode #valInstantPower { font-size: clamp(120px, 14vw, 220px); }
 
 /* ------------------------------------------------------------ Strava sync -- */
 .strava-sync-card { border-color: rgba(252, 76, 2, 0.28); }
+.hevy-sync-card { border-color: rgba(56, 189, 248, 0.28); }
 .strava-sync-title { display: inline-flex; align-items: center; gap: 8px; }
 .strava-glyph { width: 18px; height: 18px; fill: #fc4c02; stroke: none; }
 .strava-sync-row { display: flex; flex-wrap: wrap; align-items: flex-end; gap: 12px 16px; }

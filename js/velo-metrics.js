@@ -221,3 +221,4 @@ class VeloMetrics {
 }
 
 if (typeof window !== 'undefined') window.VeloMetrics = VeloMetrics;
+if (typeof module !== 'undefined' && module.exports) module.exports = VeloMetrics;

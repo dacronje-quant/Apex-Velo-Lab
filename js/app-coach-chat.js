@@ -23,6 +23,7 @@
   const ROLES = ['user', 'assistant', 'note', 'workout', 'plan'];
   const DAY = 86400000;
   const CC = () => VeloCoachChat;
+  const newMsgId = () => (typeof crypto !== 'undefined' && crypto.randomUUID ? crypto.randomUUID() : `msg_${Date.now()}_${Math.random().toString(36).slice(2, 10)}`);
   const esc = (v) => String(v ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
   const icon = (id, cls = 'ic') => `<svg class="${cls}" aria-hidden="true"><use href="#${id}"/></svg>`;
   const $ = (id) => document.getElementById(id);
@@ -48,9 +49,11 @@
   Object.assign(VeloApp.prototype, {
     initCoachChat() {
       this.askMessages = [];
+      this.askClearedAt = 0;
       try {
         const s = JSON.parse(localStorage.getItem(STORE_KEY) || 'null');
-        if (s && Array.isArray(s.messages)) this.askMessages = s.messages.filter(storedMessage).slice(-MAX_STORED);
+        if (s && Array.isArray(s.messages)) this.askMessages = s.messages.filter(storedMessage).slice(-MAX_STORED).map(m => (m.id ? m : { ...m, id: newMsgId() }));
+        if (s && Number.isFinite(Number(s.clearedAt))) this.askClearedAt = Number(s.clearedAt);
       } catch (e) { /* storage unavailable: start empty */ }
       let intent = null;
       try { intent = localStorage.getItem(INTENT_KEY); } catch (e) { /* ignore */ }
@@ -322,7 +325,7 @@
       if (this._askBusy && this._askBusyInfo && this._askBusyInfo.stoppable) {
         this._coachRun = (this._coachRun || 0) + 1;
         this.coachIdle();
-        this.askMessages.push({ role: 'note', content: 'Stopped' });
+        this.askMessages.push({ id: newMsgId(), role: 'note', content: 'Stopped', at: Date.now() });
         this.renderAskThread();
         this.saveAsk();
       }
@@ -336,7 +339,7 @@
       const range = this.askRange();
       let context;
       try { context = this.askContext(range); } catch (e) { context = ''; console.warn('Coach chat: could not build the data summary', e); }
-      this.askMessages.push({ role: 'user', content: text, intent: 'chat', at: Date.now() });
+      this.askMessages.push({ id: newMsgId(), role: 'user', content: text, intent: 'chat', at: Date.now() });
       this.coachTakeInput();
       this.saveAsk();
       const c = this.aiCoach;
@@ -353,7 +356,7 @@
         const data = await res.json().catch(() => ({}));
         if (!res.ok) throw Object.assign(new Error(data.error || `The local server answered ${res.status}.`), { server: true });
         const secs = ((performance.now() - this._askStarted) / 1000).toFixed(1);
-        this.askMessages.push({ role: 'assistant', content: String(data.text || '').trim() || 'No answer came back - try asking again.', meta: `${VeloAiCoach.labelFor(data.model || c.model)} · ${secs} s`, at: Date.now() });
+        this.askMessages.push({ id: newMsgId(), role: 'assistant', content: String(data.text || '').trim() || 'No answer came back - try asking again.', meta: `${VeloAiCoach.labelFor(data.model || c.model)} · ${secs} s`, at: Date.now() });
       } catch (e) {
         const reason = ac.signal.aborted ? ac.signal.reason : null;
         const last = this.askMessages[this.askMessages.length - 1];
@@ -381,7 +384,7 @@
       // The chat so far goes with a request (so "make it shorter" knows what "it" is); "leave it to the coach" goes alone.
       const earlier = text || focusIndex >= 0 ? CC().brief(this.askMessages, { focus: focusIndex }) : '';
       const notes = CC().requestNotes(text, earlier);
-      this.askMessages.push({ role: 'user', content: text, intent: 'workout', said: parsed.said, at: Date.now() });
+      this.askMessages.push({ id: newMsgId(), role: 'user', content: text, intent: 'workout', said: parsed.said, at: Date.now() });
       this.coachTakeInput();
       this.saveAsk();
       const c = this.aiCoach;
@@ -423,7 +426,7 @@
       const current = this.blockPlanner.block;
       if (current && !confirm(`Replace your current ${current.weeks.length}-week plan with a new one? Your rides are not affected.`)) return;
       const earlier = text ? CC().brief(this.askMessages) : '';
-      this.askMessages.push({ role: 'user', content: text, intent: 'plan', said: parsed.said, at: Date.now() });
+      this.askMessages.push({ id: newMsgId(), role: 'user', content: text, intent: 'plan', said: parsed.said, at: Date.now() });
       this.coachTakeInput();
       this.saveAsk();
       const c = this.aiCoach;
@@ -445,7 +448,7 @@
     coachWorkoutMessage(rec, extra = {}) {
       const w = rec.workout || {};
       return {
-        role: 'workout', at: Date.now(),
+        id: newMsgId(), role: 'workout', at: Date.now(),
         // The card, the cockpit and the library all show the same name (the built-in coach prefixes "AI Coach:").
         workout: { id: w.id || `ai_rec_${Date.now()}`, title: String(w.title || 'Workout').replace(/^AI Coach:\s*/i, ''), category: w.category, desc: w.desc || '', durationMin: w.durationMin, tss: w.tss, if: w.if, intervals: w.intervals || [] },
         assessment: rec.coachAssessment || {}, evidence: Array.isArray(rec.evidence) ? rec.evidence : [],
@@ -461,7 +464,7 @@
       const b = res.block;
       const goal = VeloAiCoach.GOALS[b.goal] || VeloAiCoach.GOALS.ftp;
       return {
-        role: 'plan', at: Date.now(),
+        id: newMsgId(), role: 'plan', at: Date.now(),
         plan: {
           id: b.id, title: `${goal.label} block`, goal: b.goal, weekCount: b.weeks.length, startDate: b.startDate, endDate: b.endDate,
           hours: b.options && b.options.aiChoosesHours ? 'weekly hours chosen from your training' : `up to ${b.options ? b.options.hoursPerWeek : '?'} h a week`,
@@ -560,6 +563,7 @@
       if (this._askAbort) this._askAbort.abort('stop');
       if (this._askBusy) { this._coachRun = (this._coachRun || 0) + 1; this.coachIdle(); }
       this.askMessages = [];
+      this.askClearedAt = Date.now();
       this.saveAsk();
       this.renderAskThread();
       const input = $('askInput');
@@ -571,8 +575,13 @@
         const keep = (this.askMessages || []).filter((m) => m.role !== 'error').slice(-MAX_STORED);
         // Reasoning is the bulk of a workout card: the five newest keep theirs.
         const recent = new Set(keep.filter((m) => m.role === 'workout').slice(-5));
-        const messages = keep.map((m) => (m.role === 'workout' && !recent.has(m) && m.thoughts ? { ...m, thoughts: '' } : m));
-        localStorage.setItem(STORE_KEY, JSON.stringify({ period: this.askPeriod, from: this.askFrom, to: this.askTo, messages }));
+        const messages = keep.map((m) => {
+          let next = m.id ? m : { ...m, id: newMsgId() };
+          if (next.role === 'workout' && !recent.has(m) && next.thoughts) next = { ...next, thoughts: '' };
+          return next;
+        });
+        localStorage.setItem(STORE_KEY, JSON.stringify({ period: this.askPeriod, from: this.askFrom, to: this.askTo, clearedAt: this.askClearedAt || 0, messages }));
+        if (this.onCoachChatSaved) this.onCoachChatSaved();
       } catch (e) { /* storage full or blocked: the chat lives in memory only */ }
     },
 

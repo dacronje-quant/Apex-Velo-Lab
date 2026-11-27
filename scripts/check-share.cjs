@@ -10,7 +10,7 @@ for (const relative of files) {
     const s = fs.readFileSync(file, 'utf8');
     if (/(?:sk-ant-[A-Za-z0-9_-]{24,}|AIza[A-Za-z0-9_-]{30,}|-----BEGIN (?:RSA |EC |OPENSSH )?PRIVATE KEY-----)/.test(s)) findings.push(relative + ': possible credential');
     if (/C:[/\\]Users[/\\]dacro/i.test(s)) findings.push(relative + ': maintainer-specific path');
-    if (relative === '.env.example' && /^(?:ANTHROPIC_API_KEY|GEMINI_API_KEY|STRAVA_CLIENT_ID|STRAVA_CLIENT_SECRET)=\S+/m.test(s)) findings.push(relative + ': populated credential template');
+    if (relative === '.env.example' && /^(?:ANTHROPIC_API_KEY|GEMINI_API_KEY|OPENAI_API_KEY|STRAVA_CLIENT_ID|STRAVA_CLIENT_SECRET|HEVY_API_KEY)=\S+/m.test(s)) findings.push(relative + ': populated credential template');
   }
 }
 if (findings.length) { console.error(findings.join('\n')); process.exitCode = 1; }
